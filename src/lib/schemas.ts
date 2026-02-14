@@ -8,11 +8,40 @@ export const loginSchema = z.object({
 
 export const requestMagicLinkSchema = z.object({
   email: z.email(),
+  device_fingerprint: z.string().min(1),
+  device_name: z.string().min(1),
+  device_type: z.string().min(1),
   language: z.enum(["en", "pt"]).optional().default("en"),
 });
 
 export const verifyMagicLinkSchema = z.object({
   token: z.string().min(1),
+});
+
+export const discoverDeviceSchema = z.object({
+  device_fingerprint: z.string().min(1),
+});
+
+export const requestApprovalSchema = z.object({
+  email: z.email(),
+  first_name: z.string().min(1),
+  last_name: z.string().min(1),
+  message: z.string().optional(),
+  device_fingerprint: z.string().min(1),
+  device_name: z.string().min(1),
+  device_type: z.string().min(1),
+  language: z.enum(["en", "pt"]).optional().default("en"),
+});
+
+export const autoActivateSchema = z.object({
+  token: z.string().min(1),
+  device_fingerprint: z.string().min(1),
+  device_name: z.string().min(1),
+  device_type: z.string().min(1),
+});
+
+export const deactivateDeviceSchema = z.object({
+  device_fingerprint: z.string().min(1),
 });
 
 export const refreshTokenSchema = z.object({
@@ -49,19 +78,41 @@ export const createRetreatGroupSchema = z.object({
 
 export const updateRetreatGroupSchema = createRetreatGroupSchema.partial();
 
-// Retreats
-export const createRetreatSchema = z.object({
+// Event Types
+export const createEventTypeSchema = z.object({
+  nameEn: z.string().min(1).max(200),
+  namePt: z.string().max(200).optional().nullable(),
+  abbreviation: z.string().min(1).max(20),
+  slug: z.string().min(1).max(100),
+  displayOrder: z.number().int().min(0).optional().default(0),
+});
+
+export const updateEventTypeSchema = createEventTypeSchema.partial();
+
+// Audiences
+export const createAudienceSchema = z.object({
+  nameEn: z.string().min(1).max(200),
+  namePt: z.string().max(200).optional().nullable(),
+  slug: z.string().min(1).max(100),
+  displayOrder: z.number().int().min(0).optional().default(0),
+});
+
+export const updateAudienceSchema = createAudienceSchema.partial();
+
+// Events (formerly Retreats)
+export const createEventSchema = z.object({
   eventCode: z.string().min(1).max(100),
   titleEn: z.string().min(1).max(200),
   titlePt: z.string().max(200).optional().nullable(),
-  descriptionEn: z.string().optional().nullable(),
-  descriptionPt: z.string().optional().nullable(),
+  mainThemesPt: z.string().optional().nullable(),
+  mainThemesEn: z.string().optional().nullable(),
+  sessionThemesEn: z.string().optional().nullable(),
+  sessionThemesPt: z.string().optional().nullable(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  designation: z.string().min(1),
-  audience: z.enum(["public", "subscribers", "members", "participants", "initiated", "by_request"]).optional().default("members"),
+  eventTypeId: z.number().int().optional().nullable(),
+  audienceId: z.number().int().optional().nullable(),
   bibliography: z.string().optional().nullable(),
-  sessionThemes: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   status: z.enum(["draft", "published", "archived"]).optional().default("draft"),
   imageUrl: z.string().url().optional().nullable(),
@@ -73,15 +124,15 @@ export const createRetreatSchema = z.object({
   placeIds: z.array(z.number().int()).optional().default([]),
 });
 
-export const updateRetreatSchema = createRetreatSchema.partial();
+export const updateEventSchema = createEventSchema.partial();
 
 // Sessions
 export const createSessionSchema = z.object({
-  retreatId: z.number().int(),
+  eventId: z.number().int(),
   titleEn: z.string().max(200).optional().nullable(),
   titlePt: z.string().max(200).optional().nullable(),
-  sessionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  timePeriod: z.enum(["morning", "afternoon", "evening", "full_day"]).optional().default("morning"),
+  sessionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  timePeriod: z.enum(["morning", "afternoon", "evening", "full_day"]).optional().nullable(),
   sessionNumber: z.number().int().min(1),
   description: z.string().optional().nullable(),
 });
@@ -100,9 +151,22 @@ export const createTrackSchema = z.object({
   durationSeconds: z.number().int().min(0).optional().default(0),
   fileSizeBytes: z.number().int().min(0).optional().nullable(),
   originalFilename: z.string().optional().nullable(),
+  speaker: z.string().max(10).optional().nullable(),
 });
 
-export const updateTrackSchema = createTrackSchema.partial();
+export const updateTrackSchema = z.object({
+  sessionId: z.number().int(),
+  title: z.string().min(1).max(200),
+  trackNumber: z.number().int().min(1),
+  language: z.string().min(2).max(10),
+  isTranslation: z.boolean(),
+  originalTrackId: z.number().int().nullable(),
+  s3Key: z.string().nullable(),
+  durationSeconds: z.number().int().min(0),
+  fileSizeBytes: z.number().int().min(0).nullable(),
+  originalFilename: z.string().nullable(),
+  speaker: z.string().max(10).nullable(),
+}).partial();
 
 // User content
 export const updateProgressSchema = z.object({
@@ -119,7 +183,7 @@ export const createBookmarkSchema = z.object({
 });
 
 export const createNoteSchema = z.object({
-  retreatId: z.number().int().optional().nullable(),
+  eventId: z.number().int().optional().nullable(),
   trackId: z.number().int().optional().nullable(),
   title: z.string().max(200).optional().nullable(),
   content: z.string().min(1),

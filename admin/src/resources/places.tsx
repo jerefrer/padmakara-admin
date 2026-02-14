@@ -9,37 +9,47 @@ import {
   TextInput,
   required,
   EditButton,
+  useTranslate,
 } from "react-admin";
 
-export const PlaceList = () => (
-  <List sort={{ field: "name", order: "ASC" }}>
-    <Datagrid rowClick="edit">
-      <TextField source="id" />
-      <TextField source="name" />
-      <TextField source="abbreviation" />
-      <TextField source="location" />
-      <DateField source="createdAt" />
-      <EditButton />
-    </Datagrid>
-  </List>
-);
+export const PlaceList = () => {
+  const translate = useTranslate();
+  return (
+    <List sort={{ field: "name", order: "ASC" }} perPage={100} pagination={false}>
+      <Datagrid rowClick="edit">
+        <TextField source="id" />
+        <TextField source="name" label={translate("padmakara.fields.name")} />
+        <TextField source="abbreviation" label={translate("padmakara.fields.abbreviation")} />
+        <TextField source="location" label={translate("padmakara.fields.location")} />
+        <DateField source="createdAt" />
+        <EditButton />
+      </Datagrid>
+    </List>
+  );
+};
 
-export const PlaceEdit = () => (
-  <Edit>
-    <SimpleForm>
-      <TextInput source="name" validate={required()} />
-      <TextInput source="abbreviation" />
-      <TextInput source="location" />
-    </SimpleForm>
-  </Edit>
-);
+export const PlaceEdit = () => {
+  const translate = useTranslate();
+  return (
+    <Edit>
+      <SimpleForm>
+        <TextInput source="name" label={translate("padmakara.fields.name")} validate={required()} />
+        <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} />
+        <TextInput source="location" label={translate("padmakara.fields.location")} />
+      </SimpleForm>
+    </Edit>
+  );
+};
 
-export const PlaceCreate = () => (
-  <Create>
-    <SimpleForm>
-      <TextInput source="name" validate={required()} />
-      <TextInput source="abbreviation" />
-      <TextInput source="location" />
-    </SimpleForm>
-  </Create>
-);
+export const PlaceCreate = () => {
+  const translate = useTranslate();
+  return (
+    <Create>
+      <SimpleForm>
+        <TextInput source="name" label={translate("padmakara.fields.name")} validate={required()} />
+        <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} />
+        <TextInput source="location" label={translate("padmakara.fields.location")} />
+      </SimpleForm>
+    </Create>
+  );
+};

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { retreatGroups } from "../db/schema/retreat-groups.ts";
-import { retreatGroupRetreats, retreats } from "../db/schema/retreats.ts";
+import { eventRetreatGroups, events } from "../db/schema/retreats.ts";
 import { userGroupMemberships } from "../db/schema/users.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 
@@ -41,28 +41,28 @@ groupRoutes.get("/", async (c) => {
 });
 
 /**
- * GET /api/groups/:id/retreats - List retreats for a group
+ * GET /api/groups/:id/events - List events for a group
  */
-groupRoutes.get("/:id/retreats", async (c) => {
+groupRoutes.get("/:id/events", async (c) => {
   const groupId = parseInt(c.req.param("id"), 10);
 
   const links = await db
-    .select({ retreatId: retreatGroupRetreats.retreatId })
-    .from(retreatGroupRetreats)
-    .where(eq(retreatGroupRetreats.retreatGroupId, groupId));
+    .select({ eventId: eventRetreatGroups.eventId })
+    .from(eventRetreatGroups)
+    .where(eq(eventRetreatGroups.retreatGroupId, groupId));
 
-  const retreatIds = links.map((l) => l.retreatId);
-  if (retreatIds.length === 0) return c.json([]);
+  const eventIds = links.map((l) => l.eventId);
+  if (eventIds.length === 0) return c.json([]);
 
-  const data = await db.query.retreats.findMany({
+  const data = await db.query.events.findMany({
     where: and(
-      inArray(retreats.id, retreatIds),
-      eq(retreats.status, "published"),
+      inArray(events.id, eventIds),
+      eq(events.status, "published"),
     ),
     orderBy: (r, { desc }) => [desc(r.startDate)],
     with: {
-      retreatTeachers: { with: { teacher: true } },
-      retreatPlaces: { with: { place: true } },
+      eventTeachers: { with: { teacher: true } },
+      eventPlaces: { with: { place: true } },
     },
   });
 

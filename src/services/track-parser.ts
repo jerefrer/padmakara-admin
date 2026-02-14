@@ -167,17 +167,39 @@ export interface InferredSession {
 
 /**
  * Group parsed tracks into inferred sessions based on date and time period.
+ * Translation tracks without date/time info are matched to originals by track number.
  */
 export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
-  // Group by (date, timePeriod, partNumber)
+  // Separate originals (with date/time info) from orphan translations (without)
+  const originals = tracks.filter((t) => !t.isTranslation || t.date !== null);
+  const orphanTranslations = tracks.filter((t) => t.isTranslation && t.date === null);
+
+  // Group originals by (date, timePeriod, partNumber)
   const groups = new Map<string, ParsedTrack[]>();
 
-  for (const track of tracks) {
-    // Only group original tracks (not translations)
+  for (const track of originals) {
     const key = `${track.date ?? "unknown"}|${track.timePeriod ?? "unknown"}|${track.partNumber ?? ""}`;
     const group = groups.get(key) ?? [];
     group.push(track);
     groups.set(key, group);
+  }
+
+  // Match orphan translations to sessions by track number
+  for (const trad of orphanTranslations) {
+    let placed = false;
+    for (const [, groupTracks] of groups) {
+      if (groupTracks.some((t) => t.trackNumber === trad.trackNumber && !t.isTranslation)) {
+        groupTracks.push(trad);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      const fallbackKey = "unknown|unknown|";
+      const group = groups.get(fallbackKey) ?? [];
+      group.push(trad);
+      groups.set(fallbackKey, group);
+    }
   }
 
   // Sort groups chronologically (morning before afternoon, then by part number)
@@ -191,14 +213,14 @@ export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
     if (pA !== pB) return pA - pB;
     return (partA ?? "").localeCompare(partB ?? "");
   });
-  const sessions: InferredSession[] = [];
 
+  const sessions: InferredSession[] = [];
   let sessionNumber = 1;
+
   for (const key of sortedKeys) {
     const groupTracks = groups.get(key)!;
-    const sample = groupTracks[0]!;
+    const sample = groupTracks.find((t) => !t.isTranslation) ?? groupTracks[0]!;
 
-    // Build a readable title
     let titleEn = "";
     if (sample.date && sample.timePeriod) {
       const periodLabel =
@@ -219,7 +241,10 @@ export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
       timePeriod: sample.timePeriod,
       partNumber: sample.partNumber,
       titleEn,
-      tracks: groupTracks.sort((a, b) => a.trackNumber - b.trackNumber),
+      tracks: groupTracks.sort((a, b) => {
+        if (a.trackNumber !== b.trackNumber) return a.trackNumber - b.trackNumber;
+        return (a.isTranslation ? 1 : 0) - (b.isTranslation ? 1 : 0);
+      }),
     });
     sessionNumber++;
   }

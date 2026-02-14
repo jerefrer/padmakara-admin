@@ -15,7 +15,7 @@ export interface WixRow {
   designation: string;
   title: string;
   guestName: string;
-  description: string;
+  mainThemes: string;
   sessionThemes: string;
   bibliography: string;
   audience: string;
@@ -131,6 +131,47 @@ export function normalizeOrganization(name: string): string {
   return normalized;
 }
 
+/**
+ * Designation → Group mapping.
+ * The "currentDesignation" column contains the retreat type/level,
+ * which maps to retreat groups in our system.
+ */
+const DESIGNATION_GROUP_MAP: Record<string, { namePt: string; nameEn: string }> = {
+  "Práticas Preliminares - Nível 1": {
+    namePt: "Práticas Preliminares - Nível 1 - Refúgio & Bodhicitta",
+    nameEn: "Preliminary Practices - Level 1 - Refuge & Bodhicitta",
+  },
+  "Práticas Preliminares - Nível 2": {
+    namePt: "Práticas Preliminares - Nível 2 - Vajrasattva",
+    nameEn: "Preliminary Practices - Level 2 - Vajrasattva",
+  },
+  "Práticas Preliminares - Nível 3": {
+    namePt: "Práticas Preliminares - Nível 3 - Mandala",
+    nameEn: "Preliminary Practices - Level 3 - Mandala",
+  },
+  "Práticas Preliminares - Nível 4": {
+    namePt: "Práticas Preliminares - Nível 4 - Guru Yoga",
+    nameEn: "Preliminary Practices - Level 4 - Guru Yoga",
+  },
+  "Conferência": { namePt: "Conferência", nameEn: "Conference" },
+  "Ensinamento": { namePt: "Ensinamento", nameEn: "Teaching" },
+  "Ensinamento Restrito": { namePt: "Ensinamento Restrito", nameEn: "Restricted Teaching" },
+  "Prática de Buda Śākyamuni": { namePt: "Prática de Buda Śākyamuni", nameEn: "Buddha Śākyamuni Practice" },
+  "Práticas dos Bodhisattvas": { namePt: "Práticas dos Bodhisattvas", nameEn: "Bodhisattva Practices" },
+  "Treino da Mente (Pr. dos Bodhisattvas)": { namePt: "Treino da Mente (Pr. dos Bodhisattvas)", nameEn: "Mind Training (Bodhisattva Practices)" },
+  "Treino da Mente 1": { namePt: "Treino da Mente 1", nameEn: "Mind Training 1" },
+  "Treino da Mente 2": { namePt: "Treino da Mente 2", nameEn: "Mind Training 2" },
+  "Śamatha": { namePt: "Śamatha", nameEn: "Śamatha" },
+  "Śamatha + Introdução à Via": { namePt: "Śamatha + Introdução à Via", nameEn: "Śamatha + Introduction to the Path" },
+};
+
+export function designationToGroup(designation: string): { namePt: string; nameEn: string } | null {
+  if (!designation?.trim()) return null;
+  const mapped = DESIGNATION_GROUP_MAP[designation.trim()];
+  if (mapped) return mapped;
+  return { namePt: designation.trim(), nameEn: designation.trim() };
+}
+
 /** Extract teacher abbreviation from name for matching with track filenames */
 export function teacherAbbreviation(name: string): string {
   // Known mappings
@@ -184,7 +225,7 @@ export function parseWixRow(raw: Record<string, string>): WixRow {
     designation: raw["currentDesignation"]?.trim() ?? "",
     title: raw["eventTitle"]?.trim() ?? "",
     guestName: raw["guestName"]?.trim() ?? "",
-    description: raw["mainThemes"]?.trim() ?? "",
+    mainThemes: raw["mainThemes"]?.trim() ?? "",
     sessionThemes: raw["sessionThemes"]?.trim() ?? "",
     bibliography: raw["eventBiblio"]?.trim() ?? "",
     audience: raw["distributionAudience"]?.trim() ?? "",

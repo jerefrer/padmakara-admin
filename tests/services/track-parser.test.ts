@@ -223,4 +223,45 @@ describe("inferSessions", () => {
     expect(sessions[0]!.date).toBe("2017-11-14");
     expect(sessions[1]!.date).toBe("2017-11-15");
   });
+
+  it("groups translation tracks with originals by track number", () => {
+    const tracks = [
+      parseTrackFilename("001 JKR - The daily practice in three parts-(17 April AM).mp3"),
+      parseTrackFilename("001 TRAD - A pratica diaria em tres partes.mp3"),
+      parseTrackFilename("002 JKR - The four thoughts-(17 April AM).mp3"),
+      parseTrackFilename("002 TRAD - Os quatro pensamentos.mp3"),
+      parseTrackFilename("014 JKR - Question about compassion-(17 April PM).mp3"),
+      parseTrackFilename("014 TRAD - Questao sobre compaixao.mp3"),
+    ];
+
+    const sessions = inferSessions(tracks);
+    // Should be 2 sessions (AM + PM), NOT 3 (AM + PM + unknown TRAD)
+    expect(sessions).toHaveLength(2);
+
+    // AM session: 2 originals + 2 translations = 4 tracks
+    expect(sessions[0]!.tracks).toHaveLength(4);
+    expect(sessions[0]!.timePeriod).toBe("morning");
+
+    // PM session: 1 original + 1 translation = 2 tracks
+    expect(sessions[1]!.tracks).toHaveLength(2);
+    expect(sessions[1]!.timePeriod).toBe("afternoon");
+
+    // Within each track number, original comes before translation
+    expect(sessions[0]!.tracks[0]!.isTranslation).toBe(false);
+    expect(sessions[0]!.tracks[1]!.isTranslation).toBe(true);
+    expect(sessions[0]!.tracks[0]!.trackNumber).toBe(1);
+    expect(sessions[0]!.tracks[1]!.trackNumber).toBe(1);
+  });
+
+  it("uses original track for session title, not translation", () => {
+    const tracks = [
+      parseTrackFilename("001 TRAD - A pratica diaria.mp3"),
+      parseTrackFilename("001 JKR - The daily practice-(17 April AM).mp3"),
+    ];
+
+    const sessions = inferSessions(tracks);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.titleEn).toBe("April 17 - Morning");
+    expect(sessions[0]!.date).toBe("April 17");
+  });
 });

@@ -20,6 +20,7 @@ export const tracks = pgTable(
       .references(() => sessions.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     trackNumber: integer("track_number").notNull(),
+    speaker: text("speaker"),
     language: text("language").notNull().default("en"),
     isTranslation: boolean("is_translation").notNull().default(false),
     originalTrackId: integer("original_track_id").references((): any => tracks.id, {

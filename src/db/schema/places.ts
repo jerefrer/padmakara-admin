@@ -7,8 +7,8 @@ import {
 
 export const places = pgTable("places", {
   id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  abbreviation: text("abbreviation"),
+  name: text("name").notNull().unique(),
+  abbreviation: text("abbreviation").unique(),
   location: text("location"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

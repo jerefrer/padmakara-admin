@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch src/index.ts",
+    "dev:admin": "cd admin && bunx vite",
     "start": "bun run src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "@hono/node-server": "^1.19.9",
+    "@types/archiver": "^7.0.0",
     "@types/bcryptjs": "^3.0.0",
     "@types/bun": "latest",
     "drizzle-kit": "^0.31.9",
@@ -27,7 +29,9 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.988.0",
+    "@aws-sdk/lib-storage": "^3.990.0",
     "@aws-sdk/s3-request-presigner": "^3.988.0",
+    "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
     "csv-parse": "^6.1.0",
     "drizzle-orm": "^0.45.1",

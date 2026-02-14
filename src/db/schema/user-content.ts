@@ -12,7 +12,7 @@ import {
 import { relations } from "drizzle-orm";
 import { users } from "./users.ts";
 import { tracks } from "./tracks.ts";
-import { retreats } from "./retreats.ts";
+import { events } from "./retreats.ts";
 
 export const userProgress = pgTable(
   "user_progress",
@@ -55,7 +55,7 @@ export const userNotes = pgTable("user_notes", {
   userId: integer("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-  retreatId: integer("retreat_id").references(() => retreats.id, {
+  eventId: integer("retreat_id").references(() => events.id, {
     onDelete: "set null",
   }),
   trackId: integer("track_id").references(() => tracks.id, {
@@ -96,9 +96,9 @@ export const userNotesRelations = relations(userNotes, ({ one }) => ({
     fields: [userNotes.userId],
     references: [users.id],
   }),
-  retreat: one(retreats, {
-    fields: [userNotes.retreatId],
-    references: [retreats.id],
+  event: one(events, {
+    fields: [userNotes.eventId],
+    references: [events.id],
   }),
   track: one(tracks, {
     fields: [userNotes.trackId],

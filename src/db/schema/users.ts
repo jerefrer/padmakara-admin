@@ -9,7 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { retreatGroups } from "./retreat-groups.ts";
-import { retreats } from "./retreats.ts";
+import { events } from "./retreats.ts";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -42,25 +42,25 @@ export const userGroupMemberships = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.retreatGroupId] })],
 );
 
-export const userRetreatAttendance = pgTable(
+export const userEventAttendance = pgTable(
   "user_retreat_attendance",
   {
     userId: integer("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    retreatId: integer("retreat_id")
+    eventId: integer("retreat_id")
       .notNull()
-      .references(() => retreats.id, { onDelete: "cascade" }),
+      .references(() => events.id, { onDelete: "cascade" }),
     status: text("status").notNull().default("registered"),
     registeredAt: timestamp("registered_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.retreatId] })],
+  (t) => [primaryKey({ columns: [t.userId, t.eventId] })],
 );
 
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   groupMemberships: many(userGroupMemberships),
-  retreatAttendance: many(userRetreatAttendance),
+  eventAttendance: many(userEventAttendance),
 }));
 
 export const userGroupMembershipsRelations = relations(userGroupMemberships, ({ one }) => ({
@@ -74,13 +74,13 @@ export const userGroupMembershipsRelations = relations(userGroupMemberships, ({ 
   }),
 }));
 
-export const userRetreatAttendanceRelations = relations(userRetreatAttendance, ({ one }) => ({
+export const userEventAttendanceRelations = relations(userEventAttendance, ({ one }) => ({
   user: one(users, {
-    fields: [userRetreatAttendance.userId],
+    fields: [userEventAttendance.userId],
     references: [users.id],
   }),
-  retreat: one(retreats, {
-    fields: [userRetreatAttendance.retreatId],
-    references: [retreats.id],
+  event: one(events, {
+    fields: [userEventAttendance.eventId],
+    references: [events.id],
   }),
 }));

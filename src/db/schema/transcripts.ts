@@ -7,14 +7,14 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
-import { retreats } from "./retreats.ts";
+import { events } from "./retreats.ts";
 import { sessions } from "./sessions.ts";
 
 export const transcripts = pgTable("transcripts", {
   id: serial("id").primaryKey(),
-  retreatId: integer("retreat_id")
+  eventId: integer("retreat_id")
     .notNull()
-    .references(() => retreats.id, { onDelete: "cascade" }),
+    .references(() => events.id, { onDelete: "cascade" }),
   sessionId: integer("session_id").references(() => sessions.id, {
     onDelete: "set null",
   }),
@@ -29,9 +29,9 @@ export const transcripts = pgTable("transcripts", {
 });
 
 export const transcriptsRelations = relations(transcripts, ({ one }) => ({
-  retreat: one(retreats, {
-    fields: [transcripts.retreatId],
-    references: [retreats.id],
+  event: one(events, {
+    fields: [transcripts.eventId],
+    references: [events.id],
   }),
   session: one(sessions, {
     fields: [transcripts.sessionId],
