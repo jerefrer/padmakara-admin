@@ -25,15 +25,22 @@ export const config = {
     accessKeyId: env("AWS_ACCESS_KEY_ID", ""),
     secretAccessKey: env("AWS_SECRET_ACCESS_KEY", ""),
     region: env("AWS_REGION", "eu-west-3"),
-    s3Bucket: env("S3_BUCKET", "padmakara-pt"),
+    s3Bucket: env("S3_BUCKET", "padmakara-pt-app"),
   },
 
   email: {
     fromEmail: env("SES_FROM_EMAIL", "noreply@padmakara.org"),
   },
 
+  easypay: {
+    accountId: env("EASYPAY_ACCOUNT_ID", ""),
+    apiKey: env("EASYPAY_API_KEY", ""),
+    testing: env("EASYPAY_TESTING", "true") === "true",
+  },
+
   urls: {
     frontend: env("FRONTEND_URL", "http://localhost:8081"),
     admin: env("ADMIN_URL", "http://localhost:3000/admin"),
+    backend: env("BACKEND_URL", "http://localhost:3000"),
   },
 } as const;

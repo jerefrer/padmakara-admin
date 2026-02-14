@@ -13,7 +13,7 @@ const columns: Record<string, any> = {
   sessionId: tracks.sessionId,
   title: tracks.title,
   trackNumber: tracks.trackNumber,
-  language: tracks.language,
+  originalLanguage: tracks.originalLanguage,
   createdAt: tracks.createdAt,
 };
 
@@ -54,10 +54,15 @@ trackRoutes.post("/", async (c) => {
 trackRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
-  const data = updateTrackSchema.parse(body);
+  const parsed = updateTrackSchema.parse(body);
+  // Strip undefined values so we only update fields that were actually sent
+  const data: Record<string, unknown> = { updatedAt: new Date() };
+  for (const [key, val] of Object.entries(parsed)) {
+    if (val !== undefined) data[key] = val;
+  }
   const [track] = await db
     .update(tracks)
-    .set({ ...data, updatedAt: new Date() })
+    .set(data)
     .where(eq(tracks.id, id))
     .returning();
   if (!track) throw AppError.notFound("Track not found");

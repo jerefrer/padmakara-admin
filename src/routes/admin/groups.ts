@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, or, ilike } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { retreatGroups } from "../../db/schema/retreat-groups.ts";
 import { createRetreatGroupSchema, updateRetreatGroupSchema } from "../../lib/schemas.ts";
@@ -12,6 +12,7 @@ const columns: Record<string, any> = {
   id: retreatGroups.id,
   nameEn: retreatGroups.nameEn,
   namePt: retreatGroups.namePt,
+  abbreviation: retreatGroups.abbreviation,
   slug: retreatGroups.slug,
   displayOrder: retreatGroups.displayOrder,
   createdAt: retreatGroups.createdAt,
@@ -20,13 +21,33 @@ const columns: Record<string, any> = {
 groupRoutes.get("/", async (c) => {
   const { limit, offset, _sort, _order } = parsePagination(c);
   const orderBy = buildOrderBy(_sort, _order, columns);
+  const q = c.req.query("q");
+
+  const where = q
+    ? or(
+        ilike(retreatGroups.nameEn, `%${q}%`),
+        ilike(retreatGroups.namePt, `%${q}%`),
+        ilike(retreatGroups.abbreviation, `%${q}%`),
+      )
+    : undefined;
 
   const [data, total] = await Promise.all([
-    db.select().from(retreatGroups).orderBy(orderBy!).limit(limit).offset(offset),
-    countRows(retreatGroups),
+    db.select().from(retreatGroups).where(where).orderBy(orderBy!).limit(limit).offset(offset),
+    countRows(retreatGroups, where),
   ]);
 
   return listResponse(c, data, total, offset, offset + limit, "groups");
+});
+
+groupRoutes.put("/reorder", async (c) => {
+  const { ids } = await c.req.json<{ ids: number[] }>();
+  for (let i = 0; i < ids.length; i++) {
+    await db
+      .update(retreatGroups)
+      .set({ displayOrder: i, updatedAt: new Date() })
+      .where(eq(retreatGroups.id, ids[i]!));
+  }
+  return c.json({ success: true });
 });
 
 groupRoutes.get("/:id", async (c) => {

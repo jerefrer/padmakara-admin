@@ -1,0 +1,240 @@
+# ============================================================================
+# Padmakara Migration Decision Configuration
+# ============================================================================
+#
+# Instructions:
+# 1. Review the migration-report.html for detailed analysis
+# 2. Fill in your decisions below
+# 3. Run migration script with: bun run migrate --config migration-decisions.yaml
+#
+# All decisions are documented with context and options.
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# CRITICAL DECISIONS
+# ----------------------------------------------------------------------------
+
+storage:
+  # DECISION 1: Bucket Strategy
+  # Context: Original bucket (padmakara-pt) has inconsistent folder structure
+  #
+  # Options:
+  #   - in_place: Extract zips in original bucket, keep existing structure
+  #     Pros: Simple, no duplication, no bucket switching
+  #     Cons: Inconsistent paths, complex backend, risk to production data
+  #
+  #   - new_bucket: Migrate to clean bucket with consistent structure
+  #     Pros: Clean paths, simple backend, safe testing, easy rollback
+  #     Cons: Temporary storage cost, need to switch bucket later
+  #
+  # Recommendation: new_bucket
+  strategy: new_bucket  # Options: in_place | new_bucket
+
+  # If new_bucket selected:
+  target_bucket: padmakara-pt-sample
+
+  # Folder structure in new bucket
+  # Pattern: events/{eventCode}/tracks/{trackName}
+  #          events/{eventCode}/audio2/{translationTrack}
+  #          events/{eventCode}/legacy/{legacyTrack}
+  folder_pattern: events/{eventCode}/{folder}/{filename}
+
+  # Should we delete source zips after successful extraction?
+  # Recommendation: false (keep as backup until fully validated)
+  delete_zips_after_extraction: false
+
+# ----------------------------------------------------------------------------
+# TRACK ORGANIZATION
+# ----------------------------------------------------------------------------
+
+tracks:
+  # DECISION 2: Legacy Track Handling
+  # Context: ${totalLegacyTracks} unique tracks from audio1 have no bilingual equivalent
+  #
+  # Options:
+  #   - legacy_folder: Create /legacy/ subfolder for unique tracks
+  #   - merge_main: Include all audio1 tracks in main folder
+  #   - separate_audio1: Keep audio1 and audio2 completely separate
+  #
+  # Recommendation: legacy_folder
+  legacy_strategy: legacy_folder  # Options: legacy_folder | merge_main | separate_audio1
+
+  # DECISION 3: Track Count Mismatches
+  # Context: ${trackCountMismatches} events have CSV count ≠ actual files
+  #
+  # Options:
+  #   - trust_files: Use actual S3 files (ignore CSV count)
+  #   - trust_csv: Fail if counts don't match CSV
+  #   - manual_review: Flag for manual review, skip migration
+  #
+  # Recommendation: trust_files
+  mismatch_strategy: trust_files  # Options: trust_files | trust_csv | manual_review
+
+# ----------------------------------------------------------------------------
+# CONTENT HANDLING
+# ----------------------------------------------------------------------------
+
+content:
+  # DECISION 4: Events Without Audio
+  # Context: ${eventsWithoutTracks} events have no audio files
+  #
+  # Options:
+  #   - skip: Don't create event records for these
+  #   - create_placeholder: Create event with transcript-only flag
+  #   - manual_review: List in report for manual decision per event
+  #
+  # Recommendation: create_placeholder
+  no_audio_strategy: create_placeholder  # Options: skip | create_placeholder | manual_review
+
+  # DECISION 5: Transcripts
+  # Context: Transcripts found in various folder structures
+  #
+  # Should we attempt automatic transcript discovery?
+  auto_discover_transcripts: true
+
+  # Should we create transcript records even if PDF not found in S3?
+  # (Based on CSV metadata)
+  create_transcript_metadata_only: true
+
+# ----------------------------------------------------------------------------
+# DATA MAPPING
+# ----------------------------------------------------------------------------
+
+mapping:
+  # DECISION 6: Unmapped Data
+  # Context: Some CSV values don't match database lookup tables
+  # - Event Types: ${unmappedEventTypes.join(', ')}
+  # - Audiences: ${unmappedAudiences.join(', ')}
+  #
+  # Options:
+  #   - skip_event: Don't migrate events with unmapped data
+  #   - create_null: Create event with null for unmapped fields
+  #   - infer: Attempt to infer from event code patterns
+  #
+  # Recommendation: infer
+  unmapped_strategy: infer  # Options: skip_event | create_null | infer
+
+  # DECISION 7: Teacher/Place Inference
+  # Context: Migration script can infer missing teachers/places from event codes
+  #
+  # Should we use automatic inference?
+  infer_teachers: true
+  infer_places: true
+
+# ----------------------------------------------------------------------------
+# VALIDATION & SAFETY
+# ----------------------------------------------------------------------------
+
+validation:
+  # DECISION 8: Validation Requirements
+  #
+  # Minimum success rate to proceed (0.0 to 1.0)
+  # If errors > this threshold, migration stops
+  min_success_rate: 0.95
+
+  # Should migration stop on first error?
+  fail_fast: false
+
+  # Generate detailed validation report?
+  generate_html_report: true
+
+  # Pre-flight checks (run before any writes)
+  preflight_checks:
+    - s3_connectivity
+    - database_connectivity
+    - bucket_permissions
+    - csv_integrity
+
+# ----------------------------------------------------------------------------
+# EXECUTION CONTROL
+# ----------------------------------------------------------------------------
+
+execution:
+  # DECISION 9: Batch Processing
+  #
+  # Process events in batches (for memory management)
+  batch_size: 50
+
+  # Delay between batches (ms) to avoid rate limits
+  batch_delay_ms: 100
+
+  # DECISION 10: Parallel Processing
+  #
+  # Number of concurrent S3 operations
+  # Recommendation: 5 (balance speed vs API limits)
+  s3_concurrency: 5
+
+  # DECISION 11: State Management
+  #
+  # Save progress state file for resumable migration?
+  save_state: true
+  state_file: migration-state.json
+
+  # Auto-save state every N events
+  state_save_interval: 10
+
+# ----------------------------------------------------------------------------
+# ROLLBACK & CLEANUP
+# ----------------------------------------------------------------------------
+
+rollback:
+  # DECISION 12: Rollback Strategy
+  #
+  # What to do if migration fails mid-way?
+  # Options:
+  #   - keep_partial: Keep successfully migrated events
+  #   - rollback_all: Delete all migrated events from DB
+  #   - manual: Stop and require manual review
+  #
+  # Recommendation: keep_partial (with state file for resume)
+  on_failure: keep_partial  # Options: keep_partial | rollback_all | manual
+
+  # DECISION 13: Cleanup
+  #
+  # After successful migration, should we:
+  cleanup_original_bucket: false  # Delete files from original bucket
+  archive_to_glacier: false       # Move original files to Glacier storage
+  keep_migration_logs: true       # Keep detailed migration logs
+  retention_days: 90              # Days to keep old bucket/logs before cleanup
+
+# ----------------------------------------------------------------------------
+# NOTIFICATIONS
+# ----------------------------------------------------------------------------
+
+notifications:
+  # Progress notifications
+  enable_progress_logs: true
+  log_level: info  # Options: debug | info | warn | error
+
+  # Completion notifications (future: email/slack)
+  notify_on_completion: false
+  notify_on_errors: true
+
+  # Email configuration (optional)
+  email:
+    enabled: false
+    recipients: []
+    smtp_host: ""
+    smtp_port: 587
+
+# ============================================================================
+# DECISION SUMMARY (Auto-generated after filling above)
+# ============================================================================
+#
+# This section will be used to generate a summary page in the HTML report
+# showing all decisions made by the team.
+#
+# To apply these decisions:
+# 1. Review all options above
+# 2. Update values with your choices
+# 3. Run: bun run migrate --config migration-decisions.yaml --validate-only
+# 4. Review generated HTML report
+# 5. Run: bun run migrate --config migration-decisions.yaml --execute
+# ============================================================================
+
+# Metadata
+metadata:
+  decided_by: ""           # Name of person/team making decisions
+  decision_date: ""        # Date decisions were made
+  approved_by: ""          # Name of person approving migration
+  notes: ""                # Any additional context or notes

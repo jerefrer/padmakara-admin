@@ -57,6 +57,19 @@ export function errorHandler(err: Error, c: Context) {
     );
   }
 
+  // Handle Postgres unique constraint violations (code 23505)
+  const pgError = (err as any).cause ?? err;
+  if (pgError?.code === "23505") {
+    return c.json(
+      {
+        error: "A record with this value already exists",
+        code: "CONFLICT",
+        detail: pgError.detail,
+      },
+      409,
+    );
+  }
+
   console.error("Unhandled error:", err);
   return c.json(
     {

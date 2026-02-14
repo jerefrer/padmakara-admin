@@ -10,7 +10,7 @@ const sessionRoutes = new Hono();
 
 const columns: Record<string, any> = {
   id: sessions.id,
-  retreatId: sessions.retreatId,
+  eventId: sessions.eventId,
   sessionNumber: sessions.sessionNumber,
   sessionDate: sessions.sessionDate,
   timePeriod: sessions.timePeriod,
@@ -21,10 +21,10 @@ sessionRoutes.get("/", async (c) => {
   const { limit, offset, _sort, _order } = parsePagination(c);
   const orderBy = buildOrderBy(_sort, _order, columns);
 
-  // Optional filter by retreat
-  const retreatId = c.req.query("retreatId");
-  const where = retreatId
-    ? eq(sessions.retreatId, parseInt(retreatId, 10))
+  // Optional filter by event
+  const eventId = c.req.query("eventId");
+  const where = eventId
+    ? eq(sessions.eventId, parseInt(eventId, 10))
     : undefined;
 
   const [data, total] = await Promise.all([

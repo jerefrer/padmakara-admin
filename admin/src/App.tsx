@@ -1,65 +1,88 @@
-import { Admin, Resource, CustomRoutes } from "react-admin";
+import { Admin, Resource } from "react-admin";
 import { dataProvider } from "./dataProvider";
 import { authProvider } from "./authProvider";
+import { i18nProvider } from "./i18n";
+import { theme } from "./theme";
+import { Layout } from "./layout/Layout";
 
 import { TeacherList, TeacherEdit, TeacherCreate } from "./resources/teachers";
 import { PlaceList, PlaceEdit, PlaceCreate } from "./resources/places";
 import { GroupList, GroupEdit, GroupCreate } from "./resources/groups";
-import { RetreatList, RetreatEdit, RetreatCreate } from "./resources/retreats";
-import { SessionList, SessionEdit, SessionCreate } from "./resources/sessions";
-import { TrackList, TrackEdit, TrackCreate } from "./resources/tracks";
-import { UserList, UserShow, UserEdit } from "./resources/users";
+import { EventList, EventEdit, EventCreate } from "./resources/events";
+import { EventTypeList, EventTypeEdit, EventTypeCreate } from "./resources/event-types";
+import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audiences";
+import { UserList, UserEdit } from "./resources/users";
+import { ApprovalList } from "./resources/approvals";
+import { MigrationList, MigrationCreate, MigrationShow } from "./resources/migrations";
 
 const App = () => (
-  <Admin dataProvider={dataProvider} authProvider={authProvider} basename="/admin">
+  <Admin
+    dataProvider={dataProvider}
+    authProvider={authProvider}
+    i18nProvider={i18nProvider}
+    theme={theme}
+    layout={Layout}
+    title="Padmakara"
+  >
     <Resource
-      name="admin/retreats"
-      options={{ label: "Retreats" }}
-      list={RetreatList}
-      edit={RetreatEdit}
-      create={RetreatCreate}
+      name="events"
+      options={{ label: "Events" }}
+      list={EventList}
+      edit={EventEdit}
+      create={EventCreate}
     />
     <Resource
-      name="admin/sessions"
-      options={{ label: "Sessions" }}
-      list={SessionList}
-      edit={SessionEdit}
-      create={SessionCreate}
-    />
-    <Resource
-      name="admin/tracks"
-      options={{ label: "Tracks" }}
-      list={TrackList}
-      edit={TrackEdit}
-      create={TrackCreate}
-    />
-    <Resource
-      name="admin/groups"
-      options={{ label: "Groups" }}
+      name="groups"
+      options={{ label: "Retreat Groups" }}
       list={GroupList}
       edit={GroupEdit}
       create={GroupCreate}
     />
     <Resource
-      name="admin/teachers"
+      name="event-types"
+      options={{ label: "Event Types" }}
+      list={EventTypeList}
+      edit={EventTypeEdit}
+      create={EventTypeCreate}
+    />
+    <Resource
+      name="audiences"
+      options={{ label: "Audiences" }}
+      list={AudienceList}
+      edit={AudienceEdit}
+      create={AudienceCreate}
+    />
+    <Resource
+      name="teachers"
       options={{ label: "Teachers" }}
       list={TeacherList}
       edit={TeacherEdit}
       create={TeacherCreate}
     />
     <Resource
-      name="admin/places"
+      name="places"
       options={{ label: "Places" }}
       list={PlaceList}
       edit={PlaceEdit}
       create={PlaceCreate}
     />
     <Resource
-      name="admin/users"
+      name="users"
       options={{ label: "Users" }}
       list={UserList}
-      show={UserShow}
       edit={UserEdit}
+    />
+    <Resource
+      name="approvals"
+      options={{ label: "Approvals" }}
+      list={ApprovalList}
+    />
+    <Resource
+      name="migrations"
+      options={{ label: "Migrations" }}
+      list={MigrationList}
+      create={MigrationCreate}
+      show={MigrationShow}
     />
   </Admin>
 );

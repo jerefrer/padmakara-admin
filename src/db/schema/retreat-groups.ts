@@ -10,6 +10,7 @@ export const retreatGroups = pgTable("retreat_groups", {
   id: serial("id").primaryKey(),
   nameEn: text("name_en").notNull(),
   namePt: text("name_pt"),
+  abbreviation: text("abbreviation").unique(),
   slug: text("slug").notNull().unique(),
   description: text("description"),
   logoUrl: text("logo_url"),

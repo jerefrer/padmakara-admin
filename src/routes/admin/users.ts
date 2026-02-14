@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "../../db/index.ts";
-import { users, userGroupMemberships } from "../../db/schema/users.ts";
+import { users, userGroupMemberships, userEventAttendance } from "../../db/schema/users.ts";
 import { updateUserSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
@@ -54,8 +54,8 @@ userRoutes.get("/:id", async (c) => {
       groupMemberships: {
         with: { retreatGroup: true },
       },
-      retreatAttendance: {
-        with: { retreat: true },
+      eventAttendance: {
+        with: { event: true },
       },
     },
   });
@@ -67,9 +67,18 @@ userRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
   const data = updateUserSchema.parse(body);
+
+  // Handle subscriptionExpiresAt string → Date conversion
+  const setData: Record<string, any> = { ...data, updatedAt: new Date() };
+  if (data.subscriptionExpiresAt !== undefined) {
+    setData.subscriptionExpiresAt = data.subscriptionExpiresAt
+      ? new Date(data.subscriptionExpiresAt)
+      : null;
+  }
+
   const [user] = await db
     .update(users)
-    .set({ ...data, updatedAt: new Date() })
+    .set(setData)
     .where(eq(users.id, id))
     .returning({
       id: users.id,
@@ -81,6 +90,10 @@ userRoutes.put("/:id", async (c) => {
       role: users.role,
       isActive: users.isActive,
       isVerified: users.isVerified,
+      subscriptionStatus: users.subscriptionStatus,
+      subscriptionSource: users.subscriptionSource,
+      subscriptionExpiresAt: users.subscriptionExpiresAt,
+      subscriptionNotes: users.subscriptionNotes,
       lastActivity: users.lastActivity,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
@@ -99,9 +112,8 @@ userRoutes.delete("/:id", async (c) => {
   return c.json(user);
 });
 
-/**
- * POST /api/admin/users/:id/groups - Add user to group
- */
+// ─── Group memberships ──────────────────────────────────────────────────────
+
 userRoutes.post("/:id/groups", async (c) => {
   const userId = parseInt(c.req.param("id"), 10);
   const { retreatGroupId } = (await c.req.json()) as { retreatGroupId: number };
@@ -109,21 +121,41 @@ userRoutes.post("/:id/groups", async (c) => {
   return c.json({ message: "Added to group" }, 201);
 });
 
-/**
- * DELETE /api/admin/users/:id/groups/:groupId - Remove user from group
- */
 userRoutes.delete("/:id/groups/:groupId", async (c) => {
   const userId = parseInt(c.req.param("id"), 10);
   const retreatGroupId = parseInt(c.req.param("groupId"), 10);
   await db
     .delete(userGroupMemberships)
     .where(
-      eq(userGroupMemberships.userId, userId),
+      and(
+        eq(userGroupMemberships.userId, userId),
+        eq(userGroupMemberships.retreatGroupId, retreatGroupId),
+      ),
     );
-  // More precise: delete only the specific membership
-  // Drizzle doesn't support compound where easily, so we use raw-ish approach
-  // The cascade will clean up properly
   return c.json({ message: "Removed from group" });
+});
+
+// ─── Event attendance ───────────────────────────────────────────────────────
+
+userRoutes.post("/:id/events", async (c) => {
+  const userId = parseInt(c.req.param("id"), 10);
+  const { eventId } = (await c.req.json()) as { eventId: number };
+  await db.insert(userEventAttendance).values({ userId, eventId });
+  return c.json({ message: "Added to event" }, 201);
+});
+
+userRoutes.delete("/:id/events/:eventId", async (c) => {
+  const userId = parseInt(c.req.param("id"), 10);
+  const eventId = parseInt(c.req.param("eventId"), 10);
+  await db
+    .delete(userEventAttendance)
+    .where(
+      and(
+        eq(userEventAttendance.userId, userId),
+        eq(userEventAttendance.eventId, eventId),
+      ),
+    );
+  return c.json({ message: "Removed from event" });
 });
 
 export { userRoutes };

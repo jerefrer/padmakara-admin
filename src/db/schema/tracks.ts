@@ -20,8 +20,12 @@ export const tracks = pgTable(
       .references(() => sessions.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     trackNumber: integer("track_number").notNull(),
-    language: text("language").notNull().default("en"),
+    speaker: text("speaker"),
+    languages: text("languages").array().notNull().default(["en"]),
+    originalLanguage: text("original_language").notNull().default("en"),
     isTranslation: boolean("is_translation").notNull().default(false),
+    isPractice: boolean("is_practice").notNull().default(false),
+    fileFormat: text("file_format"),
     originalTrackId: integer("original_track_id").references((): any => tracks.id, {
       onDelete: "set null",
     }),
@@ -32,7 +36,7 @@ export const tracks = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [unique().on(t.sessionId, t.trackNumber, t.language)],
+  (t) => [unique().on(t.sessionId, t.trackNumber, t.originalLanguage)],
 );
 
 export const tracksRelations = relations(tracks, ({ one }) => ({

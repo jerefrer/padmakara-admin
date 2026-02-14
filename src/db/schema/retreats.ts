@@ -12,20 +12,29 @@ import { teachers } from "./teachers.ts";
 import { places } from "./places.ts";
 import { retreatGroups } from "./retreat-groups.ts";
 import { sessions } from "./sessions.ts";
+import { eventTypes } from "./event-types.ts";
+import { audiences } from "./audiences.ts";
+import { transcripts } from "./transcripts.ts";
+import { eventFiles } from "./event-files.ts";
 
-export const retreats = pgTable("retreats", {
+export const events = pgTable("retreats", {
   id: serial("id").primaryKey(),
   eventCode: text("event_code").notNull().unique(),
   titleEn: text("title_en").notNull(),
   titlePt: text("title_pt"),
-  descriptionEn: text("description_en"),
-  descriptionPt: text("description_pt"),
+  mainThemesPt: text("main_themes_pt"),
+  mainThemesEn: text("main_themes_en"),
+  sessionThemesEn: text("session_themes_en"),
+  sessionThemesPt: text("session_themes_pt"),
   startDate: date("start_date", { mode: "string" }),
   endDate: date("end_date", { mode: "string" }),
-  designation: text("designation"),
-  audience: text("audience").default("members"),
+  eventTypeId: integer("event_type_id").references(() => eventTypes.id, {
+    onDelete: "set null",
+  }),
+  audienceId: integer("audience_id").references(() => audiences.id, {
+    onDelete: "set null",
+  }),
   bibliography: text("bibliography"),
-  sessionThemes: text("session_themes"),
   notes: text("notes"),
   status: text("status").notNull().default("draft"),
   imageUrl: text("image_url"),
@@ -35,86 +44,96 @@ export const retreats = pgTable("retreats", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Junction: retreat <-> teacher
-export const retreatTeachers = pgTable(
+// Junction: event <-> teacher
+export const eventTeachers = pgTable(
   "retreat_teachers",
   {
-    retreatId: integer("retreat_id")
+    eventId: integer("retreat_id")
       .notNull()
-      .references(() => retreats.id, { onDelete: "cascade" }),
+      .references(() => events.id, { onDelete: "cascade" }),
     teacherId: integer("teacher_id")
       .notNull()
       .references(() => teachers.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("teacher"),
   },
-  (t) => [primaryKey({ columns: [t.retreatId, t.teacherId, t.role] })],
+  (t) => [primaryKey({ columns: [t.eventId, t.teacherId, t.role] })],
 );
 
-// Junction: retreat <-> retreat group
-export const retreatGroupRetreats = pgTable(
+// Junction: event <-> retreat group
+export const eventRetreatGroups = pgTable(
   "retreat_group_retreats",
   {
-    retreatId: integer("retreat_id")
+    eventId: integer("retreat_id")
       .notNull()
-      .references(() => retreats.id, { onDelete: "cascade" }),
+      .references(() => events.id, { onDelete: "cascade" }),
     retreatGroupId: integer("retreat_group_id")
       .notNull()
       .references(() => retreatGroups.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.retreatId, t.retreatGroupId] })],
+  (t) => [primaryKey({ columns: [t.eventId, t.retreatGroupId] })],
 );
 
-// Junction: retreat <-> place
-export const retreatPlaces = pgTable(
+// Junction: event <-> place
+export const eventPlaces = pgTable(
   "retreat_places",
   {
-    retreatId: integer("retreat_id")
+    eventId: integer("retreat_id")
       .notNull()
-      .references(() => retreats.id, { onDelete: "cascade" }),
+      .references(() => events.id, { onDelete: "cascade" }),
     placeId: integer("place_id")
       .notNull()
       .references(() => places.id, { onDelete: "cascade" }),
   },
-  (t) => [primaryKey({ columns: [t.retreatId, t.placeId] })],
+  (t) => [primaryKey({ columns: [t.eventId, t.placeId] })],
 );
 
 // Relations
-export const retreatsRelations = relations(retreats, ({ many }) => ({
+export const eventsRelations = relations(events, ({ one, many }) => ({
+  eventType: one(eventTypes, {
+    fields: [events.eventTypeId],
+    references: [eventTypes.id],
+  }),
+  audience: one(audiences, {
+    fields: [events.audienceId],
+    references: [audiences.id],
+  }),
   sessions: many(sessions),
-  retreatTeachers: many(retreatTeachers),
-  retreatGroups: many(retreatGroupRetreats),
-  retreatPlaces: many(retreatPlaces),
+  transcripts: many(transcripts),
+  eventFiles: many(eventFiles),
+  eventTeachers: many(eventTeachers),
+  eventRetreatGroups: many(eventRetreatGroups),
+  eventPlaces: many(eventPlaces),
 }));
 
-export const retreatTeachersRelations = relations(retreatTeachers, ({ one }) => ({
-  retreat: one(retreats, {
-    fields: [retreatTeachers.retreatId],
-    references: [retreats.id],
+export const eventTeachersRelations = relations(eventTeachers, ({ one }) => ({
+  event: one(events, {
+    fields: [eventTeachers.eventId],
+    references: [events.id],
   }),
   teacher: one(teachers, {
-    fields: [retreatTeachers.teacherId],
+    fields: [eventTeachers.teacherId],
     references: [teachers.id],
   }),
 }));
 
-export const retreatGroupRetreatsRelations = relations(retreatGroupRetreats, ({ one }) => ({
-  retreat: one(retreats, {
-    fields: [retreatGroupRetreats.retreatId],
-    references: [retreats.id],
+export const eventRetreatGroupsRelations = relations(eventRetreatGroups, ({ one }) => ({
+  event: one(events, {
+    fields: [eventRetreatGroups.eventId],
+    references: [events.id],
   }),
   retreatGroup: one(retreatGroups, {
-    fields: [retreatGroupRetreats.retreatGroupId],
+    fields: [eventRetreatGroups.retreatGroupId],
     references: [retreatGroups.id],
   }),
 }));
 
-export const retreatPlacesRelations = relations(retreatPlaces, ({ one }) => ({
-  retreat: one(retreats, {
-    fields: [retreatPlaces.retreatId],
-    references: [retreats.id],
+export const eventPlacesRelations = relations(eventPlaces, ({ one }) => ({
+  event: one(events, {
+    fields: [eventPlaces.eventId],
+    references: [events.id],
   }),
   place: one(places, {
-    fields: [retreatPlaces.placeId],
+    fields: [eventPlaces.placeId],
     references: [places.id],
   }),
 }));

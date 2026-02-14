@@ -15,7 +15,7 @@ export interface WixRow {
   designation: string;
   title: string;
   guestName: string;
-  description: string;
+  mainThemes: string;
   sessionThemes: string;
   bibliography: string;
   audience: string;
@@ -131,6 +131,47 @@ export function normalizeOrganization(name: string): string {
   return normalized;
 }
 
+/**
+ * Designation → Group mapping.
+ * The "currentDesignation" column contains the retreat type/level,
+ * which maps to retreat groups in our system.
+ */
+const DESIGNATION_GROUP_MAP: Record<string, { namePt: string; nameEn: string }> = {
+  "Práticas Preliminares - Nível 1": {
+    namePt: "Práticas Preliminares - Nível 1 - Refúgio & Bodhicitta",
+    nameEn: "Preliminary Practices - Level 1 - Refuge & Bodhicitta",
+  },
+  "Práticas Preliminares - Nível 2": {
+    namePt: "Práticas Preliminares - Nível 2 - Vajrasattva",
+    nameEn: "Preliminary Practices - Level 2 - Vajrasattva",
+  },
+  "Práticas Preliminares - Nível 3": {
+    namePt: "Práticas Preliminares - Nível 3 - Mandala",
+    nameEn: "Preliminary Practices - Level 3 - Mandala",
+  },
+  "Práticas Preliminares - Nível 4": {
+    namePt: "Práticas Preliminares - Nível 4 - Guru Yoga",
+    nameEn: "Preliminary Practices - Level 4 - Guru Yoga",
+  },
+  "Conferência": { namePt: "Conferência", nameEn: "Conference" },
+  "Ensinamento": { namePt: "Ensinamento", nameEn: "Teaching" },
+  "Ensinamento Restrito": { namePt: "Ensinamento Restrito", nameEn: "Restricted Teaching" },
+  "Prática de Buda Śākyamuni": { namePt: "Prática de Buda Śākyamuni", nameEn: "Buddha Śākyamuni Practice" },
+  "Práticas dos Bodhisattvas": { namePt: "Práticas dos Bodhisattvas", nameEn: "Bodhisattva Practices" },
+  "Treino da Mente (Pr. dos Bodhisattvas)": { namePt: "Treino da Mente (Pr. dos Bodhisattvas)", nameEn: "Mind Training (Bodhisattva Practices)" },
+  "Treino da Mente 1": { namePt: "Treino da Mente 1", nameEn: "Mind Training 1" },
+  "Treino da Mente 2": { namePt: "Treino da Mente 2", nameEn: "Mind Training 2" },
+  "Śamatha": { namePt: "Śamatha", nameEn: "Śamatha" },
+  "Śamatha + Introdução à Via": { namePt: "Śamatha + Introdução à Via", nameEn: "Śamatha + Introduction to the Path" },
+};
+
+export function designationToGroup(designation: string): { namePt: string; nameEn: string } | null {
+  if (!designation?.trim()) return null;
+  const mapped = DESIGNATION_GROUP_MAP[designation.trim()];
+  if (mapped) return mapped;
+  return { namePt: designation.trim(), nameEn: designation.trim() };
+}
+
 /** Extract teacher abbreviation from name for matching with track filenames */
 export function teacherAbbreviation(name: string): string {
   // Known mappings
@@ -152,8 +193,50 @@ export function teacherAbbreviation(name: string): string {
     "Y. Mingyur Rinpoche": "YMR",
     "Chokyi Nyima Rinpoche": "CNR",
     "S.S. XIV Dalai Lama": "DL",
+    "Wulstan Fletcher": "WF",
   };
   return abbrevMap[name] ?? name;
+}
+
+/**
+ * Aliases for teacher abbreviations.
+ * Maps primary abbreviation → list of alternative abbreviations that refer to the same teacher.
+ * Used to populate the `aliases` column in the teachers table.
+ */
+export const TEACHER_ALIASES: Record<string, string[]> = {
+  PWR: ["TPWR"],  // Tülku Pema Wangyal Rinpoche
+  DL: ["HHDL"],   // His Holiness the Dalai Lama
+};
+
+/**
+ * Unknown teachers: abbreviations found in track filenames that we cannot
+ * confidently map to a known teacher. Created as placeholder entries.
+ */
+export const UNKNOWN_TEACHERS: { abbreviation: string; aliases: string[] }[] = [
+  { abbreviation: "DKR", aliases: [] },
+  { abbreviation: "SSR", aliases: [] },
+  { abbreviation: "TSU", aliases: [] },
+  { abbreviation: "JL", aliases: [] },
+  { abbreviation: "HHSS", aliases: [] },
+  { abbreviation: "JKT", aliases: [] },
+  { abbreviation: "DLP", aliases: [] },
+];
+
+/**
+ * Filter function to exclude non-audio files from track lists.
+ * Removes system files (.DS_Store, Thumbs.db) and non-audio formats.
+ */
+function isAudioFile(filename: string): boolean {
+  if (!filename) return false;
+  const lower = filename.toLowerCase();
+
+  // Exclude system files
+  if (lower.startsWith('.ds_store') || lower === 'thumbs.db' || lower.startsWith('._')) {
+    return false;
+  }
+
+  // Only include audio file extensions
+  return /\.(mp3|wav|m4a|flac|ogg|aac|wma)$/i.test(filename);
 }
 
 /**
@@ -165,6 +248,7 @@ export function parseWixRow(raw: Record<string, string>): WixRow {
         .split("\n")
         .map((t) => t.trim())
         .filter(Boolean)
+        .filter(isAudioFile) // Filter out non-audio files
     : [];
 
   const trackNames2 = raw["audio2-tracksTitles"]
@@ -172,6 +256,7 @@ export function parseWixRow(raw: Record<string, string>): WixRow {
         .split("\n")
         .map((t) => t.trim())
         .filter(Boolean)
+        .filter(isAudioFile) // Filter out non-audio files
     : [];
 
   return {
@@ -184,7 +269,7 @@ export function parseWixRow(raw: Record<string, string>): WixRow {
     designation: raw["currentDesignation"]?.trim() ?? "",
     title: raw["eventTitle"]?.trim() ?? "",
     guestName: raw["guestName"]?.trim() ?? "",
-    description: raw["mainThemes"]?.trim() ?? "",
+    mainThemes: raw["mainThemes"]?.trim() ?? "",
     sessionThemes: raw["sessionThemes"]?.trim() ?? "",
     bibliography: raw["eventBiblio"]?.trim() ?? "",
     audience: raw["distributionAudience"]?.trim() ?? "",
@@ -222,4 +307,103 @@ export function parseWixRow(raw: Record<string, string>): WixRow {
       coverJpg: raw["transcript2-cover-jpg"]?.trim() ?? "",
     },
   };
+}
+
+/**
+ * Map Portuguese language names to ISO codes (for transcripts).
+ * Inspired by track-parser.ts LANGUAGE_MAP pattern.
+ */
+export function mapLanguage(lang: string): string {
+  if (!lang) return "unknown";
+  const lower = lang.toLowerCase().trim();
+
+  const languageMap: Record<string, string> = {
+    portugu: "pt",
+    português: "pt",
+    portuguese: "pt",
+    ingl: "en",
+    english: "en",
+    tibetan: "tib",
+    tibetano: "tib",
+    franc: "fr",
+    french: "fr",
+  };
+
+  for (const [key, code] of Object.entries(languageMap)) {
+    if (lower.includes(key)) return code;
+  }
+
+  return "unknown";
+}
+
+/**
+ * Fuzzy match designation to event type record.
+ * Tries both Portuguese and English names with case-insensitive comparison.
+ */
+export function matchDesignationToEventType<
+  T extends { namePt?: string | null; nameEn?: string | null },
+>(designation: string, eventTypes: T[]): T | null {
+  if (!designation?.trim()) return null;
+
+  const normalized = designation.trim().toLowerCase();
+
+  // Try exact match first
+  for (const et of eventTypes) {
+    if (
+      et.namePt?.toLowerCase() === normalized ||
+      et.nameEn?.toLowerCase() === normalized
+    ) {
+      return et;
+    }
+  }
+
+  // Try partial match (contains)
+  for (const et of eventTypes) {
+    if (
+      et.namePt?.toLowerCase().includes(normalized) ||
+      normalized.includes(et.namePt?.toLowerCase() ?? "") ||
+      et.nameEn?.toLowerCase().includes(normalized) ||
+      normalized.includes(et.nameEn?.toLowerCase() ?? "")
+    ) {
+      return et;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fuzzy match audience string to audience record.
+ * Same pattern as matchDesignationToEventType for consistency.
+ */
+export function matchAudienceToRecord<
+  T extends { namePt?: string | null; nameEn?: string | null },
+>(audienceName: string, audiences: T[]): T | null {
+  if (!audienceName?.trim()) return null;
+
+  const normalized = audienceName.trim().toLowerCase();
+
+  // Try exact match first
+  for (const aud of audiences) {
+    if (
+      aud.namePt?.toLowerCase() === normalized ||
+      aud.nameEn?.toLowerCase() === normalized
+    ) {
+      return aud;
+    }
+  }
+
+  // Try partial match
+  for (const aud of audiences) {
+    if (
+      aud.namePt?.toLowerCase().includes(normalized) ||
+      normalized.includes(aud.namePt?.toLowerCase() ?? "") ||
+      aud.nameEn?.toLowerCase().includes(normalized) ||
+      normalized.includes(aud.nameEn?.toLowerCase() ?? "")
+    ) {
+      return aud;
+    }
+  }
+
+  return null;
 }

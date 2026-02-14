@@ -8,6 +8,9 @@ vi.mock("../../src/db/index.ts", () => ({
       users: { findFirst: vi.fn() },
       refreshTokens: { findFirst: vi.fn() },
       magicLinkTokens: { findFirst: vi.fn() },
+      deviceActivations: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+      userApprovalRequests: { findFirst: vi.fn() },
+      userGroupMemberships: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     },
     insert: vi.fn(),
     update: vi.fn(),
@@ -175,7 +178,19 @@ describe("Auth routes", () => {
   });
 
   describe("POST /api/auth/request-magic-link", () => {
+    const devicePayload = {
+      device_fingerprint: "test-fingerprint-abc123",
+      device_name: "Test Device",
+      device_type: "ios",
+    };
+
     it("sends magic link email and returns success", async () => {
+      // Mock: user exists, device not activated
+      (db.query.users.findFirst as any).mockResolvedValue({
+        id: 1, email: "user@test.com", isActive: true, role: "user",
+      });
+      (db.query.deviceActivations.findFirst as any).mockResolvedValue(null);
+
       const insertChain = mockInsertChain();
       (db.insert as any).mockReturnValue(insertChain);
 
@@ -183,17 +198,23 @@ describe("Auth routes", () => {
 
       const { status, body } = await testJson("/api/auth/request-magic-link", {
         method: "POST",
-        body: JSON.stringify({ email: "user@test.com" }),
+        body: JSON.stringify({ email: "user@test.com", ...devicePayload }),
       });
 
       expect(status).toBe(200);
-      expect(body.message).toBe("Magic link sent");
+      expect(body.status).toBe("magic_link_sent");
       expect(sendEmail).toHaveBeenCalledWith(
         expect.objectContaining({ to: "user@test.com" }),
       );
     });
 
     it("accepts language parameter", async () => {
+      // Mock: user exists, device not activated
+      (db.query.users.findFirst as any).mockResolvedValue({
+        id: 1, email: "user@test.com", isActive: true, role: "user",
+      });
+      (db.query.deviceActivations.findFirst as any).mockResolvedValue(null);
+
       const insertChain = mockInsertChain();
       (db.insert as any).mockReturnValue(insertChain);
 
@@ -201,14 +222,56 @@ describe("Auth routes", () => {
 
       const { status } = await testJson("/api/auth/request-magic-link", {
         method: "POST",
-        body: JSON.stringify({ email: "user@test.com", language: "pt" }),
+        body: JSON.stringify({ email: "user@test.com", language: "pt", ...devicePayload }),
       });
 
       expect(status).toBe(200);
       expect(buildMagicLinkEmail).toHaveBeenCalledWith(
-        expect.stringContaining("token="),
+        expect.stringContaining("activate/"),
         "pt",
       );
+    });
+
+    it("returns approval_required for unknown user", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(null);
+
+      const { status, body } = await testJson("/api/auth/request-magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email: "unknown@test.com", ...devicePayload }),
+      });
+
+      expect(status).toBe(200);
+      expect(body.status).toBe("approval_required");
+    });
+
+    it("returns already_activated for activated device", async () => {
+      const mockUser = {
+        id: 1, email: "user@test.com", firstName: "Test", lastName: "User",
+        dharmaName: null, preferredLanguage: "en", role: "user",
+        isActive: true, isVerified: true,
+        subscriptionStatus: "none", subscriptionSource: null, subscriptionExpiresAt: null,
+        lastActivity: new Date(), createdAt: new Date(),
+      };
+      (db.query.users.findFirst as any).mockResolvedValue(mockUser);
+      (db.query.deviceActivations.findFirst as any).mockResolvedValue({
+        id: 1, userId: 1, deviceFingerprint: devicePayload.device_fingerprint,
+        isActive: true,
+      });
+
+      const insertChain = mockInsertChain();
+      (db.insert as any).mockReturnValue(insertChain);
+      const updateChain = mockUpdateChain();
+      (db.update as any).mockReturnValue(updateChain);
+
+      const { status, body } = await testJson("/api/auth/request-magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email: "user@test.com", ...devicePayload }),
+      });
+
+      expect(status).toBe(200);
+      expect(body.status).toBe("already_activated");
+      expect(body.access_token).toBeDefined();
+      expect(body.user).toBeDefined();
     });
   });
 
