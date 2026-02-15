@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { eq, and, gt } from "drizzle-orm";
 import { db } from "../db/index.ts";
-import { users } from "../db/schema/users.ts";
+import { users, userGroupMemberships } from "../db/schema/users.ts";
 import {
   refreshTokens,
   magicLinkTokens,
@@ -41,7 +41,7 @@ const auth = new Hono();
  * Format a user record for the mobile app's expected shape.
  * The app stores this as the User object in AsyncStorage.
  */
-function formatUserForApp(user: {
+async function formatUserForApp(user: {
   id: number;
   email: string;
   firstName: string | null;
@@ -58,13 +58,18 @@ function formatUserForApp(user: {
   const lastName = user.lastName || "";
   const name = [firstName, lastName].filter(Boolean).join(" ") || user.email;
 
+  // Fetch user's group memberships
+  const userGroups = await db.query.userGroupMemberships.findMany({
+    where: eq(userGroupMemberships.userId, user.id),
+  });
+
   return {
     id: String(user.id),
     name,
     email: user.email,
     avatar: null,
     dharma_name: user.dharmaName || undefined,
-    retreat_groups: [],
+    retreat_groups: userGroups.map((ug) => String(ug.retreatGroupId)),
     preferences: {
       language: user.preferredLanguage as "en" | "pt",
       contentLanguage: "en" as const,
@@ -217,7 +222,7 @@ auth.post("/request-magic-link", async (c) => {
       message: "Device is already activated",
       access_token: tokens.accessToken,
       refresh_token: tokens.refreshToken,
-      user: formatUserForApp(user),
+      user: await formatUserForApp(user),
     });
   }
 
@@ -232,6 +237,7 @@ auth.post("/request-magic-link", async (c) => {
     deviceFingerprint: data.device_fingerprint,
     deviceName: data.device_name,
     deviceType: data.device_type,
+    language: data.language ?? "en",
   });
 
   // Build activation URL (points to backend, which renders HTML)
@@ -259,7 +265,6 @@ auth.post("/request-magic-link", async (c) => {
  */
 auth.get("/activate/:token", async (c) => {
   const token = c.req.param("token");
-  const lang = c.req.query("lang") || "en";
   const tokenHash = await hashToken(token);
 
   // Find valid, unused token
@@ -270,6 +275,9 @@ auth.get("/activate/:token", async (c) => {
       gt(magicLinkTokens.expiresAt, new Date()),
     ),
   });
+
+  // Use query param first, then token language, then default to English
+  const lang = c.req.query("lang") || magicLink?.language || "en";
 
   if (!magicLink) {
     const title = lang === "pt" ? "Link Inválido" : "Invalid Link";
@@ -407,7 +415,7 @@ auth.post("/device/discover", async (c) => {
     message: "Device is activated",
     access_token: tokens.accessToken,
     refresh_token: tokens.refreshToken,
-    user: formatUserForApp(user),
+    user: await formatUserForApp(user),
     device: {
       activated_at: device.activatedAt.toISOString(),
       device_fingerprint: device.deviceFingerprint,
@@ -451,6 +459,7 @@ auth.post("/request-approval", async (c) => {
     deviceFingerprint: data.device_fingerprint,
     deviceName: data.device_name,
     deviceType: data.device_type,
+    language: data.language ?? "en",
     ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
     userAgent: c.req.header("user-agent") || null,
   });
@@ -548,7 +557,7 @@ auth.post("/auto-activate", async (c) => {
     status: "device_activated",
     access_token: tokens.accessToken,
     refresh_token: tokens.refreshToken,
-    user: formatUserForApp(user),
+    user: await formatUserForApp(user),
     device_activation: {
       device_name: data.device_name,
       device_type: data.device_type,
@@ -642,7 +651,7 @@ auth.get("/user", authMiddleware, async (c) => {
     throw AppError.notFound("User not found");
   }
 
-  return c.json(formatUserForApp(user));
+  return c.json(await formatUserForApp(user));
 });
 
 /**
@@ -701,7 +710,7 @@ auth.patch("/user", authMiddleware, async (c) => {
     throw AppError.notFound("User not found");
   }
 
-  return c.json(formatUserForApp(updatedUser));
+  return c.json(await formatUserForApp(updatedUser));
 });
 
 // ──────────────────────────────────────────────────────
@@ -844,6 +853,7 @@ auth.post("/verify-magic-link", async (c) => {
       .values({
         email: magicLink.email,
         isVerified: true,
+        preferredLanguage: magicLink.language || "en",
       })
       .returning();
     user = newUser!;

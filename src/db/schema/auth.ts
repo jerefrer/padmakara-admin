@@ -29,6 +29,8 @@ export const magicLinkTokens = pgTable("magic_link_tokens", {
   deviceFingerprint: text("device_fingerprint"),
   deviceName: text("device_name"),
   deviceType: text("device_type"),
+  // User's preferred language for email and activation page
+  language: text("language").notNull().default("en"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -58,6 +60,8 @@ export const userApprovalRequests = pgTable("user_approval_requests", {
   deviceFingerprint: text("device_fingerprint"),
   deviceName: text("device_name"),
   deviceType: text("device_type"),
+  // User's preferred language for approval communications
+  language: text("language").notNull().default("en"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   requestedAt: timestamp("requested_at", { withTimezone: true }).defaultNow().notNull(),
