@@ -198,6 +198,23 @@ export function teacherAbbreviation(name: string): string {
 }
 
 /**
+ * Filter function to exclude non-audio files from track lists.
+ * Removes system files (.DS_Store, Thumbs.db) and non-audio formats.
+ */
+function isAudioFile(filename: string): boolean {
+  if (!filename) return false;
+  const lower = filename.toLowerCase();
+
+  // Exclude system files
+  if (lower.startsWith('.ds_store') || lower === 'thumbs.db' || lower.startsWith('._')) {
+    return false;
+  }
+
+  // Only include audio file extensions
+  return /\.(mp3|wav|m4a|flac|ogg|aac|wma)$/i.test(filename);
+}
+
+/**
  * Parse a raw CSV record (as returned by a CSV parser) into a structured WixRow.
  */
 export function parseWixRow(raw: Record<string, string>): WixRow {
@@ -206,6 +223,7 @@ export function parseWixRow(raw: Record<string, string>): WixRow {
         .split("\n")
         .map((t) => t.trim())
         .filter(Boolean)
+        .filter(isAudioFile) // Filter out non-audio files
     : [];
 
   const trackNames2 = raw["audio2-tracksTitles"]
@@ -213,6 +231,7 @@ export function parseWixRow(raw: Record<string, string>): WixRow {
         .split("\n")
         .map((t) => t.trim())
         .filter(Boolean)
+        .filter(isAudioFile) // Filter out non-audio files
     : [];
 
   return {
@@ -263,4 +282,103 @@ export function parseWixRow(raw: Record<string, string>): WixRow {
       coverJpg: raw["transcript2-cover-jpg"]?.trim() ?? "",
     },
   };
+}
+
+/**
+ * Map Portuguese language names to ISO codes (for transcripts).
+ * Inspired by track-parser.ts LANGUAGE_MAP pattern.
+ */
+export function mapLanguage(lang: string): string {
+  if (!lang) return "unknown";
+  const lower = lang.toLowerCase().trim();
+
+  const languageMap: Record<string, string> = {
+    portugu: "pt",
+    português: "pt",
+    portuguese: "pt",
+    ingl: "en",
+    english: "en",
+    tibetan: "tib",
+    tibetano: "tib",
+    franc: "fr",
+    french: "fr",
+  };
+
+  for (const [key, code] of Object.entries(languageMap)) {
+    if (lower.includes(key)) return code;
+  }
+
+  return "unknown";
+}
+
+/**
+ * Fuzzy match designation to event type record.
+ * Tries both Portuguese and English names with case-insensitive comparison.
+ */
+export function matchDesignationToEventType<
+  T extends { namePt?: string | null; nameEn?: string | null },
+>(designation: string, eventTypes: T[]): T | null {
+  if (!designation?.trim()) return null;
+
+  const normalized = designation.trim().toLowerCase();
+
+  // Try exact match first
+  for (const et of eventTypes) {
+    if (
+      et.namePt?.toLowerCase() === normalized ||
+      et.nameEn?.toLowerCase() === normalized
+    ) {
+      return et;
+    }
+  }
+
+  // Try partial match (contains)
+  for (const et of eventTypes) {
+    if (
+      et.namePt?.toLowerCase().includes(normalized) ||
+      normalized.includes(et.namePt?.toLowerCase() ?? "") ||
+      et.nameEn?.toLowerCase().includes(normalized) ||
+      normalized.includes(et.nameEn?.toLowerCase() ?? "")
+    ) {
+      return et;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fuzzy match audience string to audience record.
+ * Same pattern as matchDesignationToEventType for consistency.
+ */
+export function matchAudienceToRecord<
+  T extends { namePt?: string | null; nameEn?: string | null },
+>(audienceName: string, audiences: T[]): T | null {
+  if (!audienceName?.trim()) return null;
+
+  const normalized = audienceName.trim().toLowerCase();
+
+  // Try exact match first
+  for (const aud of audiences) {
+    if (
+      aud.namePt?.toLowerCase() === normalized ||
+      aud.nameEn?.toLowerCase() === normalized
+    ) {
+      return aud;
+    }
+  }
+
+  // Try partial match
+  for (const aud of audiences) {
+    if (
+      aud.namePt?.toLowerCase().includes(normalized) ||
+      normalized.includes(aud.namePt?.toLowerCase() ?? "") ||
+      aud.nameEn?.toLowerCase().includes(normalized) ||
+      normalized.includes(aud.nameEn?.toLowerCase() ?? "")
+    ) {
+      return aud;
+    }
+  }
+
+  return null;
 }

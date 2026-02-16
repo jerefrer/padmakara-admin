@@ -1,0 +1,895 @@
+# Bucket Structure Preview
+
+Generated: 2026-02-15T19:42:49.212Z
+Bucket: padmakara-pt-sample (target)
+
+Legend:
+  🎵 = Bilingual track (from audio2)
+  📦 = Legacy track (unique from audio1)
+  📁 = Folder
+
+================================================================================
+
+📁 mediateca/ (80 events with bilingual content)
+
+  📁 20250426_27-JKR-PP4-CCA (65 files)
+    ├─ 🎵 001 JKR - Intitial prayers-(26 April AM_part_1).mp3
+    ├─ 🎵 001 TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 002 JKR - Mindset for taking refuge-(26 April AM_part_1).mp3
+    ├─ 🎵 002 TRAD - Mindset para tomar refugio.mp3
+    ├─ 🎵 003 JKR - Accumulating merit-(26 April AM_part_1).mp3
+    ├─ 🎵 003 TRAD - Acumular merito.mp3
+    ├─ 🎵 004 JKR - Using the teacher as the path-(26 April AM_part_1).mp3
+    ├─ 🎵 004 TRAD - Usar o mestre como caminho.mp3
+    ├─ 🎵 005 JKR - Brief preliminay practice-(26 April AM_part_1).mp3
+    ├─ 🎵 005 TRAD - Breves praticas preliminares.mp3
+    ├─ 🎵 006 JKR - The quintessence of the path-(26 April AM_part_2).mp3
+    ├─ 🎵 006 TRAD - A quintessencia do caminho.mp3
+    ├─ 🎵 007 JKR - The importance of the teacher-(26 April AM_part_2).mp3
+    ├─ 🎵 007 TRAD - A importancia do mestre.mp3
+    ├─ 🎵 008 JKR - Devotion-(26 April AM_part_2).mp3
+    ├─ 🎵 008 TRAD - Devocao.mp3
+    ├─ 🎵 009 JKR - Developing appreciation-(26 April AM_part_2).mp3
+    ├─ 🎵 009 TRAD - Desenvolver apreciacao.mp3
+    ├─ 🎵 010 JKR - Connecting with the teacher-(26 April AM_part_2).mp3
+    ├─ 🎵 010 TRAD - Estabelecer uma ligacao com o mestre.mp3
+    ├─ 🎵 011 JKR - Question about pure perception-(26 April PM).mp3
+    ├─ 🎵 011 TRAD - Questao sobre percepcao pura.mp3
+    ├─ 🎵 012 JKR - The role of the Guru-(26 April PM).mp3
+    ├─ 🎵 012 TRAD - O papel do Guru.mp3
+    ├─ 🎵 013 JKR - Seeing the Teachers as the Buddha-(26 April PM).mp3
+    ├─ 🎵 013 TRAD - Ver os Mestres como Buda.mp3
+    ├─ 🎵 014 JKR - Connection with the teacher-(26 April PM).mp3
+    ├─ 🎵 014 TRAD - Ligacao com o mestre.mp3
+    ├─ 🎵 015 JKR - Compassion of the buddhas-(26 April PM).mp3
+    ├─ 🎵 015 TRAD - A compaixao dos budas.mp3
+    ├─ 🎵 016 JKR - Brief preliminary practice-(26 April PM).mp3
+    ├─ 🎵 016 TRAD - Breves praticas preliminares.mp3
+    ├─ 🎵 017 JKR - Initial prayers-(27 April AM).mp3
+    ├─ 🎵 017 TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 018 JKR - Posture-(27 April AM).mp3
+    ├─ 🎵 018 TRAD - Postura.mp3
+    ├─ 🎵 019 JKR - Pure perception-(27 April AM).mp3
+    ├─ 🎵 019 TRAD - Percepcao pura.mp3
+    ├─ 🎵 020 JKR - Laphur Thugtik Ngondro-(27 April AM).mp3
+    ├─ 🎵 020 TRAD - Laphur Thugtik Ngondro.mp3
+    ├─ 🎵 021 JKR - Brief preliminary practice-(27 April PM).mp3
+    ├─ 🎵 021 TRAD - Breves praticas preliminares.mp3
+    ├─ 🎵 022 JKR - Seeing the Teachers as the Buddha-(27 April PM).mp3
+    ├─ 🎵 022 TRAD - Ver os Mestres como Buda.mp3
+    ├─ 🎵 023 JKR - Seeing the Teachers as the Buddha (cont)-(27 April PM).mp3
+    ├─ 🎵 023 TRAD - Ver os Mestres como Buda (cont).mp3
+    ├─ 🎵 024 JKR - Using the teachers as the path-(27 April PM).mp3
+    ├─ 🎵 024 TRAD - Ver os mestres como a via.mp3
+    ├─ 🎵 025 JKR - Using the teachers as the path (cont)-(27 April PM).mp3
+    ├─ 🎵 025 TRAD - Ver os mestres como a via (cont).mp3
+    ├─ 🎵 026 JKR - More precious than the buddhas-(27 April PM).mp3
+    ├─ 🎵 026 TRAD - Mais preciosos com os Budas.mp3
+    ├─ 🎵 027 JKR - The embodiment of all refuges-(27 April PM).mp3
+    ├─ 🎵 027 TRAD - A personificacao de todos os refugios.mp3
+    ├─ 🎵 028 JKR - Wisdom of realization-(27 April PM).mp3
+    ├─ 🎵 028 TRAD - A sabedoria da realizacao.mp3
+    ├─ 🎵 029 JKR - Brief preliminary practice and dedication-(27 April PM).mp3
+    ├─ 🎵 029 TRAD - Breves praticas preliminares e dedicacao.mp3
+    ├─ 🎵 030 JKR - Reading transmission-(27 April PM).mp3
+    ├─ 🎵 030 TRAD - Transmissao por leitura.mp3
+    ├─ 🎵 031 JKR - About the activities of our teachers-(27 April PM).mp3
+    ├─ 🎵 031 TRAD - Acerca das actividades dos nossos mestres.mp3
+    ├─ 🎵 032 JKR - About the activities of our teachers (cont)-(27 April PM).mp3
+    ├─ 🎵 032 TRAD - Acerca das actividades dos nossos mestres (cont).mp3
+    └─ 🎵 033 JKR - Conclusion of the retreat-(27 April PM).mp3
+
+  📁 20250422-JKR-PP3-CCA (60 files)
+    ├─ 🎵 030 TRAD - Oferenda da mandala e conclusao do retiro.mp3
+    ├─ 🎵 001 JKR - Initial prayers-(22 April AM_part_1).mp3
+    ├─ 🎵 001 TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 002 JKR - Brief preliminary practice-(22 April AM_part_1).mp3
+    ├─ 🎵 002 TRAD - Breves praticas preliminares.mp3
+    ├─ 🎵 003 JKR - The purpose of this practices-(22 April AM_part_1).mp3
+    ├─ 🎵 003 TRAD - O proposito destas praticas.mp3
+    ├─ 🎵 004 JKR - Accumulation of merit and of wisdom-(22 April AM_part_1).mp3
+    ├─ 🎵 004 TRAD - Acumulacao de merito e sabedoria.mp3
+    ├─ 🎵 005 JKR - Ngondro done properly-(22 April AM_part_1).mp3
+    ├─ 🎵 005 TRAD - Ngondro feito de forma correcta.mp3
+    ├─ 🎵 006 JKR - Method for accumulation merit with minimal effort-(22 April AM_part_1).mp3
+    ├─ 🎵 006 TRAD - Metodo para acumular merito com o minimo esforco.mp3
+    ├─ 🎵 007 JKR - Who is offering to whom and what to offer-(22 April AM_part_1).mp3
+    ├─ 🎵 007 TRAD - Quem esta a oferecer a quem e o que oferecer.mp3
+    ├─ 🎵 008 JKR - Outer inner and secret mandala-(22 April AM_part_1).mp3
+    ├─ 🎵 008 TRAD - Mandala externa interna e secreta.mp3
+    ├─ 🎵 009 JKR - How do we start the mandala offering-(22 April AM_part_1).mp3
+    ├─ 🎵 009 TRAD - Como comecamos a nossa oferenda da mandala.mp3
+    ├─ 🎵 010 JKR - The materials of our mandala offering-(22 April AM_part_1).mp3
+    ├─ 🎵 010 TRAD - Os materiais da nossa oferenda da mandala.mp3
+    ├─ 🎵 011 JKR - Five heap and thirty seven heap mandala-(22 April AM_part_1).mp3
+    ├─ 🎵 011 TRAD - Mandala dos 5 ou 7 e dos 37 elementos.mp3
+    ├─ 🎵 012 JKR - Reading from the book Chariot of Freedom-(22 April AM_part_2).mp3
+    ├─ 🎵 012 TRAD - Leitura de excertos do livro Chariot of Freedom.mp3
+    ├─ 🎵 013 JKR - Reading from the book Chariot of Freedom (cont)-(22 April AM_part_2).mp3
+    ├─ 🎵 013 TRAD - Leitura de excertos do livro Chariot of Freedom (cont).mp3
+    ├─ 🎵 014 JKR - Skillful means of accumulation merit-(22 April AM_part_2).mp3
+    ├─ 🎵 014 TRAD - Meios habeis de acumular merito.mp3
+    ├─ 🎵 015 JKR - What the mandala symbolizes-(22 April AM_part_2).mp3
+    ├─ 🎵 015 TRAD - O que a mandala simboliza.mp3
+    ├─ 🎵 016 JKR - Instructions - Reading from the book Chariot of Freedom-(22 April PM).mp3
+    ├─ 🎵 016 TRAD - Instrucoes - Leitura de excertos do livro Chariot of Freedom.mp3
+    ├─ 🎵 017 JKR - The inner mandala-(22 April PM).mp3
+    ├─ 🎵 017 TRAD - A mandala interna.mp3
+    ├─ 🎵 018 JKR - The secret mandala-(22 April PM).mp3
+    ├─ 🎵 018 TRAD - The secret mandala.mp3
+    ├─ 🎵 019 JKR - Getting used to the three mandalas-(22 April PM).mp3
+    ├─ 🎵 019 TRAD - Habituarmo-nos as tres mandalas.mp3
+    ├─ 🎵 020 JKR - About the number of recitations-(22 April PM).mp3
+    ├─ 🎵 020 TRAD - Acerca do numbero de recitacoes.mp3
+    ├─ 🎵 021 JKR - How to do the prostrations - Reading from the Chariot of Freedom-(22 April PM).mp3
+    ├─ 🎵 021 TRAD - Como fazer as prostracoes - Leitura do Chariot of Freedom.mp3
+    ├─ 🎵 022 JKR - Benefits of having offered the mandala-(22 April PM).mp3
+    ├─ 🎵 022 TRAD - Beneficios de ter oferecido a mandala.mp3
+    ├─ 🎵 023 JKR - How to make the mandala offering-(22 April PM).mp3
+    ├─ 🎵 023 TRAD - Como fazer a oferenda da mandala.mp3
+    ├─ 🎵 024 JKR - About the accumulation of merit and wisdom-(22 April PM).mp3
+    ├─ 🎵 024 TRAD - Acerca da acumulacao de merito e de sabedoria.mp3
+    ├─ 🎵 025 JKR - The benefits of venerating the three jewels-(22 April PM).mp3
+    ├─ 🎵 025 TRAD - Os beneficios de venerar as tres joias.mp3
+    ├─ 🎵 026 JKR - The benefits of venerating the three jewels (cont)-(22 April PM).mp3
+    ├─ 🎵 026 TRAD - Os beneficios de venerar as tres joias (cont).mp3
+    ├─ 🎵 027 JKR - Reading of the Laphur Thugtik until bodhicitta-(22 April PM).mp3
+    ├─ 🎵 027 TRAD - Leitura do Laphur Thugtik ate bodhicitta.mp3
+    ├─ 🎵 028 JKR - Reading fo the Seven branch prayer of the Lhapur Thugtik-(22 April PM).mp3
+    ├─ 🎵 028 TRAD - Leitura da oracao em sete ramos do Laphur Thugtik.mp3
+    ├─ 🎵 029 JKR - Mandala offering with instructions-(22 April PM).mp3
+    ├─ 🎵 029 TRAD - Oferenda da mandala com instrucoes.mp3
+    └─ 🎵 030 JKR - Mandala offering and conclusionof the retreat-(22 April PM).mp3
+
+  📁 20250414_15-JKR-TM1-CCA (98 files)
+    ├─ 🎵 001 JKR Initial Prayers-(14 April AM_part_1).mp3
+    ├─ 🎵 001 TRAD Oracoes Iniciais.mp3
+    ├─ 🎵 002 JKR Introduction-(14 April AM_part_1).mp3
+    ├─ 🎵 002 TRAD Introducao.mp3
+    ├─ 🎵 003 JKR Paying homage-(14 April AM_part_1).mp3
+    ├─ 🎵 003 TRAD Prestar homenagem.mp3
+    ├─ 🎵 004 JKR The promise-(14 April AM_part_1).mp3
+    ├─ 🎵 004 TRAD A promessa.mp3
+    ├─ 🎵 005 JKR Buddha's wisdom-(14 April AM_part_1).mp3
+    ├─ 🎵 005 TRAD Sabedoria dos budas.mp3
+    ├─ 🎵 006 JKR Pith instructions-(14 April AM_part_1).mp3
+    ├─ 🎵 006 TRAD Instrucoes essenciais.mp3
+    ├─ 🎵 007 JKR Setting the scenery-(14 April AM_part_2).mp3
+    ├─ 🎵 007 TRAD Estabelecer o ambiente.mp3
+    ├─ 🎵 008 JKR Spinning in samsara-(14 April AM_part_2).mp3
+    ├─ 🎵 008 TRAD Girar no samsara.mp3
+    ├─ 🎵 009 JKR Giving meaning to human existence-(14 April AM_part_2).mp3
+    ├─ 🎵 009 TRAD Dar significado a existencia humana.mp3
+    ├─ 🎵 010 JKR Our inner environment-(14 April AM_part_2).mp3
+    ├─ 🎵 010 TRAD O nosso ambiente interior.mp3
+    ├─ 🎵 011 JKR Freedoms and advantages-(14 April AM_part_2).mp3
+    ├─ 🎵 011 TRAD Liberdades e vantagens.mp3
+    ├─ 🎵 012 JKR Freedoms and advantages (cont)-(14 April AM_part_2).mp3
+    ├─ 🎵 012 TRAD Liberdades e vantagens (cont).mp3
+    ├─ 🎵 013 JKR How we view our human life-(14 April PM).mp3
+    ├─ 🎵 013 TRAD Como vemos a vida humana.mp3
+    ├─ 🎵 014 JKR How we view our native land-(14 April PM).mp3
+    ├─ 🎵 014 TRAD Como vemos a nossa terra natal.mp3
+    ├─ 🎵 015 JKR How we relate to location-(14 April PM).mp3
+    ├─ 🎵 015 TRAD Como nos relacionamos com o local.mp3
+    ├─ 🎵 016 JKR How we relate to time-(14 April PM).mp3
+    ├─ 🎵 016 TRAD Como nos relacionamos com o tempo.mp3
+    ├─ 🎵 017 JKR Bad company-(14 April PM).mp3
+    ├─ 🎵 017 TRAD Mas companhias.mp3
+    ├─ 🎵 018 JKR The importance of a spiritual friend-(14 April PM).mp3
+    ├─ 🎵 018 TRAD A importancia de um amigo espiritual.mp3
+    ├─ 🎵 019 JKR Engaging on the path-(14 April PM).mp3
+    ├─ 🎵 019 TRAD Envolvermo-nos no caminho.mp3
+    ├─ 🎵 020 JKR About the refuge vow-(14 April PM).mp3
+    ├─ 🎵 020 TRAD Sobre o voto de refugio.mp3
+    ├─ 🎵 021 JKR How to relate to the 3 jewels-(14 April PM).mp3
+    ├─ 🎵 021 TRAD Como nos relacionarmos com as 3 joias.mp3
+    ├─ 🎵 022 JKR Conduct of the body, speech and mind-(14 April PM).mp3
+    ├─ 🎵 022 TRAD Conduta do corpo, fala e mente.mp3
+    ├─ 🎵 023 JKR Suffering of the lower realms-(14 April PM).mp3
+    ├─ 🎵 023 TRAD Sofrimento dos reinos inferiores.mp3
+    ├─ 🎵 024 JKR Instructions for practicing-(14 April PM).mp3
+    ├─ 🎵 024 TRAD Instrucoes para a pratica.mp3
+    ├─ 🎵 025 JKR Initial prayers-(15 April AM_part_1).mp3
+    ├─ 🎵 025 TRAD Oracoes Iniciais.mp3
+    ├─ 🎵 026 JKR Free from aflictive mental state-(15 April AM_part_1).mp3
+    ├─ 🎵 026 TRAD Livres dos estados mentais aflitivos.mp3
+    ├─ 🎵 027 JKR Developing the motivation-(15 April AM_part_1).mp3
+    ├─ 🎵 027 TRAD Desenvolver a motivacao.mp3
+    ├─ 🎵 028 JKR For all sentient beings-(15 April AM_part_1).mp3
+    ├─ 🎵 028 TRAD Por todos os seres.mp3
+    ├─ 🎵 029 JKR Suffering-(15 April AM_part_1).mp3
+    ├─ 🎵 029 TRAD Sofrimento.mp3
+    ├─ 🎵 030 JKR Review of the previous verses-(15 April AM_part_1).mp3
+    ├─ 🎵 030 TRAD Revisao dos versos anteriores.mp3
+    ├─ 🎵 031 JKR Review of the previous verses (cont)-(15 April AM_part_1).mp3
+    ├─ 🎵 031 TRAD Revisao dos versos anteriores (cont).mp3
+    ├─ 🎵 032 JKR Explanation of the refuge-(15 April AM_part_2).mp3
+    ├─ 🎵 032 TRAD Explicacao do refugio.mp3
+    ├─ 🎵 033 JKR Medium and superior capacity-(15 April AM_part_2).mp3
+    ├─ 🎵 033 TRAD Capacidade media e superior.mp3
+    ├─ 🎵 034 JKR Bodhichitta in intention-(15 April AM_part_2).mp3
+    ├─ 🎵 034 TRAD Bodhichita em intencao.mp3
+    ├─ 🎵 035 JKR Repay the kindness-(15 April AM_part_2).mp3
+    ├─ 🎵 035 TRAD Retribuir a bondade.mp3
+    ├─ 🎵 036 JKR Bodhisattvas courage-(15 April PM).mp3
+    ├─ 🎵 036 TRAD A coragem dos bodhisattvas.mp3
+    ├─ 🎵 037 JKR Bodhisattvas courage (cont)-(15 April PM).mp3
+    ├─ 🎵 037 TRAD A coragem dos bodhisattvas (cont).mp3
+    ├─ 🎵 038 JKR Developing fearlessness-(15 April PM).mp3
+    ├─ 🎵 038 TRAD Devenvolver a ausencia de medo.mp3
+    ├─ 🎵 039 JKR Giving and taking-(15 April PM).mp3
+    ├─ 🎵 039 TRAD Dar e receber.mp3
+    ├─ 🎵 040 JKR Giving and taking (cont)-(15 April PM).mp3
+    ├─ 🎵 040 TRAD Dar e receber (cont).mp3
+    ├─ 🎵 041 JKR How to do the practice of exchange-(15 April PM).mp3
+    ├─ 🎵 041 Trad Como fazer a pratica da troca.mp3
+    ├─ 🎵 042 JKR Motivation and instructions-(15 April PM).mp3
+    ├─ 🎵 042 TRAD Motivacao e instrucoes.mp3
+    ├─ 🎵 043 JKR In post-meditation-(15 April PM).mp3
+    ├─ 🎵 043 TRAD Em pos meditacao.mp3
+    ├─ 🎵 044 JKR How to use suffering on the path-(15 April PM).mp3
+    ├─ 🎵 044 TRAD Como usar o sofrimento no caminho.mp3
+    ├─ 🎵 045 JKR How to take disgrace and disparagement on the path-(15 April PM).mp3
+    ├─ 🎵 045 TRAD Como integrar a desonra e o desprezo no caminho.mp3
+    ├─ 🎵 046 JKR Verses 16 to 21-(15 April PM).mp3
+    ├─ 🎵 046 TRAD Versos 16 ao 21.mp3
+    ├─ 🎵 047 JKR Resume of the teaching-(15 April PM).mp3
+    ├─ 🎵 047 TRAD Resumo do ensinamento.mp3
+    ├─ 🎵 048 JKR Reading and instructions for the practice-(15 April PM).mp3
+    ├─ 🎵 048 TRAD Leitura e instrucoes para a pratica.mp3
+    ├─ 🎵 049 JKR Conclusion of the retreat and refuge vows-(15 April PM).mp3
+    └─ 🎵 049 TRAD Conclusao do retiro e votos de refugio.mp3
+
+  📁 20250412_13-JKR-SHA-CCA (64 files)
+    ├─ 🎵 001 JKR How to relate to our mind-(12 April AM_part_1).mp3
+    ├─ 🎵 001 TRAD Como nos relacionarmos com a nossa mente.mp3
+    ├─ 🎵 002 JKR Posture and purpose-(12 April AM_part_1).mp3
+    ├─ 🎵 002 TRAD Postura e proposito.mp3
+    ├─ 🎵 003 JKR Awareness of the posture-(12 April AM_part_2).mp3
+    ├─ 🎵 003 TRAD Consciencia da postura.mp3
+    ├─ 🎵 004 JKR Emotions and posture-(12 April AM_part_2).mp3
+    ├─ 🎵 004 TRAD Emocoes e postura.mp3
+    ├─ 🎵 005 JKR Posture in a nutshell-(12 April AM_part_2).mp3
+    ├─ 🎵 005 TRAD Postura em resumo.mp3
+    ├─ 🎵 006 JKR Awareness of the breath-(12 April AM_part_2).mp3
+    ├─ 🎵 006 TRAD Consciencia da respiracao.mp3
+    ├─ 🎵 007 JKR Obstacles and its antidotes-(12 April AM_part_2).mp3
+    ├─ 🎵 007 TRAD Obstaculos e os seus antidotos.mp3
+    ├─ 🎵 008 JKR The Buddha-(12 April PM_part_1).mp3
+    ├─ 🎵 008 TRAD O Buda.mp3
+    ├─ 🎵 009 JKR Obstacles to meditation-(12 April PM_part_1).mp3
+    ├─ 🎵 009 TRAD Obstaculos na meditacao.mp3
+    ├─ 🎵 010 JKR Laziness and its antidotes-(12 April PM_part_1).mp3
+    ├─ 🎵 010 TRAD Preguica e os seus antidotos.mp3
+    ├─ 🎵 011 JKR Forgetfulness, dullness, agitation-(12 April PM_part_1).mp3
+    ├─ 🎵 011 TRAD Esquecimento, entorpecimento, agitacao.mp3
+    ├─ 🎵 012 JKR Revisiting the instructions-(12 April PM_part_1).mp3
+    ├─ 🎵 012 TRAD Revisao das instrucoes.mp3
+    ├─ 🎵 013 JKR Questions about meditation and post meditation-(12 April PM_part_2).mp3
+    ├─ 🎵 013 TRAD Questoes sobre meditacao e pos meditacao.mp3
+    ├─ 🎵 014 JKR Question about who am I-(12 April PM_part_2).mp3
+    ├─ 🎵 014 TRAD Questao sobre quem sou.mp3
+    ├─ 🎵 015 JKR Meditation with instructions-(12 April PM_part_2).mp3
+    ├─ 🎵 015 TRAD Meditacao com instrucoes.mp3
+    ├─ 🎵 016 JKR Instructions for post meditation-(12 April PM_part_2).mp3
+    ├─ 🎵 016 TRAD Instrucoes para pos meditacao.mp3
+    ├─ 🎵 017 JKR Be at peace-(13 April AM_part_1).mp3
+    ├─ 🎵 017 TRAD Estar em paz.mp3
+    ├─ 🎵 018 JKR Obstacle to entering meditation-(13 April AM_part_1).mp3
+    ├─ 🎵 018 TRAD Obstaculo na entrada em meditacao.mp3
+    ├─ 🎵 019 JKR Not forgetting the instructions-(13 April AM_part_1)mp3.mp3
+    ├─ 🎵 019 TRAD Nao esquecer as instrucoes.mp3
+    ├─ 🎵 020 JKR Preserving the focus-(13 April AM_part_1).mp3
+    ├─ 🎵 020 TRAD Preservar o foco.mp3
+    ├─ 🎵 021 JKR Inspiration to meditate-(13 April AM_part_1).mp3
+    ├─ 🎵 021 TRAD Inspiracao para meditar.mp3
+    ├─ 🎵 022 JKR Buddha, Dharma and Sangha-(13 April AM_part_2).mp3
+    ├─ 🎵 022 TRAD Buda, Dharma e Sangha.mp3
+    ├─ 🎵 023 JKR Daily Practice in 3 parts explanation-(13 April AM_part_2).mp3
+    ├─ 🎵 023 TRAD Explicacao da Pratica diaria em 3 partes.mp3
+    ├─ 🎵 024 JKR Meditation with instructions-(13 April AM_part_2).mp3
+    ├─ 🎵 024 TRAD Meditacao com instrucoes.mp3
+    ├─ 🎵 025 JKR Questions-(13 April PM).mp3
+    ├─ 🎵 025 TRAD Questoes.mp3
+    ├─ 🎵 026 JKR Obstacles and its antidotes-(13 April PM).mp3
+    ├─ 🎵 026 TRAD Obstaculos e os seus antidotos.mp3
+    ├─ 🎵 027 JKR Obstacles and its antidotes-(13 April PM).mp3
+    ├─ 🎵 027 TRAD Obstaculos e os seus antidotos.mp3
+    ├─ 🎵 028 JKR Recognising dullness and agitations-(13 April PM).mp3
+    ├─ 🎵 028 TRAD Reconhecer torpor e agitacao.mp3
+    ├─ 🎵 029 JKR Recitation of the daily practice in 3 parts-(13 April PM).mp3
+    ├─ 🎵 029 TRAD Recitacao da pratica diaria em 3 partes.mp3
+    ├─ 🎵 030 JKR Instructions-(13 April PM).mp3
+    ├─ 🎵 030 TRAD Instrucoes.mp3
+    ├─ 🎵 031 JKR Explanation of the Treasury of Blessings-(13 April PM).mp3
+    ├─ 🎵 031 TRAD Explicacao do tesouro de bencaos.mp3
+    ├─ 🎵 032 JKR Dedication and conclusion-(13 April PM).mp3
+    └─ 🎵 032 TRAD Dedicatoria e conclusao.mp3
+
+  📁 202523_24-JKR-PP2-CCA (56 files)
+    ├─ 🎵 001 JKR Initial Prayers-(23 April AM_part_1).mp3
+    ├─ 🎵 001 TRAD Oracoes iniciais.mp3
+    ├─ 🎵 002 JKR The excellent path of liberation-(23 April AM_part_1).mp3
+    ├─ 🎵 002 TRAD O excelente caminho da libertacao.mp3
+    ├─ 🎵 003 JKR Reflecting on refuge and bodhichitta-(23 April AM_part_1).mp3
+    ├─ 🎵 003 TRAD Reflectir no refugio e bodichita.mp3
+    ├─ 🎵 004 JKR Overview of entering the path-(23 April AM_part_2).mp3
+    ├─ 🎵 004 TRAD Visao geral da entrada no caminho.mp3
+    ├─ 🎵 005 JKR Precepts for receiving the empowerment-(23 April AM_part_2).mp3
+    ├─ 🎵 005 TRAD Preceitos para receber a iniciacao.mp3
+    ├─ 🎵 006 JKR Motivation to practice-(23 April PM).mp3
+    ├─ 🎵 006 TRAD Motivacao para praticar.mp3
+    ├─ 🎵 007 JKR Our incorruptible nature-(23 April PM).mp3
+    ├─ 🎵 007 TRAD A nossa natureza incorruptivel.mp3
+    ├─ 🎵 008 JKR Cleansing obscurations-(23 April PM).mp3
+    ├─ 🎵 008 TRAD Remover os obscurecimentos.mp3
+    ├─ 🎵 009 JKR Identifying obscurations-(23 April PM).mp3
+    ├─ 🎵 009 TRAD Identificar obscurecimentos.mp3
+    ├─ 🎵 010 JKR What do they obscure-(23 April PM).mp3
+    ├─ 🎵 010 TRAD Aquilo que obscurecem.mp3
+    ├─ 🎵 011 JKR The 4 powers-(23 April PM).mp3
+    ├─ 🎵 011 TRAD Os 4 poderes.mp3
+    ├─ 🎵 012 JKR The 4 powers (cont)-(23 April PM).mp3
+    ├─ 🎵 012 TRAD Os 4 poderes (cont).mp3
+    ├─ 🎵 013 JKR Everything is cleansable-(23 April PM).mp3
+    ├─ 🎵 013 TRAD Tudo e purificavel.mp3
+    ├─ 🎵 014 JKR Something sublime-(23 April PM).mp3
+    ├─ 🎵 014 TRAD Algo sublime.mp3
+    ├─ 🎵 015 JKR Tsok offering-(23 April PM).mp3
+    ├─ 🎵 015 TRAD Oferenda de tsok.mp3
+    ├─ 🎵 016 JKR Initial prayers-(24 April AM).mp3
+    ├─ 🎵 016 TRAD Oracoes iniciais.mp3
+    ├─ 🎵 017 JKR Excellent path of liberation-(24 April AM).mp3
+    ├─ 🎵 017 TRAD Excelente Caminho da Libertacao.mp3
+    ├─ 🎵 018 JKR Overview of refuge-(24 April AM).mp3
+    ├─ 🎵 018 TRAD Visao geral do refugio.mp3
+    ├─ 🎵 019 JKR Refuge as the basis-(24 April AM).mp3
+    ├─ 🎵 019 TRAD Refugio enquanto base.mp3
+    ├─ 🎵 020 JKR Turning our minds towards refuge-(24 April AM).mp3
+    ├─ 🎵 020 TRAD Direccionar as nossas mentes para o refugio.mp3
+    ├─ 🎵 021 JKR Vajrasattva Practice-(24 April AM).mp3
+    ├─ 🎵 021 TRAD Pratica de Vajrasattva.mp3
+    ├─ 🎵 022 JKR Questions about the practice and visualizations-(24 April PM).mp3
+    ├─ 🎵 022 TRAD Questoes acerca da pratica e visualizacoes.mp3
+    ├─ 🎵 023 JKR Question about the need of empowerment-(24 April PM).mp3
+    ├─ 🎵 023 TRAD Questao acerca da necessidade de receber iniciacao.mp3
+    ├─ 🎵 024 JKR Requirements of the path-(24 April PM).mp3
+    ├─ 🎵 024 TRAD Requisitos do caminho.mp3
+    ├─ 🎵 025 JKR Vajrasattva Practice-(24 April PM).mp3
+    ├─ 🎵 025 TRAD Pratica de Vajrasattva.mp3
+    ├─ 🎵 026 JKR Overview of the Vajrasattva practice-(24 April PM).mp3
+    ├─ 🎵 026 TRAD Visao geral da pratica de Vajrasattva.mp3
+    ├─ 🎵 027 JKR Reading Transmissions-(24 April PM).mp3
+    ├─ 🎵 027 TRAD Leitura de transmissoes.mp3
+    ├─ 🎵 028 JKR Framing the Guru Yoga teachings-(24 April PM).mp3
+    └─ 🎵 028 TRAD Enquadramento dos ensinamentos de Guru Yoga.mp3
+
+  📁 20250419_20-JKR-PP1-CCA (116 files)
+    ├─ 🎵 001 JKR - Initial prayers-(19 April AM_part_1).mp3
+    ├─ 🎵 001 TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 002 JKR - The wish to be free-(19 April AM_part_1).mp3
+    ├─ 🎵 002 TRAD - O desejo de ser livre.mp3
+    ├─ 🎵 003 JKR - The four noble truths-(19 April AM_part_1).mp3
+    ├─ 🎵 003 TRAD - As quatro nobre verdades.mp3
+    ├─ 🎵 004 JKR - Why refuge is important-(19 April AM_part_1).mp3
+    ├─ 🎵 004 TRAD - Porque o refugio e importante.mp3
+    ├─ 🎵 005 JKR - How do I see refuge-(19 April AM_part_1).mp3
+    ├─ 🎵 005 TRAD - Como eu vejo o refugio.mp3
+    ├─ 🎵 006 JKR - Studying and contemplating-(19 April AM_part_1).mp3
+    ├─ 🎵 006 TRAD - Estudar e contemplar.mp3
+    ├─ 🎵 007 JKR - Truth of the path-(19 April AM_part_1).mp3
+    ├─ 🎵 007 TRAD - A verdade do caminho.mp3
+    ├─ 🎵 008 JKR - Three types of capacity of beings-(19 April AM_part_1).mp3
+    ├─ 🎵 008 TRAD - Tres tipo de capacidades dos seres.mp3
+    ├─ 🎵 009 JKR - Three types of results-(19 April AM_part_2).mp3
+    ├─ 🎵 009 TRAD - Tres tipos de resultados.mp3
+    ├─ 🎵 010 JKR - Renunciation and faith-(19 April AM_part_2).mp3
+    ├─ 🎵 010 TRAD - Renuncia e fe.mp3
+    ├─ 🎵 011 JKR - Resultant and causal refuge and duration and results-(19 April AM_part_2).mp3
+    ├─ 🎵 011 TRAD - Refugio resultante e causal e duracao e resultados.mp3
+    ├─ 🎵 012 JKR - The objects of refuge-(19 April AM_part_2).mp3
+    ├─ 🎵 012 TRAD - Os objectos de refugio.mp3
+    ├─ 🎵 013 JKR - Dharmakaya and rupakaya-(19 April AM_part_2).mp3
+    ├─ 🎵 013 TRAD - Dharmakaya e rupakaya.mp3
+    ├─ 🎵 014 JKR - The four kayas-(19 April AM_part_2).mp3
+    ├─ 🎵 014 TRAD - Os quatro kayas.mp3
+    ├─ 🎵 015 JKR - The five wisdoms and its activities-(19 April AM_part_2).mp3
+    ├─ 🎵 015 TRAD - As quatro sabedorias e as suas atividades.mp3
+    ├─ 🎵 016 JKR - The ways we connect with the Buddhas-(19 April PM).mp3
+    ├─ 🎵 016 TRAD - As formas de nos conectarmos com os budas.mp3
+    ├─ 🎵 017 JKR - Qualities of the Buddha-(19 April PM).mp3
+    ├─ 🎵 017 TRAD - Qualidades do Buda.mp3
+    ├─ 🎵 018 JKR - Definitions of Dharma-(19 April PM).mp3
+    ├─ 🎵 018 TRAD - Definicoes do Dharma.mp3
+    ├─ 🎵 019 JKR - Qualities and benefits of the Dharma-(19 April PM).mp3
+    ├─ 🎵 019 TRAD - Qualidades e beneficios do Dharma.mp3
+    ├─ 🎵 020 JKR - Definitions of Sangha-(19 April PM).mp3
+    ├─ 🎵 020 TRAD - Definicoes de Sangha.mp3
+    ├─ 🎵 021 JKR - The qualities of the Sangha-(19 April PM).mp3
+    ├─ 🎵 021 TRAD - As qualidades da Sangha.mp3
+    ├─ 🎵 022 JKR - The three roots-(19 April PM).mp3
+    ├─ 🎵 022 TRAD - As tres raizes.mp3
+    ├─ 🎵 023 JKR - How to preserve the refuge vows-(19 April PM).mp3
+    ├─ 🎵 023 TRAD - Como preservar os votos de refugio.mp3
+    ├─ 🎵 024 JKR - What to do-(19 April PM).mp3
+    ├─ 🎵 024 TRAD - O que fazer.mp3
+    ├─ 🎵 025 JKR - What to do (cont)-(19 April PM).mp3
+    ├─ 🎵 025 TRAD - O que fazer (cont).mp3
+    ├─ 🎵 026 JKR - Remembering and appreciating the Refuge-(19 April PM).mp3
+    ├─ 🎵 026 TRAD - Lembrar e apreciar o refugio.mp3
+    ├─ 🎵 027 JKR - How do we practice in session and post session-(19 April PM).mp3
+    ├─ 🎵 027 TRAD - Como praticar em sessao e pos sessao.mp3
+    ├─ 🎵 028 JKR - Instructions for practicing the Laphur Thugtik Ngondro-(19 April PM).mp3
+    ├─ 🎵 028 TRAD - Instrucoes para praticar o Ngondro Laphur Thugtik.mp3
+    ├─ 🎵 029 JKR - Visualization and instructions for taking refuge-(19 April PM).mp3
+    ├─ 🎵 029 TRAD - Visualizacao e instrucoes para tomar refugio.mp3
+    ├─ 🎵 030 JKR - Instructions for the post-meditation-(19 April PM).mp3
+    ├─ 🎵 030 TRAD - Instrucoes para a pos-meditacao.mp3
+    ├─ 🎵 031 JKR - Reading together the Laphur Thugtik Ngondro-(19 April PM).mp3
+    ├─ 🎵 031 TRAD - Leitura em conjunto do Ngondro Laphur Thugtik.mp3
+    ├─ 🎵 032 JKR - Initial prayers-(20 April AM_part_1).mp3
+    ├─ 🎵 032 TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 033 JKR - Brief Preliminary Practices - The five perfections-(20 April AM_part_1).mp3
+    ├─ 🎵 033 TRAD - Breves Praticas Preliminares - As cinco perfeicoes.mp3
+    ├─ 🎵 034 JKR - The four thoughts-(20 April AM_part_1).mp3
+    ├─ 🎵 034 TRAD - Os quatro pensamentos.mp3
+    ├─ 🎵 035 JKR - Breves Praticas Preliminares - Four thoughts and refuge-(20 April AM_part_1).mp3
+    ├─ 🎵 035 TRAD - Breves Praticas Preliminares - Os quatro pensamentos e refugio.mp3
+    ├─ 🎵 036 JKR - The purpose of bodhicitta-(20 April AM_part_1).mp3
+    ├─ 🎵 036 TRAD - O proposito da bodhicitta.mp3
+    ├─ 🎵 037 JKR - The characteristic of bodhicitta-(20 April AM_part_1).mp3
+    ├─ 🎵 037 TRAD - A caracteristica do bodhicitta.mp3
+    ├─ 🎵 038 JKR - Ways of giving rise to bodhicitta - Paths and bhumis-(20 April AM_part_1).mp3
+    ├─ 🎵 038 TRAD - formas de gerar a bodhicitta - Vias e bhumis.mp3
+    ├─ 🎵 039 JKR - Paths and bhumis (cont)-(20 April AM_part_1).mp3
+    ├─ 🎵 039 TRAD - Vias e bhumis (cont).mp3
+    ├─ 🎵 040 JKR - Vow of bodhicitta in intention and in action-(20 April AM_part_1).mp3
+    ├─ 🎵 040 TRAD - Voto de bodhicitta em intencao e em acao.mp3
+    ├─ 🎵 041 JKR - Relative and absolute bodhicitta-(20 April AM_part_2).mp3
+    ├─ 🎵 041 TRAD - Bodhicitta realtive e absoluto.mp3
+    ├─ 🎵 042 JKR - Giving rise to bodhicitta and instructions for the practice-(20 April AM_part_2).mp3
+    ├─ 🎵 042 TRAD - Dar origem a bodhicitta e instrucoes para a pratica.mp3
+    ├─ 🎵 043 JKR - Instructions for the practice (cont)-(20 April AM_part_2).mp3
+    ├─ 🎵 043 TRAD - Instrucoes para a pratica (cont).mp3
+    ├─ 🎵 044 JKR - Instructions for post-meditation - Dedication-(20 April AM_part_2).mp3
+    ├─ 🎵 044 TRAD - Instrucoes para a pos-meditacao - Dedicacao.mp3
+    ├─ 🎵 045 JKR - The seven branch prayer-(20 April PM).mp3
+    ├─ 🎵 045 TRAD - A oracao dos sete ramos.mp3
+    ├─ 🎵 046 JKR - The seven branch prayer (cont)-(20 April PM).mp3
+    ├─ 🎵 046 TRAD - A oracao dos sete ramos (cont).mp3
+    ├─ 🎵 047 JKR - Instructions for the bodhisattva vow-(20 April PM).mp3
+    ├─ 🎵 047 TRAD - Instrucoes para o voto de bodhisattva.mp3
+    ├─ 🎵 048 JKR - Taking the bodhisattva vow-(20 April PM).mp3
+    ├─ 🎵 048 TRAD - Tomar o voto de bodhisattva.mp3
+    ├─ 🎵 049 JKR - Laphur Thugtik Ngondro until the four boundless atitudes-(20 April PM).mp3
+    ├─ 🎵 049 TRAD - Ngondro Laphur Thugtik ate os quatro incomensuraveis.mp3
+    ├─ 🎵 050 JKR - Bodhicitta - Reading from both Ngondros-(20 April PM).mp3
+    ├─ 🎵 050 TRAD - Bodhicitta - Leitura dos dois Ngondros.mp3
+    ├─ 🎵 051 JKR - Conclusion of the bodhisattva vow-(20 April PM).mp3
+    ├─ 🎵 051 TRAD - Conclusao do voto de bodhisattva.mp3
+    ├─ 🎵 052 JKR - Taking care of our bodhicitta-(20 April PM).mp3
+    ├─ 🎵 052 TRAD - Cuidar da nossa bodhicitta.mp3
+    ├─ 🎵 053 JKR - Uncondicional loving kindness and compassion-(20 April PM).mp3
+    ├─ 🎵 053 TRAD - Amor compassivo e compaixao incondicionais.mp3
+    ├─ 🎵 054 JKR - How to recite and do the accumulations-(20 April PM).mp3
+    ├─ 🎵 054 TRAD - Como recitar e fazer as acumulacoes.mp3
+    ├─ 🎵 055 JKR - How to support the bodhisattva vow-(20 April PM).mp3
+    ├─ 🎵 055 TRAD - Como suportar o voto de bodhisattva.mp3
+    ├─ 🎵 056 JKR - Advice for the practice - Dedication-(20 April PM).mp3
+    ├─ 🎵 056 TRAD - Conselho para a pratica - Dedicacao.mp3
+    ├─ 🎵 057 JKR - Conclusion of the retreat-(20 April PM).mp3
+    ├─ 🎵 057 TRAD - Conclusao do retiro.mp3
+    ├─ 🎵 058 JKR - Instructions fo the practice-(20 April PM).mp3
+    └─ 🎵 058 TRAD - Instrucoes para a pratica.mp3
+
+  📁 20250417_18-JKR-TM2-CCA (126 files)
+    ├─ 🎵 001 JKR - The daily practice in three parts-(17 April AM).mp3
+    ├─ 🎵 001 TRAD - A pratica diaria em tres partes.mp3
+    ├─ 🎵 002 JKR - The four thoughts-(17 April AM).mp3
+    ├─ 🎵 002 TRAD - Os quatro pensamentos.mp3
+    ├─ 🎵 003 JKR - Reflecting on the four thoughts-(17 April AM).mp3
+    ├─ 🎵 003 TRAD - Reflectir nos quatro pensamentos.mp3
+    ├─ 🎵 004 JKR - Changing our attitude-(17 April AM).mp3
+    ├─ 🎵 004 TRAD -  Mudar a nossa atitude.mp3
+    ├─ 🎵 005 JKR - Negative and neutral attitudes-(17 April AM).mp3
+    ├─ 🎵 005 TRAD - Atitudes negativas e neutras.mp3
+    ├─ 🎵 006 JKR - Where our motivation can lead us-(17 April AM).mp3
+    ├─ 🎵 006 TRAD - Onde a nossa motivacao nos pode levar.mp3
+    ├─ 🎵 007 JKR - The attitudes of beings of middling and greater capacity-(17 April AM).mp3
+    ├─ 🎵 007 TRAD - A atitude dos seres de media e grande capacidade.mp3
+    ├─ 🎵 008 JKR - The vast attitude of bodhicitta-(17 April AM).mp3
+    ├─ 🎵 008 TRAD - A vasta attitude da bodhicitta.mp3
+    ├─ 🎵 009 JKR - Developing the right attitude-(17 April AM).mp3
+    ├─ 🎵 009 TRAD - Desenvolver a atitude correcta.mp3
+    ├─ 🎵 010 JKR - The three suprome methods-(17 April AM).mp3
+    ├─ 🎵 010 TRAD - Os tres metodos supremos.mp3
+    ├─ 🎵 011 JKR - The attitude of the Mantrayana-(17 April AM).mp3
+    ├─ 🎵 011 TRAD - A atitude do Mantrayana.mp3
+    ├─ 🎵 012 JKR - Reading transmission of Red Tara-(17 April AM).mp3
+    ├─ 🎵 012 TRAD - Transmissao da leitura de Tara Vermelha.mp3
+    ├─ 🎵 013 JKR - Dedication and instructions for post-meditation-(17 April AM).mp3
+    ├─ 🎵 013 TRAD - Dedicacao e instrucoes para a pos-meditacao.mp3
+    ├─ 🎵 014 JKR - Question about compassion-(17 April PM).mp3
+    ├─ 🎵 014 TRAD - Questao sobre compaixao.mp3
+    ├─ 🎵 015 JKR - Question about compassion (cont)-(17 April PM).mp3
+    ├─ 🎵 015 TRAD - Questao sobre compaixao (cont).mp3
+    ├─ 🎵 016 JKR - Question about Enlightenment-(17 April PM).mp3
+    ├─ 🎵 016 TRAD -  Questao sobre a Iluminacao.mp3
+    ├─ 🎵 017 JKR - Question about aspiration and creating bridges-(17 April PM).mp3
+    ├─ 🎵 017 TRAD - Questao sobre aspiracao e criar pontes.mp3
+    ├─ 🎵 018 JKR - Everything is dreamlike-(17 April PM).mp3
+    ├─ 🎵 018 TRAD - Tudo e como um sonho.mp3
+    ├─ 🎵 019 JKR - How to practice in each session - First session-(17 April PM).mp3
+    ├─ 🎵 019 TRAD - Como praticar em cada sessao - Primeira sessao.mp3
+    ├─ 🎵 020 JKR - How to practice in the first session-(17 April PM).mp3
+    ├─ 🎵 020 TRAD - Como praticar na primeira sessao.mp3
+    ├─ 🎵 021 JKR - Setting the atmosphere - About this Sadhana-(17 April PM).mp3
+    ├─ 🎵 021 TRAD - Criar a atmosfera - Acerca desta Sadhana.mp3
+    ├─ 🎵 022 JKR - Instructions for the visualization-(17 April PM).mp3
+    ├─ 🎵 022 TRAD - Instrucoes para a visualizacao.mp3
+    ├─ 🎵 023 JKR - Instructions for the practice of the Sadhana - The Three Roots-(17 April PM).mp3
+    ├─ 🎵 023 TRAD - Instrucoes para a practica da Sadhana - As Tres Raizes.mp3
+    ├─ 🎵 024 JKR - Visualization of the three kayas-(17 April PM).mp3
+    ├─ 🎵 024 TRAD - Visualizacao dos Tres Kayas.mp3
+    ├─ 🎵 025 JKR - Reciting the Three Syllables - Preliminary to each session-(17 April PM).mp3
+    ├─ 🎵 025 TRAD - Recitar as Tres Silabas - Preliminar a cada sessao.mp3
+    ├─ 🎵 026 JKR - The dissolution-(17 April PM).mp3
+    ├─ 🎵 026 TRAD - A dissolucao.mp3
+    ├─ 🎵 027 JKR - Reading of the Sutra The city beggar women-(17 April PM).mp3
+    ├─ 🎵 027 TRAD - Leitura do Sutra The city beggar women.mp3
+    ├─ 🎵 028 JKR - Initial Prayers - Oracoes Iniciais-(18 April AM_part_1).mp3
+    ├─ 🎵 028 TRAD - Oracoes Iniciais.mp3
+    ├─ 🎵 029 JKR - Impermanence-(18 April AM_part_1).mp3
+    ├─ 🎵 029 TRAD - Impermanencia.mp3
+    ├─ 🎵 030 JKR - Impermanence (cont)-(18 April AM_part_1).mp3
+    ├─ 🎵 030 TRAD - Impermanencia (cont).mp3
+    ├─ 🎵 031 JKR - Our emotional support practices-(18 April AM_part_1).mp3
+    ├─ 🎵 031 TRAD - As nossas praticas para apoio emocional.mp3
+    ├─ 🎵 032 JKR - Precious human life and the Four Noble Truths-(18 April AM_part_2).mp3
+    ├─ 🎵 032 TRAD - A preciosa vida humana e as Quatro Nobre Verdades.mp3
+    ├─ 🎵 033 JKR - Having the leisures to train out mind-(18 April AM_part_2).mp3
+    ├─ 🎵 033 TRAD - Ter a possibilidade de treinar a nossa mente.mp3
+    ├─ 🎵 034 JKR - The eight lack of freedom-(18 April AM_part_2).mp3
+    ├─ 🎵 034 TRAD - As oito faltas de liberdade.mp3
+    ├─ 🎵 035 JKR - Feeling the value of the precious human life-(18 April AM_part_2).mp3
+    ├─ 🎵 035 TRAD - Sentir o valor da preciosa vida humana.mp3
+    ├─ 🎵 036 JKR - Lack of freedoms based on human experiences-(18 April AM_part_2).mp3
+    ├─ 🎵 036 TRAD - Falta de liberdades baseadas em experiencias humanas.mp3
+    ├─ 🎵 037 JKR - How do we do this as a practice - Laphur Thugtik Ngondro-(18 April AM_part_2).mp3
+    ├─ 🎵 037 TRAD - Como fazer isto como uma pratica - Laphur Thugtik Ngondro.mp3
+    ├─ 🎵 038 JKR - How to practice - Contemplating the precious human life-(18 April AM_part_2).mp3
+    ├─ 🎵 038 TRAD - Como praticar - Contemplar a preciosa vida humana.mp3
+    ├─ 🎵 039 JKR - Contemplating the precious human life (cont)-(18 April AM_part_2).mp3
+    ├─ 🎵 039 TRAD - Contemplar a precios vida human (cont).mp3
+    ├─ 🎵 040 JKR - Continuation of the instructions for the practice-(18 April AM_part_2).mp3
+    ├─ 🎵 040 TRAD - Continuacao das instrucoes para a pratica.mp3
+    ├─ 🎵 041 JKR - Checking our motivation-(18 April PM).mp3
+    ├─ 🎵 041 TRAD - Verificar a nossa motivacao.mp3
+    ├─ 🎵 042 JKR - How to organize the practice session-(18 April PM).mp3
+    ├─ 🎵 042 TRAD - Como organizar a sessao de pratica.mp3
+    ├─ 🎵 043 JKR - The eight intrusive circunstances-(18 April PM).mp3
+    ├─ 🎵 043 TRAD - As oito circunstancias intrusivas.mp3
+    ├─ 🎵 044 JKR - What do to when emotions arise-(18 April PM).mp3
+    ├─ 🎵 044 TRAD - O que fazer quando as emocoes surgem.mp3
+    ├─ 🎵 045 JKR - Cleansing our obscurations-(18 April PM).mp3
+    ├─ 🎵 045 TRAD - Limpar os nossos obscurecimentos.mp3
+    ├─ 🎵 046 JKR - Remedying a connection to a false spiritual friend-(18 April PM).mp3
+    ├─ 🎵 046 TRAD - Remediar uma ligacao a um amigo espiritual falso.mp3
+    ├─ 🎵 047 JKR - Intrusive circunstances-(18 April PM).mp3
+    ├─ 🎵 047 TRAD - Circunstancias intrusivas.mp3
+    ├─ 🎵 048 JKR - Remedy for being struck by bad karma-(18 April PM).mp3
+    ├─ 🎵 048 TRAD - Remedio por ser atingido por karma negativo.mp3
+    ├─ 🎵 049 JKR - Remedy for being enslaved by others-(18 April PM).mp3
+    ├─ 🎵 049 TRAD - Remedio por ter sido escravizado por outros.mp3
+    ├─ 🎵 050 JKR - Practicing for wrong reasons and hypocritical practice-(18 April PM).mp3
+    ├─ 🎵 050 TRAD - Praticar pelas razoes erradas e pratica hipocrita.mp3
+    ├─ 🎵 051 JKR - Noticing the intrusive circunstances-(18 April PM).mp3
+    ├─ 🎵 051 TRAD - Reparar nas circunstancias intrusivas.mp3
+    ├─ 🎵 052 JKR - Remedy for intense atttachment-(18 April PM).mp3
+    ├─ 🎵 052 TRAD - Remedio para o apego intenso.mp3
+    ├─ 🎵 053 JKR - Bondage to things-(18 April PM).mp3
+    ├─ 🎵 053 TRAD - Escravidao as coisas.mp3
+    ├─ 🎵 054 JKR - Evil conduct and bad character-(18 April PM).mp3
+    ├─ 🎵 054 TRAD - Ma conduta e mau caracter.mp3
+    ├─ 🎵 055 JKR - Lack of disillusionment with samsara-(18 April PM).mp3
+    ├─ 🎵 055 TRAD - Falta de desilusao com o samsara.mp3
+    ├─ 🎵 056 JKR - Lack of interest-(18 April PM).mp3
+    ├─ 🎵 056 TRAD - Falta de interesse.mp3
+    ├─ 🎵 057 JKR - Having joy in engaging in negative actions-(18 April PM).mp3
+    ├─ 🎵 057 TRAD - Ter alegria em nos envolvermos em accoes negativas.mp3
+    ├─ 🎵 058 JKR - Not thinking of changing-(18 April PM).mp3
+    ├─ 🎵 058 TRAD - Nao pensar em mudar.mp3
+    ├─ 🎵 059 JKR - Pure perception-(18 April PM).mp3
+    ├─ 🎵 059 TRAD - Percepcao pura.mp3
+    ├─ 🎵 060 JKR - Noticing and applying the antidotes-(18 April PM).mp3
+    ├─ 🎵 060 TRAD - Observar e aplicar os antidotos.mp3
+    ├─ 🎵 061 JKR - How to structure the practice sessions-(18 April PM).mp3
+    ├─ 🎵 061 TRAD - Como estrutural as sessoes de pratica.mp3
+    ├─ 🎵 062 JKR - Sumarization of the teachings and practice session - Dedication and conclusion-(18 April PM).mp3
+    ├─ 🎵 062 TRAD - Sumario dos ensinamentos e sessao de pratica - Dedicacao e conclusao.mp3
+    ├─ 🎵 063 JKR - Reading transmissions of obstacles removing prayers-(18 April PM).mp3
+    └─ 🎵 063 TRAD - Transmissao da leitura de preces de remocao de obstaculos.mp3
+
+  📁 20240408_09-JKR-TM1-CCA (101 files)
+    ├─ 🎵 001 JKR+TRAD - Initial prayers (8 April_AM_Part 1).mp3
+    ├─ 🎵 001 JKR+TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 002 JKR - Introduction (8 April_AM_Part 1).mp3
+    ├─ 🎵 002 TRAD - Introducao.mp3
+    ├─ 🎵 003 JKR - Investigating the I (8 April_AM_Part 1).mp3
+    ├─ 🎵 003 TRAD - Investigar o Eu.mp3
+    ├─ 🎵 004 JKR - The four immeasurables (8 April_AM_Part 1).mp3
+    ├─ 🎵 004 TRAD - Os quatro incomensuraveis.mp3
+    ├─ 🎵 005 JKR - How do we relate to ourselves (8 April_AM_Part 1).mp3
+    ├─ 🎵 005 TRAD - Como nos relacionamos connosco.mp3
+    ├─ 🎵 006 JKR - Ultimate bodhicitta (8 April_AM_Part 1).mp3
+    ├─ 🎵 006 TRAD - Bodhicitta ultima.mp3
+    ├─ 🎵 007 JKR - Power of resolution (8 April_AM_Part 2).mp3
+    ├─ 🎵 007 TRAD - Poder da resolucao.mp3
+    ├─ 🎵 008 JKR - Power of familiarization (8 April_AM_Part 2).mp3
+    ├─ 🎵 008 TRAD - Poder de familiarizacao.mp3
+    ├─ 🎵 009 JKR - Power of positive seeds (8 April_AM_Part 2).mp3
+    ├─ 🎵 009 TRAD - O poder das sementes positivas.mp3
+    ├─ 🎵 010 JKR - Power of revulsion (8 April_AM_Part 2).mp3
+    ├─ 🎵 010 TRAD - O poder da repulsa.mp3
+    ├─ 🎵 011 JKR - Power of aspiration (8 April_AM_Part 2).mp3
+    ├─ 🎵 011 TRAD - O poder da aspiracao.mp3
+    ├─ 🎵 012 JKR - How do we relate to dying (8 April_AM_Part 2).mp3
+    ├─ 🎵 012 TRAD - Como nos relacionamos com a morte.mp3
+    ├─ 🎵 013 JKR - Dying - power of positive deeds (8 April_PM).mp3
+    ├─ 🎵 013 TRAD - Morrer - poder das accoes positivas.mp3
+    ├─ 🎵 014 JKR - Dying - Power of aspiration (8 April_PM).mp3
+    ├─ 🎵 014 TRAD - Morrer - poder da aspiracao.mp3
+    ├─ 🎵 015 JKR - Dying - power of revulsion (8 April_PM).mp3
+    ├─ 🎵 015 TRAD - Morrer - poder da repulsa.mp3
+    ├─ 🎵 016 JKR - Dying - power of resolution (8 April_PM).mp3
+    ├─ 🎵 016 TRAD - Morrer - poder d resolucao.mp3
+    ├─ 🎵 017 JKR - Dying - power of familiarization (8 April_PM).mp3
+    ├─ 🎵 017 TRAD - poder da familiarizacao.mp3
+    ├─ 🎵 018 JKR - Questions (8 April_PM).mp3
+    ├─ 🎵 018 TRAD - Questoes.mp3
+    ├─ 🎵 019 JKR - Questions (8 April_PM).mp3
+    ├─ 🎵 019 TRAD - Questoes.mp3
+    ├─ 🎵 020 JKR - Questions (8 April_PM).mp3
+    ├─ 🎵 020 TRAD - Questoes.mp3
+    ├─ 🎵 021 JKR - Questions (8 April_PM).mp3
+    ├─ 🎵 021 TRAD - Questoes.mp3
+    ├─ 🎵 022 JKR - Proficiency in the mind trainning (8 April_PM).mp3
+    ├─ 🎵 022 TRAD - Proficiencia no treino da mente.mp3
+    ├─ 🎵 023 JKR - Dedication (8 April_PM).mp3
+    ├─ 🎵 023 TRAD - Dedicacao.mp3
+    ├─ 🎵 024 JKR+TRAD - Initial prayers (9 April_AM_Part 1).mp3
+    ├─ 🎵 024 JKR+TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 025 JKR - Suffering and impermanence (9 April_AM_Part 1).mp3
+    ├─ 🎵 025 TRAD - Sofrimento e impermanencia.mp3
+    ├─ 🎵 026 JKR - Mistaking a rope for a snake (9 April_AM_Part 1).mp3
+    ├─ 🎵 026 TRAD - Confundir uma corda por uma cobra.mp3
+    ├─ 🎵 027 JKR - Fertile ground for bodhicitta (9 April_AM_Part 1).mp3
+    ├─ 🎵 027 TRAD - Terra fertil para a bodhicitta.mp3
+    ├─ 🎵 028 JKR - Antidote to self-centeredness (9 April_AM_Part 1).mp3
+    ├─ 🎵 028 TRAD - Antidoto para a fixacao com o eu.mp3
+    ├─ 🎵 029 JKR - Examine ourselves (9 April_AM_Part 1).mp3
+    ├─ 🎵 029 TRAD - Examinarmo-nos.mp3
+    ├─ 🎵 030 JKR - Sustained by cheerfulness (9 April_AM_Part 1).mp3
+    ├─ 🎵 030 TRAD - Sustido pela boa disposicao.mp3
+    ├─ 🎵 031 JKR - Practice when distracted (9 April_AM_Part 1).mp3
+    ├─ 🎵 031 TRAD - Praticar mesmo quando distraidos.mp3
+    ├─ 🎵 032 JKR - In brief (9 April_AM_Part 1).mp3
+    ├─ 🎵 032 TRAD - Em suma.mp3
+    ├─ 🎵 033 JKR - Consistency in the mind trainning (9 April_AM_Part 2).mp3
+    ├─ 🎵 033 TRAD - Consistencia no treino da mente.mp3
+    ├─ 🎵 034 JKR - Observe and respect the precepts (9 April_AM_Part 2).mp3
+    ├─ 🎵 034 TRAD - Observar e respeitar os preceitos.mp3
+    ├─ 🎵 035 JKR - Not being affected (9 April_AM_Part 2).mp3
+    ├─ 🎵 035 TRAD - Nao ser afetado.mp3
+    ├─ 🎵 036 JKR - No double standards (9 April_AM_Part 2).mp3
+    ├─ 🎵 036 TRAD - Sem ter dois pesos e duas medidas.mp3
+    ├─ 🎵 037 JKR - Change your attitude (9 April_AM_Part 2).mp3
+    ├─ 🎵 037 TRAD - Mudar a nossa atitude.mp3
+    ├─ 🎵 038 JKR - Questions (9 April_PM_Part 1).mp3
+    ├─ 🎵 038 TRAD - Questoes.mp3
+    ├─ 🎵 039 JKR - Questions (9 April_PM_Part 1).mp3
+    ├─ 🎵 039 TRAD - Questoes.mp3
+    ├─ 🎵 040 JKR - Questions (9 April_PM_Part 1).mp3
+    ├─ 🎵 040 TRAD - Questoes.mp3
+    ├─ 🎵 041 JKR - Infirmities and opinions (9 April_PM_Part 1).mp3
+    ├─ 🎵 041 TRAD - Infermidades e opinioes.mp3
+    ├─ 🎵 042 JKR - Working on the defilements (9 April_PM_Part 1).mp3
+    ├─ 🎵 042 TRAD - Trabalhar nos obscurecimentos.mp3
+    ├─ 🎵 043 JKR - Hoping for results (9 April_PM_Part 1).mp3
+    ├─ 🎵 043 TRAD - Esperar resultados.mp3
+    ├─ 🎵 044 JKR - Poisoned food (9 April_PM_Part 2).mp3
+    ├─ 🎵 044 TRAD - Comida envenenada.mp3
+    ├─ 🎵 045 JKR - Hidebound by a sense of duty (9 April_PM_Part 2).mp3
+    ├─ 🎵 045 TRAD - Não ser refem do dever.mp3
+    ├─ 🎵 046 JKR - Do not meet abuse with abuse (9 April_PM_Part 2).mp3
+    ├─ 🎵 046 TRAD - Nao responder a insultos com insultos.mp3
+    ├─ 🎵 047 JKR - Other commmitments of the mind trainning (9 April_PM_Part 2).mp3
+    ├─ 🎵 047 TRAD - Outros compromissos relativos ao treino da mente.mp3
+    ├─ 🎵 048 JKR - Reading pages 79-106 Enlightened Courage (9 April_PM_Part 2).mp3
+    ├─ 🎵 048 TRAD - Leitura das pagina 79-106 - Enlightened Courage.mp3
+    ├─ 🎵 049 JKR - Conclusion of the teachings (9 April_PM_Part 2).mp3
+    ├─ 🎵 049 TRAD - Conclusao dos ensinamentos.mp3
+       📁 Legacy (3 files)
+         ├─ 📦 022 JKR - Proficiency in the mind training (8 April_PM).mp3
+         ├─ 📦 033 JKR - Consistency in the mind training (9 April_AM_Part 2).mp3
+         └─ 📦 047 JKR - Other commitments of the mind training (9 April_PM_Part 2).mp3
+
+  📁 20240418-JKR-PP3-CCA (50 files)
+    ├─ 🎵 001 JKR + TRAD - Initial prayers-(18 April AM_part_1).mp3
+    ├─ 🎵 001 JKR + TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 002 JKR - The Excellent Path of Liberation - Until Bodhicitta-(18 April AM_part_1).mp3
+    ├─ 🎵 002 TRAD - O Excelente Caminho da Libertacao - Ate a Bodhicitta.mp3
+    ├─ 🎵 003 JKR - The Excellent Path of Liberation - Vajrasattva-(18 April AM_part_1).mp3
+    ├─ 🎵 003 TRAD - O Excelente Caminho da Libertacao - Vajrasattva.mp3
+    ├─ 🎵 004 JKR - Skillful means-(18 April AM_part_1).mp3
+    ├─ 🎵 004 TRAD - Meios habeis.mp3
+    ├─ 🎵 005 JKR - Accumulation of merit and wisdom-(18 April AM_part_2).mp3
+    ├─ 🎵 005 TRAD - Acumulacao de merito e sabedoria.mp3
+    ├─ 🎵 006 JKR - Powerful way of accumulating merit-(18 April AM_part_2).mp3
+    ├─ 🎵 006 TRAD - Metodo poderoso de acumular merito.mp3
+    ├─ 🎵 007 JKR - What to offer-(18 April AM_part_2).mp3
+    ├─ 🎵 007 TRAD - O que oferecer.mp3
+    ├─ 🎵 008 JKR - The object of offering-(18 April AM_part_2).mp3
+    ├─ 🎵 008 TRAD - O objeto de oferenda.mp3
+    ├─ 🎵 009 JKR - The outer mandala-(18 April AM_part_2).mp3
+    ├─ 🎵 009 TRAD - A mandala externa.mp3
+    ├─ 🎵 010 JKR - Offering ingredients and the mandala plate-(18 April AM_part_2).mp3
+    ├─ 🎵 010 TRAD - Ingredientes de oferenda e o prato da mandala.mp3
+    ├─ 🎵 011 JKR - The way to offer the 37 heaps mandala-(18 April AM_part_2).mp3
+    ├─ 🎵 011 TRAD - Como oferecer a mandala dos 37 elementos.mp3
+    ├─ 🎵 012 JKR - Description of the 37 heaps mandala-(18 April PM).mp3
+    ├─ 🎵 012 TRAD - Descricao da mandala dos 37 elementos.mp3
+    ├─ 🎵 013 JKR - Description of the 37 heaps mandala (cont)-(18 April PM).mp3
+    ├─ 🎵 013 TRAD - Descricao da mandala dos 37 elementos (cont).mp3
+    ├─ 🎵 014 JKR - How to visualize de offering-(18 April PM).mp3
+    ├─ 🎵 014 TRAD - Como visualizar a oferenda.mp3
+    ├─ 🎵 015 JKR - The inner mandala offering-(18 April PM).mp3
+    ├─ 🎵 015 TRAD - A oferenda da mandala interna.mp3
+    ├─ 🎵 016 JKR - The secret mandala offering-(18 April PM).mp3
+    ├─ 🎵 016 TRAD - A oferenda secreta da mandala.mp3
+    ├─ 🎵 017 JKR - The result of the mandala offering-(18 April PM).mp3
+    ├─ 🎵 017 TRAD - Os resultados da oferenda da mandala.mp3
+    ├─ 🎵 018 JKR - How to do the mandala offering practice-(18 April PM).mp3
+    ├─ 🎵 018 TRAD - Como fazer a pratica da oferenda da mandala.mp3
+    ├─ 🎵 019 JKR - Instructions for post-meditation-(18 April PM).mp3
+    ├─ 🎵 019 TRAD - Instrucoes para a pos meditacao.mp3
+    ├─ 🎵 020 JKR - Freedom from attachment-(18 April PM).mp3
+    ├─ 🎵 020 TRAD - Libertar do apego.mp3
+    ├─ 🎵 021 JKR - Mandala offering-(18 April PM).mp3
+    ├─ 🎵 021 TRAD - Oferenda da mandala.mp3
+    ├─ 🎵 022 JKR - Reading transmission of the Excellent Path of Liberation-(18 April PM).mp3
+    ├─ 🎵 022 TRAD - Transmissao oral do Excelente Caminho da Libertacao.mp3
+    ├─ 🎵 023 JKR - Instructions for the mandala practice-(18 April PM).mp3
+    ├─ 🎵 023 TRAD - Instrucoes para a pratica da mandala.mp3
+    ├─ 🎵 024 JKR - Reading transmission of the Prayer of Kuntuzangpo - Conclusion-(18 April PM).mp3
+    ├─ 🎵 024 TRAD - Transmissao oral da Oracao de Kuntuzangpo - Conclusao.mp3
+    ├─ 🎵 025 - TSOK 18-04-2024.mp3
+       📁 Legacy (1 files)
+         └─ 📦 025 - TSOK 18 April2024.mp3
+
+  📁 20240420_21-JKR-PWR-PP4-CCA (102 files)
+    ├─ 🎵 001 JKR+TRAD - Beginning prayers-(20 April_AM_part 1).mp3
+    ├─ 🎵 001 JKR+TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 002 JKR - About refuge and bodhicitta-(20 April_AM_part 1).mp3
+    ├─ 🎵 002 TRAD - Acerca do refugio e bodhicitta.mp3
+    ├─ 🎵 003 JKR - The need to change-(20 April_AM_part 1).mp3
+    ├─ 🎵 003 TRAD - A necessidade de mudar.mp3
+    ├─ 🎵 004 JKR - Using our intelligence and the impact of our practice-(20 April_AM_part 1).mp3
+    ├─ 🎵 004 TRAD - Usar a nossa inteligencia e o impacto da nossa pratica.mp3
+    ├─ 🎵 005 JKR - Vajrasattva and mandala practices what are they for-(20 April_AM_part 1).mp3
+    ├─ 🎵 005 TRAD - Para que sao as praticas da Vajrasattva e Mandala.mp3
+    ├─ 🎵 006 JKR - Skillful means-(20 April_AM_part 1).mp3
+    ├─ 🎵 006 TRAD - Meios habeis.mp3
+    ├─ 🎵 007 JKR - Having received the blessing-(20 April_AM_part 1).mp3
+    ├─ 🎵 007 TRAD - Tendo recebido as bencaos.mp3
+    ├─ 🎵 008 JKR - What is Guru Yoga-(20 April_AM_part 1).mp3
+    ├─ 🎵 008 TRAD - O que e Guru Yoga.mp3
+    ├─ 🎵 009 JKR - The purpose of our practice-(20 April-AM-part 2).mp3
+    ├─ 🎵 009 TRAD - O proposito da nossa pratica.mp3
+    ├─ 🎵 010 JKR - The importance of the guru-(20 April-AM-part 2).mp3
+    ├─ 🎵 010 TRAD - A importancia do guru.mp3
+    ├─ 🎵 011 JKR - Thinking of the guru-(20 April-AM-part 2).mp3
+    ├─ 🎵 011 TRAD - Pensar no guru.mp3
+    ├─ 🎵 012 JKR - Through the blessings of the guru-(20 April-AM-part 2).mp3
+    ├─ 🎵 012 TRAD - Atraves das bencaos do guru.mp3
+    ├─ 🎵 013 JKR - How to perceive the guru-(20 April_PM_part 1).mp3
+    ├─ 🎵 013 TRAD - Como ver o guru.mp3
+    ├─ 🎵 014 JKR - How to see the teacher-(20 April_PM_part 1).mp3
+    ├─ 🎵 014 TRAD - Como ver o mestre.mp3
+    ├─ 🎵 015 JKR - How to receive the blessings of the Buddha-(20 April_PM_part 1).mp3
+    ├─ 🎵 015 TRAD - Como receber as bencaos do Buda.mp3
+    ├─ 🎵 016 JKR - Seeing the teacher as the Buddha-(20 April_PM_part 1).mp3
+    ├─ 🎵 016 TRAD - Ver o mestre como o Buda.mp3
+    ├─ 🎵 017 JKR - Seeing the teacher as more precious than the Buddha-(20 April_PM_part 1).mp3
+    ├─ 🎵 017 TRAD - Ver o mestre como ainda mais precioso que o Buda.mp3
+    ├─ 🎵 018 PWR+TRAD - Acerca deste lugar-(20 Abril_PM_part 2).mp3
+    ├─ 🎵 019 PWR+TRAD - Leitura das praticas preliminares-(20 Abril_PM_part 2).mp3
+    ├─ 🎵 020 PWR+TRAD - Leitura do Guru Yoga-(20 Abril_PM_part 2).mp3
+    ├─ 🎵 021 PWR+TRAD - Como receber ensinamentos-(20 Abril_PM_part 2).mp3
+    ├─ 🎵 022 PWR+TRAD - Obstaculos ao recebermos ensinamentos-(20 Abril_PM_part 2).mp3
+    ├─ 🎵 023 PWR+TRAD - Regozijar por termos recebido ensinamentos-(20 Abril_PM_part 2).mp3
+    ├─ 🎵 024 JKR+TRAD - Beginning prayers-(21 April_AM_part 1a).mp3
+    ├─ 🎵 024 JKR+TRAD - Oracoes iniciais.mp3
+    ├─ 🎵 025 JKR - The Excellent Path of Liberation-Until mandala-(21 April_AM_part 1a).mp3
+    ├─ 🎵 025 TRAD - O Excelente Caminho da Libertacao - Ate Mandala.mp3
+    ├─ 🎵 026 JKR - Remembering the motivation and the 4 thoughts-21_April_AM_part_1_2.mp3
+    ├─ 🎵 026 TRAD - Lembrar a motivacao e os 4 pensamentos.mp3
+    ├─ 🎵 027 JKR - About the preliminary practices-21_April_AM_part_1_2.mp3
+    ├─ 🎵 027 TRAD - Acerca das praticas preliminares.mp3
+    ├─ 🎵 028 JKR - How to relate to the guru-(21 April AM part2).mp3
+    ├─ 🎵 028 TRAD - Como nos relacionarmos com o guru.mp3
+    ├─ 🎵 029 JKR - Devotion-(21 April AM part2).mp3
+    ├─ 🎵 029 TRAD - Devocao.mp3
+    ├─ 🎵 030 JKR - Praying to the guru-Guru Yoga visualization-(21 April AM part2).mp3
+    ├─ 🎵 030 TRAD - Oracao do Guru - Visualizacao do Guru Yoga.mp3
+    ├─ 🎵 031 JKR - The Excellent Path of Liberation-Guru Yoga-(21 April AM part2).mp3
+    ├─ 🎵 031 TRAD - O Excelente Caminho da Libertacao - Guru Yoga.mp3
+    ├─ 🎵 032 JKR - Guru Yoga and instructions-(21 April AM part2).mp3
+    ├─ 🎵 032 TRAD - Guru Yoga e instrucoes.mp3
+    ├─ 🎵 033 JKR - Questions about refuge and Guru Yoga-(21 April PM part 1).mp3
+    ├─ 🎵 033 TRAD - Questoes acerca do refugio e Guru Yoga.mp3
+    ├─ 🎵 034 JKR - Question about fear-(21 April PM part 1).mp3
+    ├─ 🎵 034 TRAD - Questao acerca do medo.mp3
+    ├─ 🎵 035 JKR - Question about the ngondro-(21 April PM part 1).mp3
+    ├─ 🎵 035 TRAD - Questao sobre o Ngondro.mp3
+    ├─ 🎵 036 JKR - Question about freedom and Yangdak Heruka-(21 April PM part 1).mp3
+    ├─ 🎵 036 TRAD - Questao sobre liberdade e Yangdak Heruka.mp3
+    ├─ 🎵 037 JKR - Question about the teacher-(21 April PM part 1).mp3
+    ├─ 🎵 037 TRAD - Questao sobre o mestre.mp3
+    ├─ 🎵 038 JKR - Guru-student relationship-(21 April PM part 1).mp3
+    ├─ 🎵 038 TRAD - Relacao mestre-discipulo.mp3
+    ├─ 🎵 039 JKR - Gratitude towards the path and the teacher-(21 April PM part 1).mp3
+    ├─ 🎵 039 TRAD - Gratidao pelo caminho e pelo mestre.mp3
+    ├─ 🎵 040 JKR - Trainning to see our teacher as awakened-(21 April PM part 1).mp3
+    ├─ 🎵 040 TRAD - Tentar ver o nosso mestre como desperto.mp3
+    ├─ 🎵 041 JKR - Suplicating to the guru-(21 April PM part 1).mp3
+    ├─ 🎵 041 TRAD - Suplicar ao Guru.mp3
+    ├─ 🎵 042 JKR - The four empowerments-(21 April PM part 1).mp3
+    ├─ 🎵 042 TRAD - As quatro iniciacoes.mp3
+    ├─ 🎵 043 JKR - What empowerment means-(21 April PM part 1).mp3
+    ├─ 🎵 043 TRAD - O que significa iniciacao.mp3
+    ├─ 🎵 044 JKR - Reading from A Chariot to Freedom-(21 April PM part 1).mp3
+    ├─ 🎵 044 TRAD - Lendo do livro A Chariot to Freedom.mp3
+    ├─ 🎵 045 JKR - The Excellent Path of Liberation-Empowerments and conclusion-(21 April PM part 1).mp3
+    ├─ 🎵 045 TRAD - O Excelente Caminho da Libertacao - Iniciacoes e conclusao.mp3
+    ├─ 🎵 046 JKR - Dedication and concluding instructions-(21 April PM part 1).mp3
+    ├─ 🎵 046 TRAD - Dedicacao e instrucoes finais.mp3
+    ├─ 🎵 047 PWR+TRAD - Leitura das oracoes iniciais-(21 Abril PM part 2).mp3
+    ├─ 🎵 048 PWR+TRAD - Transmissao oral da Coletanea de Praticas-(21 Abril PM part 2).mp3
+    ├─ 🎵 049 PWR+TRAD - Beneficios do louvor a Manjushri C7-(21 Abril PM part 2).mp3
+    ├─ 🎵 050 PWR+TRAD - Conclusao do ensinamento-(21 Abril PM part 2).mp3
+       📁 Legacy (12 files)
+         ├─ 📦 018 PWR+TRAD - About this place-(20 April_PM_part 2).mp3
+         ├─ 📦 019 PWR+TRAD - Reading from the preliminary practices-(20 April_PM_part 2).mp3
+         ├─ 📦 020 PWR+TRAD - Reading of the Guru Yoga-(20 April_PM_part 2).mp3
+         ├─ 📦 021 PWR+TRAD - How to receive teachings-(20 April_PM_part 2).mp3
+         ├─ 📦 022 PWR+TRAD - Obstacles while receiving teatchings-(20 April_PM_part 2).mp3
+         ├─ 📦 023 PWR+TRAD - Rejoicing for having received teachings-(20 April_PM_part 2).mp3
+         ├─ 📦 040 JKR - Training to see our teacher as awakened-(21 April PM part 1).mp3
+         ├─ 📦 041 JKR - Supplicating to the guru-(21 April PM part 1).mp3
+         ├─ 📦 047 PWR+TRAD - Reading of the beginning prayers-(21 April PM part 2).mp3
+         ├─ 📦 048 PWR+TRAD - Reading transmission of the Collection of Practices-(21 April PM part 2).mp3
+         ├─ 📦 049 PWR+TRAD - Benefits of the Praise to Manjushri-(21 April PM part 2).mp3
+         └─ 📦 050 PWR+TRAD - Conclusion of the teaching-(21 April PM part 2).mp3
+
+  ... and 70 more events
+
+
+================================================================================
+📊 STATISTICS
+================================================================================
+
+Events with bilingual content: 80
+Events with Legacy tracks: 48
+
+Main tracks (bilingual): 7670
+Legacy tracks (unique audio1): 897
+Duplicates (skipped): 3757
+
+Top 5 events with most Legacy tracks:
+  1. 20191006_12-KPS-ENS-UBP: 352 legacy tracks
+  2. 20070913_15-SDL-ENS-FMD: 195 legacy tracks
+  3. 20150402_04-JKR-PWR-RP2-HSA: 66 legacy tracks
+  4. 20160621_23 - SST-ENS-HAL: 56 legacy tracks
+  5. 20150405_06-JKR-PWR-RP1-HSA: 45 legacy tracks
