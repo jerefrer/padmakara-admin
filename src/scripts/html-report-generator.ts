@@ -498,11 +498,12 @@ export function generateHTMLReport(data: ReportData): string {
 
     <div class="tabs">
       <button class="tab active" onclick="switchTab(0)">📊 Summary</button>
-      <button class="tab" onclick="switchTab(1)">🌳 Bucket Tree</button>
-      <button class="tab" onclick="switchTab(2)">📦 Legacy Tracks</button>
-      <button class="tab" onclick="switchTab(3)">⚠️ Issues</button>
-      <button class="tab" onclick="switchTab(4)">📋 Events List</button>
-      <button class="tab" onclick="switchTab(5)">🚫 No Audio</button>
+      <button class="tab" onclick="switchTab(1)">🎯 Decisions</button>
+      <button class="tab" onclick="switchTab(2)">🌳 Bucket Tree</button>
+      <button class="tab" onclick="switchTab(3)">📦 Legacy Tracks</button>
+      <button class="tab" onclick="switchTab(4)">⚠️ Issues</button>
+      <button class="tab" onclick="switchTab(5)">📋 Events List</button>
+      <button class="tab" onclick="switchTab(6)">🚫 No Audio</button>
     </div>
 
     <!-- Tab 0: Summary -->
@@ -591,7 +592,204 @@ export function generateHTMLReport(data: ReportData): string {
       ` : ''}
     </div>
 
-    <!-- Tab 1: Bucket Tree -->
+    <!-- Tab 1: Decisions -->
+    <div class="tab-content">
+      <h2 style="margin-bottom: 20px;">🎯 Migration Decisions Required</h2>
+
+      <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 16px; margin-bottom: 30px; border-radius: 4px;">
+        <strong style="color: #856404;">📋 Action Required:</strong>
+        <p style="margin: 8px 0 0; color: #856404;">
+          Review the decisions below and fill in <code>migration-decisions.yaml</code> before running the migration.
+          This report provides the context and data you need to make informed decisions.
+        </p>
+      </div>
+
+      <h3 style="margin: 30px 0 15px; color: #d32f2f;">🔴 Critical Decisions</h3>
+
+      <!-- Decision 1: Bucket Strategy -->
+      <div style="margin-bottom: 24px; padding: 16px; background: white; border: 1px solid #ddd; border-radius: 6px;">
+        <h4 style="margin: 0 0 12px; color: #1976d2;">Decision 1: Bucket Strategy</h4>
+        <p style="margin: 0 0 12px; color: #666;">
+          <strong>Context:</strong> The original bucket (<code>padmakara-pt</code>) has an inconsistent folder structure that evolved over time.
+        </p>
+        <div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-bottom: 12px;">
+          <div style="font-size: 12px; color: #666; margin-bottom: 8px;"><strong>Options:</strong></div>
+          <div style="margin-bottom: 8px;">
+            <strong style="color: #f57c00;">Option A: Extract in Place</strong><br/>
+            <span style="font-size: 13px; color: #666;">
+              Extract zips in original bucket, keep existing folder structure<br/>
+              ✅ Simple, no duplication, no bucket switching<br/>
+              ❌ Inconsistent paths, complex backend code, risk to production data
+            </span>
+          </div>
+          <div>
+            <strong style="color: #4caf50;">Option B: New Bucket (Recommended)</strong><br/>
+            <span style="font-size: 13px; color: #666;">
+              Migrate to clean bucket with consistent structure<br/>
+              ✅ Clean paths, simple backend, safe testing, easy rollback<br/>
+              ❌ Temporary storage cost, need to switch bucket later
+            </span>
+          </div>
+        </div>
+        <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; font-size: 13px;">
+          <strong>📝 Configure in YAML:</strong> <code>storage.strategy</code>
+        </div>
+      </div>
+
+      <!-- Decision 2: Legacy Tracks -->
+      <div style="margin-bottom: 24px; padding: 16px; background: white; border: 1px solid #ddd; border-radius: 6px;">
+        <h4 style="margin: 0 0 12px; color: #1976d2;">Decision 2: Legacy Track Handling</h4>
+        <p style="margin: 0 0 12px; color: #666;">
+          <strong>Context:</strong> <span style="color: #d32f2f; font-weight: bold;">${data.totalLegacyTracks} unique tracks</span> from audio1 folders have no bilingual equivalent in audio2.
+        </p>
+        <div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-bottom: 12px;">
+          <div style="font-size: 12px; color: #666; margin-bottom: 8px;"><strong>Options:</strong></div>
+          <div style="margin-bottom: 6px;">
+            <strong>• Legacy Folder (Recommended):</strong> <span style="font-size: 13px; color: #666;">Create <code>/legacy/</code> subfolder for unique tracks</span>
+          </div>
+          <div style="margin-bottom: 6px;">
+            <strong>• Merge Main:</strong> <span style="font-size: 13px; color: #666;">Include all audio1 tracks in main folder</span>
+          </div>
+          <div>
+            <strong>• Separate Audio1:</strong> <span style="font-size: 13px; color: #666;">Keep audio1 and audio2 completely separate</span>
+          </div>
+        </div>
+        <div style="background: #fff3e0; padding: 10px; border-radius: 4px; font-size: 13px; margin-bottom: 8px;">
+          <strong>📊 Impact:</strong> ${data.eventsWithLegacyTracks} events affected
+          <a href="#" onclick="switchTab(3); return false;" style="margin-left: 8px; color: #1976d2;">View Legacy Tracks →</a>
+        </div>
+        <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; font-size: 13px;">
+          <strong>📝 Configure in YAML:</strong> <code>tracks.legacy_strategy</code>
+        </div>
+      </div>
+
+      <!-- Decision 3: Track Count Mismatches -->
+      <div style="margin-bottom: 24px; padding: 16px; background: white; border: 1px solid #ddd; border-radius: 6px;">
+        <h4 style="margin: 0 0 12px; color: #1976d2;">Decision 3: Track Count Mismatches</h4>
+        <p style="margin: 0 0 12px; color: #666;">
+          <strong>Context:</strong> <span style="color: #f57c00; font-weight: bold;">${data.trackCountMismatches.length} events</span> have CSV expected count ≠ actual files found in S3.
+        </p>
+        <div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-bottom: 12px;">
+          <div style="font-size: 12px; color: #666; margin-bottom: 8px;"><strong>Options:</strong></div>
+          <div style="margin-bottom: 6px;">
+            <strong>• Trust Files (Recommended):</strong> <span style="font-size: 13px; color: #666;">Use actual S3 files, ignore CSV count</span>
+          </div>
+          <div style="margin-bottom: 6px;">
+            <strong>• Trust CSV:</strong> <span style="font-size: 13px; color: #666;">Fail migration if counts don't match</span>
+          </div>
+          <div>
+            <strong>• Manual Review:</strong> <span style="font-size: 13px; color: #666;">Flag for manual review, skip migration</span>
+          </div>
+        </div>
+        <div style="background: #fff3e0; padding: 10px; border-radius: 4px; font-size: 13px; margin-bottom: 8px;">
+          <strong>📊 Impact:</strong> ${data.trackCountMismatches.length} events
+          <a href="#" onclick="switchTab(4); scrollToSection('warning-section'); return false;" style="margin-left: 8px; color: #1976d2;">View Mismatches →</a>
+        </div>
+        <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; font-size: 13px;">
+          <strong>📝 Configure in YAML:</strong> <code>tracks.mismatch_strategy</code>
+        </div>
+      </div>
+
+      <h3 style="margin: 30px 0 15px; color: #f57c00;">🟠 Important Decisions</h3>
+
+      <!-- Decision 4: Events Without Audio -->
+      <div style="margin-bottom: 24px; padding: 16px; background: white; border: 1px solid #ddd; border-radius: 6px;">
+        <h4 style="margin: 0 0 12px; color: #1976d2;">Decision 4: Events Without Audio</h4>
+        <p style="margin: 0 0 12px; color: #666;">
+          <strong>Context:</strong> <span style="font-weight: bold;">${data.eventsWithoutTracks.length} events</span> have no audio files (neither audio1 nor audio2).
+        </p>
+        <div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-bottom: 12px;">
+          <div style="font-size: 12px; color: #666; margin-bottom: 8px;"><strong>Options:</strong></div>
+          <div style="margin-bottom: 6px;">
+            <strong>• Skip:</strong> <span style="font-size: 13px; color: #666;">Don't create event records for these</span>
+          </div>
+          <div style="margin-bottom: 6px;">
+            <strong>• Create Placeholder (Recommended):</strong> <span style="font-size: 13px; color: #666;">Create event with transcript-only flag</span>
+          </div>
+          <div>
+            <strong>• Manual Review:</strong> <span style="font-size: 13px; color: #666;">List in report for manual decision per event</span>
+          </div>
+        </div>
+        <div style="background: #fff3e0; padding: 10px; border-radius: 4px; font-size: 13px; margin-bottom: 8px;">
+          <strong>📊 Impact:</strong> ${data.eventsWithoutTracks.length} events
+          <a href="#" onclick="switchTab(6); return false;" style="margin-left: 8px; color: #1976d2;">View Events →</a>
+        </div>
+        <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; font-size: 13px;">
+          <strong>📝 Configure in YAML:</strong> <code>content.no_audio_strategy</code>
+        </div>
+      </div>
+
+      <!-- Decision 5: Unmapped Data -->
+      <div style="margin-bottom: 24px; padding: 16px; background: white; border: 1px solid #ddd; border-radius: 6px;">
+        <h4 style="margin: 0 0 12px; color: #1976d2;">Decision 5: Unmapped Data Handling</h4>
+        <p style="margin: 0 0 12px; color: #666;">
+          <strong>Context:</strong> Some CSV values don't match database lookup tables.
+        </p>
+        <div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-bottom: 12px;">
+          <div style="font-size: 13px; color: #666; margin-bottom: 8px;">
+            <strong>Unmapped Event Types:</strong> ${data.unmappedEventTypes.length > 0 ? data.unmappedEventTypes.map(et => `<code>${et}</code>`).join(', ') : 'None'}
+          </div>
+          <div style="font-size: 13px; color: #666;">
+            <strong>Unmapped Audiences:</strong> ${data.unmappedAudiences.length > 0 ? data.unmappedAudiences.map(aud => `<code>${aud}</code>`).join(', ') : 'None'}
+          </div>
+        </div>
+        <div style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-bottom: 12px;">
+          <div style="font-size: 12px; color: #666; margin-bottom: 8px;"><strong>Options:</strong></div>
+          <div style="margin-bottom: 6px;">
+            <strong>• Infer (Recommended):</strong> <span style="font-size: 13px; color: #666;">Attempt to infer from event code patterns</span>
+          </div>
+          <div style="margin-bottom: 6px;">
+            <strong>• Create Null:</strong> <span style="font-size: 13px; color: #666;">Create event with null for unmapped fields</span>
+          </div>
+          <div>
+            <strong>• Skip Event:</strong> <span style="font-size: 13px; color: #666;">Don't migrate events with unmapped data</span>
+          </div>
+        </div>
+        <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; font-size: 13px;">
+          <strong>📝 Configure in YAML:</strong> <code>mapping.unmapped_strategy</code>, <code>mapping.infer_teachers</code>, <code>mapping.infer_places</code>
+        </div>
+      </div>
+
+      <h3 style="margin: 30px 0 15px; color: #1976d2;">🔵 Configuration Options</h3>
+
+      <!-- Additional Configuration -->
+      <div style="margin-bottom: 24px; padding: 16px; background: white; border: 1px solid #ddd; border-radius: 6px;">
+        <h4 style="margin: 0 0 12px; color: #1976d2;">Execution & Safety Settings</h4>
+        <div style="font-size: 13px; color: #666; line-height: 1.8;">
+          <div style="margin-bottom: 8px;">
+            <strong>• Batch Size:</strong> Process events in batches (recommended: 50)
+          </div>
+          <div style="margin-bottom: 8px;">
+            <strong>• S3 Concurrency:</strong> Parallel S3 operations (recommended: 5)
+          </div>
+          <div style="margin-bottom: 8px;">
+            <strong>• Min Success Rate:</strong> Minimum success rate to proceed (recommended: 0.95)
+          </div>
+          <div style="margin-bottom: 8px;">
+            <strong>• Rollback Strategy:</strong> What to do if migration fails mid-way
+          </div>
+          <div style="margin-bottom: 8px;">
+            <strong>• State Management:</strong> Save progress for resumable migration
+          </div>
+        </div>
+        <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; font-size: 13px; margin-top: 12px;">
+          <strong>📝 Configure in YAML:</strong> <code>execution</code>, <code>validation</code>, <code>rollback</code> sections
+        </div>
+      </div>
+
+      <div style="background: #e8f5e9; border-left: 4px solid #4caf50; padding: 16px; margin-top: 30px; border-radius: 4px;">
+        <strong style="color: #2e7d32;">✅ Next Steps:</strong>
+        <ol style="margin: 12px 0 0; padding-left: 20px; color: #2e7d32;">
+          <li>Review all tabs in this report to understand the data</li>
+          <li>Open <code>migration-decisions.yaml</code> and fill in your decisions</li>
+          <li>Run: <code>bun run migrate --config migration-decisions.yaml --validate-only</code></li>
+          <li>Review the validation results</li>
+          <li>If satisfied, run: <code>bun run migrate --config migration-decisions.yaml --execute</code></li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Tab 2: Bucket Tree -->
     <div class="tab-content">
       <h2 style="margin-bottom: 20px;">Bucket Structure Preview</h2>
 

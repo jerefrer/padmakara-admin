@@ -54,3 +54,21 @@ export {
   downloadRequests,
   downloadRequestsRelations,
 } from "./download-requests.ts";
+
+// Migrations
+export {
+  migrations,
+  migrationFileCatalogs,
+  migrationFileDecisions,
+  migrationLogs,
+  mediaFiles,
+  migrationsRelations,
+  migrationFileCatalogsRelations,
+  migrationFileDecisionsRelations,
+  migrationLogsRelations,
+  mediaFilesRelations,
+  migrationStatusEnum,
+  fileActionEnum,
+  fileCategoryEnum,
+  logLevelEnum,
+} from "./migrations.ts";

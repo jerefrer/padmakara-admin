@@ -12,6 +12,7 @@ import { EventList, EventEdit, EventCreate } from "./resources/events";
 import { EventTypeList, EventTypeEdit, EventTypeCreate } from "./resources/event-types";
 import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audiences";
 import { UserList, UserShow, UserEdit } from "./resources/users";
+import { MigrationList, MigrationCreate, MigrationShow } from "./resources/migrations";
 
 const App = () => (
   <Admin
@@ -70,6 +71,13 @@ const App = () => (
       list={UserList}
       show={UserShow}
       edit={UserEdit}
+    />
+    <Resource
+      name="migrations"
+      options={{ label: "Migrations" }}
+      list={MigrationList}
+      create={MigrationCreate}
+      show={MigrationShow}
     />
   </Admin>
 );

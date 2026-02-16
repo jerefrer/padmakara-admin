@@ -6,6 +6,7 @@ import PlaceIcon from "@mui/icons-material/Place";
 import PeopleIcon from "@mui/icons-material/People";
 import CategoryIcon from "@mui/icons-material/Category";
 import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
+import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
@@ -61,6 +62,7 @@ export const Menu = () => {
       {/* Admin */}
       <SectionLabel>{translate("padmakara.menu.administration")}</SectionLabel>
       <RaMenu.Item to="/users" primaryText={translate("resources.users.name", { smart_count: 2 })} leftIcon={<PeopleIcon />} />
+      <RaMenu.Item to="/migrations" primaryText="Migrations" leftIcon={<SyncAltIcon />} />
     </Box>
   );
 };
