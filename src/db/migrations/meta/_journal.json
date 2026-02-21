@@ -22,6 +22,20 @@
       "when": 1770990757380,
       "tag": "0002_wild_cerebro",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1771300000000,
+      "tag": "0003_add_subscription_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1771626427743,
+      "tag": "0004_right_triton",
+      "breakpoints": true
     }
   ]
 }

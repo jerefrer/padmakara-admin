@@ -13,6 +13,16 @@ import {
   useGetOne,
   useTranslate,
   useLocaleState,
+  ReferenceField,
+  ReferenceArrayField,
+  SingleFieldList,
+  ChipField,
+  TextInput,
+  ReferenceInput,
+  AutocompleteInput,
+  SelectInput,
+  ReferenceArrayInput,
+  AutocompleteArrayInput,
 } from "react-admin";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
@@ -37,6 +47,7 @@ import { useParams } from "react-router-dom";
 
 import { TrackDropZone } from "../components/TrackDropZone";
 import { SessionPreview } from "../components/SessionPreview";
+import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import {
   uploadTracks,
@@ -89,45 +100,150 @@ const StatusChip = ({ status }: { status: string }) => {
       label={status}
       size="small"
       color={colorMap[status] ?? "default"}
-      sx={{ fontWeight: 600, textTransform: "capitalize" }}
+      sx={{ fontWeight: 600, textTransform: "capitalize", color: "#fff" }}
     />
   );
 };
+
+const eventFilters = [
+  <TextInput key="q" label="Search" source="q" alwaysOn />,
+  <ReferenceInput key="eventType" source="eventTypeId" reference="event-types">
+    <SelectInput optionText="nameEn" label="Event Type" />
+  </ReferenceInput>,
+  <ReferenceArrayInput key="groups" source="groupIds" reference="groups">
+    <AutocompleteArrayInput optionText="nameEn" label="Retreat Groups" />
+  </ReferenceArrayInput>,
+  <ReferenceArrayInput key="teachers" source="teacherIds" reference="teachers">
+    <AutocompleteArrayInput optionText="name" label="Teachers" />
+  </ReferenceArrayInput>,
+  <ReferenceArrayInput key="audiences" source="audienceIds" reference="audiences">
+    <AutocompleteArrayInput optionText="nameEn" label="Audiences" />
+  </ReferenceArrayInput>,
+  <SelectInput
+    key="status"
+    source="status"
+    label="Status"
+    choices={[
+      { id: "draft", name: "Draft" },
+      { id: "published", name: "Published" },
+      { id: "archived", name: "Archived" },
+    ]}
+  />,
+];
 
 export const EventList = () => {
   const translate = useTranslate();
   const [locale] = useLocaleState();
   return (
     <List
+      filters={eventFilters}
       sort={{ field: "startDate", order: "DESC" }}
-      perPage={100}
-      pagination={false}
-      sx={{ "& .RaList-main": { maxWidth: 1100 } }}
+      perPage={50}
+      sx={{
+        "& .RaList-main": { maxWidth: "100%" },
+        "& .RaList-content": { mt: 2 },
+      }}
     >
       <Datagrid
         rowClick="edit"
         bulkActionButtons={false}
         sx={{ "& .RaDatagrid-row": { "&:hover": { backgroundColor: "rgba(91,94,166,0.03)" } } }}
       >
-        <TextField source="eventCode" label={translate("padmakara.events.code")} sx={{ fontFamily: "monospace", fontWeight: 600 }} />
-        <TextField source="titleEn" label={translate("padmakara.events.title")} />
+        <FunctionField
+          label={translate("padmakara.events.title")}
+          render={(record: any) => (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
+              <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem", opacity: 0.6, fontWeight: 500 }}>
+                {record.eventCode}
+              </Typography>
+              <Typography variant="body2" sx={{ fontSize: "0.875rem" }}>
+                {record.titleEn}
+              </Typography>
+            </Box>
+          )}
+        />
+
+        <FunctionField
+          label="Event Type"
+          sortBy="eventTypeId"
+          render={(record: any) => (
+            record.eventType ? <Chip label={record.eventType.nameEn} size="small" /> : "—"
+          )}
+        />
+
+        <ReferenceArrayField source="groupIds" reference="groups" label="Retreat Groups" sortable={false}>
+          <SingleFieldList>
+            <ChipField source="abbreviation" size="small" />
+          </SingleFieldList>
+        </ReferenceArrayField>
+
+        <ReferenceArrayField source="teacherIds" reference="teachers" label="Teachers" sortable={false}>
+          <SingleFieldList>
+            <ChipField source="abbreviation" size="small" />
+          </SingleFieldList>
+        </ReferenceArrayField>
+
+        <ReferenceArrayField source="audienceIds" reference="audiences" label="Audience" sortable={false}>
+          <SingleFieldList>
+            <ChipField source="nameEn" size="small" />
+          </SingleFieldList>
+        </ReferenceArrayField>
+
         <FunctionField
           label={translate("padmakara.events.dates")}
+          sortBy="startDate"
+          sx={{ whiteSpace: "nowrap" }}
           render={(record: any) => {
             if (!record.startDate) return "—";
             const dateLocale = locale === "pt" ? "pt-PT" : "en-GB";
             const startDate = new Date(record.startDate);
-            const start = startDate.toLocaleDateString(dateLocale, { day: "numeric", month: "long" });
-            if (!record.endDate) {
-              return `${start} ${startDate.getFullYear()}`;
+            const endDate = record.endDate ? new Date(record.endDate) : null;
+
+            // If same date or no end date, show single date
+            if (!endDate || record.startDate === record.endDate) {
+              const formatted = startDate.toLocaleDateString(dateLocale, {
+                day: "numeric",
+                month: "long",
+                year: "numeric"
+              });
+              return (
+                <Box sx={{ textAlign: "right", fontSize: "0.875rem" }}>
+                  {formatted}
+                </Box>
+              );
             }
-            const endDate = new Date(record.endDate);
-            const end = endDate.toLocaleDateString(dateLocale, { day: "numeric", month: "long", year: "numeric" });
-            return `${start} ${translate("padmakara.events.dateTo")} ${end}`;
+
+            // Different dates - show from/to on separate lines
+            const startFormatted = startDate.toLocaleDateString(dateLocale, {
+              day: "numeric",
+              month: "long",
+              year: "numeric"
+            });
+            const endFormatted = endDate.toLocaleDateString(dateLocale, {
+              day: "numeric",
+              month: "long",
+              year: "numeric"
+            });
+
+            return (
+              <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 0.5, columnGap: 1 }}>
+                <Box component="span" sx={{ opacity: 0.6, fontSize: "0.875rem", textAlign: "right" }}>
+                  {translate("padmakara.events.from")}:
+                </Box>
+                <Box component="span" sx={{ fontSize: "0.875rem", textAlign: "right" }}>
+                  {startFormatted}
+                </Box>
+                <Box component="span" sx={{ opacity: 0.6, fontSize: "0.875rem", textAlign: "right" }}>
+                  {translate("padmakara.events.to")}:
+                </Box>
+                <Box component="span" sx={{ fontSize: "0.875rem", textAlign: "right" }}>
+                  {endFormatted}
+                </Box>
+              </Box>
+            );
           }}
         />
         <FunctionField label={translate("padmakara.events.status")} render={(record: any) => <StatusChip status={record.status} />} />
-        <DateField source="createdAt" label={translate("padmakara.events.created")} />
         <EditButton />
       </Datagrid>
     </List>
@@ -151,7 +267,7 @@ interface EventFormData {
 
 interface TeacherOption { id: number; name: string; abbreviation: string }
 interface PlaceOption { id: number; name: string; abbreviation: string | null }
-interface GroupOption { id: number; nameEn: string; namePt: string | null; slug: string }
+interface GroupOption { id: number; nameEn: string; namePt: string | null; abbreviation: string | null; slug: string }
 interface EventTypeOption { id: number; nameEn: string; namePt: string | null; abbreviation: string; slug: string }
 interface AudienceOption { id: number; nameEn: string; namePt: string | null; slug: string }
 
@@ -183,8 +299,12 @@ interface EventFormProps {
   allEventTypes: EventTypeOption[];
   allAudiences: AudienceOption[];
   sessions: InferredSession[];
+  transcripts: any[];
+  eventFiles: any[];
   onSessionTitleChange: (idx: number, title: string) => void;
+  onTrackUpdate?: (trackId: number, updates: Partial<ParsedTrack>) => Promise<void>;
   trackCount: number;
+  transcriptCount: number;
 }
 
 const syncedRows = (a: string, b: string, min = 3) =>
@@ -230,7 +350,7 @@ const EventFormFields = ({
   selectedEventType, setSelectedEventType,
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
-  sessions, onSessionTitleChange, trackCount,
+  sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, trackCount, transcriptCount,
 }: EventFormProps) => {
   const translate = useTranslate();
   const [locale] = useLocaleState();
@@ -411,7 +531,7 @@ const EventFormFields = ({
               <Autocomplete
                 multiple
                 options={allGroups}
-                getOptionLabel={(o) => localeName(o, locale)}
+                getOptionLabel={(o) => o.abbreviation ? `${localeName(o, locale)} (${o.abbreviation})` : localeName(o, locale)}
                 value={selectedGroups}
                 onChange={(_, v) => setSelectedGroups(v)}
                 isOptionEqualToValue={(o, v) => o.id === v.id}
@@ -550,23 +670,39 @@ const EventFormFields = ({
         />
       </Paper>
 
-      {/* ── Section 2: Sessions & Tracks ── */}
-      {sessions.length > 0 && (
+      {/* ── Section 2: Content ── */}
+      {(sessions.length > 0 || transcripts.length > 0 || eventFiles.length > 0) && (
         <>
           <SectionHeader
             number={2}
-            title={translate("padmakara.events.audioTracks")}
-            subtitle={translate("padmakara.events.audioTracksSubtitle")}
+            title={translate("padmakara.events.files")}
+            subtitle={translate("padmakara.events.filesSubtitle")}
             chips={
               <>
-                <Chip label={`${sessions.length} ${translate("padmakara.events.sessions", { smart_count: sessions.length })}`} size="small" color="primary" variant="outlined" />
-                <Chip label={`${trackCount} ${translate("padmakara.events.tracks", { smart_count: trackCount })}`} size="small" variant="outlined" />
+                {sessions.length > 0 && (
+                  <Chip label={`${sessions.length} ${translate("padmakara.events.sessions", { smart_count: sessions.length })}`} size="small" color="primary" variant="outlined" />
+                )}
+                {trackCount > 0 && (
+                  <Chip label={`${trackCount} ${translate("padmakara.events.tracks", { smart_count: trackCount })}`} size="small" variant="outlined" />
+                )}
+                {transcriptCount > 0 && (
+                  <Chip label={`${transcriptCount} ${translate("padmakara.events.transcripts", { smart_count: transcriptCount })}`} size="small" color="secondary" variant="outlined" />
+                )}
               </>
             }
           />
-          <Paper sx={{ p: 3, mb: 3 }}>
-            <SessionPreview sessions={sessions} onSessionTitleChange={onSessionTitleChange} />
-          </Paper>
+
+          {/* Sessions (with their session-level tracks) */}
+          {sessions.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <SessionPreview sessions={sessions} onSessionTitleChange={onSessionTitleChange} onTrackUpdate={onTrackUpdate} allTeachers={allTeachers} />
+            </Box>
+          )}
+
+          {/* Event-level files (transcripts, videos, etc.) */}
+          {(transcripts.length > 0 || eventFiles.length > 0) && (
+            <EventFilesPreview transcripts={transcripts} eventFiles={eventFiles} />
+          )}
         </>
       )}
     </>
@@ -666,12 +802,22 @@ export const EventCreate = () => {
     parts.push(datePart);
     if (selectedTeachers.length > 0) parts.push(selectedTeachers.map((t) => t.abbreviation).join("-"));
     if (selectedEventType) {
-      parts.push(selectedEventType.abbreviation);
+      if (isParallelRetreats(selectedEventType) && selectedGroups.length > 0) {
+        // Use group abbreviation(s) instead of "RET" in the event code
+        const groupAbbrevs = selectedGroups.map((g) => g.abbreviation).filter(Boolean);
+        if (groupAbbrevs.length > 0) {
+          parts.push(groupAbbrevs.join("-"));
+        } else {
+          parts.push(selectedEventType.abbreviation);
+        }
+      } else {
+        parts.push(selectedEventType.abbreviation);
+      }
     }
     const placeAbbrevs = selectedPlaces.map((p) => p.abbreviation).filter(Boolean);
     if (placeAbbrevs.length > 0) parts.push(placeAbbrevs.join("-"));
     setForm((prev) => ({ ...prev, eventCode: parts.join("-") }));
-  }, [form.startDate, form.endDate, selectedEventType, selectedTeachers, selectedPlaces]);
+  }, [form.startDate, form.endDate, selectedEventType, selectedTeachers, selectedPlaces, selectedGroups]);
 
   const handleFolderDropped = useCallback(
     (meta: FolderMetadata, tracks: ParsedTrack[]) => {
@@ -830,8 +976,9 @@ export const EventCreate = () => {
             selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
             allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
             allEventTypes={allEventTypes} allAudiences={allAudiences}
-            sessions={sessions} onSessionTitleChange={handleSessionTitleChange}
+            sessions={sessions} transcripts={[]} eventFiles={[]} onSessionTitleChange={handleSessionTitleChange}
             trackCount={parsedTracks.length}
+            transcriptCount={0}
           />
 
           {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
@@ -872,11 +1019,13 @@ export const EventCreate = () => {
 /** Convert DB sessions+tracks into InferredSession[] for the SessionPreview */
 function toInferredSessions(dbSessions: any[]): InferredSession[] {
   return dbSessions.map((s) => ({
+    id: s.id, // Preserve database session id for transcript matching
     sessionNumber: s.sessionNumber,
     date: s.sessionDate || null,
     timePeriod: s.timePeriod || null,
     titleEn: s.titleEn || `Session ${s.sessionNumber}`,
     tracks: (s.tracks || []).map((t: any) => ({
+      id: t.id,
       trackNumber: t.trackNumber,
       title: t.title,
       speaker: t.speaker || null,
@@ -887,6 +1036,8 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
       date: s.sessionDate || null,
       timePeriod: s.timePeriod || null,
       partNumber: null,
+      isPractice: t.isPractice || false,
+      fileFormat: t.fileFormat || null,
     })),
   }));
 }
@@ -898,7 +1049,11 @@ export const EventEdit = () => {
   const redirect = useRedirect();
   const translate = useTranslate();
 
-  const { data: event, isPending } = useGetOne("events", { id: id! }, { enabled: !!id });
+  const { data: event, isPending } = useGetOne("events", { id: id! }, {
+    enabled: !!id,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+  });
 
   const [form, setForm] = useState<EventFormData>({ ...EMPTY_FORM });
   const [sessions, setSessions] = useState<InferredSession[]>([]);
@@ -952,18 +1107,66 @@ export const EventEdit = () => {
       if (matched) setSelectedAudience(matched);
     }
 
-    if (event.sessions) {
-      setSessions(toInferredSessions(event.sessions));
-    }
-
     setInitialized(true);
   }, [event, allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, lookupsLoaded, initialized]);
+
+  // Separate effect for loading sessions - runs whenever event.sessions changes
+  // This prevents the race condition where cached event data (without sessions)
+  // arrives first and sets initialized=true, blocking session loading when full data arrives
+  useEffect(() => {
+    if (event?.sessions && event.sessions.length > 0) {
+      setSessions(toInferredSessions(event.sessions));
+    }
+  }, [event?.sessions]);
 
   const handleSessionTitleChange = useCallback(
     (idx: number, title: string) => {
       setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, titleEn: title } : s)));
     },
     [],
+  );
+
+  const handleTrackUpdate = useCallback(
+    async (trackId: number, updates: Partial<ParsedTrack>) => {
+      try {
+        await dataProvider.update("tracks", {
+          id: trackId,
+          data: {
+            originalFilename: updates.originalFilename,
+            language: updates.language,
+            isPractice: updates.isPractice,
+            isTranslation: updates.isTranslation,
+            speaker: updates.speaker,
+          },
+          previousData: {},
+        });
+
+        // Update local state to reflect changes
+        setSessions((prev) =>
+          prev.map((session) => ({
+            ...session,
+            tracks: session.tracks.map((track) =>
+              track.id === trackId
+                ? {
+                    ...track,
+                    originalFilename: updates.originalFilename ?? track.originalFilename,
+                    language: updates.language ?? track.language,
+                    isPractice: updates.isPractice ?? track.isPractice,
+                    isTranslation: updates.isTranslation ?? track.isTranslation,
+                    speaker: updates.speaker ?? track.speaker,
+                  }
+                : track
+            ),
+          }))
+        );
+
+        notify(translate("padmakara.events.trackUpdated"), { type: "success" });
+      } catch (error: any) {
+        notify(`Error updating track: ${error.message}`, { type: "error" });
+        throw error;
+      }
+    },
+    [dataProvider, notify, translate]
   );
 
   const handleSave = async () => {
@@ -1019,6 +1222,7 @@ export const EventEdit = () => {
   }
 
   const trackCount = sessions.reduce((sum, s) => sum + s.tracks.length, 0);
+  const transcriptCount = event?.transcripts?.length ?? 0;
 
   return (
     <Box sx={{ maxWidth: 900, mx: "auto", pb: 6 }}>
@@ -1034,8 +1238,10 @@ export const EventEdit = () => {
         selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
         allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
         allEventTypes={allEventTypes} allAudiences={allAudiences}
-        sessions={sessions} onSessionTitleChange={handleSessionTitleChange}
+        sessions={sessions} transcripts={event?.transcripts || []} eventFiles={event?.eventFiles || []} onSessionTitleChange={handleSessionTitleChange}
+        onTrackUpdate={handleTrackUpdate}
         trackCount={trackCount}
+        transcriptCount={transcriptCount}
       />
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}

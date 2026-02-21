@@ -211,6 +211,7 @@ export const pt = {
     "event-types": { name: "Tipo de Evento |||| Tipos de Evento" },
     audiences: { name: "Audiência |||| Audiências" },
     users: { name: "Utilizador |||| Utilizadores" },
+    approvals: { name: "Aprovação |||| Aprovações" },
   },
   padmakara: {
     menu: {
@@ -226,6 +227,8 @@ export const pt = {
       // Section headers
       details: "Detalhes do Evento",
       reviewComplete: "Reveja e complete as informações do evento",
+      files: "Ficheiros do Evento",
+      filesSubtitle: "Organizados por tipo — edite os títulos das sessões conforme necessário",
       audioTracks: "Faixas de Áudio",
       audioTracksSubtitle: "Sessões inferidas a partir dos nomes de ficheiros — edite os títulos conforme necessário",
       // Form labels
@@ -261,6 +264,8 @@ export const pt = {
       code: "Código",
       title: "Título",
       dates: "Datas",
+      from: "De",
+      to: "Até",
       dateTo: "a",
       status: "Estado",
       created: "Criado",
@@ -275,11 +280,13 @@ export const pt = {
       // Sessions/tracks
       sessions: "sessão |||| sessões",
       tracks: "faixa |||| faixas",
+      transcripts: "transcrição |||| transcrições",
       // Notifications
       codeAndTitleRequired: "Código e título do evento são obrigatórios",
       createdUploaded: "Evento criado e ficheiros carregados",
       createdSuccess: "Evento criado com sucesso",
       updatedSuccess: "Evento atualizado com sucesso",
+      trackUpdated: "Faixa atualizada com sucesso",
       deletedSuccess: "Evento eliminado",
       // Delete dialog
       deleteTitle: "Eliminar Evento",
@@ -316,6 +323,19 @@ export const pt = {
       roleAdmin: "Administrador",
       langEn: "Inglês",
       langPt: "Português",
+    },
+    approvals: {
+      approve: "Aprovar",
+      reject: "Rejeitar",
+      rejectTitle: "Rejeitar Pedido de Acesso",
+      adminMessage: "Mensagem para o candidato (opcional)",
+      adminMessagePlaceholder: "Motivo da rejeição...",
+      message: "Mensagem",
+      device: "Dispositivo",
+      requestedAt: "Pedido em",
+      reviewedBy: "Revisto por",
+      approvedNotify: "Pedido aprovado — email de ativação enviado",
+      rejectedNotify: "Pedido rejeitado",
     },
     dropzone: {
       title: "Arraste uma pasta de evento para aqui",

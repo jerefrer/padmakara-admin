@@ -7,12 +7,13 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   GetObjectCommand,
+  CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 
 const AWS_REGION = process.env.AWS_S3_REGION_NAME ?? "eu-west-3";
 const SOURCE_BUCKET = process.env.AWS_STORAGE_BUCKET_NAME ?? "padmakara-pt-sample"; // Migration target bucket
-const LAMBDA_NAME = process.env.AWS_LAMBDA_FUNCTION_NAME ?? "";
+const LAMBDA_ZIP_EXTRACTOR = process.env.AWS_LAMBDA_ZIP_EXTRACTOR_NAME ?? "";
 
 // Export for use in migration script
 export const BUCKET = SOURCE_BUCKET;
@@ -310,10 +311,10 @@ export async function triggerZipExtraction(
   targetPrefix: string,
   targetBucket: string = SOURCE_BUCKET,
 ): Promise<{ success: boolean; message: string }> {
-  if (!LAMBDA_NAME) {
+  if (!LAMBDA_ZIP_EXTRACTOR) {
     return {
       success: false,
-      message: "Lambda function name not configured in environment",
+      message: "AWS_LAMBDA_ZIP_EXTRACTOR_NAME not configured in environment",
     };
   }
 
@@ -332,19 +333,24 @@ export async function triggerZipExtraction(
 
     const response = await lambdaClient.send(
       new InvokeCommand({
-        FunctionName: LAMBDA_NAME,
+        FunctionName: LAMBDA_ZIP_EXTRACTOR,
         InvocationType: "RequestResponse",
         Payload: Buffer.from(JSON.stringify(payload)),
       }),
     );
 
-    const result = JSON.parse(
+    const rawResult = JSON.parse(
       Buffer.from(response.Payload ?? []).toString(),
     );
 
+    // Lambda returns { statusCode, body: JSON.stringify({...}) }
+    const body = typeof rawResult.body === "string"
+      ? JSON.parse(rawResult.body)
+      : rawResult;
+
     return {
-      success: response.StatusCode === 200,
-      message: result.message ?? "Extraction triggered",
+      success: body.success ?? response.StatusCode === 200,
+      message: body.message ?? "Extraction triggered",
     };
   } catch (err: any) {
     return {
@@ -370,5 +376,32 @@ export async function downloadS3Object(key: string): Promise<string | null> {
     return await response.Body.transformToString();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Copy an S3 object from one bucket/key to another.
+ * Used for migrating loose files (already-extracted MP3s, PDFs) to the new bucket.
+ *
+ * S3 CopyObject is free within the same region and doesn't download data locally.
+ */
+export async function copyS3Object(
+  sourceKey: string,
+  targetKey: string,
+  sourceBucket: string,
+  targetBucket: string,
+): Promise<boolean> {
+  try {
+    await s3Client.send(
+      new CopyObjectCommand({
+        Bucket: targetBucket,
+        Key: targetKey,
+        CopySource: encodeURIComponent(`${sourceBucket}/${sourceKey}`),
+      }),
+    );
+    return true;
+  } catch (err: any) {
+    console.error(`Failed to copy ${sourceBucket}/${sourceKey} → ${targetBucket}/${targetKey}: ${err.message}`);
+    return false;
   }
 }

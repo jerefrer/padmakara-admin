@@ -33,7 +33,14 @@ export const dataProvider: DataProvider = {
     if (params.filter) {
       Object.entries(params.filter).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== "") {
-          query.set(key, String(value));
+          // Handle array values (multi-select filters)
+          if (Array.isArray(value)) {
+            if (value.length > 0) {
+              query.set(key, value.join(","));
+            }
+          } else {
+            query.set(key, String(value));
+          }
         }
       });
     }
@@ -46,7 +53,18 @@ export const dataProvider: DataProvider = {
       ? parseInt(contentRange.split("/").pop()!, 10)
       : json.length;
 
-    return { data: json, total };
+    // Transform events data to include array IDs for React Admin
+    const transformedData = resource === "events"
+      ? json.map((event: any) => ({
+          ...event,
+          teacherIds: event.eventTeachers?.map((et: any) => et.teacherId) || [],
+          groupIds: event.eventRetreatGroups?.map((eg: any) => eg.retreatGroupId) || [],
+          placeIds: event.eventPlaces?.map((ep: any) => ep.placeId) || [],
+          audienceIds: event.audienceId ? [event.audienceId] : [],
+        }))
+      : json;
+
+    return { data: transformedData, total };
   },
 
   getOne: async (resource, params) => {

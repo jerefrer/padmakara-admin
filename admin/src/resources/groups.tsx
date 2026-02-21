@@ -1,32 +1,35 @@
 import {
   List,
-  Datagrid,
-  TextField,
-  NumberField,
-  DateField,
   Edit,
   Create,
   SimpleForm,
   TextInput,
-  NumberInput,
   required,
-  EditButton,
   useTranslate,
+  SaveButton,
+  Toolbar,
 } from "react-admin";
+import { SortableList } from "../components/SortableList";
+
+const NoDeleteToolbar = () => (
+  <Toolbar>
+    <SaveButton />
+  </Toolbar>
+);
 
 export const GroupList = () => {
   const translate = useTranslate();
   return (
     <List sort={{ field: "displayOrder", order: "ASC" }} perPage={100} pagination={false}>
-      <Datagrid rowClick="edit">
-        <TextField source="id" />
-        <TextField source="nameEn" label={translate("padmakara.fields.nameEn")} />
-        <TextField source="namePt" label={translate("padmakara.fields.namePt")} />
-        <TextField source="slug" label={translate("padmakara.fields.slug")} />
-        <NumberField source="displayOrder" label={translate("padmakara.fields.displayOrder")} />
-        <DateField source="createdAt" />
-        <EditButton />
-      </Datagrid>
+      <SortableList
+        resource="groups"
+        columns={[
+          { source: "nameEn", label: translate("padmakara.fields.nameEn") },
+          { source: "namePt", label: translate("padmakara.fields.namePt") },
+          { source: "abbreviation", label: translate("padmakara.fields.abbreviation") },
+          { source: "slug", label: translate("padmakara.fields.slug") },
+        ]}
+      />
     </List>
   );
 };
@@ -35,13 +38,13 @@ export const GroupEdit = () => {
   const translate = useTranslate();
   return (
     <Edit>
-      <SimpleForm>
+      <SimpleForm toolbar={<NoDeleteToolbar />}>
         <TextInput source="nameEn" label={translate("padmakara.fields.nameEn")} validate={required()} />
         <TextInput source="namePt" label={translate("padmakara.fields.namePt")} />
+        <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} />
         <TextInput source="slug" label={translate("padmakara.fields.slug")} validate={required()} />
         <TextInput source="description" label={translate("padmakara.fields.description")} multiline />
         <TextInput source="logoUrl" label={translate("padmakara.fields.logoUrl")} />
-        <NumberInput source="displayOrder" label={translate("padmakara.fields.displayOrder")} />
       </SimpleForm>
     </Edit>
   );
@@ -54,10 +57,10 @@ export const GroupCreate = () => {
       <SimpleForm>
         <TextInput source="nameEn" label={translate("padmakara.fields.nameEn")} validate={required()} />
         <TextInput source="namePt" label={translate("padmakara.fields.namePt")} />
+        <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} />
         <TextInput source="slug" label={translate("padmakara.fields.slug")} validate={required()} />
         <TextInput source="description" label={translate("padmakara.fields.description")} multiline />
         <TextInput source="logoUrl" label={translate("padmakara.fields.logoUrl")} />
-        <NumberInput source="displayOrder" label={translate("padmakara.fields.displayOrder")} defaultValue={0} />
       </SimpleForm>
     </Create>
   );

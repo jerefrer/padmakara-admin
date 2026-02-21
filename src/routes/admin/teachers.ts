@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, or, ilike } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { teachers } from "../../db/schema/teachers.ts";
 import { createTeacherSchema, updateTeacherSchema } from "../../lib/schemas.ts";
@@ -18,10 +18,18 @@ const columns: Record<string, any> = {
 teacherRoutes.get("/", async (c) => {
   const { limit, offset, _sort, _order } = parsePagination(c);
   const orderBy = buildOrderBy(_sort, _order, columns);
+  const q = c.req.query("q");
+
+  const where = q
+    ? or(
+        ilike(teachers.name, `%${q}%`),
+        ilike(teachers.abbreviation, `%${q}%`),
+      )
+    : undefined;
 
   const [data, total] = await Promise.all([
-    db.select().from(teachers).orderBy(orderBy!).limit(limit).offset(offset),
-    countRows(teachers),
+    db.select().from(teachers).where(where).orderBy(orderBy!).limit(limit).offset(offset),
+    countRows(teachers, where),
   ]);
 
   return listResponse(c, data, total, offset, offset + limit, "teachers");

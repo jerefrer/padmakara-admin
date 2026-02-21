@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { trimTrailingSlash } from "hono/trailing-slash";
 import { serveStatic } from "hono/bun";
 import { config } from "./config.ts";
 import { errorHandler } from "./lib/errors.ts";
@@ -11,8 +10,6 @@ const app = new Hono();
 
 // Global middleware
 app.use("*", logger());
-// Strip trailing slashes on API routes (React Native app sends them)
-app.use("/api/*", trimTrailingSlash());
 app.use(
   "/api/*",
   cors({
@@ -20,6 +17,18 @@ app.use(
     credentials: true,
   }),
 );
+// Strip trailing slashes by forwarding internally (no redirect).
+// React Native on iOS doesn't reliably follow 308 redirects for POST,
+// so we rewrite the request URL and re-dispatch through the router.
+app.use("/api/*", async (c, next) => {
+  const url = new URL(c.req.url);
+  if (url.pathname !== "/" && url.pathname.endsWith("/")) {
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    const newReq = new Request(url.toString(), c.req.raw);
+    return app.fetch(newReq, c.env);
+  }
+  await next();
+});
 
 // Health check
 app.get("/health", (c) =>
@@ -58,6 +67,7 @@ app.notFound((c) =>
 export default {
   port: config.port,
   fetch: app.fetch,
+  idleTimeout: 120,
 };
 
 export { app };

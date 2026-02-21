@@ -65,10 +65,39 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   let timePeriod: string | null = null;
   let partNumber: number | null = null;
 
-  // Extract track number from beginning (with optional underscore)
-  const numMatch = baseName.match(/^(\d+)[_\s]/);
+  // Extract track number from beginning (with optional underscore, space, or hyphen)
+  const numMatch = baseName.match(/^(\d+)[_\s-]/);
+  let datePrefix: string | null = null;
   if (numMatch) {
-    trackNumber = parseInt(numMatch[1]!, 10);
+    const num = parseInt(numMatch[1]!, 10);
+    // Check if the number looks like a compact date (YYYYMMDD) rather than a track number.
+    // A compact date has 8 digits, valid month (01-12), and valid day (01-31).
+    const numStr = numMatch[1]!;
+    if (numStr.length === 8) {
+      const yyyy = parseInt(numStr.slice(0, 4), 10);
+      const mm = parseInt(numStr.slice(4, 6), 10);
+      const dd = parseInt(numStr.slice(6, 8), 10);
+      if (yyyy >= 1900 && yyyy <= 2099 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+        // This is a date prefix, not a track number
+        trackNumber = 0;
+        datePrefix = numStr;
+        if (!date) {
+          date = `${yyyy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+        }
+      } else {
+        trackNumber = num;
+      }
+    } else if (numStr.length === 4 && num >= 1900 && num <= 2099) {
+      // 4-digit number that looks like a year — check if followed by ISO date pattern
+      // e.g. "2025-10-27-Guru_Yoga [ENG - Audio].m4a"
+      if (/^\d{4}-\d{2}-\d{2}/.test(baseName)) {
+        trackNumber = 0;
+      } else {
+        trackNumber = num;
+      }
+    } else {
+      trackNumber = num;
+    }
   }
 
   // Check if this is a translation track (TRAD marker)
@@ -78,16 +107,27 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     language = "pt"; // TRAD files are always Portuguese in this corpus
   }
 
-  // Extract language from bracket notation [TIB], [ENG], [POR]
-  const bracketLangMatch = baseName.match(/\[([A-Z]+)\]/i);
+  // Extract language from bracket notation [TIB], [ENG], [POR], [ENG - Audio], [ENG - Áudio]
+  const bracketLangMatch = baseName.match(/\[([A-Z]+)(?:\s*-\s*[^\]]+)?\]/i);
   if (bracketLangMatch) {
     language = normalizeLanguage(bracketLangMatch[1]!);
+    // Bracket notation is only used in Tibetan teacher events.
+    // Any non-Tibetan bracket language is a translation.
+    if (language !== "tib") {
+      isTranslation = true;
+    }
   }
 
   // Extract date - ISO format: 2017-11-14
   const isoDateMatch = baseName.match(/(\d{4}-\d{2}-\d{2})/);
   if (isoDateMatch) {
     date = isoDateMatch[1]!;
+  } else {
+    // Compact date format: 20030614 (common in older events)
+    const compactDateMatch = baseName.match(/(?:^|\D)(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?:\D|$)/);
+    if (compactDateMatch) {
+      date = `${compactDateMatch[1]}-${compactDateMatch[2]}-${compactDateMatch[3]}`;
+    }
   }
 
   // Extract date and session info from parenthetical: (17 April AM), (18 April AM_part_1)
@@ -102,9 +142,9 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   }
 
   // Extract speaker abbreviation
-  // Pattern: "001 JKR - title" or "01 KPS [TIB] title" or "02_KPS [ENG] title"
+  // Pattern: "001 JKR - title" or "01 KPS [TIB] title" or "02_KPS [ENG] title" or "01-TPWR-..."
   const speakerMatch = baseName.match(
-    /^\d+[_\s]+([A-Z]{2,5})(?:\s+-|\s+\[)/i,
+    /^\d+[_\s-]+([A-Z]{2,5})(?:\s+-|\s+\[|-)/i,
   );
   if (speakerMatch && speakerMatch[1]!.toUpperCase() !== "TRAD") {
     speaker = speakerMatch[1]!.toUpperCase();
@@ -113,22 +153,24 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   // Extract clean title
   // Remove: track number, speaker, language tag, date, session info
   title = baseName
-    // Remove leading number and optional underscore/space
-    .replace(/^\d+[_\s]+/, "");
+    // Remove leading ISO date prefix (e.g. "2025-10-27-")
+    .replace(/^\d{4}-\d{2}-\d{2}[_\s-]+/, "")
+    // Remove leading number and optional underscore/space/hyphen
+    .replace(/^\d+[_\s-]+/, "");
 
   // Remove speaker abbreviation ONLY if we detected one
   if (speaker) {
     title = title
       .replace(new RegExp(`^${speaker}\\s+-\\s+`, "i"), "")
-      .replace(new RegExp(`^${speaker}\\s+`, "i"), "");
+      .replace(new RegExp(`^${speaker}[\\s-]+`, "i"), "");
   }
 
   // Remove TRAD marker
   title = title
     .replace(/^TRAD\s+-\s+/i, "")
     .replace(/^TRAD\s+/i, "")
-    // Remove language tag in brackets
-    .replace(/\[[A-Z]+\]\s*/i, "")
+    // Remove language tag in brackets (including [ENG - Audio] patterns)
+    .replace(/\[[A-Z]+(?:\s*-\s*[^\]]+)?\]\s*/i, "")
     // Remove ISO date
     .replace(/\s*\d{4}-\d{2}-\d{2}/, "")
     // Remove session info in parentheses
@@ -137,6 +179,9 @@ export function parseTrackFilename(filename: string): ParsedTrack {
       "",
     )
     .trim();
+
+  // Replace underscores with spaces in title
+  title = title.replace(/_/g, " ");
 
   // If title is empty after cleanup, use original filename
   if (!title) {

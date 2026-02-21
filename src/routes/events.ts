@@ -2,112 +2,237 @@ import { Hono } from "hono";
 import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
-import { eventRetreatGroups } from "../db/schema/retreats.ts";
-import { userGroupMemberships } from "../db/schema/users.ts";
+import { sessions } from "../db/schema/sessions.ts";
+import { tracks } from "../db/schema/tracks.ts";
+import { audiences } from "../db/schema/audiences.ts";
+import { users } from "../db/schema/users.ts";
 import { downloadRequests } from "../db/schema/index.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
+import { checkEventAccess, filterAccessibleEvents, AUDIENCE_SLUGS } from "../services/access.ts";
 
 const eventRoutes = new Hono();
 
-// All public routes require authentication
-eventRoutes.use("*", authMiddleware);
+// ─── Event relations used in queries ─────────────────────────────────────
+const eventWith = {
+  eventType: true,
+  audience: true,
+  eventTeachers: { with: { teacher: true } },
+  eventRetreatGroups: { with: { retreatGroup: true } },
+  eventPlaces: { with: { place: true } },
+} as const;
+
+const eventWithSessions = {
+  ...eventWith,
+  sessions: {
+    orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
+    with: {
+      tracks: {
+        orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
+      },
+    },
+  },
+} as const;
+
+// ─── Public endpoints (no auth) ──────────────────────────────────────────
 
 /**
- * GET /api/events - List events accessible to the user
- * Filters by user's group memberships
+ * GET /api/events/public - List public events (no auth required)
+ * Returns events with audience slug "free-anyone"
  */
-eventRoutes.get("/", async (c) => {
-  const user = getUser(c);
+eventRoutes.get("/public", async (c) => {
+  // Find the public audience
+  const publicAudience = await db.query.audiences.findFirst({
+    where: eq(audiences.slug, AUDIENCE_SLUGS.PUBLIC),
+  });
 
-  // Get user's group memberships
-  const memberships = await db
-    .select({ retreatGroupId: userGroupMemberships.retreatGroupId })
-    .from(userGroupMemberships)
-    .where(eq(userGroupMemberships.userId, user.id));
-
-  const groupIds = memberships.map((m) => m.retreatGroupId);
-
-  // Admin users can see all events
-  if (user.role === "admin" || user.role === "superadmin") {
-    const data = await db.query.events.findMany({
-      where: eq(events.status, "published"),
-      orderBy: (r, { desc }) => [desc(r.startDate)],
-      with: {
-        eventType: true,
-        audience: true,
-        eventTeachers: { with: { teacher: true } },
-        eventRetreatGroups: { with: { retreatGroup: true } },
-        eventPlaces: { with: { place: true } },
-      },
-    });
-    return c.json(data);
-  }
-
-  // Regular users: find events linked to their groups
-  if (groupIds.length === 0) {
-    return c.json([]);
-  }
-
-  // Get event IDs linked to user's groups
-  const eventLinks = await db
-    .select({ eventId: eventRetreatGroups.eventId })
-    .from(eventRetreatGroups)
-    .where(inArray(eventRetreatGroups.retreatGroupId, groupIds));
-
-  const accessibleEventIds = [...new Set(eventLinks.map((r) => r.eventId))];
-
-  if (accessibleEventIds.length === 0) {
+  if (!publicAudience) {
     return c.json([]);
   }
 
   const data = await db.query.events.findMany({
     where: and(
       eq(events.status, "published"),
-      inArray(events.id, accessibleEventIds),
+      eq(events.audienceId, publicAudience.id),
     ),
     orderBy: (r, { desc }) => [desc(r.startDate)],
-    with: {
-      eventType: true,
-      audience: true,
-      eventTeachers: { with: { teacher: true } },
-      eventRetreatGroups: { with: { retreatGroup: true } },
-      eventPlaces: { with: { place: true } },
-    },
+    with: eventWithSessions,
   });
 
   return c.json(data);
 });
 
-/**
- * GET /api/events/:id - Event detail with sessions and tracks
- */
-eventRoutes.get("/:id", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
+// ─── Authenticated endpoints ─────────────────────────────────────────────
+eventRoutes.use("/*", authMiddleware);
 
-  const event = await db.query.events.findFirst({
-    where: eq(events.id, id),
+/**
+ * Helper: check event access for a regular user, throw on denied.
+ */
+async function requireEventAccess(
+  userId: number,
+  role: string,
+  event: { id: number; audience?: { slug: string } | null },
+) {
+  if (role === "admin" || role === "superadmin") return;
+
+  const fullUser = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+  if (!fullUser) throw AppError.unauthorized("User not found");
+
+  const result = await checkEventAccess(
+    {
+      id: fullUser.id,
+      role: fullUser.role,
+      subscriptionStatus: fullUser.subscriptionStatus,
+      subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
+    },
+    event,
+  );
+
+  if (!result.allowed) {
+    throw AppError.forbidden(
+      result.reason === "SUBSCRIPTION_REQUIRED"
+        ? "Active subscription required"
+        : result.reason === "GROUP_MEMBERSHIP_REQUIRED"
+          ? "Group membership required"
+          : result.reason === "EVENT_ATTENDANCE_REQUIRED"
+            ? "Event attendance required"
+            : "Access denied",
+    );
+  }
+}
+
+/**
+ * GET /api/events/sessions/:sessionId - Session detail with tracks
+ * Checks access via parent event's audience rules
+ */
+eventRoutes.get("/sessions/:sessionId", async (c) => {
+  const sessionId = parseInt(c.req.param("sessionId"), 10);
+  const user = getUser(c);
+
+  const session = await db.query.sessions.findFirst({
+    where: eq(sessions.id, sessionId),
     with: {
-      eventType: true,
-      audience: true,
-      sessions: {
-        orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
-        with: {
-          tracks: {
-            orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
-          },
-        },
+      tracks: {
+        orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
       },
-      eventTeachers: { with: { teacher: true } },
-      eventRetreatGroups: { with: { retreatGroup: true } },
-      eventPlaces: { with: { place: true } },
+      event: {
+        with: { audience: true },
+      },
     },
   });
 
-  if (!event) {
-    return c.json({ error: "Event not found" }, 404);
+  if (!session) {
+    throw AppError.notFound("Session not found");
   }
+
+  await requireEventAccess(user.id, user.role, session.event);
+
+  return c.json(session);
+});
+
+/**
+ * GET /api/events/tracks/:trackId - Track detail
+ * Checks access via parent event's audience rules
+ */
+eventRoutes.get("/tracks/:trackId", async (c) => {
+  const trackId = parseInt(c.req.param("trackId"), 10);
+  const user = getUser(c);
+
+  const track = await db.query.tracks.findFirst({
+    where: eq(tracks.id, trackId),
+    with: {
+      session: {
+        with: {
+          event: {
+            with: { audience: true },
+          },
+        },
+      },
+    },
+  });
+
+  if (!track) {
+    throw AppError.notFound("Track not found");
+  }
+
+  const event = track.session?.event;
+  if (!event) {
+    throw AppError.notFound("Track's event not found");
+  }
+
+  await requireEventAccess(user.id, user.role, event);
+
+  return c.json(track);
+});
+
+/**
+ * GET /api/events - List events accessible to the authenticated user
+ * Uses audience-based access control
+ */
+eventRoutes.get("/", async (c) => {
+  const user = getUser(c);
+
+  // Admin users can see all published events
+  if (user.role === "admin" || user.role === "superadmin") {
+    const data = await db.query.events.findMany({
+      where: eq(events.status, "published"),
+      orderBy: (r, { desc }) => [desc(r.startDate)],
+      with: eventWith,
+    });
+    return c.json(data);
+  }
+
+  // Regular users: fetch full user record for subscription check
+  const fullUser = await db.query.users.findFirst({
+    where: eq(users.id, user.id),
+  });
+
+  if (!fullUser) {
+    throw AppError.unauthorized("User not found");
+  }
+
+  // Fetch all published events with audience info
+  const allEvents = await db.query.events.findMany({
+    where: eq(events.status, "published"),
+    orderBy: (r, { desc }) => [desc(r.startDate)],
+    with: eventWith,
+  });
+
+  // Filter by access control
+  const accessibleEvents = await filterAccessibleEvents(
+    {
+      id: fullUser.id,
+      role: fullUser.role,
+      subscriptionStatus: fullUser.subscriptionStatus,
+      subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
+    },
+    allEvents,
+  );
+
+  return c.json(accessibleEvents);
+});
+
+/**
+ * GET /api/events/:id - Event detail with sessions and tracks
+ * Checks access before returning
+ */
+eventRoutes.get("/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const user = getUser(c);
+
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, id),
+    with: eventWithSessions,
+  });
+
+  if (!event) {
+    throw AppError.notFound("Event not found");
+  }
+
+  await requireEventAccess(user.id, user.role, event);
 
   return c.json(event);
 });
@@ -123,6 +248,7 @@ eventRoutes.post("/:id/request-download", async (c) => {
   const event = await db.query.events.findFirst({
     where: eq(events.id, eventId),
     with: {
+      audience: true,
       eventRetreatGroups: true,
     },
   });
@@ -131,21 +257,26 @@ eventRoutes.post("/:id/request-download", async (c) => {
     throw AppError.notFound("Event not found");
   }
 
-  // Verify user has access to this event (via group membership)
-  const userGroups = await db
-    .select({ retreatGroupId: userGroupMemberships.retreatGroupId })
-    .from(userGroupMemberships)
-    .where(eq(userGroupMemberships.userId, user.id));
+  // Use access control service instead of manual group check
+  const fullUser = await db.query.users.findFirst({
+    where: eq(users.id, user.id),
+  });
 
-  const userGroupIds = userGroups.map((g) => g.retreatGroupId);
-  const eventGroupIds = event.eventRetreatGroups.map((g) => g.retreatGroupId);
+  if (!fullUser) {
+    throw AppError.unauthorized("User not found");
+  }
 
-  const hasAccess =
-    user.role === "admin" ||
-    user.role === "superadmin" ||
-    eventGroupIds.some((id) => userGroupIds.includes(id));
+  const accessResult = await checkEventAccess(
+    {
+      id: fullUser.id,
+      role: fullUser.role,
+      subscriptionStatus: fullUser.subscriptionStatus,
+      subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
+    },
+    event,
+  );
 
-  if (!hasAccess) {
+  if (!accessResult.allowed) {
     throw AppError.forbidden("Access denied to this event");
   }
 
@@ -159,7 +290,6 @@ eventRoutes.post("/:id/request-download", async (c) => {
   });
 
   if (existingRequest) {
-    // Return existing request ID
     return c.json({ request_id: existingRequest.id });
   }
 
@@ -177,8 +307,7 @@ eventRoutes.post("/:id/request-download", async (c) => {
     throw new AppError(500, "Failed to create download request", "INTERNAL_ERROR");
   }
 
-  // Start ZIP generation asynchronously (don't await)
-  // This allows the endpoint to return immediately while processing continues
+  // Start ZIP generation asynchronously
   generateRetreatZip(newRequest.id, eventId, user.id).catch((error) => {
     console.error(`[ZIP] Background generation failed for request ${newRequest.id}:`, error);
   });

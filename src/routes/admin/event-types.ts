@@ -30,6 +30,17 @@ eventTypeRoutes.get("/", async (c) => {
   return listResponse(c, data, total, offset, offset + limit, "event-types");
 });
 
+eventTypeRoutes.put("/reorder", async (c) => {
+  const { ids } = await c.req.json<{ ids: number[] }>();
+  for (let i = 0; i < ids.length; i++) {
+    await db
+      .update(eventTypes)
+      .set({ displayOrder: i, updatedAt: new Date() })
+      .where(eq(eventTypes.id, ids[i]!));
+  }
+  return c.json({ success: true });
+});
+
 eventTypeRoutes.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const row = await db.query.eventTypes.findFirst({

@@ -22,6 +22,12 @@ export const users = pgTable("users", {
   role: text("role").notNull().default("user"),
   isActive: boolean("is_active").notNull().default(true),
   isVerified: boolean("is_verified").notNull().default(false),
+  // Subscription fields
+  subscriptionStatus: text("subscription_status").notNull().default("none"), // "active" | "expired" | "none"
+  subscriptionSource: text("subscription_source"), // "easypay" | "cash" | "admin" | "bank_transfer"
+  subscriptionExpiresAt: timestamp("subscription_expires_at", { withTimezone: true }),
+  subscriptionNotes: text("subscription_notes"),
+  easypaySubscriptionId: text("easypay_subscription_id").unique(),
   lastActivity: timestamp("last_activity", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

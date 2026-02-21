@@ -14,6 +14,8 @@ import { retreatGroups } from "./retreat-groups.ts";
 import { sessions } from "./sessions.ts";
 import { eventTypes } from "./event-types.ts";
 import { audiences } from "./audiences.ts";
+import { transcripts } from "./transcripts.ts";
+import { eventFiles } from "./event-files.ts";
 
 export const events = pgTable("retreats", {
   id: serial("id").primaryKey(),
@@ -96,6 +98,8 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
     references: [audiences.id],
   }),
   sessions: many(sessions),
+  transcripts: many(transcripts),
+  eventFiles: many(eventFiles),
   eventTeachers: many(eventTeachers),
   eventRetreatGroups: many(eventRetreatGroups),
   eventPlaces: many(eventPlaces),

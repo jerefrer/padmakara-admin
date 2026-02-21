@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, or, ilike } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { audiences } from "../../db/schema/audiences.ts";
 import { createAudienceSchema, updateAudienceSchema } from "../../lib/schemas.ts";
@@ -20,13 +20,32 @@ const columns: Record<string, any> = {
 audienceRoutes.get("/", async (c) => {
   const { limit, offset, _sort, _order } = parsePagination(c);
   const orderBy = buildOrderBy(_sort, _order, columns);
+  const q = c.req.query("q");
+
+  const where = q
+    ? or(
+        ilike(audiences.nameEn, `%${q}%`),
+        ilike(audiences.namePt, `%${q}%`),
+      )
+    : undefined;
 
   const [data, total] = await Promise.all([
-    db.select().from(audiences).orderBy(orderBy!).limit(limit).offset(offset),
-    countRows(audiences),
+    db.select().from(audiences).where(where).orderBy(orderBy!).limit(limit).offset(offset),
+    countRows(audiences, where),
   ]);
 
   return listResponse(c, data, total, offset, offset + limit, "audiences");
+});
+
+audienceRoutes.put("/reorder", async (c) => {
+  const { ids } = await c.req.json<{ ids: number[] }>();
+  for (let i = 0; i < ids.length; i++) {
+    await db
+      .update(audiences)
+      .set({ displayOrder: i, updatedAt: new Date() })
+      .where(eq(audiences.id, ids[i]!));
+  }
+  return c.json({ success: true });
 });
 
 audienceRoutes.get("/:id", async (c) => {

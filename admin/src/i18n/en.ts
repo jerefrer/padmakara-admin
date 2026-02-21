@@ -10,6 +10,7 @@ export const en = {
     "event-types": { name: "Event Type |||| Event Types" },
     audiences: { name: "Audience |||| Audiences" },
     users: { name: "User |||| Users" },
+    approvals: { name: "Approval |||| Approvals" },
   },
   padmakara: {
     menu: {
@@ -25,6 +26,8 @@ export const en = {
       // Section headers
       details: "Event Details",
       reviewComplete: "Review and complete the event information",
+      files: "Event Files",
+      filesSubtitle: "Organized by type — edit session titles as needed",
       audioTracks: "Audio Tracks",
       audioTracksSubtitle: "Sessions inferred from filenames — edit titles as needed",
       // Form labels
@@ -60,6 +63,8 @@ export const en = {
       code: "Code",
       title: "Title",
       dates: "Dates",
+      from: "From",
+      to: "To",
       dateTo: "to",
       status: "Status",
       created: "Created",
@@ -74,11 +79,13 @@ export const en = {
       // Sessions/tracks
       sessions: "session |||| sessions",
       tracks: "track |||| tracks",
+      transcripts: "transcript |||| transcripts",
       // Notifications
       codeAndTitleRequired: "Event code and title are required",
       createdUploaded: "Event created and files uploaded",
       createdSuccess: "Event created successfully",
       updatedSuccess: "Event updated successfully",
+      trackUpdated: "Track updated successfully",
       deletedSuccess: "Event deleted",
       // Delete dialog
       deleteTitle: "Delete Event",
@@ -115,6 +122,19 @@ export const en = {
       roleAdmin: "Admin",
       langEn: "English",
       langPt: "Portuguese",
+    },
+    approvals: {
+      approve: "Approve",
+      reject: "Reject",
+      rejectTitle: "Reject Access Request",
+      adminMessage: "Message to applicant (optional)",
+      adminMessagePlaceholder: "Reason for rejection...",
+      message: "Message",
+      device: "Device",
+      requestedAt: "Requested",
+      reviewedBy: "Reviewed By",
+      approvedNotify: "Request approved — activation email sent",
+      rejectedNotify: "Request rejected",
     },
     dropzone: {
       title: "Drop an event folder here",

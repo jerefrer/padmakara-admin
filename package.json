@@ -14,6 +14,7 @@
     "db:push": "bunx drizzle-kit push",
     "db:studio": "bunx drizzle-kit studio",
     "db:seed": "bun run src/scripts/seed-from-csv.ts",
+    "db:seed-content": "bun run src/scripts/seed-content.ts",
     "migrate:wix": "bun run src/scripts/migrate-from-wix.ts"
   },
   "devDependencies": {

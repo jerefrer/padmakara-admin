@@ -1,11 +1,12 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, and, or, like, ilike, inArray, sql } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import {
   events,
   eventTeachers,
   eventRetreatGroups,
   eventPlaces,
+  eventAudiences,
 } from "../../db/schema/retreats.ts";
 import { createEventSchema, updateEventSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
@@ -28,23 +29,81 @@ eventRoutes.get("/", async (c) => {
   const { limit, offset, _sort, _order } = parsePagination(c);
   const orderBy = buildOrderBy(_sort, _order, columns);
 
-  const [data, total] = await Promise.all([
-    db.query.events.findMany({
-      orderBy: orderBy ? [orderBy] : undefined,
-      limit,
-      offset,
-      with: {
-        eventType: true,
-        audience: true,
-        eventTeachers: { with: { teacher: true } },
-        eventRetreatGroups: { with: { retreatGroup: true } },
-        eventPlaces: { with: { place: true } },
-      },
-    }),
-    countRows(events),
-  ]);
+  // Parse filters from query params
+  const q = c.req.query("q"); // Search query
+  const status = c.req.query("status");
+  const eventTypeId = c.req.query("eventTypeId");
+  const teacherIds = c.req.query("teacherIds");
+  const groupIds = c.req.query("groupIds");
+  const audienceIds = c.req.query("audienceIds");
 
-  return listResponse(c, data, total, offset, offset + limit, "events");
+  // Build WHERE conditions
+  const conditions: any[] = [];
+
+  // Text search across event code and titles (case-insensitive)
+  if (q) {
+    conditions.push(
+      or(
+        ilike(events.eventCode, `%${q}%`),
+        ilike(events.titleEn, `%${q}%`),
+        ilike(events.titlePt, `%${q}%`)
+      )
+    );
+  }
+
+  // Status filter
+  if (status) {
+    conditions.push(eq(events.status, status));
+  }
+
+  // Event type filter
+  if (eventTypeId) {
+    conditions.push(eq(events.eventTypeId, parseInt(eventTypeId, 10)));
+  }
+
+  // For array filters (teachers, groups, audiences), we need to filter after fetching
+  // because they're in junction tables and Drizzle query API doesn't support complex joins easily
+  const allData = await db.query.events.findMany({
+    where: conditions.length > 0 ? and(...conditions) : undefined,
+    orderBy: orderBy ? [orderBy] : undefined,
+    with: {
+      eventType: true,
+      audience: true,
+      eventTeachers: { with: { teacher: true } },
+      eventRetreatGroups: { with: { retreatGroup: true } },
+      eventPlaces: { with: { place: true } },
+    },
+  });
+
+  // Apply array filters in memory
+  let filteredData = allData;
+
+  if (teacherIds) {
+    const ids = teacherIds.split(",").map((id) => parseInt(id, 10));
+    filteredData = filteredData.filter((event) =>
+      event.eventTeachers.some((et) => ids.includes(et.teacherId))
+    );
+  }
+
+  if (groupIds) {
+    const ids = groupIds.split(",").map((id) => parseInt(id, 10));
+    filteredData = filteredData.filter((event) =>
+      event.eventRetreatGroups.some((eg) => ids.includes(eg.retreatGroupId))
+    );
+  }
+
+  if (audienceIds) {
+    const ids = audienceIds.split(",").map((id) => parseInt(id, 10));
+    filteredData = filteredData.filter((event) =>
+      ids.includes(event.audienceId)
+    );
+  }
+
+  // Apply pagination to filtered results
+  const total = filteredData.length;
+  const paginatedData = filteredData.slice(offset, offset + limit);
+
+  return listResponse(c, paginatedData, total, offset, offset + limit, "events");
 });
 
 eventRoutes.get("/:id", async (c) => {
@@ -58,6 +117,8 @@ eventRoutes.get("/:id", async (c) => {
         with: { tracks: true },
         orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
       },
+      transcripts: true,
+      eventFiles: true,
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },

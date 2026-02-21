@@ -4,6 +4,7 @@
  */
 
 export interface ParsedTrack {
+  id?: number;
   trackNumber: number;
   speaker: string | null;
   title: string;
@@ -14,9 +15,12 @@ export interface ParsedTrack {
   partNumber: number | null;
   originalFilename: string;
   file: File;
+  isPractice?: boolean;
+  fileFormat?: string | null;
 }
 
 export interface InferredSession {
+  id?: number; // Database session id (optional - only present when from database)
   sessionNumber: number;
   date: string | null;
   timePeriod: string | null;

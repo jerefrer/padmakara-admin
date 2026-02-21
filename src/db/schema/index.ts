@@ -17,6 +17,7 @@ export {
 export { sessions, sessionsRelations } from "./sessions.ts";
 export { tracks, tracksRelations } from "./tracks.ts";
 export { transcripts, transcriptsRelations } from "./transcripts.ts";
+export { eventFiles, eventFilesRelations } from "./event-files.ts";
 
 // Users
 export {

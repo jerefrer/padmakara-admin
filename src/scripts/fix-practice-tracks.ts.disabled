@@ -1,0 +1,242 @@
+/**
+ * Fix practice track organization
+ *
+ * Goals:
+ * 1. Identify practice files from filenames (RR DD_MM Morning/Evening/Night)
+ * 2. Extract date and time period
+ * 3. Link to corresponding sessions
+ * 4. Set trackNumber to 0 (displays first)
+ * 5. Mark as isPractice: true
+ */
+
+import { db } from "../db/index.ts";
+import { tracks } from "../db/schema/tracks.ts";
+import { sessions } from "../db/schema/sessions.ts";
+import { eq, and, sql } from "drizzle-orm";
+
+// Time period mapping
+const TIME_PERIOD_MAP: Record<string, string> = {
+  "morning": "morning",
+  "morning_part": "morning",
+  "am": "morning",
+  "afternoon": "afternoon",
+  "pm_part1": "afternoon",
+  "pm": "afternoon",
+  "evening": "evening",
+  "pm_part2": "evening",
+  "night": "night",
+};
+
+interface PracticeInfo {
+  isPractice: boolean;
+  day?: number;
+  month?: number;
+  timePeriod?: string;
+}
+
+function parsePracticeFile(filename: string, eventStartDate: string | null): PracticeInfo {
+  const lower = filename.toLowerCase();
+
+  // Pattern 1: "RR DD_MM Morning/Evening/Night practice" or "RR DD MM Morning/Evening/Night practice"
+  // Example: "RR 30_10 Morning practice.mp3", "RR 30 10 Evening practice.mp3"
+  const pattern1 = /rr\s+(\d{1,2})[_\s](\d{1,2})\s+(morning|evening|night|afternoon)/i;
+  const match1 = lower.match(pattern1);
+
+  if (match1) {
+    const day = parseInt(match1[1], 10);
+    const month = parseInt(match1[2], 10);
+    const timeStr = match1[3].toLowerCase();
+
+    return {
+      isPractice: true,
+      day,
+      month,
+      timePeriod: TIME_PERIOD_MAP[timeStr] || timeStr,
+    };
+  }
+
+  // Pattern 2: "DD practice.mp3" (just number + practice)
+  // Example: "11 Practice.mp3"
+  const pattern2 = /^\d{1,3}\s+practice\.(mp3|m4a|wav)$/i;
+  if (pattern2.test(lower)) {
+    return { isPractice: true };
+  }
+
+  // Pattern 3: Specific practice session indicators (must be at START or have clear markers)
+  const practiceIndicators = [
+    /^practice\s+-\s+/i, // "Practice - ..."
+    /^meditation\s+session/i, // "Meditation session..."
+    /^(morning|evening|night|afternoon)\s+practice/i, // "Morning practice..."
+    /practice\s+session/i, // "... practice session"
+    /meditation\s+instructions$/i, // "... meditation instructions"
+  ];
+
+  for (const pattern of practiceIndicators) {
+    if (pattern.test(lower)) {
+      // Try to extract time period
+      for (const [key, value] of Object.entries(TIME_PERIOD_MAP)) {
+        if (lower.includes(key)) {
+          return {
+            isPractice: true,
+            timePeriod: value,
+          };
+        }
+      }
+      return { isPractice: true };
+    }
+  }
+
+  return { isPractice: false };
+}
+
+function dateToSessionDate(day: number, month: number, eventStartYear: number): string {
+  // Convert DD_MM to YYYY-MM-DD
+  const yyyy = eventStartYear.toString();
+  const mm = month.toString().padStart(2, "0");
+  const dd = day.toString().padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+console.log("\n=== Fix Practice Track Organization ===\n");
+
+// Get all tracks
+const allTracks = await db.query.tracks.findMany({
+  with: {
+    session: {
+      with: {
+        event: true,
+      },
+    },
+  },
+});
+
+console.log(`Analyzing ${allTracks.length} tracks...\n`);
+
+const updates: Array<{
+  trackId: number;
+  eventCode: string;
+  sessionId: number;
+  sessionNumber: number;
+  filename: string;
+  practiceInfo: PracticeInfo;
+  currentTrackNumber: number;
+  newTrackNumber: number; // Will be assigned later as negative value
+}> = [];
+
+for (const track of allTracks) {
+  if (!track.originalFilename || !track.session?.event) continue;
+
+  const eventStartDate = track.session.event.startDate;
+  if (!eventStartDate) continue;
+
+  const practiceInfo = parsePracticeFile(track.originalFilename, eventStartDate);
+
+  if (!practiceInfo.isPractice) continue;
+
+  // This is a practice track
+  let targetSessionId = track.sessionId;
+
+  // If we have date + time info, try to find the matching session
+  if (practiceInfo.day && practiceInfo.month && practiceInfo.timePeriod) {
+    const eventYear = new Date(eventStartDate).getFullYear();
+    const practiceDate = dateToSessionDate(practiceInfo.day, practiceInfo.month, eventYear);
+
+    // Find session with matching date and time period
+    const matchingSession = await db.query.sessions.findFirst({
+      where: and(
+        eq(sessions.eventId, track.session.event.id),
+        eq(sessions.sessionDate, practiceDate),
+        eq(sessions.timePeriod, practiceInfo.timePeriod)
+      ),
+    });
+
+    if (matchingSession) {
+      targetSessionId = matchingSession.id;
+    } else {
+      console.log(`  ⚠️  No session found for ${practiceDate} ${practiceInfo.timePeriod}`);
+      console.log(`      File: ${track.originalFilename}`);
+      console.log(`      Keeping in current session ${track.session.sessionNumber}`);
+    }
+  }
+
+  updates.push({
+    trackId: track.id,
+    eventCode: track.session.event.eventCode,
+    sessionId: targetSessionId,
+    sessionNumber: track.session.sessionNumber,
+    filename: track.originalFilename,
+    practiceInfo,
+    currentTrackNumber: track.trackNumber,
+    newTrackNumber: 0, // Assigned later based on session grouping
+  });
+}
+
+// Assign negative track numbers to practice tracks within each session
+// Group by session to assign sequential negative numbers
+const bySession = new Map<number, typeof updates>();
+for (const update of updates) {
+  if (!bySession.has(update.sessionId)) {
+    bySession.set(update.sessionId, []);
+  }
+  bySession.get(update.sessionId)!.push(update);
+}
+
+// Assign track numbers: -1, -2, -3, etc. within each session
+for (const sessionUpdates of bySession.values()) {
+  sessionUpdates.sort((a, b) => a.currentTrackNumber - b.currentTrackNumber);
+  sessionUpdates.forEach((update, idx) => {
+    update.newTrackNumber = -(idx + 1); // -1, -2, -3, etc.
+  });
+}
+
+console.log(`Found ${updates.length} practice tracks:\n`);
+
+// Group by event for display
+const byEvent = new Map<string, typeof updates>();
+for (const update of updates) {
+  if (!byEvent.has(update.eventCode)) {
+    byEvent.set(update.eventCode, []);
+  }
+  byEvent.get(update.eventCode)!.push(update);
+}
+
+for (const [eventCode, eventUpdates] of byEvent.entries()) {
+  console.log(`\n${eventCode}: ${eventUpdates.length} practice tracks`);
+  for (const update of eventUpdates.slice(0, 5)) {
+    console.log(`  Session ${update.sessionNumber}: ${update.filename}`);
+    if (update.practiceInfo.day && update.practiceInfo.month) {
+      console.log(`    Date: ${update.practiceInfo.day}/${update.practiceInfo.month}, Time: ${update.practiceInfo.timePeriod}`);
+    }
+    console.log(`    Track #: ${update.currentTrackNumber} → ${update.newTrackNumber} (practice)`);
+  }
+  if (eventUpdates.length > 5) {
+    console.log(`    ... and ${eventUpdates.length - 5} more`);
+  }
+}
+
+// Apply updates
+console.log(`\n\n=== Applying Updates ===\n`);
+
+let updatedCount = 0;
+
+for (const update of updates) {
+  await db.update(tracks)
+    .set({
+      trackNumber: update.newTrackNumber,
+      isPractice: true,
+      sessionId: update.sessionId,
+    })
+    .where(eq(tracks.id, update.trackId));
+
+  updatedCount++;
+}
+
+console.log(`✅ Updated ${updatedCount} practice tracks\n`);
+
+console.log("\n=== Summary ===");
+console.log(`Total practice tracks: ${updates.length}`);
+console.log(`Events affected: ${byEvent.size}`);
+console.log("\nPractice tracks now:");
+console.log("  - Have negative trackNumbers (-1, -2, -3...) to sort before regular tracks");
+console.log("  - Marked with isPractice = true");
+console.log("  - Linked to sessions by date + time period");

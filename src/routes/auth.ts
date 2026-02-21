@@ -51,6 +51,9 @@ async function formatUserForApp(user: {
   role: string;
   isActive: boolean;
   isVerified: boolean;
+  subscriptionStatus: string;
+  subscriptionSource: string | null;
+  subscriptionExpiresAt: Date | null;
   lastActivity: Date | null;
   createdAt: Date;
 }) {
@@ -77,9 +80,9 @@ async function formatUserForApp(user: {
       notifications: true,
     },
     subscription: {
-      status: "active" as const,
-      plan: "lifetime" as const,
-      expiresAt: new Date("2099-12-31").toISOString(),
+      status: user.subscriptionStatus as "active" | "expired" | "none",
+      source: user.subscriptionSource,
+      expiresAt: user.subscriptionExpiresAt?.toISOString() || null,
     },
     created_at: user.createdAt.toISOString(),
     last_login: user.lastActivity?.toISOString() || user.createdAt.toISOString(),
@@ -249,11 +252,22 @@ auth.post("/request-magic-link", async (c) => {
     ...emailContent,
   });
 
-  return c.json({
+  const response: Record<string, unknown> = {
     status: "magic_link_sent",
     message: "Please check your email",
     expires_in: 3600,
-  });
+  };
+
+  // In dev mode, log the activation URL prominently so you can click it
+  if (config.isDev) {
+    response.dev_activation_url = magicLinkUrl;
+    console.log("\n╔══════════════════════════════════════════════╗");
+    console.log("║  🔑 DEV: Click to activate device            ║");
+    console.log("╚══════════════════════════════════════════════╝");
+    console.log(`  ${magicLinkUrl}\n`);
+  }
+
+  return c.json(response);
 });
 
 /**

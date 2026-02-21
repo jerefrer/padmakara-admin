@@ -11,7 +11,8 @@ import { GroupList, GroupEdit, GroupCreate } from "./resources/groups";
 import { EventList, EventEdit, EventCreate } from "./resources/events";
 import { EventTypeList, EventTypeEdit, EventTypeCreate } from "./resources/event-types";
 import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audiences";
-import { UserList, UserShow, UserEdit } from "./resources/users";
+import { UserList, UserEdit } from "./resources/users";
+import { ApprovalList } from "./resources/approvals";
 import { MigrationList, MigrationCreate, MigrationShow } from "./resources/migrations";
 
 const App = () => (
@@ -69,8 +70,12 @@ const App = () => (
       name="users"
       options={{ label: "Users" }}
       list={UserList}
-      show={UserShow}
       edit={UserEdit}
+    />
+    <Resource
+      name="approvals"
+      options={{ label: "Approvals" }}
+      list={ApprovalList}
     />
     <Resource
       name="migrations"

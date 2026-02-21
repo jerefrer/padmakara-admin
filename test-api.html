@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Admin API</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    pre { background: #f5f5f5; padding: 10px; border-radius: 4px; }
+    button { padding: 10px 20px; font-size: 16px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>Test Admin API - Event 610</h1>
+
+  <p><strong>Instructions:</strong></p>
+  <ol>
+    <li>Open your browser console (F12)</li>
+    <li>Log into the admin UI in another tab first</li>
+    <li>Come back here and click "Test API"</li>
+  </ol>
+
+  <button onclick="testAPI()">Test API</button>
+
+  <div id="result"></div>
+
+  <script>
+    async function testAPI() {
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '<p>Loading...</p>';
+
+      try {
+        // Get auth token from localStorage (set by admin UI)
+        const token = localStorage.getItem('accessToken');
+
+        const response = await fetch('http://localhost:3000/api/admin/events/610', {
+          headers: {
+            'Authorization': `Bearer ${token || ''}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          resultDiv.innerHTML = `<pre>Error ${response.status}: ${JSON.stringify(data, null, 2)}</pre>`;
+          return;
+        }
+
+        // Show key information
+        const summary = {
+          eventCode: data.eventCode,
+          titleEn: data.titleEn,
+          transcriptCount: data.transcripts?.length || 0,
+          sessionCount: data.sessions?.length || 0,
+          eventFileCount: data.eventFiles?.length || 0,
+        };
+
+        resultDiv.innerHTML = `
+          <h2>✅ Success!</h2>
+          <pre>${JSON.stringify(summary, null, 2)}</pre>
+
+          ${data.transcripts && data.transcripts.length > 0 ? `
+            <h3>Transcripts:</h3>
+            <ul>
+              ${data.transcripts.map(t => `<li>[${t.language}] ${t.originalFilename} (${t.fileSizeBytes} bytes)</li>`).join('')}
+            </ul>
+          ` : '<p>⚠️ No transcripts in response</p>'}
+
+          <details>
+            <summary>Full Response</summary>
+            <pre>${JSON.stringify(data, null, 2)}</pre>
+          </details>
+        `;
+      } catch (error) {
+        resultDiv.innerHTML = `<pre>❌ Error: ${error.message}</pre>`;
+      }
+    }
+  </script>
+</body>
+</html>

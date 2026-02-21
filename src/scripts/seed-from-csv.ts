@@ -7,6 +7,7 @@
 
 import { parse } from "csv-parse/sync";
 import { readFileSync } from "fs";
+import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { teachers } from "../db/schema/teachers.ts";
 import { places } from "../db/schema/places.ts";
@@ -79,18 +80,18 @@ const AUDIENCES: { nameEn: string; namePt: string }[] = [
 ];
 
 // --- Retreat groups: fixed list in display order ---
-const RETREAT_GROUPS: { nameEn: string; namePt: string }[] = [
-  { nameEn: "Śamatha", namePt: "Śamatha" },
-  { nameEn: "Śamatha + Introduction to the Path", namePt: "Śamatha + Introdução à Via" },
-  { nameEn: "Buddha Śākyamuni Practice", namePt: "Prática de Buda Śākyamuni" },
-  { nameEn: "Bodhisattva Practices", namePt: "Práticas dos Bodhisattvas" },
-  { nameEn: "Mind Training (Bodhisattva Practices)", namePt: "Treino da Mente (Pr. dos Bodhisattvas)" },
-  { nameEn: "Mind Training 1", namePt: "Treino da Mente 1" },
-  { nameEn: "Mind Training 2", namePt: "Treino da Mente 2" },
-  { nameEn: "Preliminary Practices - Level 1 - Refuge & Bodhicitta", namePt: "Práticas Preliminares - Nível 1 - Refúgio & Bodhicitta" },
-  { nameEn: "Preliminary Practices - Level 2 - Vajrasattva", namePt: "Práticas Preliminares - Nível 2 - Vajrasattva" },
-  { nameEn: "Preliminary Practices - Level 3 - Mandala", namePt: "Práticas Preliminares - Nível 3 - Mandala" },
-  { nameEn: "Preliminary Practices - Level 4 - Guru Yoga", namePt: "Práticas Preliminares - Nível 4 - Guru Yoga" },
+const RETREAT_GROUPS: { nameEn: string; namePt: string; abbreviation: string }[] = [
+  { nameEn: "Śamatha", namePt: "Śamatha", abbreviation: "SHA" },
+  { nameEn: "Śamatha + Introduction to the Path", namePt: "Śamatha + Introdução à Via", abbreviation: "SHA-IV" },
+  { nameEn: "Buddha Śākyamuni Practice", namePt: "Prática de Buda Śākyamuni", abbreviation: "PBS" },
+  { nameEn: "Bodhisattva Practices", namePt: "Práticas dos Bodhisattvas", abbreviation: "PBD" },
+  { nameEn: "Mind Training (Bodhisattva Practices)", namePt: "Treino da Mente (Pr. dos Bodhisattvas)", abbreviation: "TM" },
+  { nameEn: "Mind Training 1", namePt: "Treino da Mente 1", abbreviation: "TM1" },
+  { nameEn: "Mind Training 2", namePt: "Treino da Mente 2", abbreviation: "TM2" },
+  { nameEn: "Preliminary Practices - Level 1 - Refuge & Bodhicitta", namePt: "Práticas Preliminares - Nível 1 - Refúgio & Bodhicitta", abbreviation: "PP1" },
+  { nameEn: "Preliminary Practices - Level 2 - Vajrasattva", namePt: "Práticas Preliminares - Nível 2 - Vajrasattva", abbreviation: "PP2" },
+  { nameEn: "Preliminary Practices - Level 3 - Mandala", namePt: "Práticas Preliminares - Nível 3 - Mandala", abbreviation: "PP3" },
+  { nameEn: "Preliminary Practices - Level 4 - Guru Yoga", namePt: "Práticas Preliminares - Nível 4 - Guru Yoga", abbreviation: "PP4" },
 ];
 
 for (const raw of rawRows) {
@@ -137,13 +138,41 @@ console.log(`  Inserted ${teacherSet.size} teachers`);
 
 console.log("Seeding places...");
 for (const location of placeSet) {
-  const shortName = location.split(",")[0]!.trim();
+  let shortName = location.split(",")[0]!.trim();
+  let abbreviation: string | undefined;
+
+  // Map "Vídeo" to "Online" with ZOOM abbreviation
+  if (shortName === "Vídeo") {
+    shortName = "Online";
+    abbreviation = "ZOOM";
+  }
+
   await db
     .insert(places)
-    .values({ name: shortName, location })
+    .values({ name: shortName, abbreviation, location })
     .onConflictDoNothing();
 }
-console.log(`  Inserted ${placeSet.size} places`);
+
+// Set abbreviations for known places
+const PLACE_ABBREVIATIONS: Record<string, string> = {
+  "Karuna": "KAR",
+  "Centro de Retiros do Covão da Águia": "CCA",
+  "UBP": "UBP",
+  "Hotel do Sado": "HSA",
+  "Hotel Marriott": "HMA",
+  "Hotel Altis": "HAL",
+  "Palácio Villa Helena": "VLH",
+  "La Várzea": "LVZ",
+  "Seminário Torre da Aguilha": "STA",
+};
+
+for (const [placeName, abbrev] of Object.entries(PLACE_ABBREVIATIONS)) {
+  await db
+    .update(places)
+    .set({ abbreviation: abbrev })
+    .where(eq(places.name, placeName));
+}
+console.log(`  Inserted ${placeSet.size} places (with abbreviations)`);
 
 console.log("Seeding retreat groups...");
 for (let i = 0; i < RETREAT_GROUPS.length; i++) {
@@ -153,6 +182,7 @@ for (let i = 0; i < RETREAT_GROUPS.length; i++) {
     .values({
       nameEn: group.nameEn,
       namePt: group.namePt,
+      abbreviation: group.abbreviation,
       slug: slugify(group.nameEn),
       displayOrder: i,
     })

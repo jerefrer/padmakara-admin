@@ -23,6 +23,8 @@ export const tracks = pgTable(
     speaker: text("speaker"),
     language: text("language").notNull().default("en"),
     isTranslation: boolean("is_translation").notNull().default(false),
+    isPractice: boolean("is_practice").notNull().default(false),
+    fileFormat: text("file_format"),
     originalTrackId: integer("original_track_id").references((): any => tracks.id, {
       onDelete: "set null",
     }),

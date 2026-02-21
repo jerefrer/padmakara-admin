@@ -10,6 +10,7 @@ vi.mock("../../src/db/index.ts", () => ({
       magicLinkTokens: { findFirst: vi.fn() },
       deviceActivations: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
       userApprovalRequests: { findFirst: vi.fn() },
+      userGroupMemberships: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     },
     insert: vi.fn(),
     update: vi.fn(),
@@ -247,7 +248,9 @@ describe("Auth routes", () => {
       const mockUser = {
         id: 1, email: "user@test.com", firstName: "Test", lastName: "User",
         dharmaName: null, preferredLanguage: "en", role: "user",
-        isActive: true, isVerified: true, lastActivity: new Date(), createdAt: new Date(),
+        isActive: true, isVerified: true,
+        subscriptionStatus: "none", subscriptionSource: null, subscriptionExpiresAt: null,
+        lastActivity: new Date(), createdAt: new Date(),
       };
       (db.query.users.findFirst as any).mockResolvedValue(mockUser);
       (db.query.deviceActivations.findFirst as any).mockResolvedValue({

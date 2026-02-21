@@ -98,10 +98,15 @@ interface Migration {
     validEvents: number;
     eventsWithAudio: number;
     eventsWithVideo: number;
+    eventsWithoutMedia: number;
     totalAudioFiles: number;
     totalVideoFiles: number;
     totalDocuments: number;
     totalArchives: number;
+    eventsWithZips: number;
+    eventsWithLooseFiles: number;
+    csvTrackMatches: number;
+    csvTracksMissing: number;
     issues: Array<{
       severity: "error" | "warning" | "info";
       category: string;
@@ -268,7 +273,7 @@ export const MigrationCreate = () => {
       formData.append("title", title);
       if (notes) formData.append("notes", notes);
 
-      const response = await fetch("http://localhost:3000/admin/migrations/upload", {
+      const response = await fetch("/api/admin/migrations/upload", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
@@ -281,7 +286,7 @@ export const MigrationCreate = () => {
       }
 
       const result = await response.json();
-      notify("Migration created successfully", { type: "success" });
+      notify("padmakara.migrations.createdSuccess", { type: "success", messageArgs: { _: "Migration created successfully" } });
       redirect("show", "migrations", result.migration.id);
     } catch (error: any) {
       notify(`Error: ${error.message}`, { type: "error" });
@@ -411,7 +416,7 @@ export const MigrationShow = () => {
   const notify = useNotify();
   const refresh = useRefresh();
 
-  const { data: migration, isPending } = useGetOne<Migration>("migrations", { id: id! });
+  const { data: migration, isPending } = useGetOne<Migration>("migrations", { id: Number(id!) });
   const [currentTab, setCurrentTab] = useState(0);
   const [analyzing, setAnalyzing] = useState(false);
 
@@ -419,7 +424,7 @@ export const MigrationShow = () => {
   const handleAnalyze = async () => {
     setAnalyzing(true);
     try {
-      const response = await fetch(`http://localhost:3000/admin/migrations/${id}/analyze`, {
+      const response = await fetch(`/api/admin/migrations/${id}/analyze`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
@@ -480,8 +485,8 @@ export const MigrationShow = () => {
         >
           <Tab label="Overview" />
           <Tab label="File Decisions" disabled={migration.status === "uploaded"} />
-          <Tab label="Review" disabled={migration.status !== "decisions_complete" && migration.status !== "approved"} />
-          <Tab label="Execution" disabled={migration.status !== "executing" && migration.status !== "completed"} />
+          <Tab label="Review" disabled={!["decisions_pending", "decisions_complete", "approved"].includes(migration.status)} />
+          <Tab label="Execution" disabled={!["executing", "completed", "failed"].includes(migration.status)} />
         </Tabs>
 
         {/* Tab 0: Overview */}
@@ -499,14 +504,14 @@ export const MigrationShow = () => {
         )}
 
         {/* Tab 2: Review */}
-        {currentTab === 2 && (migration.status === "decisions_complete" || migration.status === "approved") && (
+        {currentTab === 2 && ["decisions_pending", "decisions_complete", "approved"].includes(migration.status) && (
           <Box sx={{ p: 3 }}>
-            <ReviewTab migration={migration} />
+            <ReviewTab migration={migration} onApproved={() => { refresh(); setCurrentTab(3); }} />
           </Box>
         )}
 
         {/* Tab 3: Execution */}
-        {currentTab === 3 && (migration.status === "executing" || migration.status === "completed") && (
+        {currentTab === 3 && ["executing", "completed", "failed"].includes(migration.status) && (
           <Box sx={{ p: 3 }}>
             <ExecutionTab migration={migration} />
           </Box>
@@ -562,12 +567,24 @@ const OverviewTab = ({
       </Typography>
 
       {/* Statistics Grid */}
-      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 2, mb: 3 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 2, mb: 3 }}>
         <StatCard label="Total Events" value={analysisData.totalEvents} icon={<CheckCircleIcon />} />
         <StatCard label="Audio Files" value={analysisData.totalAudioFiles} />
         <StatCard label="Video Files" value={analysisData.totalVideoFiles} />
         <StatCard label="Documents" value={analysisData.totalDocuments} />
-        <StatCard label="Archives" value={analysisData.totalArchives} />
+        <StatCard label="Archives (ZIPs)" value={analysisData.totalArchives} />
+      </Box>
+
+      {/* S3 Discovery Stats */}
+      <Typography variant="h6" sx={{ mb: 2 }}>
+        S3 Discovery
+      </Typography>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 2, mb: 3 }}>
+        <StatCard label="Events with ZIPs" value={analysisData.eventsWithZips ?? 0} />
+        <StatCard label="Events with Loose Files" value={analysisData.eventsWithLooseFiles ?? 0} />
+        <StatCard label="CSV Tracks Matched" value={analysisData.csvTrackMatches ?? 0} />
+        <StatCard label="CSV Tracks Missing" value={analysisData.csvTracksMissing ?? 0} />
+        <StatCard label="Events without Media" value={analysisData.eventsWithoutMedia ?? 0} />
       </Box>
 
       {/* Issues */}
@@ -646,10 +663,10 @@ const FileDecisionsTab = ({ migrationId }: { migrationId: number }) => {
     const fetchData = async () => {
       try {
         const [catalogsRes, decisionsRes] = await Promise.all([
-          fetch(`http://localhost:3000/admin/migrations/${migrationId}`, {
+          fetch(`/api/admin/migrations/${migrationId}`, {
             headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
           }),
-          fetch(`http://localhost:3000/admin/migrations/${migrationId}/decisions`, {
+          fetch(`/api/admin/migrations/${migrationId}/decisions`, {
             headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
           }),
         ]);
@@ -700,7 +717,7 @@ const FileDecisionsTab = ({ migrationId }: { migrationId: number }) => {
     setSaving(true);
     try {
       const decisionsArray = Array.from(decisions.values());
-      await fetch(`http://localhost:3000/admin/migrations/${migrationId}/decisions`, {
+      await fetch(`/api/admin/migrations/${migrationId}/decisions`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
@@ -973,7 +990,7 @@ const FileRow = ({ file, decision, onChange }: FileRowProps) => {
         style={{ width: 18, height: 18 }}
       />
 
-      {/* Filename */}
+      {/* Filename & Target Path */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography
           variant="body2"
@@ -987,6 +1004,21 @@ const FileRow = ({ file, decision, onChange }: FileRowProps) => {
         >
           {file.filename}
         </Typography>
+        {file.metadata?.targetS3Key && (
+          <Typography
+            variant="caption"
+            sx={{
+              fontFamily: "monospace",
+              color: "success.main",
+              display: "block",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            → {file.metadata.targetS3Key}
+          </Typography>
+        )}
         {hasConflicts && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}>
             <WarningIcon color="warning" sx={{ fontSize: 16 }} />
@@ -1071,15 +1103,129 @@ const FileRow = ({ file, decision, onChange }: FileRowProps) => {
 
 /* ───────────── Review Tab ───────────── */
 
-const ReviewTab = ({ migration }: { migration: Migration }) => {
+const ReviewTab = ({ migration, onApproved }: { migration: Migration; onApproved: () => void }) => {
+  const notify = useNotify();
+  const refresh = useRefresh();
+  const [approving, setApproving] = useState(false);
+  const [executing, setExecuting] = useState(false);
+
+  const handleApprove = async () => {
+    setApproving(true);
+    try {
+      const response = await fetch(`/api/admin/migrations/${migration.id}/approve`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Approval failed");
+      }
+      notify("Migration approved!", { type: "success" });
+      refresh();
+    } catch (error: any) {
+      notify(`Error: ${error.message}`, { type: "error" });
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleExecute = async () => {
+    setExecuting(true);
+    try {
+      const response = await fetch(`/api/admin/migrations/${migration.id}/execute`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+          "Content-Type": "application/json",
+        },
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Execution failed");
+      }
+      notify("Migration execution started!", { type: "success" });
+      onApproved();
+    } catch (error: any) {
+      notify(`Error: ${error.message}`, { type: "error" });
+    } finally {
+      setExecuting(false);
+    }
+  };
+
+  const { analysisData } = migration;
+
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 2 }}>
+      <Typography variant="h6" sx={{ mb: 3 }}>
         Review & Approval
       </Typography>
-      <Typography color="text.secondary">
-        Review interface coming soon...
-      </Typography>
+
+      {/* Summary */}
+      {analysisData && (
+        <Paper sx={{ p: 3, mb: 3 }} variant="outlined">
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
+            Migration Summary
+          </Typography>
+          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
+            <Typography variant="body2">Total events: <strong>{analysisData.totalEvents}</strong></Typography>
+            <Typography variant="body2">Audio files: <strong>{analysisData.totalAudioFiles}</strong></Typography>
+            <Typography variant="body2">Events with ZIPs: <strong>{analysisData.eventsWithZips ?? 0}</strong></Typography>
+            <Typography variant="body2">Loose file events: <strong>{analysisData.eventsWithLooseFiles ?? 0}</strong></Typography>
+            <Typography variant="body2">CSV tracks matched: <strong>{analysisData.csvTrackMatches ?? 0}</strong></Typography>
+            <Typography variant="body2" color={analysisData.csvTracksMissing ? "error" : "text.secondary"}>
+              CSV tracks missing: <strong>{analysisData.csvTracksMissing ?? 0}</strong>
+            </Typography>
+            <Typography variant="body2">Documents: <strong>{analysisData.totalDocuments}</strong></Typography>
+            <Typography variant="body2">Archives: <strong>{analysisData.totalArchives}</strong></Typography>
+          </Box>
+
+          {/* Issues summary */}
+          {analysisData.issues && analysisData.issues.length > 0 && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: "rgba(255,152,0,0.08)", borderRadius: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                <WarningIcon sx={{ fontSize: 16, verticalAlign: "text-bottom", mr: 0.5 }} color="warning" />
+                {analysisData.issues.length} issues found
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {analysisData.issues.filter(i => i.severity === "error").length} errors,{" "}
+                {analysisData.issues.filter(i => i.severity === "warning").length} warnings
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
+
+      {/* Action Buttons */}
+      <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+        {migration.status !== "approved" && (
+          <Button
+            variant="contained"
+            color="success"
+            size="large"
+            onClick={handleApprove}
+            disabled={approving}
+            sx={{ px: 4 }}
+          >
+            {approving ? "Approving..." : "Approve Migration"}
+          </Button>
+        )}
+        {migration.status === "approved" && (
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            onClick={handleExecute}
+            disabled={executing}
+            startIcon={<CheckCircleIcon />}
+            sx={{ px: 4 }}
+          >
+            {executing ? "Starting..." : "Execute Migration"}
+          </Button>
+        )}
+      </Box>
     </Box>
   );
 };
@@ -1087,22 +1233,63 @@ const ReviewTab = ({ migration }: { migration: Migration }) => {
 /* ───────────── Execution Tab ───────────── */
 
 const ExecutionTab = ({ migration }: { migration: Migration }) => {
+  const refresh = useRefresh();
+  const totalEvents = migration.analysisData?.totalEvents || 0;
+
+  // Auto-refresh while executing
+  useEffect(() => {
+    if (migration.status !== "executing") return;
+    const interval = setInterval(() => refresh(), 3000);
+    return () => clearInterval(interval);
+  }, [migration.status, refresh]);
+
   return (
     <Box>
-      <Typography variant="h6" sx={{ mb: 2 }}>
-        Execution Progress
-      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+        <Typography variant="h6">
+          Execution Progress
+        </Typography>
+        <StatusChip status={migration.status} />
+      </Box>
+
       <LinearProgress
         variant="determinate"
         value={migration.progressPercentage}
-        sx={{ mb: 2, height: 8, borderRadius: 4 }}
+        color={migration.status === "failed" ? "error" : migration.status === "completed" ? "success" : "primary"}
+        sx={{ mb: 2, height: 10, borderRadius: 5 }}
       />
-      <Typography variant="body1">
+
+      <Typography variant="h5" sx={{ fontWeight: 700, mb: 3 }}>
         {migration.progressPercentage}% Complete
       </Typography>
-      <Typography variant="body2" color="text.secondary">
-        {migration.processedEvents} / {migration.analysisData?.totalEvents || 0} events processed
-      </Typography>
+
+      {/* Event Counters */}
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 2 }}>
+        <Paper sx={{ p: 2, textAlign: "center" }} variant="outlined">
+          <Typography variant="h4" sx={{ fontWeight: 700 }}>
+            {migration.processedEvents || 0}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">Processed</Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: "center" }} variant="outlined">
+          <Typography variant="h4" sx={{ fontWeight: 700, color: "success.main" }}>
+            {migration.successfulEvents || 0}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">Successful</Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: "center" }} variant="outlined">
+          <Typography variant="h4" sx={{ fontWeight: 700, color: "error.main" }}>
+            {migration.failedEvents || 0}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">Failed</Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: "center" }} variant="outlined">
+          <Typography variant="h4" sx={{ fontWeight: 700, color: "text.secondary" }}>
+            {totalEvents - (migration.processedEvents || 0)}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">Remaining</Typography>
+        </Paper>
+      </Box>
     </Box>
   );
 };

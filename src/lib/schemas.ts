@@ -70,6 +70,7 @@ export const updatePlaceSchema = createPlaceSchema.partial();
 export const createRetreatGroupSchema = z.object({
   nameEn: z.string().min(1).max(200),
   namePt: z.string().max(200).optional().nullable(),
+  abbreviation: z.string().max(10).optional().nullable(),
   slug: z.string().min(1).max(100),
   description: z.string().optional().nullable(),
   logoUrl: z.string().url().optional().nullable(),
@@ -219,4 +220,11 @@ export const updateUserSchema = z.object({
   preferredLanguage: z.enum(["en", "pt"]).optional(),
   role: z.enum(["user", "admin", "superadmin"]).optional(),
   isActive: z.boolean().optional(),
+  subscriptionStatus: z.enum(["active", "expired", "none"]).optional(),
+  subscriptionSource: z
+    .enum(["easypay", "cash", "admin", "bank_transfer"])
+    .optional()
+    .nullable(),
+  subscriptionExpiresAt: z.string().optional().nullable(),
+  subscriptionNotes: z.string().max(500).optional().nullable(),
 });

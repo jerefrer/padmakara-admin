@@ -20,7 +20,7 @@ import {
   mediaFiles,
 } from "../../db/schema/index.ts";
 import { eq, desc } from "drizzle-orm";
-import { requireAuth, requireRole } from "../../middleware/auth.ts";
+import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -29,8 +29,7 @@ import type { EventSummary } from "../../scripts/html-report-generator.ts";
 
 const app = new Hono();
 
-// All routes require admin authentication
-app.use("*", requireAuth, requireRole(["admin", "superadmin"]));
+// Auth + admin middleware already applied by parent admin router
 
 // ============================================================================
 // Validation Schemas
@@ -71,31 +70,23 @@ const batchDecisionsSchema = z.object({
  * GET /admin/migrations
  * List all migrations with pagination
  */
+const migrationColumns: Record<string, any> = {
+  id: migrations.id,
+  title: migrations.title,
+  status: migrations.status,
+  createdAt: migrations.createdAt,
+};
+
 app.get("/", async (c) => {
-  const page = parseInt(c.req.query("page") || "1");
-  const limit = parseInt(c.req.query("limit") || "20");
-  const offset = (page - 1) * limit;
+  const { limit, offset, _sort, _order } = parsePagination(c);
+  const orderBy = buildOrderBy(_sort, _order, migrationColumns) ?? desc(migrations.createdAt);
 
-  const allMigrations = await db
-    .select()
-    .from(migrations)
-    .orderBy(desc(migrations.createdAt))
-    .limit(limit)
-    .offset(offset);
+  const [data, total] = await Promise.all([
+    db.select().from(migrations).orderBy(orderBy).limit(limit).offset(offset),
+    countRows(migrations),
+  ]);
 
-  const total = await db
-    .select({ count: migrations.id })
-    .from(migrations);
-
-  return c.json({
-    migrations: allMigrations,
-    pagination: {
-      page,
-      limit,
-      total: total.length,
-      totalPages: Math.ceil(total.length / limit),
-    },
-  });
+  return listResponse(c, data, total, offset, offset + limit, "migrations");
 });
 
 /**
@@ -164,7 +155,7 @@ app.post("/upload", async (c) => {
  * Analyze CSV and catalog all S3 files
  */
 app.post("/:id/analyze", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
 
   try {
     // Get migration
@@ -196,14 +187,15 @@ app.post("/:id/analyze", async (c) => {
     // Parse CSV
     const csvData = await parseWixCSV(migration.csvFilePath);
 
-    // Analyze and catalog files
-    const analysis = await analyzeAndCatalog(migrationId, csvData);
+    // Analyze and catalog files (searches in old bucket via S3 prefix discovery)
+    const analysis = await analyzeAndCatalog(migrationId, csvData, "padmakara-pt");
 
-    // Update migration with analysis results
+    // Since the analyzer auto-generates decisions for obvious cases,
+    // set status to decisions_pending (admin can review and tweak)
     await db
       .update(migrations)
       .set({
-        status: "analyzed",
+        status: "decisions_pending",
         analysisData: analysis as any,
         analyzedAt: new Date(),
       })
@@ -231,7 +223,7 @@ app.post("/:id/analyze", async (c) => {
  * Get migration details with file catalogs
  */
 app.get("/:id", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
 
   const [migration] = await db
     .select()
@@ -280,7 +272,7 @@ app.get("/:id", async (c) => {
   }, {} as Record<string, { eventCode: string; s3Directory: string; files: any[] }>);
 
   return c.json({
-    migration,
+    ...migration,
     events: Object.values(eventGroups),
     totalFiles: formattedCatalogs,
   });
@@ -291,7 +283,7 @@ app.get("/:id", async (c) => {
  * Save file decision (single or batch)
  */
 app.post("/:id/decisions", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
   const userId = c.get("userId");
 
   try {
@@ -386,7 +378,7 @@ app.post("/:id/decisions", async (c) => {
  * Get all decisions for a migration
  */
 app.get("/:id/decisions", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
 
   const decisions = await db
     .select()
@@ -401,7 +393,7 @@ app.get("/:id/decisions", async (c) => {
  * Approve migration for execution
  */
 app.post("/:id/approve", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
   const userId = c.get("userId");
 
   const [migration] = await db
@@ -413,8 +405,8 @@ app.post("/:id/approve", async (c) => {
     return c.json({ error: "Migration not found" }, 404);
   }
 
-  if (migration.status !== "decisions_complete") {
-    return c.json({ error: "All file decisions must be complete before approval" }, 400);
+  if (migration.status !== "decisions_complete" && migration.status !== "decisions_pending" && migration.status !== "analyzed") {
+    return c.json({ error: "Migration must have decisions before approval" }, 400);
   }
 
   await db
@@ -434,7 +426,7 @@ app.post("/:id/approve", async (c) => {
  * Execute migration (background job)
  */
 app.post("/:id/execute", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
 
   const [migration] = await db
     .select()
@@ -459,9 +451,16 @@ app.post("/:id/execute", async (c) => {
     })
     .where(eq(migrations.id, migrationId));
 
-  // TODO: Queue background job
-  // For now, return success - job will run in background
-  // In production: await queue.add('migration', { migrationId });
+  // Start execution in background (fire-and-forget)
+  const { executeMigration } = await import("../../scripts/migration-executor.ts");
+  executeMigration(migrationId, "padmakara-pt", migration.targetBucket)
+    .catch(async (err) => {
+      console.error(`Migration ${migrationId} failed:`, err);
+      await db.update(migrations).set({
+        status: "failed",
+        executionCompletedAt: new Date(),
+      }).where(eq(migrations.id, migrationId));
+    });
 
   return c.json({
     success: true,
@@ -475,7 +474,7 @@ app.post("/:id/execute", async (c) => {
  * SSE stream for real-time progress updates
  */
 app.get("/:id/progress", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
 
   return streamSSE(c, async (stream) => {
     // Send initial status
@@ -553,7 +552,7 @@ app.get("/:id/progress", async (c) => {
  * Get migration logs with filtering
  */
 app.get("/:id/logs", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
   const level = c.req.query("level"); // optional filter
   const limit = parseInt(c.req.query("limit") || "100");
 
@@ -579,7 +578,7 @@ app.get("/:id/logs", async (c) => {
  * Delete migration (soft delete - mark as cancelled)
  */
 app.delete("/:id", async (c) => {
-  const migrationId = parseInt(c.params.id);
+  const migrationId = parseInt(c.req.param("id"));
 
   const [migration] = await db
     .select()

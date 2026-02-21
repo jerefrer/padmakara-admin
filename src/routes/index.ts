@@ -7,11 +7,15 @@ import { contentRoutes } from "./content.ts";
 import { mediaRoutes } from "./media.ts";
 import { userRoutes } from "./users.ts";
 import { downloadsRoutes } from "./downloads.ts";
+import { paymentRoutes } from "./payment.ts";
 
 const api = new Hono();
 
 // Auth (public endpoints)
 api.route("/auth", auth);
+
+// Payment (webhook + checkout page are public, subscribe/cancel require auth)
+api.route("/payment", paymentRoutes);
 
 // Admin (requires admin role)
 api.route("/admin", admin);

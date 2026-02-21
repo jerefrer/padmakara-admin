@@ -81,6 +81,9 @@ describe("Frontend Compatibility Tests", () => {
       role: "user",
       isActive: true,
       isVerified: true,
+      subscriptionStatus: "active",
+      subscriptionSource: "admin",
+      subscriptionExpiresAt: new Date("2099-12-31"),
       lastActivity: new Date(),
       createdAt: new Date(),
     };
@@ -133,8 +136,6 @@ describe("Frontend Compatibility Tests", () => {
           }),
           subscription: expect.objectContaining({
             status: expect.any(String),
-            plan: expect.any(String),
-            expiresAt: expect.any(String),
           }),
         }),
       });
@@ -249,6 +250,9 @@ describe("Frontend Compatibility Tests", () => {
       role: "user",
       isActive: true,
       isVerified: true,
+      subscriptionStatus: "active",
+      subscriptionSource: "admin",
+      subscriptionExpiresAt: new Date("2099-12-31"),
       lastActivity: new Date(),
       createdAt: new Date(),
     };
@@ -283,7 +287,7 @@ describe("Frontend Compatibility Tests", () => {
         },
         subscription: {
           status: "active",
-          plan: "lifetime",
+          source: "admin",
           expiresAt: expect.any(String),
         },
         created_at: expect.any(String),

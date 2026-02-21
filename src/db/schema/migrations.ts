@@ -84,6 +84,11 @@ export const migrations = pgTable("migrations", {
     totalDocuments: number;
     totalArchives: number;
     totalSize: number;
+    // New fields for prefix-based discovery
+    eventsWithZips: number;
+    eventsWithLooseFiles: number;
+    csvTrackMatches: number;
+    csvTracksMissing: number;
     issues: Array<{
       severity: "error" | "warning" | "info";
       category: string;

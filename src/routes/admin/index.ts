@@ -10,7 +10,9 @@ import { audienceRoutes } from "./audiences.ts";
 import { sessionRoutes } from "./sessions.ts";
 import { trackRoutes } from "./tracks.ts";
 import { userRoutes } from "./users.ts";
+import { approvalRoutes } from "./approvals.ts";
 import { uploadRoutes } from "./upload.ts";
+import migrationRoutes from "./migrations.ts";
 
 const admin = new Hono();
 
@@ -26,6 +28,8 @@ admin.route("/audiences", audienceRoutes);
 admin.route("/sessions", sessionRoutes);
 admin.route("/tracks", trackRoutes);
 admin.route("/users", userRoutes);
+admin.route("/approvals", approvalRoutes);
 admin.route("/upload", uploadRoutes);
+admin.route("/migrations", migrationRoutes);
 
 export { admin };

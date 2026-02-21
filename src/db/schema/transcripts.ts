@@ -8,16 +8,12 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { events } from "./retreats.ts";
-import { sessions } from "./sessions.ts";
 
 export const transcripts = pgTable("transcripts", {
   id: serial("id").primaryKey(),
   eventId: integer("retreat_id")
     .notNull()
     .references(() => events.id, { onDelete: "cascade" }),
-  sessionId: integer("session_id").references(() => sessions.id, {
-    onDelete: "set null",
-  }),
   language: text("language").notNull(),
   s3Key: text("s3_key"),
   pageCount: integer("page_count"),
@@ -32,9 +28,5 @@ export const transcriptsRelations = relations(transcripts, ({ one }) => ({
   event: one(events, {
     fields: [transcripts.eventId],
     references: [events.id],
-  }),
-  session: one(sessions, {
-    fields: [transcripts.sessionId],
-    references: [sessions.id],
   }),
 }));
