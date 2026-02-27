@@ -13,7 +13,11 @@ app.use("*", logger());
 app.use(
   "/api/*",
   cors({
-    origin: [config.urls.frontend, config.urls.admin],
+    origin: [
+      config.urls.frontend,
+      config.urls.admin,
+      "tauri://localhost", // Tauri desktop app
+    ],
     credentials: true,
   }),
 );

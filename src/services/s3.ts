@@ -97,6 +97,17 @@ export function buildTrackS3Key(
 }
 
 /**
+ * Build S3 key for Read Along alignment JSON files.
+ * Format: events/{event_code}/read-along/{filename}.json
+ */
+export function buildReadAlongS3Key(
+  eventCode: string,
+  filename: string,
+): string {
+  return `events/${eventCode}/read-along/${filename}`;
+}
+
+/**
  * Build a consistent S3 key for transcript files.
  */
 export function buildTranscriptS3Key(
@@ -112,6 +123,21 @@ export function buildTranscriptS3Key(
  */
 export function buildZipS3Key(eventCode: string, requestId: string): string {
   return `downloads/${eventCode}/${requestId}.zip`;
+}
+
+/**
+ * Get an S3 object's content as a string (e.g. JSON files).
+ */
+export async function getObjectText(key: string): Promise<string> {
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+  });
+  const response = await s3Client.send(command);
+  if (!response.Body) {
+    throw new Error(`No body returned for S3 object: ${key}`);
+  }
+  return await response.Body.transformToString("utf-8");
 }
 
 /**

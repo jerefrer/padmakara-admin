@@ -6,7 +6,7 @@ import { tracks } from "../db/schema/tracks.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
 import { events } from "../db/schema/retreats.ts";
 import { users } from "../db/schema/users.ts";
-import { generatePresignedDownloadUrl } from "../services/s3.ts";
+import { generatePresignedDownloadUrl, getObjectText } from "../services/s3.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
 import { checkEventAccess } from "../services/access.ts";
@@ -96,6 +96,38 @@ mediaRoutes.get("/audio/:trackId", async (c) => {
 
   const url = await generatePresignedDownloadUrl(result.track.s3Key);
   return c.json({ url, expiresIn: 3600 });
+});
+
+/**
+ * GET /api/media/readalong/:trackId - Serve Read Along alignment JSON directly
+ * Proxied through the API to avoid S3 CORS issues on web.
+ */
+mediaRoutes.get("/readalong/:trackId", async (c) => {
+  const trackId = parseInt(c.req.param("trackId"), 10);
+  const authUser = getOptionalUser(c);
+
+  const result = await getEventForTrack(trackId);
+  if (!result?.track) throw AppError.notFound("Track not found");
+  if (!result.track.readAlongS3Key) throw AppError.notFound("Read Along data not available");
+
+  if (result.event) {
+    const userForAccess = await getUserForAccess(authUser);
+    const accessResult = await checkEventAccess(userForAccess, result.event);
+    if (!accessResult.allowed) {
+      if (accessResult.reason === "AUTH_REQUIRED") {
+        throw AppError.unauthorized("Authentication required");
+      }
+      throw AppError.forbidden("Access denied");
+    }
+  }
+
+  const jsonContent = await getObjectText(result.track.readAlongS3Key);
+  return new Response(jsonContent, {
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=86400",
+    },
+  });
 });
 
 /**

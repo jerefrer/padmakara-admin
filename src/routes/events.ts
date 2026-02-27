@@ -38,7 +38,7 @@ async function getSpeakerNameMap(): Promise<Map<string, string>> {
   return map;
 }
 
-/** Add speakerName to each track in-place */
+/** Add speakerName and hasReadAlong to each track in-place, strip internal fields */
 async function enrichTracksWithSpeakerNames(trackList: any[]): Promise<void> {
   if (!trackList.length) return;
   const nameMap = await getSpeakerNameMap();
@@ -46,6 +46,9 @@ async function enrichTracksWithSpeakerNames(trackList: any[]): Promise<void> {
     if (track.speaker) {
       track.speakerName = nameMap.get(track.speaker.toUpperCase()) ?? null;
     }
+    // Expose hasReadAlong boolean, strip the internal S3 key
+    track.hasReadAlong = !!track.readAlongS3Key;
+    delete track.readAlongS3Key;
   }
 }
 
