@@ -56,6 +56,12 @@ export {
   downloadRequestsRelations,
 } from "./download-requests.ts";
 
+// Read-along jobs
+export {
+  readAlongJobs,
+  readAlongJobsRelations,
+} from "./read-along-jobs.ts";
+
 // Migrations
 export {
   migrations,

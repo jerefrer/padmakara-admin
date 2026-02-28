@@ -12,6 +12,7 @@ import {
 import { createEventSchema, updateEventSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
+import { submitReadAlongJob, getReadAlongJobs } from "../../services/read-along.ts";
 
 const eventRoutes = new Hono();
 
@@ -323,6 +324,38 @@ eventRoutes.post("/:id/translate-themes", async (c) => {
     translated: Object.keys(updates),
     event: updated,
   });
+});
+
+// ── Read Along ────────────────────────────────────────────────────────
+
+/**
+ * POST /admin/events/:id/read-along
+ *
+ * Trigger read-along alignment processing for an event.
+ * Submits an AWS Batch job that runs Whisper + PDF alignment.
+ */
+eventRoutes.post("/:id/read-along", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json().catch(() => ({}));
+
+  const result = await submitReadAlongJob(id, {
+    language: body.language,
+    skipPages: body.skipPages,
+    whisperModel: body.whisperModel,
+  });
+
+  return c.json(result, 202);
+});
+
+/**
+ * GET /admin/events/:id/read-along
+ *
+ * Get recent read-along jobs for an event.
+ */
+eventRoutes.get("/:id/read-along", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const jobs = await getReadAlongJobs(id);
+  return c.json({ jobs });
 });
 
 /**

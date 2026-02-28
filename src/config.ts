@@ -43,4 +43,10 @@ export const config = {
     admin: env("ADMIN_URL", "http://localhost:3000/admin"),
     backend: env("BACKEND_URL", "http://localhost:3000"),
   },
+
+  readAlong: {
+    jobDefinition: env("BATCH_JOB_DEFINITION", "padmakara-read-along"),
+    jobQueue: env("BATCH_JOB_QUEUE", "padmakara-read-along-queue"),
+    webhookSecret: env("READ_ALONG_WEBHOOK_SECRET", "dev-webhook-secret"),
+  },
 } as const;

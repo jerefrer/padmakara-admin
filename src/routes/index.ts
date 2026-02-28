@@ -9,11 +9,15 @@ import { userRoutes } from "./users.ts";
 import { downloadsRoutes } from "./downloads.ts";
 import { paymentRoutes } from "./payment.ts";
 import { searchRoutes } from "./search.ts";
+import { webhookRoutes } from "./webhooks.ts";
 
 const api = new Hono();
 
 // Auth (public endpoints)
 api.route("/auth", auth);
+
+// Webhooks (public, HMAC-authenticated)
+api.route("/webhooks", webhookRoutes);
 
 // Payment (webhook + checkout page are public, subscribe/cancel require auth)
 api.route("/payment", paymentRoutes);
