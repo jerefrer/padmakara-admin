@@ -188,6 +188,8 @@ CREATE TABLE "user_approval_requests" (
 );
 --> statement-breakpoint
 ALTER TABLE "retreats" RENAME COLUMN "audience" TO "audience_id";--> statement-breakpoint
+ALTER TABLE "retreats" ALTER COLUMN "audience_id" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "retreats" ALTER COLUMN "audience_id" SET DATA TYPE integer USING NULL;--> statement-breakpoint
 ALTER TABLE "transcripts" DROP CONSTRAINT "transcripts_session_id_sessions_id_fk";
 --> statement-breakpoint
 ALTER TABLE "magic_link_tokens" ADD COLUMN "device_fingerprint" text;--> statement-breakpoint
