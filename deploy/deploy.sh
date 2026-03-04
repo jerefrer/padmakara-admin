@@ -121,13 +121,13 @@ else
 fi
 
 echo "[3/7] Installing API dependencies..."
-cd "$API_DIR" && $BUN install --frozen-lockfile
+cd "$API_DIR" && $BUN install
 
 echo "[4/7] Running database migrations..."
 cd "$API_DIR" && $BUN x drizzle-kit migrate
 
 echo "[5/7] Building admin panel..."
-cd "$API_DIR/admin" && $BUN install --frozen-lockfile && $BUN x vite build
+cd "$API_DIR/admin" && $BUN install && $BUN x vite build
 
 echo "[6/7] Building web app..."
 cd "$APP_DIR" && npm install && npx expo export -p web
@@ -153,7 +153,7 @@ else
 
     cd "$API_DIR"
     git reset --hard "$PREVIOUS_API"
-    $BUN install --frozen-lockfile
+    $BUN install
 
     cd "$APP_DIR"
     git reset --hard "$PREVIOUS_APP"
