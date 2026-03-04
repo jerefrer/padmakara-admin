@@ -1,0 +1,30 @@
+[Unit]
+Description=Padmakara API (Bun + Hono)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=padmakara
+Group=padmakara
+WorkingDirectory=/home/padmakara/padmakara-api
+ExecStart=/home/padmakara/.bun/bin/bun run src/index.ts
+Restart=always
+RestartSec=5
+
+# Load environment from .env file
+EnvironmentFile=/home/padmakara/padmakara-api/.env
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/padmakara/padmakara-api/uploads
+PrivateTmp=true
+
+# Resource limits
+MemoryMax=1G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

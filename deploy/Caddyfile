@@ -1,0 +1,61 @@
+# Padmakara — Caddy reverse proxy configuration
+# Caddy automatically provisions and renews Let's Encrypt HTTPS certificates.
+#
+# DNS required: A records for api.padmakara.pt, app.padmakara.pt, admin.padmakara.pt
+# all pointing to the server IP.
+
+# API — reverse proxy to Bun on localhost:3000
+api.padmakara.pt {
+	reverse_proxy localhost:3000
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/api-access.log
+		format json
+	}
+}
+
+# Admin panel — served through Hono (/admin/* routes)
+admin.padmakara.pt {
+	reverse_proxy localhost:3000
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/admin-access.log
+		format json
+	}
+}
+
+# Web app — static Expo web build
+app.padmakara.pt {
+	root * /home/padmakara/padmakara-app/dist
+
+	try_files {path} /index.html
+	file_server
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	@static path /_expo/* /assets/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	log {
+		output file /var/log/caddy/web-access.log
+		format json
+	}
+}
