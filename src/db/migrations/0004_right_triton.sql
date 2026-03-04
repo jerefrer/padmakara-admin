@@ -198,10 +198,6 @@ ALTER TABLE "retreat_groups" ADD COLUMN "abbreviation" text;--> statement-breakp
 ALTER TABLE "retreats" ADD COLUMN "event_type_id" integer;--> statement-breakpoint
 ALTER TABLE "tracks" ADD COLUMN "is_practice" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "tracks" ADD COLUMN "file_format" text;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "subscription_status" text DEFAULT 'none' NOT NULL;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "subscription_source" text;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "subscription_expires_at" timestamp with time zone;--> statement-breakpoint
-ALTER TABLE "users" ADD COLUMN "subscription_notes" text;--> statement-breakpoint
 ALTER TABLE "users" ADD COLUMN "easypay_subscription_id" text;--> statement-breakpoint
 ALTER TABLE "device_activations" ADD CONSTRAINT "device_activations_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "download_requests" ADD CONSTRAINT "download_requests_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
