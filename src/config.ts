@@ -29,7 +29,7 @@ export const config = {
   },
 
   email: {
-    fromEmail: env("SES_FROM_EMAIL", "noreply@padmakara.org"),
+    fromEmail: env("SES_FROM_EMAIL", "no-reply@padmakara.pt"),
   },
 
   easypay: {
