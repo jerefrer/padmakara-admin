@@ -125,7 +125,7 @@ mediaRoutes.get("/readalong/:trackId", async (c) => {
   return new Response(jsonContent, {
     headers: {
       "Content-Type": "application/json",
-      "Cache-Control": "public, max-age=86400",
+      "Cache-Control": "no-cache",
     },
   });
 });
