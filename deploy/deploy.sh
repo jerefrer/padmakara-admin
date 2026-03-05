@@ -48,10 +48,10 @@ PREVIOUS_API=$(git rev-parse HEAD)
 cd "$APP_DIR"
 PREVIOUS_APP=$(git rev-parse HEAD)
 
-# --- Pull latest code ---
+# --- Pull latest code (reset to match remote, supports force-push) ---
 echo "[1/7] Pulling latest code..."
-cd "$API_DIR" && git pull origin main
-cd "$APP_DIR" && git pull origin main
+cd "$API_DIR" && git fetch origin main && git reset --hard origin/main
+cd "$APP_DIR" && git fetch origin main && git reset --hard origin/main
 
 # --- Install systemd service if missing ---
 if [ ! -f /etc/systemd/system/padmakara-api.service ]; then
@@ -133,7 +133,7 @@ echo "[5/7] Building admin panel..."
 cd "$API_DIR/admin" && $BUN install && $BUN x vite build
 
 echo "[6/7] Building web app..."
-cd "$APP_DIR" && npm install && npx expo export -p web
+cd "$APP_DIR" && npm install && EXPO_PUBLIC_API_URL=https://api.padmakara.pt/api npx expo export -p web
 
 echo "[7/7] Restarting API service..."
 sudo systemctl restart padmakara-api
