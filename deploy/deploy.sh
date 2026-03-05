@@ -53,16 +53,19 @@ echo "[1/7] Pulling latest code..."
 cd "$API_DIR" && git pull origin main
 cd "$APP_DIR" && git pull origin main
 
-# --- Install Caddyfile and systemd service if missing ---
+# --- Install systemd service if missing ---
 if [ ! -f /etc/systemd/system/padmakara-api.service ]; then
-    echo "[setup] Installing Caddyfile..."
-    sudo cp "$API_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
-    sudo systemctl restart caddy
-
     echo "[setup] Installing systemd service..."
     sudo cp "$API_DIR/deploy/padmakara-api.service" /etc/systemd/system/padmakara-api.service
     sudo systemctl daemon-reload
     sudo systemctl enable padmakara-api
+fi
+
+# --- Always sync Caddyfile ---
+if ! diff -q "$API_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile > /dev/null 2>&1; then
+    echo "[setup] Updating Caddyfile..."
+    sudo cp "$API_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
+    sudo systemctl restart caddy
 fi
 
 # --- Check .env exists ---

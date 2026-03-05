@@ -40,7 +40,7 @@ export const config = {
 
   urls: {
     frontend: env("FRONTEND_URL", "http://localhost:8081"),
-    admin: env("ADMIN_URL", "http://localhost:3000/admin"),
+    admin: env("ADMIN_URL", "http://localhost:5173"),
     backend: env("BACKEND_URL", "http://localhost:3000"),
   },
 

@@ -21,9 +21,19 @@ api.padmakara.pt {
 	}
 }
 
-# Admin panel — served through Hono (/admin/* routes)
+# Admin panel — static SPA with API proxy
 admin.padmakara.pt {
-	reverse_proxy localhost:3000
+	# Proxy API calls to Hono
+	handle /api/* {
+		reverse_proxy localhost:3000
+	}
+
+	# Serve admin SPA static files
+	handle {
+		root * /home/padmakara/padmakara-api/admin/dist
+		try_files {path} /index.html
+		file_server
+	}
 
 	header {
 		X-Content-Type-Options "nosniff"

@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { serveStatic } from "hono/bun";
 import { config } from "./config.ts";
 import { errorHandler } from "./lib/errors.ts";
 import { api } from "./routes/index.ts";
@@ -41,24 +40,6 @@ app.get("/health", (c) =>
 
 // API routes
 app.route("/api", api);
-
-// Admin SPA — redirect /admin to /admin/
-app.get("/admin", (c) => c.redirect("/admin/"));
-
-// Serve static assets from admin/dist, stripping the /admin prefix
-app.use(
-  "/admin/*",
-  serveStatic({
-    root: "./admin/dist",
-    rewriteRequestPath: (path) => path.replace(/^\/admin/, ""),
-  }),
-);
-
-// SPA fallback — serve index.html for any unmatched /admin/* route (client-side routing)
-app.get("/admin/*", async (c) => {
-  const html = await Bun.file("./admin/dist/index.html").text();
-  return c.html(html);
-});
 
 // Error handler
 app.onError(errorHandler);
