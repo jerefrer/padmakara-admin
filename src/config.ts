@@ -17,7 +17,7 @@ export const config = {
 
   jwt: {
     secret: env("JWT_SECRET", "dev-secret-change-in-production"),
-    accessTokenExpiry: env("JWT_ACCESS_TOKEN_EXPIRY", "30d"),
+    accessTokenExpiry: env("JWT_ACCESS_TOKEN_EXPIRY", "1h"),
     refreshTokenExpiry: env("JWT_REFRESH_TOKEN_EXPIRY", "365d"),
   },
 
