@@ -487,8 +487,8 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 export const UserEdit = () => {
   const translate = useTranslate();
   return (
-    <Edit>
-      <SimpleForm>
+    <Edit mutationMode="pessimistic">
+      <SimpleForm warnWhenUnsavedChanges>
         {/* ─── Identity ──────────────────────────────── */}
         <TextInput source="email" label={translate("padmakara.fields.email")} disabled fullWidth />
         <Stack direction="row" spacing={2} sx={{ width: "100%" }}>

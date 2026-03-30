@@ -276,10 +276,13 @@ searchRoutes.get("/", async (c) => {
     // Title (weight 3)
     scoreField("title", WEIGHT_TITLE, event.titleEn, event.titlePt);
 
-    // Teacher names (weight 2)
-    const teacherNames = (event.eventTeachers ?? []).map(
-      (et: any) => et.teacher?.name ?? "",
-    );
+    // Teacher names, abbreviations, and aliases (weight 2)
+    const teacherNames = (event.eventTeachers ?? []).map((et: any) => {
+      const parts = [et.teacher?.name ?? ""];
+      if (et.teacher?.abbreviation) parts.push(et.teacher.abbreviation);
+      if (et.teacher?.aliases?.length > 0) parts.push(...et.teacher.aliases);
+      return parts.join(" ");
+    });
     const teacherText = teacherNames.join(" ");
     const teacherMatches = countWordMatches(teacherText, queryWords);
     if (teacherMatches > 0) {

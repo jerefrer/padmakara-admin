@@ -11,6 +11,7 @@ import {
   FunctionField,
   Title,
   useGetOne,
+  useRefresh,
   useTranslate,
   useLocaleState,
   ReferenceField,
@@ -43,6 +44,10 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SaveIcon from "@mui/icons-material/Save";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SpaIcon from "@mui/icons-material/SelfImprovement";
+import StarIcon from "@mui/icons-material/Star";
+import StarBorderIcon from "@mui/icons-material/StarBorder";
+import Tooltip from "@mui/material/Tooltip";
+import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
 
 import { TrackDropZone } from "../components/TrackDropZone";
@@ -156,9 +161,14 @@ export const EventList = () => {
               <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem", opacity: 0.6, fontWeight: 500 }}>
                 {record.eventCode}
               </Typography>
-              <Typography variant="body2" sx={{ fontSize: "0.875rem" }}>
-                {record.titleEn}
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Typography variant="body2" sx={{ fontSize: "0.875rem" }}>
+                  {record.titleEn}
+                </Typography>
+                {record.featuredAt && (
+                  <StarIcon sx={{ fontSize: 16, color: "#f59e0b" }} />
+                )}
+              </Box>
             </Box>
           )}
         />
@@ -263,6 +273,7 @@ interface EventFormData {
   startDate: string;
   endDate: string;
   status: string;
+  featuredAt: string | null;
 }
 
 interface TeacherOption { id: number; name: string; abbreviation: string }
@@ -276,6 +287,7 @@ const EMPTY_FORM: EventFormData = {
   mainThemesPt: "", mainThemesEn: "",
   sessionThemesEn: "", sessionThemesPt: "",
   startDate: "", endDate: "", status: "draft",
+  featuredAt: null,
 };
 
 /* ───────────── Shared form fields ───────────── */
@@ -410,6 +422,20 @@ const EventFormFields = ({
             {translate("padmakara.events.published")}
           </ToggleButton>
         </ToggleButtonGroup>
+        <Tooltip title={form.featuredAt ? "Remove from featured" : "Set as featured on home screen"}>
+          <IconButton
+            onClick={() => setForm((prev) => ({
+              ...prev,
+              featuredAt: prev.featuredAt ? null : new Date().toISOString(),
+            }))}
+            sx={{
+              ml: 1,
+              color: form.featuredAt ? "#f59e0b" : "action.disabled",
+            }}
+          >
+            {form.featuredAt ? <StarIcon /> : <StarBorderIcon />}
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* ── Title ── */}
@@ -1056,6 +1082,7 @@ export const EventEdit = () => {
   const notify = useNotify();
   const redirect = useRedirect();
   const translate = useTranslate();
+  const refresh = useRefresh();
 
   const { data: event, isPending } = useGetOne("events", { id: id! }, {
     enabled: !!id,
@@ -1091,6 +1118,7 @@ export const EventEdit = () => {
       startDate: event.startDate || "",
       endDate: event.endDate || "",
       status: event.status || "draft",
+      featuredAt: event.featuredAt || null,
     });
 
     if (event.eventTeachers && allTeachers.length > 0) {
@@ -1171,12 +1199,14 @@ export const EventEdit = () => {
         );
 
         notify(translate("padmakara.events.trackUpdated"), { type: "success" });
+        // Invalidate cached event data so changes persist on re-navigation
+        refresh();
       } catch (error: any) {
         notify(`Error updating track: ${error.message}`, { type: "error" });
         throw error;
       }
     },
-    [dataProvider, notify, translate]
+    [dataProvider, notify, translate, refresh]
   );
 
   const handleSave = async () => {
