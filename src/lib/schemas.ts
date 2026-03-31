@@ -103,8 +103,7 @@ export const updateAudienceSchema = createAudienceSchema.partial();
 
 // Publications
 export const createPublicationSchema = z.object({
-  titlePt: z.string().min(1).max(300),
-  titleEn: z.string().max(300).optional().nullable(),
+  title: z.string().min(1).max(300),
   subtitle: z.string().max(300).optional().nullable(),
   description: z.string().optional().nullable(),
   authors: z.array(z.string().max(200)).optional().default([]),
@@ -115,7 +114,6 @@ export const createPublicationSchema = z.object({
   fileSizeBytes: z.number().int().min(0).optional().nullable(),
   pageCount: z.number().int().min(0).optional().nullable(),
   accessLevel: z.enum(["public", "subscribers"]).optional().default("public"),
-  sortOrder: z.number().int().min(0).optional().default(0),
   status: z.enum(["draft", "published"]).optional().default("draft"),
 });
 

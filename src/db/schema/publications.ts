@@ -13,8 +13,7 @@ import { events } from "./retreats.ts";
 
 export const publications = pgTable("publications", {
   id: serial("id").primaryKey(),
-  titlePt: text("title_pt").notNull(),
-  titleEn: text("title_en"),
+  title: text("title").notNull(),
   subtitle: text("subtitle"),
   description: text("description"),
   authors: text("authors").array().notNull().default([]),
@@ -25,7 +24,6 @@ export const publications = pgTable("publications", {
   pdfS3Key: text("pdf_s3_key").notNull(),
   fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
   accessLevel: text("access_level").notNull().default("public"),
-  sortOrder: integer("sort_order").notNull().default(0),
   status: text("status").notNull().default("draft"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
