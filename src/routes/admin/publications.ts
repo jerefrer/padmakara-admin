@@ -1,12 +1,67 @@
 import { Hono } from "hono";
 import { eq, or, ilike } from "drizzle-orm";
+import sharp from "sharp";
 import { db } from "../../db/index.ts";
 import { publications } from "../../db/schema/publications.ts";
 import { createPublicationSchema, updatePublicationSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
-import { generatePresignedDownloadUrl, generatePresignedUploadUrl } from "../../services/s3.ts";
+import { generatePresignedDownloadUrl, generatePresignedUploadUrl, putObject } from "../../services/s3.ts";
 import { PDFDocument } from "pdf-lib";
+
+/**
+ * Generate a cover image from the first page of a PDF.
+ * Returns a JPEG buffer at 2x retina resolution (240×320) for the 60×80 list thumbnails.
+ */
+async function generateCoverFromPdf(pdfBuffer: Buffer | Uint8Array): Promise<Buffer> {
+  return await sharp(Buffer.from(pdfBuffer), { page: 0, density: 150 })
+    .resize(240, 320, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 1 } })
+    .jpeg({ quality: 80 })
+    .toBuffer();
+}
+
+/**
+ * Extract PDF metadata and optionally auto-generate a cover image.
+ * Returns updated pageCount, fileSizeBytes, and coverImageS3Key.
+ */
+async function extractPdfMetadata(
+  pdfS3Key: string,
+  existingCoverS3Key: string | null | undefined,
+  publicationId?: number,
+): Promise<{
+  pageCount: number | null;
+  fileSizeBytes: number | null;
+  coverImageS3Key: string | null;
+}> {
+  const pdfUrl = await generatePresignedDownloadUrl(pdfS3Key);
+  const response = await fetch(pdfUrl);
+  const pdfBytes = new Uint8Array(await response.arrayBuffer());
+
+  const fileSizeBytes = pdfBytes.byteLength;
+
+  let pageCount: number | null = null;
+  try {
+    const pdfDoc = await PDFDocument.load(pdfBytes);
+    pageCount = pdfDoc.getPageCount();
+  } catch (err) {
+    console.error("Failed to extract page count:", err);
+  }
+
+  // Auto-generate cover from first page if no custom cover is set
+  let coverImageS3Key = existingCoverS3Key || null;
+  if (!coverImageS3Key) {
+    try {
+      const coverBuffer = await generateCoverFromPdf(pdfBytes);
+      const suffix = publicationId || Date.now();
+      coverImageS3Key = `publications/covers/${suffix}-auto.jpg`;
+      await putObject(coverImageS3Key, coverBuffer, "image/jpeg");
+    } catch (err) {
+      console.error("Failed to auto-generate cover image:", err);
+    }
+  }
+
+  return { pageCount, fileSizeBytes, coverImageS3Key };
+}
 
 const publicationRoutes = new Hono();
 
@@ -76,17 +131,13 @@ publicationRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const data = createPublicationSchema.parse(body);
 
-  let { pageCount, fileSizeBytes } = data;
-  if (data.pdfS3Key && (pageCount == null || fileSizeBytes == null)) {
+  let { pageCount, fileSizeBytes, coverImageS3Key } = data;
+  if (data.pdfS3Key) {
     try {
-      const pdfUrl = await generatePresignedDownloadUrl(data.pdfS3Key);
-      const response = await fetch(pdfUrl);
-      const pdfBytes = new Uint8Array(await response.arrayBuffer());
-      if (fileSizeBytes == null) fileSizeBytes = pdfBytes.byteLength;
-      if (pageCount == null) {
-        const pdfDoc = await PDFDocument.load(pdfBytes);
-        pageCount = pdfDoc.getPageCount();
-      }
+      const metadata = await extractPdfMetadata(data.pdfS3Key, coverImageS3Key);
+      pageCount = metadata.pageCount;
+      fileSizeBytes = metadata.fileSizeBytes;
+      coverImageS3Key = metadata.coverImageS3Key;
     } catch (err) {
       console.error("Failed to extract PDF metadata:", err);
     }
@@ -94,7 +145,7 @@ publicationRoutes.post("/", async (c) => {
 
   const [pub] = await db
     .insert(publications)
-    .values({ ...data, pageCount, fileSizeBytes })
+    .values({ ...data, pageCount, fileSizeBytes, coverImageS3Key })
     .returning();
   return c.json(pub!, 201);
 });
@@ -107,17 +158,17 @@ publicationRoutes.put("/:id", async (c) => {
   const body = await c.req.json();
   const data = updatePublicationSchema.parse(body);
 
-  let { pageCount, fileSizeBytes } = data;
-  if (data.pdfS3Key && (pageCount == null || fileSizeBytes == null)) {
+  let pageCount = data.pageCount;
+  let fileSizeBytes = data.fileSizeBytes;
+  let coverImageS3Key = data.coverImageS3Key;
+
+  // Re-extract metadata when the PDF changes
+  if (data.pdfS3Key) {
     try {
-      const pdfUrl = await generatePresignedDownloadUrl(data.pdfS3Key);
-      const response = await fetch(pdfUrl);
-      const pdfBytes = new Uint8Array(await response.arrayBuffer());
-      if (fileSizeBytes == null) fileSizeBytes = pdfBytes.byteLength;
-      if (pageCount == null) {
-        const pdfDoc = await PDFDocument.load(pdfBytes);
-        pageCount = pdfDoc.getPageCount();
-      }
+      const metadata = await extractPdfMetadata(data.pdfS3Key, coverImageS3Key, id);
+      pageCount = metadata.pageCount;
+      fileSizeBytes = metadata.fileSizeBytes;
+      if (!coverImageS3Key) coverImageS3Key = metadata.coverImageS3Key;
     } catch (err) {
       console.error("Failed to extract PDF metadata:", err);
     }
@@ -125,7 +176,7 @@ publicationRoutes.put("/:id", async (c) => {
 
   const [pub] = await db
     .update(publications)
-    .set({ ...data, pageCount, fileSizeBytes, updatedAt: new Date() })
+    .set({ ...data, pageCount, fileSizeBytes, coverImageS3Key, updatedAt: new Date() })
     .where(eq(publications.id, id))
     .returning();
   if (!pub) throw AppError.notFound("Publication not found");

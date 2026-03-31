@@ -85,6 +85,23 @@ export async function listObjects(
 }
 
 /**
+ * Upload a buffer directly to S3.
+ */
+export async function putObject(
+  key: string,
+  body: Buffer | Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const command = new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+  });
+  await s3Client.send(command);
+}
+
+/**
  * Build a consistent S3 key for event audio files.
  * Format: events/{event_code}/{filename}
  */
@@ -119,10 +136,11 @@ export function buildTranscriptS3Key(
 
 /**
  * Build S3 key for ZIP download files.
- * Format: downloads/{event_code}/{request_id}.zip
+ * Format: downloads/{event_code}/{filename}.zip
  */
-export function buildZipS3Key(eventCode: string, requestId: string): string {
-  return `downloads/${eventCode}/${requestId}.zip`;
+export function buildZipS3Key(eventCode: string, requestId: string, filename?: string): string {
+  const name = filename || requestId;
+  return `downloads/${eventCode}/${name}.zip`;
 }
 
 /**
