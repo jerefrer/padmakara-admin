@@ -1,0 +1,79 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("../../src/services/s3.ts", () => ({
+  generatePresignedDownloadUrl: vi.fn((key: string) =>
+    Promise.resolve(`https://s3.example.com/presigned/${key}`)
+  ),
+}));
+
+import { resolveTeacherUrls } from "../../src/lib/teacher-utils.ts";
+
+describe("resolveTeacherUrls", () => {
+  it("resolves S3 keys to presigned URLs", async () => {
+    const teacher = {
+      id: 1,
+      name: "Pema Wangyal Rinpoche",
+      abbreviation: "PWR",
+      photoUrl: "https://old-photo.example.com/pwr.jpg",
+      avatarS3Key: "teachers/avatars/1-123456.jpg",
+      heroS3Key: "teachers/heroes/1-123456.jpg",
+      avatarUpdatedAt: new Date("2026-03-31T10:00:00Z"),
+      heroUpdatedAt: new Date("2026-03-31T10:00:00Z"),
+    };
+
+    const result = await resolveTeacherUrls(teacher);
+
+    expect(result).toEqual({
+      id: 1,
+      name: "Pema Wangyal Rinpoche",
+      abbreviation: "PWR",
+      avatarUrl: "https://s3.example.com/presigned/teachers/avatars/1-123456.jpg",
+      heroUrl: "https://s3.example.com/presigned/teachers/heroes/1-123456.jpg",
+      avatarUpdatedAt: "2026-03-31T10:00:00.000Z",
+      heroUpdatedAt: "2026-03-31T10:00:00.000Z",
+    });
+  });
+
+  it("falls back to photoUrl when no avatarS3Key", async () => {
+    const teacher = {
+      id: 2,
+      name: "Jigme Khyentse Rinpoche",
+      abbreviation: "JKR",
+      photoUrl: "https://old-photo.example.com/jkr.jpg",
+      avatarS3Key: null,
+      heroS3Key: null,
+      avatarUpdatedAt: null,
+      heroUpdatedAt: null,
+    };
+
+    const result = await resolveTeacherUrls(teacher);
+
+    expect(result).toEqual({
+      id: 2,
+      name: "Jigme Khyentse Rinpoche",
+      abbreviation: "JKR",
+      avatarUrl: "https://old-photo.example.com/jkr.jpg",
+      heroUrl: null,
+      avatarUpdatedAt: null,
+      heroUpdatedAt: null,
+    });
+  });
+
+  it("returns null avatarUrl when no S3 key and no photoUrl", async () => {
+    const teacher = {
+      id: 3,
+      name: "New Teacher",
+      abbreviation: "NT",
+      photoUrl: null,
+      avatarS3Key: null,
+      heroS3Key: null,
+      avatarUpdatedAt: null,
+      heroUpdatedAt: null,
+    };
+
+    const result = await resolveTeacherUrls(teacher);
+
+    expect(result.avatarUrl).toBeNull();
+    expect(result.heroUrl).toBeNull();
+  });
+});

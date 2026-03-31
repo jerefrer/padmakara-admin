@@ -7,6 +7,7 @@ import { users } from "../db/schema/users.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { filterAccessibleEvents } from "../services/access.ts";
+import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 
 const groupRoutes = new Hono();
 
@@ -125,6 +126,7 @@ groupRoutes.get("/:id/events", async (c) => {
   const fullUser = await getFullUser(user.id);
   const accessibleEvents = await filterAccessibleEvents(fullUser, data);
 
+  await resolveEventsTeacherUrls(accessibleEvents);
   return c.json(accessibleEvents);
 });
 

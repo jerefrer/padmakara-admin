@@ -13,6 +13,7 @@ import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
 import { checkEventAccess, filterAccessibleEvents, AUDIENCE_SLUGS } from "../services/access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
+import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 
 const eventRoutes = new Hono();
 
@@ -101,6 +102,7 @@ eventRoutes.get("/public", async (c) => {
     with: eventWithSessions,
   });
 
+  await resolveEventsTeacherUrls(data);
   return c.json(data);
 });
 
@@ -125,6 +127,7 @@ eventRoutes.get("/public/:id", async (c) => {
     throw AppError.forbidden("This event requires authentication");
   }
 
+  await resolveEventTeacherUrls(event);
   return c.json(event);
 });
 
@@ -147,6 +150,7 @@ eventRoutes.get("/featured", async (c) => {
     return c.json(null);
   }
 
+  await resolveEventTeacherUrls(event);
   return c.json(event);
 });
 
@@ -328,6 +332,7 @@ eventRoutes.get("/", async (c) => {
       orderBy: (r, { desc }) => [desc(r.startDate)],
       with: eventWith,
     });
+    await resolveEventsTeacherUrls(data);
     return c.json(data);
   }
 
@@ -358,6 +363,7 @@ eventRoutes.get("/", async (c) => {
     allEvents,
   );
 
+  await resolveEventsTeacherUrls(accessibleEvents);
   return c.json(accessibleEvents);
 });
 
@@ -401,6 +407,7 @@ eventRoutes.get("/:id", async (c) => {
     })),
   );
 
+  await resolveEventTeacherUrls(event);
   return c.json({ ...event, relatedPublications: relatedPubsWithUrls });
 });
 

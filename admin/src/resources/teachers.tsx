@@ -17,7 +17,9 @@ import {
   useDelete,
   useNotify,
   useRedirect,
+  FunctionField,
 } from "react-admin";
+import { TeacherImageUpload } from "../components/TeacherImageUpload";
 import {
   Button,
   Dialog,
@@ -105,6 +107,18 @@ export const TeacherList = () => {
   return (
     <List sort={{ field: "name", order: "ASC" }} perPage={100} pagination={false}>
       <Datagrid rowClick="edit">
+        <FunctionField
+          label=""
+          render={(record: any) =>
+            (record?.avatarUrl || record?.photoUrl) ? (
+              <img src={(record.avatarUrl || record.photoUrl) as string} alt="" style={{ width: 32, height: 32, borderRadius: 16, objectFit: "cover" }} />
+            ) : (
+              <div style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: "#e5e7eb", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#4b5563" }}>
+                {(record?.name || "?").split(" ").map((w: string) => w[0]).join("").substring(0, 2).toUpperCase()}
+              </div>
+            )
+          }
+        />
         <TextField source="name" label={translate("padmakara.fields.name")} />
         <TextField source="abbreviation" label={translate("padmakara.fields.abbreviation")} />
         <EditButton />
@@ -120,7 +134,7 @@ export const TeacherEdit = () => {
       <SimpleForm toolbar={<TeacherToolbar />}>
         <TextInput source="name" label={translate("padmakara.fields.name")} validate={required()} />
         <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} validate={required()} />
-        <TextInput source="photoUrl" label={translate("padmakara.fields.photoUrl")} />
+        <TeacherImageUpload />
       </SimpleForm>
     </Edit>
   );
@@ -133,7 +147,6 @@ export const TeacherCreate = () => {
       <SimpleForm>
         <TextInput source="name" label={translate("padmakara.fields.name")} validate={required()} />
         <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} validate={required()} />
-        <TextInput source="photoUrl" label={translate("padmakara.fields.photoUrl")} />
       </SimpleForm>
     </Create>
   );

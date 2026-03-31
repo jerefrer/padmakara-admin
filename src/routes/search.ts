@@ -6,6 +6,7 @@ import { users } from "../db/schema/users.ts";
 import { optionalAuthMiddleware, getOptionalUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { filterAccessibleEvents, AUDIENCE_SLUGS } from "../services/access.ts";
+import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 
 const searchRoutes = new Hono();
 
@@ -185,6 +186,8 @@ searchRoutes.get("/", async (c) => {
       (e) => e.audience?.slug === AUDIENCE_SLUGS.PUBLIC,
     );
   }
+
+  await resolveEventsTeacherUrls(accessibleEvents);
 
   // Score and build results
   interface Snippet {

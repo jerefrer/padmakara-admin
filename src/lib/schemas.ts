@@ -54,6 +54,8 @@ export const createTeacherSchema = z.object({
   abbreviation: z.string().min(1).max(50),
   aliases: z.array(z.string().max(20)).optional().default([]),
   photoUrl: z.string().url().optional().nullable(),
+  avatarS3Key: z.string().optional().nullable(),
+  heroS3Key: z.string().optional().nullable(),
 });
 
 export const updateTeacherSchema = createTeacherSchema.partial();

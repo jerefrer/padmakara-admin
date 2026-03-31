@@ -200,3 +200,19 @@ export async function uploadStream(
 
   await upload.done();
 }
+
+/**
+ * Build S3 key for teacher avatar images.
+ * Format: teachers/avatars/{teacherId}-{timestamp}.{ext}
+ */
+export function buildTeacherAvatarS3Key(teacherId: number, ext: string): string {
+  return `teachers/avatars/${teacherId}-${Date.now()}.${ext}`;
+}
+
+/**
+ * Build S3 key for teacher hero/banner images.
+ * Format: teachers/heroes/{teacherId}-{timestamp}.{ext}
+ */
+export function buildTeacherHeroS3Key(teacherId: number, ext: string): string {
+  return `teachers/heroes/${teacherId}-${Date.now()}.${ext}`;
+}
