@@ -10,6 +10,7 @@ import { downloadsRoutes } from "./downloads.ts";
 import { paymentRoutes } from "./payment.ts";
 import { searchRoutes } from "./search.ts";
 import { webhookRoutes } from "./webhooks.ts";
+import { publicationRoutes } from "./publications.ts";
 
 const api = new Hono();
 
@@ -35,5 +36,6 @@ api.route("/content", contentRoutes);
 api.route("/media", mediaRoutes);
 api.route("/users", userRoutes);
 api.route("/download-requests", downloadsRoutes);
+api.route("/publications", publicationRoutes);
 
 export { api };
