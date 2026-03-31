@@ -12,6 +12,7 @@ import { trackRoutes } from "./tracks.ts";
 import { userRoutes } from "./users.ts";
 import { approvalRoutes } from "./approvals.ts";
 import { uploadRoutes } from "./upload.ts";
+import { publicationRoutes } from "./publications.ts";
 import migrationRoutes from "./migrations.ts";
 
 const admin = new Hono();
@@ -30,6 +31,7 @@ admin.route("/tracks", trackRoutes);
 admin.route("/users", userRoutes);
 admin.route("/approvals", approvalRoutes);
 admin.route("/upload", uploadRoutes);
+admin.route("/publications", publicationRoutes);
 admin.route("/migrations", migrationRoutes);
 
 export { admin };
