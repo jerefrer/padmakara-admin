@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { eq, or, ilike } from "drizzle-orm";
 import sharp from "sharp";
+import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../../db/index.ts";
 import { publications } from "../../db/schema/publications.ts";
+import { teachers } from "../../db/schema/teachers.ts";
 import { createPublicationSchema, updatePublicationSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
@@ -67,14 +69,12 @@ const publicationRoutes = new Hono();
 
 const columns: Record<string, any> = {
   id: publications.id,
-  titlePt: publications.titlePt,
-  titleEn: publications.titleEn,
+  title: publications.title,
   language: publications.language,
   accessLevel: publications.accessLevel,
   status: publications.status,
   publicationDate: publications.publicationDate,
   createdAt: publications.createdAt,
-  sortOrder: publications.sortOrder,
 };
 
 async function addCoverImageUrl<T extends { coverImageS3Key: string | null }>(
@@ -96,8 +96,7 @@ publicationRoutes.get("/", async (c) => {
 
   const where = q
     ? or(
-        ilike(publications.titlePt, `%${q}%`),
-        ilike(publications.titleEn, `%${q}%`),
+        ilike(publications.title, `%${q}%`),
         ilike(publications.subtitle, `%${q}%`),
       )
     : undefined;
@@ -110,6 +109,109 @@ publicationRoutes.get("/", async (c) => {
   const dataWithUrls = await Promise.all(data.map(addCoverImageUrl));
 
   return listResponse(c, dataWithUrls, total, offset, offset + limit, "publications");
+});
+
+/**
+ * POST /extract-metadata — Use Claude AI to extract metadata from a PDF's first page
+ */
+publicationRoutes.post("/extract-metadata", async (c) => {
+  const { pdfS3Key } = (await c.req.json()) as { pdfS3Key: string };
+  if (!pdfS3Key) throw AppError.badRequest("pdfS3Key is required");
+
+  // Download the PDF from S3
+  const pdfUrl = await generatePresignedDownloadUrl(pdfS3Key);
+  const response = await fetch(pdfUrl);
+  if (!response.ok) throw AppError.internal("Failed to download PDF from S3");
+  const pdfBytes = new Uint8Array(await response.arrayBuffer());
+
+  // Extract first page as a single-page PDF
+  const pdfDoc = await PDFDocument.load(pdfBytes);
+  const pageCount = pdfDoc.getPageCount();
+  const singlePageDoc = await PDFDocument.create();
+  const [copiedPage] = await singlePageDoc.copyPages(pdfDoc, [0]);
+  singlePageDoc.addPage(copiedPage);
+  const firstPagePdf = await singlePageDoc.save();
+  const pdfBase64 = Buffer.from(firstPagePdf).toString("base64");
+
+  // Fetch existing teachers for matching
+  const allTeachers = await db.select().from(teachers);
+  const teacherList = allTeachers
+    .map(
+      (t) =>
+        `- ID ${t.id}: ${t.name} (${t.abbreviation})${t.aliases.length ? ` aliases: ${t.aliases.join(", ")}` : ""}`,
+    )
+    .join("\n");
+
+  // Call Claude Haiku for metadata extraction
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw AppError.internal("ANTHROPIC_API_KEY not configured");
+
+  const anthropic = new Anthropic({ apiKey });
+
+  const aiResponse = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 1024,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: pdfBase64,
+            },
+          },
+          {
+            type: "text",
+            text: `Extract metadata from this Buddhist publication cover/first page. Return a JSON object with these fields:
+
+- "title": The main title of the publication (in the original language as printed)
+- "subtitle": A subtitle or secondary title if present, otherwise null
+- "authors": Array of author/translator names found. Look for names after "by", "par", "por", "traduit par", "translated by", etc.
+- "language": The primary language code: "pt" for Portuguese, "en" for English, "fr" for French, "tib" for Tibetan, etc.
+- "description": A brief description if there's a blurb or summary visible, otherwise null
+- "publicationDate": Publication year if visible, as "YYYY-01-01" format, otherwise null
+
+Also, here are the known teachers in our system. If any author matches or is clearly the same person as one of these teachers, include their ID:
+${teacherList}
+
+- "matchedTeacherIds": Array of teacher IDs (numbers) that match authors found on this page. Only include confident matches.
+
+Return ONLY the JSON object, no markdown fences, no explanation.`,
+          },
+        ],
+      },
+    ],
+  });
+
+  // Parse Claude's response
+  const textBlock = aiResponse.content.find((block) => block.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw AppError.internal("No text response from Claude");
+  }
+
+  let extracted: Record<string, unknown>;
+  try {
+    extracted = JSON.parse(textBlock.text);
+  } catch {
+    throw AppError.internal("Failed to parse Claude response as JSON");
+  }
+
+  return c.json({
+    title: (extracted.title as string) || "",
+    subtitle: (extracted.subtitle as string) || null,
+    authors: Array.isArray(extracted.authors) ? extracted.authors : [],
+    language: (extracted.language as string) || "pt",
+    description: (extracted.description as string) || null,
+    publicationDate: (extracted.publicationDate as string) || null,
+    matchedTeacherIds: Array.isArray(extracted.matchedTeacherIds)
+      ? extracted.matchedTeacherIds
+      : [],
+    pageCount,
+    fileSizeBytes: pdfBytes.byteLength,
+  });
 });
 
 /**

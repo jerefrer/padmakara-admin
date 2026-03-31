@@ -36,8 +36,7 @@ const mockWhere = (db as any)._mockWhere as ReturnType<typeof vi.fn>;
 function makePublication(overrides: Record<string, any> = {}) {
   return {
     id: 1,
-    titlePt: "Guia de Meditação",
-    titleEn: "Meditation Guide",
+    title: "Guia de Meditação",
     subtitle: null,
     description: "A guide to meditation",
     authors: ["Jigme Khyentse Rinpoche"],
@@ -48,7 +47,6 @@ function makePublication(overrides: Record<string, any> = {}) {
     pdfS3Key: "publications/pdfs/guide.pdf",
     fileSizeBytes: 5000000,
     accessLevel: "public",
-    sortOrder: 0,
     status: "published",
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -59,8 +57,7 @@ function makePublication(overrides: Record<string, any> = {}) {
 function makeSubscriberPublication(overrides: Record<string, any> = {}) {
   return makePublication({
     id: 2,
-    titlePt: "Ensinamentos Avançados",
-    titleEn: "Advanced Teachings",
+    title: "Ensinamentos Avançados",
     accessLevel: "subscribers",
     pdfS3Key: "publications/pdfs/advanced.pdf",
     ...overrides,
@@ -90,7 +87,7 @@ describe("GET /api/publications", () => {
     // Unauthenticated: should only see the public one
     expect(body.publications).toHaveLength(1);
     expect(body.publications[0].id).toBe(1);
-    expect(body.publications[0].titlePt).toBe("Guia de Meditação");
+    expect(body.publications[0].title).toBe("Guia de Meditação");
     expect(body.hasHiddenPublications).toBe(true);
   });
 

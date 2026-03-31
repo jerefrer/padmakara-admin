@@ -98,7 +98,7 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
         );
       case "title":
       default:
-        return (a.titlePt || "").localeCompare(b.titlePt || "");
+        return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
     }
   });
 
@@ -114,8 +114,7 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
       }
       return {
         id: p.id,
-        titlePt: p.titlePt,
-        titleEn: p.titleEn,
+        title: p.title,
         subtitle: p.subtitle,
         description: p.description,
         authors: p.authors,
@@ -125,7 +124,6 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
         coverImageUrl,
         fileSizeBytes: p.fileSizeBytes,
         accessLevel: p.accessLevel,
-        sortOrder: p.sortOrder,
       };
     }),
   );

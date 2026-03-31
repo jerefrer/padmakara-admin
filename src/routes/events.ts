@@ -393,8 +393,7 @@ eventRoutes.get("/:id", async (c) => {
   const relatedPubsWithUrls = await Promise.all(
     relatedPublications.map(async (pub: any) => ({
       id: pub.id,
-      titlePt: pub.titlePt,
-      titleEn: pub.titleEn,
+      title: pub.title,
       subtitle: pub.subtitle,
       coverImageUrl: pub.coverImageS3Key
         ? await generatePresignedDownloadUrl(pub.coverImageS3Key)

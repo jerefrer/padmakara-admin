@@ -1,7 +1,6 @@
 CREATE TABLE "publications" (
 	"id" serial PRIMARY KEY NOT NULL,
-	"title_pt" text NOT NULL,
-	"title_en" text,
+	"title" text NOT NULL,
 	"subtitle" text,
 	"description" text,
 	"authors" text[] DEFAULT '{}' NOT NULL,
@@ -12,7 +11,6 @@ CREATE TABLE "publications" (
 	"pdf_s3_key" text NOT NULL,
 	"file_size_bytes" bigint,
 	"access_level" text DEFAULT 'public' NOT NULL,
-	"sort_order" integer DEFAULT 0 NOT NULL,
 	"status" text DEFAULT 'draft' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
