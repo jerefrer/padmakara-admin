@@ -9,6 +9,7 @@ import {
   eventPlaces,
   eventAudiences,
 } from "../../db/schema/retreats.ts";
+import { eventPublications } from "../../db/schema/publications.ts";
 import { createEventSchema, updateEventSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
@@ -24,6 +25,7 @@ const columns: Record<string, any> = {
   endDate: events.endDate,
   status: events.status,
   eventTypeId: events.eventTypeId,
+  featuredAt: events.featuredAt,
   createdAt: events.createdAt,
 };
 
@@ -74,6 +76,7 @@ eventRoutes.get("/", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventPublications: { with: { publication: true } },
     },
   });
 
@@ -124,22 +127,39 @@ eventRoutes.get("/:id", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventPublications: { with: { publication: true } },
     },
   });
 
   if (!event) throw AppError.notFound("Event not found");
-  return c.json(event);
+  return c.json({
+    ...event,
+    publicationIds: event.eventPublications?.map((ep: any) => ep.publicationId) || [],
+  });
 });
 
 eventRoutes.post("/", async (c) => {
   const body = await c.req.json();
-  const { teacherIds, groupIds, placeIds, ...eventData } =
+  const { teacherIds, groupIds, placeIds, publicationIds, featuredAt, ...eventData } =
     createEventSchema.parse(body);
 
-  const [event] = await db.insert(events).values(eventData).returning();
+  const [event] = await db.insert(events).values({
+    ...eventData,
+    featuredAt: featuredAt ? new Date(featuredAt) : null,
+  }).returning();
 
   // Insert junction records
   await syncJunctions(event!.id, teacherIds, groupIds, placeIds);
+
+  // Sync publications
+  if (publicationIds && publicationIds.length > 0) {
+    await db.insert(eventPublications).values(
+      publicationIds.map((pubId: number) => ({
+        eventId: event!.id,
+        publicationId: pubId,
+      })),
+    );
+  }
 
   // Return full event with relations
   const full = await db.query.events.findFirst({
@@ -150,6 +170,7 @@ eventRoutes.post("/", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventPublications: { with: { publication: true } },
     },
   });
 
@@ -159,12 +180,16 @@ eventRoutes.post("/", async (c) => {
 eventRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
-  const { teacherIds, groupIds, placeIds, ...eventData } =
+  const { teacherIds, groupIds, placeIds, publicationIds, featuredAt, ...eventData } =
     updateEventSchema.parse(body);
 
   const [event] = await db
     .update(events)
-    .set({ ...eventData, updatedAt: new Date() })
+    .set({
+      ...eventData,
+      ...(featuredAt !== undefined ? { featuredAt: featuredAt ? new Date(featuredAt) : null } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(events.id, id))
     .returning();
 
@@ -175,6 +200,19 @@ eventRoutes.put("/:id", async (c) => {
     await syncJunctions(id, teacherIds, groupIds, placeIds);
   }
 
+  // Sync publications
+  if (publicationIds !== undefined) {
+    await db.delete(eventPublications).where(eq(eventPublications.eventId, id));
+    if (publicationIds.length > 0) {
+      await db.insert(eventPublications).values(
+        publicationIds.map((pubId: number) => ({
+          eventId: id,
+          publicationId: pubId,
+        })),
+      );
+    }
+  }
+
   const full = await db.query.events.findFirst({
     where: eq(events.id, id),
     with: {
@@ -183,6 +221,7 @@ eventRoutes.put("/:id", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventPublications: { with: { publication: true } },
     },
   });
 
@@ -317,6 +356,7 @@ eventRoutes.post("/:id/translate-themes", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventPublications: { with: { publication: true } },
     },
   });
 

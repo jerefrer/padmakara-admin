@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, isNotNull, desc } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
 import { sessions } from "../db/schema/sessions.ts";
@@ -12,6 +12,7 @@ import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
 import { checkEventAccess, filterAccessibleEvents, AUDIENCE_SLUGS } from "../services/access.ts";
+import { generatePresignedDownloadUrl } from "../services/s3.ts";
 
 const eventRoutes = new Hono();
 
@@ -59,6 +60,7 @@ const eventWith = {
   eventTeachers: { with: { teacher: true } },
   eventRetreatGroups: { with: { retreatGroup: true } },
   eventPlaces: { with: { place: true } },
+  eventPublications: { with: { publication: true } },
 } as const;
 
 const eventWithSessions = {
@@ -124,6 +126,85 @@ eventRoutes.get("/public/:id", async (c) => {
   }
 
   return c.json(event);
+});
+
+/**
+ * GET /api/events/featured - Get the currently featured event (no auth required)
+ * Returns the published event with the most recent featuredAt timestamp.
+ * Admins set featuredAt via the admin UI to feature an event on the home screen.
+ */
+eventRoutes.get("/featured", async (c) => {
+  const event = await db.query.events.findFirst({
+    where: and(
+      eq(events.status, "published"),
+      isNotNull(events.featuredAt),
+    ),
+    orderBy: [desc(events.featuredAt)],
+    with: eventWithSessions,
+  });
+
+  if (!event) {
+    return c.json(null);
+  }
+
+  return c.json(event);
+});
+
+/**
+ * POST /api/events/public/:id/request-download - Request ZIP for a public event (no auth)
+ */
+eventRoutes.post("/public/:id/request-download", async (c) => {
+  const eventId = parseInt(c.req.param("id"), 10);
+
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, eventId),
+    with: { audience: true },
+  });
+
+  if (!event) {
+    throw AppError.notFound("Event not found");
+  }
+
+  if (event.audience?.slug !== AUDIENCE_SLUGS.PUBLIC) {
+    throw AppError.unauthorized("Authentication required");
+  }
+
+  // Check for existing pending/processing anonymous request for this event
+  const existingRequest = await db.query.downloadRequests.findFirst({
+    where: and(
+      eq(downloadRequests.eventId, eventId),
+      inArray(downloadRequests.status, ["pending", "processing", "ready"]),
+    ),
+    columns: { id: true, status: true, expiresAt: true },
+  });
+
+  // Reuse if not expired
+  if (existingRequest) {
+    const notExpired =
+      !existingRequest.expiresAt || new Date() < existingRequest.expiresAt;
+    if (notExpired) {
+      return c.json({ request_id: existingRequest.id });
+    }
+  }
+
+  // Create anonymous download request (no userId)
+  const [newRequest] = await db
+    .insert(downloadRequests)
+    .values({
+      eventId,
+      status: "pending",
+    })
+    .returning();
+
+  if (!newRequest) {
+    throw new AppError(500, "Failed to create download request", "INTERNAL_ERROR");
+  }
+
+  generateRetreatZip(newRequest.id, eventId).catch((error) => {
+    console.error(`[ZIP] Background generation failed for request ${newRequest.id}:`, error);
+  });
+
+  return c.json({ request_id: newRequest.id });
 });
 
 // ─── Authenticated endpoints ─────────────────────────────────────────────
@@ -304,7 +385,24 @@ eventRoutes.get("/:id", async (c) => {
     await enrichTracksWithSpeakerNames(session.tracks ?? []);
   }
 
-  return c.json(event);
+  // Build related publications with presigned cover URLs
+  const relatedPublications = ((event as any).eventPublications || [])
+    .filter((ep: any) => ep.publication?.status === "published")
+    .map((ep: any) => ep.publication);
+
+  const relatedPubsWithUrls = await Promise.all(
+    relatedPublications.map(async (pub: any) => ({
+      id: pub.id,
+      titlePt: pub.titlePt,
+      titleEn: pub.titleEn,
+      subtitle: pub.subtitle,
+      coverImageUrl: pub.coverImageS3Key
+        ? await generatePresignedDownloadUrl(pub.coverImageS3Key)
+        : null,
+    })),
+  );
+
+  return c.json({ ...event, relatedPublications: relatedPubsWithUrls });
 });
 
 /**
