@@ -19,6 +19,14 @@ export { tracks, tracksRelations } from "./tracks.ts";
 export { transcripts, transcriptsRelations } from "./transcripts.ts";
 export { eventFiles, eventFilesRelations } from "./event-files.ts";
 
+// Publications
+export {
+  publications,
+  eventPublications,
+  publicationsRelations,
+  eventPublicationsRelations,
+} from "./publications.ts";
+
 // Users
 export {
   users,

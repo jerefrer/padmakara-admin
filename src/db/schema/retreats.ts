@@ -16,6 +16,7 @@ import { eventTypes } from "./event-types.ts";
 import { audiences } from "./audiences.ts";
 import { transcripts } from "./transcripts.ts";
 import { eventFiles } from "./event-files.ts";
+import { eventPublications } from "./publications.ts";
 
 export const events = pgTable("retreats", {
   id: serial("id").primaryKey(),
@@ -40,6 +41,7 @@ export const events = pgTable("retreats", {
   imageUrl: text("image_url"),
   s3Prefix: text("s3_prefix"),
   wixId: text("wix_id"),
+  featuredAt: timestamp("featured_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -103,6 +105,7 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
   eventTeachers: many(eventTeachers),
   eventRetreatGroups: many(eventRetreatGroups),
   eventPlaces: many(eventPlaces),
+  eventPublications: many(eventPublications),
 }));
 
 export const eventTeachersRelations = relations(eventTeachers, ({ one }) => ({
