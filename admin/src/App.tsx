@@ -14,6 +14,7 @@ import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audience
 import { UserList, UserEdit } from "./resources/users";
 import { ApprovalList } from "./resources/approvals";
 import { MigrationList, MigrationCreate, MigrationShow } from "./resources/migrations";
+import { PublicationList, PublicationEdit, PublicationCreate } from "./resources/publications";
 
 const App = () => (
   <Admin
@@ -76,6 +77,13 @@ const App = () => (
       name="approvals"
       options={{ label: "Approvals" }}
       list={ApprovalList}
+    />
+    <Resource
+      name="publications"
+      options={{ label: "Publications" }}
+      list={PublicationList}
+      edit={PublicationEdit}
+      create={PublicationCreate}
     />
     <Resource
       name="migrations"

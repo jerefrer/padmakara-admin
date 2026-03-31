@@ -8,6 +8,7 @@ import CategoryIcon from "@mui/icons-material/Category";
 import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
@@ -47,6 +48,7 @@ export const Menu = () => {
       {/* Content section */}
       <SectionLabel>{translate("padmakara.menu.content")}</SectionLabel>
       <RaMenu.Item to="/events" primaryText={translate("resources.events.name", { smart_count: 2 })} leftIcon={<SpaIcon />} />
+      <RaMenu.Item to="/publications" primaryText="Publications" leftIcon={<MenuBookIcon />} />
 
       <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", my: 1.5, mx: 2 }} />
 
