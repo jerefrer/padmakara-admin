@@ -101,6 +101,26 @@ export const createAudienceSchema = z.object({
 
 export const updateAudienceSchema = createAudienceSchema.partial();
 
+// Publications
+export const createPublicationSchema = z.object({
+  titlePt: z.string().min(1).max(300),
+  titleEn: z.string().max(300).optional().nullable(),
+  subtitle: z.string().max(300).optional().nullable(),
+  description: z.string().optional().nullable(),
+  authors: z.array(z.string().max(200)).optional().default([]),
+  language: z.string().min(2).max(10).optional().default("pt"),
+  publicationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  coverImageS3Key: z.string().optional().nullable(),
+  pdfS3Key: z.string().min(1),
+  fileSizeBytes: z.number().int().min(0).optional().nullable(),
+  pageCount: z.number().int().min(0).optional().nullable(),
+  accessLevel: z.enum(["public", "subscribers"]).optional().default("public"),
+  sortOrder: z.number().int().min(0).optional().default(0),
+  status: z.enum(["draft", "published"]).optional().default("draft"),
+});
+
+export const updatePublicationSchema = createPublicationSchema.partial();
+
 // Events (formerly Retreats)
 export const createEventSchema = z.object({
   eventCode: z.string().min(1).max(100),
@@ -118,12 +138,14 @@ export const createEventSchema = z.object({
   notes: z.string().optional().nullable(),
   status: z.enum(["draft", "published", "archived"]).optional().default("draft"),
   imageUrl: z.string().url().optional().nullable(),
+  featuredAt: z.string().datetime().optional().nullable(),
   teacherIds: z.array(z.object({
     id: z.number().int(),
     role: z.enum(["teacher", "guest", "translator"]).optional().default("teacher"),
   })).optional().default([]),
   groupIds: z.array(z.number().int()).optional().default([]),
   placeIds: z.array(z.number().int()).optional().default([]),
+  publicationIds: z.array(z.number().int()).optional().default([]),
 });
 
 export const updateEventSchema = createEventSchema.partial();
