@@ -324,6 +324,12 @@ export const pt = {
       langEn: "Inglês",
       langPt: "Português",
     },
+    teachers: {
+      avatarUploaded: "Avatar carregado",
+      avatarUploadFailed: "Falha ao carregar avatar",
+      heroUploaded: "Imagem de capa carregada",
+      heroUploadFailed: "Falha ao carregar imagem de capa",
+    },
     approvals: {
       approve: "Aprovar",
       reject: "Rejeitar",

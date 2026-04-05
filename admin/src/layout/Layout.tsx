@@ -1,7 +1,45 @@
 import Box from "@mui/material/Box";
-import { AppBar, Sidebar, CheckForApplicationUpdate } from "react-admin";
+import Typography from "@mui/material/Typography";
+import { AppBar, Sidebar, CheckForApplicationUpdate, useResourceDefinitions, useGetResourceLabel } from "react-admin";
+import { useLocation } from "react-router-dom";
 import { Menu } from "./Menu";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
+
+function PageTitle() {
+  const location = useLocation();
+  const resourceDefinitions = useResourceDefinitions();
+  const getResourceLabel = useGetResourceLabel();
+
+  // Parse current path: /resource or /resource/:id
+  const path = location.pathname.replace(/^\/+/, "");
+  const segments = path.split("/");
+  const resourceName = segments[0] || "";
+  const recordId = segments[1];
+  const isEdit = !!recordId && recordId !== "create";
+  const isCreate = recordId === "create";
+
+  if (!resourceName || !resourceDefinitions[resourceName]) {
+    return <Box sx={{ flex: 1 }} />;
+  }
+
+  const label = getResourceLabel(resourceName, 2);
+
+  return (
+    <Box sx={{ flex: 1, display: "flex", alignItems: "center", gap: 1 }}>
+      <Typography
+        variant="body1"
+        sx={{ fontWeight: 600, color: "text.primary" }}
+      >
+        {label}
+      </Typography>
+      {(isEdit || isCreate) && (
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
+          / {isCreate ? "New" : `#${recordId}`}
+        </Typography>
+      )}
+    </Box>
+  );
+}
 
 const SIDEBAR_WIDTH = 200;
 
@@ -60,7 +98,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => (
           "& .RaAppBar-menuButton": { display: "none" },
         }}
       >
-        <Box sx={{ flex: 1 }} />
+        <PageTitle />
       </AppBar>
 
       {/* Page content */}

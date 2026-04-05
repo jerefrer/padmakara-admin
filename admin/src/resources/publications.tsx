@@ -1,48 +1,44 @@
-import { useState, useRef } from "react";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import DeleteIcon from "@mui/icons-material/Delete";
+import ImageIcon from "@mui/icons-material/Image";
 import {
-  List,
-  Datagrid,
-  TextField,
-  DateField,
-  NumberField,
-  Edit,
-  Create,
-  SimpleForm,
-  TextInput,
-  SelectInput,
-  DateInput,
-  ArrayInput,
-  SimpleFormIterator,
-  FunctionField,
-  EditButton,
-  required,
-  SaveButton,
-  Toolbar,
-  useRecordContext,
-  useDelete,
-  useNotify,
-  useRedirect,
-} from "react-admin";
-import {
+  Autocomplete,
+  Box,
   Button,
+  Chip,
+  CircularProgress,
   Dialog,
-  DialogTitle,
-  DialogContent,
   DialogActions,
+  DialogContent,
+  DialogTitle,
+  MenuItem,
   TextField as MuiTextField,
   Typography,
-  Chip,
-  Box,
-  CircularProgress,
 } from "@mui/material";
-import DeleteIcon from "@mui/icons-material/Delete";
-import CloudUploadIcon from "@mui/icons-material/CloudUpload";
-
-const STATUS_CHOICES = [
-  { id: "draft", name: "Draft" },
-  { id: "published", name: "Published" },
-  { id: "archived", name: "Archived" },
-];
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Create,
+  Datagrid,
+  DateField,
+  DateInput,
+  Edit,
+  EditButton,
+  FunctionField,
+  List,
+  NumberField,
+  required,
+  SaveButton,
+  SelectInput,
+  SimpleForm,
+  TextField,
+  TextInput,
+  Toolbar,
+  useDataProvider,
+  useDelete,
+  useNotify,
+  useRecordContext,
+  useRedirect,
+} from "react-admin";
 
 const ACCESS_LEVEL_CHOICES = [
   { id: "public", name: "Public" },
@@ -56,11 +52,14 @@ const LANGUAGE_CHOICES = [
   { id: "tib", name: "Tibetan" },
 ];
 
-const statusColors: Record<string, "default" | "success" | "warning"> = {
-  draft: "warning",
-  published: "success",
-  archived: "default",
-};
+
+interface TeacherOption {
+  id: number;
+  name: string;
+  abbreviation: string;
+}
+
+// ─── Shared Components ─────────────────────────────────────────────────────
 
 function TypeToDeleteButton({ resource }: { resource: string }) {
   const record = useRecordContext();
@@ -90,7 +89,10 @@ function TypeToDeleteButton({ resource }: { resource: string }) {
       <Button
         color="error"
         startIcon={<DeleteIcon />}
-        onClick={() => { setOpen(true); setValue(""); }}
+        onClick={() => {
+          setOpen(true);
+          setValue("");
+        }}
         size="small"
       >
         Delete
@@ -99,8 +101,8 @@ function TypeToDeleteButton({ resource }: { resource: string }) {
         <DialogTitle>Confirm deletion</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            This will permanently remove the publication.
-            Type <strong>delete</strong> to confirm.
+            This will permanently remove the publication. Type{" "}
+            <strong>delete</strong> to confirm.
           </Typography>
           <MuiTextField
             value={value}
@@ -133,12 +135,136 @@ const PublicationToolbar = () => (
   </Toolbar>
 );
 
-const publicationFilters = [
-  <SelectInput key="status" source="status" choices={STATUS_CHOICES} alwaysOn />,
-  <SelectInput key="accessLevel" source="accessLevel" label="Access Level" choices={ACCESS_LEVEL_CHOICES} />,
-];
+/** Save button that creates via dataProvider */
+function CreateSaveButton({
+  defaultValues,
+  selectedAuthors,
+}: {
+  defaultValues: Record<string, unknown>;
+  selectedAuthors: string[];
+}) {
+  const dataProvider = useDataProvider();
+  const notify = useNotify();
+  const redirect = useRedirect();
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await dataProvider.create("publications", {
+        data: { ...defaultValues, authors: selectedAuthors },
+      });
+      notify("Publication created", { type: "success" });
+      redirect("list", "publications");
+    } catch {
+      notify("Failed to create publication", { type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="contained"
+      onClick={handleSave}
+      disabled={saving || !defaultValues.title}
+      startIcon={saving ? <CircularProgress size={18} /> : undefined}
+    >
+      {saving ? "Saving..." : "Save"}
+    </Button>
+  );
+}
+
+/** Cover image preview with optional replace button */
+function CoverPreview({
+  url,
+  onReplace,
+}: {
+  url: string | null;
+  onReplace?: () => void;
+}) {
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 1,
+        minWidth: 120,
+      }}
+    >
+      {url ? (
+        <Box
+          component="img"
+          src={url}
+          alt="Cover preview"
+          sx={{
+            width: 120,
+            height: "auto",
+            objectFit: "cover",
+          }}
+        />
+      ) : (
+        <Box
+          sx={{
+            width: 120,
+            height: 160,
+            bgcolor: "grey.100",
+            borderRadius: 1,
+            border: "1px dashed",
+            borderColor: "grey.400",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "grey.500",
+            fontSize: "0.75rem",
+          }}
+        >
+          No cover
+        </Box>
+      )}
+      {onReplace && (
+        <Button
+          size="small"
+          startIcon={<ImageIcon />}
+          onClick={onReplace}
+          sx={{ textTransform: "none" }}
+        >
+          {url ? "Replace" : "Upload cover"}
+        </Button>
+      )}
+    </Box>
+  );
+}
+
+function useTeachers() {
+  const dataProvider = useDataProvider();
+  const [teachers, setTeachers] = useState<TeacherOption[]>([]);
+
+  useEffect(() => {
+    dataProvider
+      .getList<TeacherOption>("teachers", {
+        pagination: { page: 1, perPage: 500 },
+        sort: { field: "name", order: "ASC" },
+        filter: {},
+      })
+      .then(({ data }) => setTeachers(data));
+  }, [dataProvider]);
+
+  return teachers;
+}
 
 // ─── List ────────────────────────────────────────────────────────────────────
+
+const publicationFilters = [
+  <SelectInput
+    key="accessLevel"
+    source="accessLevel"
+    label="Access Level"
+    choices={ACCESS_LEVEL_CHOICES}
+    alwaysOn
+  />,
+];
 
 export const PublicationList = () => (
   <List
@@ -149,13 +275,13 @@ export const PublicationList = () => (
     <Datagrid rowClick="edit">
       <FunctionField
         label="Cover"
-        render={(record: { coverImageS3Key?: string; title?: string }) =>
-          record?.coverImageS3Key ? (
+        render={(record: { coverImageUrl?: string; title?: string }) =>
+          record?.coverImageUrl ? (
             <Box
               component="img"
-              src={`/api/admin/publications/${record.coverImageS3Key}/cover`}
+              src={record.coverImageUrl}
               alt={record.title || "Cover"}
-              sx={{ width: 40, height: 56, objectFit: "cover", borderRadius: 0.5 }}
+              sx={{ width: 40, height: "auto", objectFit: "cover" }}
             />
           ) : (
             <Box
@@ -177,25 +303,24 @@ export const PublicationList = () => (
         }
       />
       <TextField source="title" label="Title" />
-      <TextField source="subtitle" label="Subtitle" />
       <TextField source="language" label="Language" />
+      <FunctionField
+        label="Authors"
+        render={(record: { authors?: string[] }) =>
+          (record?.authors || []).join(", ") || "\u2014"
+        }
+      />
       <FunctionField
         label="Access"
         render={(record: { accessLevel?: string }) => (
-          <Chip label={record?.accessLevel || "public"} size="small" variant="outlined" />
-        )}
-      />
-      <FunctionField
-        label="Status"
-        render={(record: { status?: string }) => (
           <Chip
-            label={record?.status || "draft"}
+            label={record?.accessLevel || "public"}
             size="small"
-            color={statusColors[record?.status || "draft"] || "default"}
+            variant="outlined"
           />
         )}
       />
-      <DateField source="publicationDate" label="Publication Date" />
+      <DateField source="publicationDate" label="Published" />
       <NumberField source="pageCount" label="Pages" />
       <EditButton />
     </Datagrid>
@@ -207,22 +332,51 @@ export const PublicationList = () => (
 export const PublicationEdit = () => (
   <Edit>
     <SimpleForm toolbar={<PublicationToolbar />}>
-      <TextInput source="title" label="Title" validate={required()} fullWidth />
-      <TextInput source="subtitle" label="Subtitle" fullWidth />
-      <TextInput source="description" label="Description" multiline rows={4} fullWidth />
-      <ArrayInput source="authors" label="Authors">
-        <SimpleFormIterator inline>
-          <TextInput source="" label="Author name" helperText={false} />
-        </SimpleFormIterator>
-      </ArrayInput>
-      <SelectInput source="language" label="Language" choices={LANGUAGE_CHOICES} validate={required()} />
-      <DateInput source="publicationDate" label="Publication Date" />
-      <SelectInput source="accessLevel" label="Access Level" choices={ACCESS_LEVEL_CHOICES} validate={required()} />
-      <SelectInput source="status" label="Status" choices={STATUS_CHOICES} validate={required()} />
-      <TextInput source="pdfS3Key" label="PDF S3 Key" validate={required()} fullWidth disabled />
-      <TextInput source="coverImageS3Key" label="Cover Image S3 Key" fullWidth />
-      <NumberField source="pageCount" label="Pages" />
-      <NumberField source="fileSizeBytes" label="File Size (bytes)" />
+      <Box sx={{ display: "flex", gap: 3, width: "100%" }}>
+        {/* Left: Cover + info */}
+        <Box sx={{ flexShrink: 0 }}>
+          <FunctionField
+            label={false}
+            render={(record: { coverImageUrl?: string }) => (
+              <CoverPreview url={record?.coverImageUrl || null} />
+            )}
+          />
+          <FunctionField
+            label={false}
+            render={(record: { pageCount?: number; fileSizeBytes?: number }) => {
+              const pages = record?.pageCount;
+              const bytes = record?.fileSizeBytes;
+              if (!pages && !bytes) return null;
+              return (
+                <Box sx={{ display: "flex", gap: 0.5, mt: 1, flexWrap: "wrap", justifyContent: "center" }}>
+                  {pages ? <Chip label={`${pages} pages`} size="small" variant="outlined" sx={{ fontSize: "0.7rem" }} /> : null}
+                  {bytes ? <Chip label={bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`} size="small" variant="outlined" sx={{ fontSize: "0.7rem" }} /> : null}
+                </Box>
+              );
+            }}
+          />
+        </Box>
+
+        {/* Right: All form fields */}
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+          <TextInput source="title" label="Title" validate={required()} fullWidth />
+          <TextInput source="subtitle" label="Subtitle" fullWidth />
+          <TextInput source="description" label="Description" multiline rows={3} fullWidth />
+          <TextInput
+            source="authors"
+            label="Authors"
+            format={(v: string[]) => (v || []).join(", ")}
+            parse={(v: string) => v.split(",").map((s: string) => s.trim()).filter(Boolean)}
+            fullWidth
+            helperText="Comma-separated names"
+          />
+          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+            <SelectInput source="language" label="Language" choices={LANGUAGE_CHOICES} validate={required()} />
+            <DateInput source="publicationDate" label="Publication Date" />
+            <SelectInput source="accessLevel" label="Access Level" choices={ACCESS_LEVEL_CHOICES} validate={required()} />
+          </Box>
+        </Box>
+      </Box>
     </SimpleForm>
   </Edit>
 );
@@ -239,18 +393,32 @@ interface ExtractedMetadata {
   pageCount?: number;
   fileSizeBytes?: number;
   coverImageS3Key?: string;
+  coverImageUrl?: string;
+  matchedTeacherIds?: number[];
 }
 
 export const PublicationCreate = () => {
-  const [phase, setPhase] = useState<"upload" | "extracting" | "form">("upload");
+  const [phase, setPhase] = useState<"upload" | "extracting" | "form">(
+    "upload",
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [extractionStatus, setExtractionStatus] = useState("Uploading PDF...");
-  const [defaultValues, setDefaultValues] = useState<Record<string, unknown>>({});
+  const [defaultValues, setDefaultValues] = useState<Record<string, unknown>>(
+    {},
+  );
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [selectedAuthors, setSelectedAuthors] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
-  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
-  const token = localStorage.getItem("auth_token");
+  const token = localStorage.getItem("accessToken");
+  const allTeachers = useTeachers();
+
+  // Build author suggestions from teachers + extracted authors
+  const authorSuggestions = allTeachers.map(
+    (t) => `${t.name} (${t.abbreviation})`,
+  );
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
@@ -265,10 +433,17 @@ export const PublicationCreate = () => {
 
     try {
       // 1. Get presigned upload URL
-      const presignRes = await fetch(`${apiUrl}/admin/publications/presign-upload`, {
+      const presignRes = await fetch(`/api/admin/publications/presign-upload`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ filename: file.name, contentType: file.type, type: "pdf" }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+          type: "pdf",
+        }),
       });
       if (!presignRes.ok) throw new Error("Failed to get upload URL");
       const { s3Key, uploadUrl } = await presignRes.json();
@@ -283,25 +458,37 @@ export const PublicationCreate = () => {
       if (!uploadRes.ok) throw new Error("Failed to upload PDF");
 
       // 3. Extract metadata using Claude
-      setExtractionStatus("Extracting metadata from PDF (this may take a moment)...");
-      const extractRes = await fetch(`${apiUrl}/admin/publications/extract-metadata`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ pdfS3Key: s3Key }),
-      });
+      setExtractionStatus(
+        "Extracting metadata with AI (this may take a moment)...",
+      );
+      const extractRes = await fetch(
+        `/api/admin/publications/extract-metadata`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ pdfS3Key: s3Key }),
+        },
+      );
       if (!extractRes.ok) throw new Error("Failed to extract metadata");
       const metadata: ExtractedMetadata = await extractRes.json();
+
+      // Pre-select authors from extraction
+      const extractedAuthors = metadata.authors || [];
+      setSelectedAuthors(extractedAuthors);
+      setCoverPreviewUrl(metadata.coverImageUrl || null);
 
       // 4. Set default values and switch to form phase
       setDefaultValues({
         title: metadata.title || "",
         subtitle: metadata.subtitle || "",
         description: metadata.description || "",
-        authors: metadata.authors || [],
+        authors: extractedAuthors,
         language: metadata.language || "pt",
         publicationDate: metadata.publicationDate || undefined,
         accessLevel: "public",
-        status: "draft",
         pdfS3Key: s3Key,
         coverImageS3Key: metadata.coverImageS3Key || "",
         pageCount: metadata.pageCount || undefined,
@@ -313,6 +500,42 @@ export const PublicationCreate = () => {
       setPhase("upload");
     }
   };
+
+  const handleCoverReplace = useCallback(
+    async (file: File) => {
+      try {
+        const presignRes = await fetch(
+          `/api/admin/publications/presign-upload`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              filename: file.name,
+              contentType: file.type,
+              type: "cover",
+            }),
+          },
+        );
+        if (!presignRes.ok) throw new Error("Failed to get cover upload URL");
+        const { s3Key, uploadUrl } = await presignRes.json();
+
+        await fetch(uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+
+        setCoverPreviewUrl(URL.createObjectURL(file));
+        setDefaultValues((prev) => ({ ...prev, coverImageS3Key: s3Key }));
+      } catch {
+        setError("Failed to upload cover image");
+      }
+    },
+    [token],
+  );
 
   if (phase === "extracting") {
     return (
@@ -331,26 +554,205 @@ export const PublicationCreate = () => {
   }
 
   if (phase === "form") {
+    const pages = defaultValues.pageCount as number | undefined;
+    const bytes = defaultValues.fileSizeBytes as number | undefined;
+
     return (
-      <Create record={defaultValues}>
-        <SimpleForm>
-          <TextInput source="title" label="Title" validate={required()} fullWidth />
-          <TextInput source="subtitle" label="Subtitle" fullWidth />
-          <TextInput source="description" label="Description" multiline rows={4} fullWidth />
-          <ArrayInput source="authors" label="Authors">
-            <SimpleFormIterator inline>
-              <TextInput source="" label="Author name" helperText={false} />
-            </SimpleFormIterator>
-          </ArrayInput>
-          <SelectInput source="language" label="Language" choices={LANGUAGE_CHOICES} validate={required()} />
-          <DateInput source="publicationDate" label="Publication Date" />
-          <SelectInput source="accessLevel" label="Access Level" choices={ACCESS_LEVEL_CHOICES} validate={required()} />
-          <SelectInput source="status" label="Status" choices={STATUS_CHOICES} validate={required()} />
-          <TextInput source="pdfS3Key" label="PDF S3 Key" validate={required()} fullWidth disabled />
-          <TextInput source="coverImageS3Key" label="Cover Image S3 Key" fullWidth />
-          <NumberField source="pageCount" label="Pages" />
-          <NumberField source="fileSizeBytes" label="File Size (bytes)" />
-        </SimpleForm>
+      <Create title="Create Publication">
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ mb: 3 }}>
+            New Publication
+          </Typography>
+
+          <Box sx={{ display: "flex", gap: 3 }}>
+            {/* Left: Cover + info */}
+            <Box sx={{ flexShrink: 0 }}>
+              <CoverPreview
+                url={coverPreviewUrl}
+                onReplace={() => coverInputRef.current?.click()}
+              />
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleCoverReplace(f);
+                }}
+              />
+              {/* Info chips under cover */}
+              {(pages || bytes) && (
+                <Box
+                  sx={{
+                    display: "flex",
+                    gap: 0.5,
+                    mt: 1,
+                    flexWrap: "wrap",
+                    justifyContent: "center",
+                  }}
+                >
+                  {pages && (
+                    <Chip
+                      label={`${pages} pages`}
+                      size="small"
+                      variant="outlined"
+                      sx={{ fontSize: "0.7rem" }}
+                    />
+                  )}
+                  {bytes && (
+                    <Chip
+                      label={
+                        bytes >= 1048576
+                          ? `${(bytes / 1048576).toFixed(1)} MB`
+                          : `${Math.round(bytes / 1024)} KB`
+                      }
+                      size="small"
+                      variant="outlined"
+                      sx={{ fontSize: "0.7rem" }}
+                    />
+                  )}
+                </Box>
+              )}
+            </Box>
+
+            {/* Right: All form fields */}
+            <Box
+              sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}
+            >
+              <MuiTextField
+                label="Title"
+                required
+                fullWidth
+                defaultValue={defaultValues.title as string}
+                onChange={(e) =>
+                  setDefaultValues((prev) => ({
+                    ...prev,
+                    title: e.target.value,
+                  }))
+                }
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+              <MuiTextField
+                label="Subtitle"
+                fullWidth
+                defaultValue={defaultValues.subtitle as string}
+                onChange={(e) =>
+                  setDefaultValues((prev) => ({
+                    ...prev,
+                    subtitle: e.target.value,
+                  }))
+                }
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+              <MuiTextField
+                label="Description"
+                fullWidth
+                multiline
+                rows={3}
+                defaultValue={defaultValues.description as string}
+                onChange={(e) =>
+                  setDefaultValues((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+
+              {/* Authors */}
+              <Autocomplete
+                multiple
+                freeSolo
+                options={authorSuggestions}
+                value={selectedAuthors}
+                onChange={(_, v) => {
+                  setSelectedAuthors(v as string[]);
+                  setDefaultValues((prev) => ({ ...prev, authors: v }));
+                }}
+                renderTags={(value, getTagProps) =>
+                  value.map((option, index) => {
+                    const { key, ...rest } = getTagProps({ index });
+                    return (
+                      <Chip key={key} label={option} size="small" {...rest} />
+                    );
+                  })
+                }
+                renderInput={(params) => (
+                  <MuiTextField
+                    {...params}
+                    label="Authors"
+                    placeholder="Select teachers or type a name..."
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                )}
+              />
+
+              {/* Language, Date, Access, Status */}
+              <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+                <MuiTextField
+                  label="Language"
+                  select
+                  value={(defaultValues.language as string) || "pt"}
+                  onChange={(e) =>
+                    setDefaultValues((prev) => ({
+                      ...prev,
+                      language: e.target.value,
+                    }))
+                  }
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  sx={{ minWidth: 140 }}
+                >
+                  {LANGUAGE_CHOICES.map((c) => (
+                    <MenuItem key={c.id} value={c.id}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+                </MuiTextField>
+                <MuiTextField
+                  label="Publication Date"
+                  type="date"
+                  defaultValue={(defaultValues.publicationDate as string) || ""}
+                  onChange={(e) =>
+                    setDefaultValues((prev) => ({
+                      ...prev,
+                      publicationDate: e.target.value,
+                    }))
+                  }
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  sx={{ minWidth: 170 }}
+                />
+                <MuiTextField
+                  label="Access Level"
+                  select
+                  value={(defaultValues.accessLevel as string) || "public"}
+                  onChange={(e) =>
+                    setDefaultValues((prev) => ({
+                      ...prev,
+                      accessLevel: e.target.value,
+                    }))
+                  }
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  sx={{ minWidth: 140 }}
+                >
+                  {ACCESS_LEVEL_CHOICES.map((c) => (
+                    <MenuItem key={c.id} value={c.id}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+                </MuiTextField>
+              </Box>
+
+              {/* Save button */}
+              <Box>
+                <CreateSaveButton
+                  defaultValues={defaultValues}
+                  selectedAuthors={selectedAuthors}
+                />
+              </Box>
+            </Box>
+          </Box>
+        </Box>
       </Create>
     );
   }
@@ -391,9 +793,16 @@ export const PublicationCreate = () => {
             bgcolor: isDragging ? "action.hover" : "background.paper",
             transition: "all 0.2s",
           }}
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
           onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => { e.preventDefault(); setIsDragging(false); handleFile(e.dataTransfer.files[0]); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            handleFile(e.dataTransfer.files[0]);
+          }}
           onClick={() => fileInputRef.current?.click()}
         >
           <CloudUploadIcon sx={{ fontSize: 48, color: "grey.500", mb: 1 }} />

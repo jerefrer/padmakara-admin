@@ -123,6 +123,12 @@ export const en = {
       langEn: "English",
       langPt: "Portuguese",
     },
+    teachers: {
+      avatarUploaded: "Avatar uploaded",
+      avatarUploadFailed: "Avatar upload failed",
+      heroUploaded: "Hero image uploaded",
+      heroUploadFailed: "Hero image upload failed",
+    },
     approvals: {
       approve: "Approve",
       reject: "Reject",

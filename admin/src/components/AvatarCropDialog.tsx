@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import AvatarEditor, { type AvatarEditorRef } from "react-avatar-editor";
 import {
   Dialog,
@@ -9,6 +9,7 @@ import {
   Slider,
   Box,
   Typography,
+  CircularProgress,
 } from "@mui/material";
 
 interface AvatarCropDialogProps {
@@ -17,6 +18,9 @@ interface AvatarCropDialogProps {
   onClose: () => void;
   onSave: (blob: Blob) => void;
   saving?: boolean;
+  initialPosition?: { x: number; y: number };
+  initialScale?: number;
+  detecting?: boolean;
 }
 
 export function AvatarCropDialog({
@@ -25,9 +29,32 @@ export function AvatarCropDialog({
   onClose,
   onSave,
   saving = false,
+  initialPosition,
+  initialScale,
+  detecting = false,
 }: AvatarCropDialogProps) {
   const editorRef = useRef<AvatarEditorRef | null>(null);
   const [zoom, setZoom] = useState(1.2);
+  // Track a key to force AvatarEditor remount when initial position changes
+  const [editorKey, setEditorKey] = useState(0);
+
+  // Apply initial scale when it arrives from face detection
+  useEffect(() => {
+    if (initialScale != null) setZoom(initialScale);
+  }, [initialScale]);
+
+  // Force editor remount when initial position arrives, so it picks up the new position
+  useEffect(() => {
+    if (initialPosition) setEditorKey((k) => k + 1);
+  }, [initialPosition]);
+
+  // Reset when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setZoom(1.2);
+      setEditorKey(0);
+    }
+  }, [open]);
 
   const handleSave = () => {
     if (!editorRef.current) return;
@@ -46,8 +73,14 @@ export function AvatarCropDialog({
       <DialogTitle>Crop Avatar</DialogTitle>
       <DialogContent>
         <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, pt: 1 }}>
-          {image && (
+          {detecting ? (
+            <Box sx={{ width: 360, height: 360, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <CircularProgress size={32} />
+              <Typography variant="body2" sx={{ ml: 1 }}>Detecting face...</Typography>
+            </Box>
+          ) : image ? (
             <AvatarEditor
+              key={editorKey}
               ref={editorRef}
               image={image}
               width={300}
@@ -55,9 +88,10 @@ export function AvatarCropDialog({
               borderRadius={150}
               border={30}
               scale={zoom}
+              position={initialPosition}
               rotate={0}
             />
-          )}
+          ) : null}
           <Box sx={{ width: "100%", px: 2 }}>
             <Typography variant="body2" gutterBottom>
               Zoom

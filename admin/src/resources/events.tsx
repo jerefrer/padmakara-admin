@@ -136,6 +136,45 @@ const eventFilters = [
   />,
 ];
 
+const FeaturedToggleCell = ({ record }: { record: any }) => {
+  const dataProvider = useDataProvider();
+  const notify = useNotify();
+  const refresh = useRefresh();
+  const [loading, setLoading] = useState(false);
+
+  const handleToggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setLoading(true);
+    const newFeaturedAt = record.featuredAt ? null : new Date().toISOString();
+    try {
+      await dataProvider.update("events", {
+        id: record.id,
+        data: { featuredAt: newFeaturedAt },
+        previousData: record,
+      });
+      notify(newFeaturedAt ? "Event set as featured" : "Featured removed", { type: "success" });
+      refresh();
+    } catch (error: any) {
+      notify(`Error: ${error.message}`, { type: "error" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Tooltip title={record.featuredAt ? "Remove from featured" : "Set as featured"}>
+      <IconButton
+        size="small"
+        onClick={handleToggle}
+        disabled={loading}
+        sx={{ color: record.featuredAt ? "#f59e0b" : "action.disabled" }}
+      >
+        {record.featuredAt ? <StarIcon sx={{ fontSize: 20 }} /> : <StarBorderIcon sx={{ fontSize: 20 }} />}
+      </IconButton>
+    </Tooltip>
+  );
+};
+
 export const EventList = () => {
   const translate = useTranslate();
   const [locale] = useLocaleState();
@@ -155,20 +194,20 @@ export const EventList = () => {
         sx={{ "& .RaDatagrid-row": { "&:hover": { backgroundColor: "rgba(91,94,166,0.03)" } } }}
       >
         <FunctionField
+          label=""
+          sortBy="featuredAt"
+          render={(record: any) => <FeaturedToggleCell record={record} />}
+        />
+        <FunctionField
           label={translate("padmakara.events.title")}
           render={(record: any) => (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
               <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem", opacity: 0.6, fontWeight: 500 }}>
                 {record.eventCode}
               </Typography>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                <Typography variant="body2" sx={{ fontSize: "0.875rem" }}>
-                  {record.titleEn}
-                </Typography>
-                {record.featuredAt && (
-                  <StarIcon sx={{ fontSize: 16, color: "#f59e0b" }} />
-                )}
-              </Box>
+              <Typography variant="body2" sx={{ fontSize: "0.875rem" }}>
+                {record.titleEn}
+              </Typography>
             </Box>
           )}
         />
@@ -315,6 +354,8 @@ interface EventFormProps {
   eventFiles: any[];
   onSessionTitleChange: (idx: number, title: string) => void;
   onTrackUpdate?: (trackId: number, updates: Partial<ParsedTrack>) => Promise<void>;
+  onFeaturedToggle?: () => void;
+  onStatusChange?: (newStatus: string) => void;
   trackCount: number;
   transcriptCount: number;
 }
@@ -362,7 +403,7 @@ const EventFormFields = ({
   selectedEventType, setSelectedEventType,
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
-  sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, trackCount, transcriptCount,
+  sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
 }: EventFormProps) => {
   const translate = useTranslate();
   const [locale] = useLocaleState();
@@ -399,7 +440,7 @@ const EventFormFields = ({
         <ToggleButtonGroup
           value={form.status}
           exclusive
-          onChange={(_, val) => { if (val) setForm((prev) => ({ ...prev, status: val })); }}
+          onChange={(_, val) => { if (val) { setForm((prev) => ({ ...prev, status: val })); onStatusChange?.(val); } }}
           size="small"
           sx={{ flexShrink: 0 }}
         >
@@ -424,10 +465,13 @@ const EventFormFields = ({
         </ToggleButtonGroup>
         <Tooltip title={form.featuredAt ? "Remove from featured" : "Set as featured on home screen"}>
           <IconButton
-            onClick={() => setForm((prev) => ({
-              ...prev,
-              featuredAt: prev.featuredAt ? null : new Date().toISOString(),
-            }))}
+            onClick={() => {
+              setForm((prev) => ({
+                ...prev,
+                featuredAt: prev.featuredAt ? null : new Date().toISOString(),
+              }));
+              onFeaturedToggle?.();
+            }}
             sx={{
               ml: 1,
               color: form.featuredAt ? "#f59e0b" : "action.disabled",
@@ -1209,6 +1253,35 @@ export const EventEdit = () => {
     [dataProvider, notify, translate, refresh]
   );
 
+  const handleFeaturedToggle = useCallback(async () => {
+    if (!id) return;
+    const newFeaturedAt = form.featuredAt ? null : new Date().toISOString();
+    try {
+      await dataProvider.update("events", {
+        id,
+        data: { featuredAt: newFeaturedAt },
+        previousData: event,
+      });
+      notify(newFeaturedAt ? "Event set as featured" : "Featured removed", { type: "success" });
+    } catch (error: any) {
+      notify(`Error: ${error.message}`, { type: "error" });
+    }
+  }, [id, form.featuredAt, dataProvider, event, notify]);
+
+  const handleStatusChange = useCallback(async (newStatus: string) => {
+    if (!id) return;
+    try {
+      await dataProvider.update("events", {
+        id,
+        data: { status: newStatus },
+        previousData: event,
+      });
+      notify(`Status changed to ${newStatus}`, { type: "success" });
+    } catch (error: any) {
+      notify(`Error: ${error.message}`, { type: "error" });
+    }
+  }, [id, dataProvider, event, notify]);
+
   const handleSave = async () => {
     if (!form.eventCode || !form.titleEn) {
       notify(translate("padmakara.events.codeAndTitleRequired"), { type: "warning" });
@@ -1280,6 +1353,8 @@ export const EventEdit = () => {
         allEventTypes={allEventTypes} allAudiences={allAudiences}
         sessions={sessions} transcripts={event?.transcripts || []} eventFiles={event?.eventFiles || []} onSessionTitleChange={handleSessionTitleChange}
         onTrackUpdate={handleTrackUpdate}
+        onFeaturedToggle={handleFeaturedToggle}
+        onStatusChange={handleStatusChange}
         trackCount={trackCount}
         transcriptCount={transcriptCount}
       />

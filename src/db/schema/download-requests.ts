@@ -14,7 +14,6 @@ import { events } from "./retreats.ts";
 export const downloadRequests = pgTable("download_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: integer("user_id")
-    .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   eventId: integer("event_id")
     .notNull()

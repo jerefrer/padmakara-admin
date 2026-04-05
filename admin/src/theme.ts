@@ -31,15 +31,19 @@ const palette = {
   },
   error: {
     main: "#DC6B6B",
+    contrastText: "#FFFFFF",
   },
   success: {
     main: "#6BAF8D",
+    contrastText: "#FFFFFF",
   },
   warning: {
     main: "#D4A853",
+    contrastText: "#FFFFFF",
   },
   info: {
     main: "#5B5EA6",
+    contrastText: "#FFFFFF",
   },
   divider: "rgba(0,0,0,0.06)",
 };

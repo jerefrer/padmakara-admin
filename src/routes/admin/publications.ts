@@ -13,11 +13,28 @@ import { PDFDocument } from "pdf-lib";
 
 /**
  * Generate a cover image from the first page of a PDF.
- * Returns a JPEG buffer at 2x retina resolution (240×320) for the 60×80 list thumbnails.
+ * Uses pdftoppm (poppler) via Bun.spawn to render page 1 to PNG, then sharp to resize to JPEG.
+ * Returns a JPEG buffer at 2x retina resolution (240×320).
  */
 async function generateCoverFromPdf(pdfBuffer: Buffer | Uint8Array): Promise<Buffer> {
-  return await sharp(Buffer.from(pdfBuffer), { page: 0, density: 150 })
-    .resize(240, 320, { fit: "contain", background: { r: 255, g: 255, b: 255, alpha: 1 } })
+  const proc = Bun.spawn(["pdftoppm", "-png", "-f", "1", "-l", "1", "-scale-to", "480", "-"], {
+    stdin: new Blob([pdfBuffer]),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).arrayBuffer(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(`pdftoppm failed (exit ${exitCode}): ${stderr.substring(0, 200)}`);
+  }
+
+  return await sharp(Buffer.from(stdout))
+    .resize({ width: 240 })
     .jpeg({ quality: 80 })
     .toBuffer();
 }
@@ -72,7 +89,6 @@ const columns: Record<string, any> = {
   title: publications.title,
   language: publications.language,
   accessLevel: publications.accessLevel,
-  status: publications.status,
   publicationDate: publications.publicationDate,
   createdAt: publications.createdAt,
 };
@@ -121,7 +137,7 @@ publicationRoutes.post("/extract-metadata", async (c) => {
   // Download the PDF from S3
   const pdfUrl = await generatePresignedDownloadUrl(pdfS3Key);
   const response = await fetch(pdfUrl);
-  if (!response.ok) throw AppError.internal("Failed to download PDF from S3");
+  if (!response.ok) throw new AppError(500,"Failed to download PDF from S3");
   const pdfBytes = new Uint8Array(await response.arrayBuffer());
 
   // Extract first page as a single-page PDF
@@ -144,28 +160,30 @@ publicationRoutes.post("/extract-metadata", async (c) => {
 
   // Call Claude Haiku for metadata extraction
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw AppError.internal("ANTHROPIC_API_KEY not configured");
+  if (!apiKey) throw new AppError(500,"ANTHROPIC_API_KEY not configured");
 
   const anthropic = new Anthropic({ apiKey });
 
-  const aiResponse = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "document",
-            source: {
-              type: "base64",
-              media_type: "application/pdf",
-              data: pdfBase64,
+  let aiResponse;
+  try {
+    aiResponse = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: pdfBase64,
+              },
             },
-          },
-          {
-            type: "text",
-            text: `Extract metadata from this Buddhist publication cover/first page. Return a JSON object with these fields:
+            {
+              type: "text",
+              text: `Extract metadata from this Buddhist publication cover/first page. Return a JSON object with these fields:
 
 - "title": The main title of the publication (in the original language as printed)
 - "subtitle": A subtitle or secondary title if present, otherwise null
@@ -180,23 +198,45 @@ ${teacherList}
 - "matchedTeacherIds": Array of teacher IDs (numbers) that match authors found on this page. Only include confident matches.
 
 Return ONLY the JSON object, no markdown fences, no explanation.`,
-          },
-        ],
-      },
-    ],
-  });
+            },
+          ],
+        },
+      ],
+    });
+  } catch (err) {
+    console.error("Claude API error:", err);
+    throw new AppError(500, `Claude API call failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Parse Claude's response
   const textBlock = aiResponse.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") {
-    throw AppError.internal("No text response from Claude");
+    throw new AppError(500, "No text response from Claude");
   }
 
   let extracted: Record<string, unknown>;
   try {
-    extracted = JSON.parse(textBlock.text);
+    let rawText = textBlock.text.trim();
+    // Strip markdown code fences if present
+    if (rawText.startsWith("```")) {
+      rawText = rawText.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+    }
+    extracted = JSON.parse(rawText);
   } catch {
-    throw AppError.internal("Failed to parse Claude response as JSON");
+    console.error("Claude response was not valid JSON:", textBlock.text);
+    throw new AppError(500, "Failed to parse Claude response as JSON");
+  }
+
+  // Auto-generate cover from first page
+  let coverImageS3Key: string | null = null;
+  let coverImageUrl: string | null = null;
+  try {
+    const coverBuffer = await generateCoverFromPdf(pdfBytes);
+    coverImageS3Key = `publications/covers/${Date.now()}-auto.jpg`;
+    await putObject(coverImageS3Key, coverBuffer, "image/jpeg");
+    coverImageUrl = await generatePresignedDownloadUrl(coverImageS3Key);
+  } catch (err) {
+    console.error("Failed to auto-generate cover image:", err);
   }
 
   return c.json({
@@ -211,6 +251,8 @@ Return ONLY the JSON object, no markdown fences, no explanation.`,
       : [],
     pageCount,
     fileSizeBytes: pdfBytes.byteLength,
+    coverImageS3Key,
+    coverImageUrl,
   });
 });
 

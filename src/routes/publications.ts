@@ -60,11 +60,10 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
     }
   }
 
-  // Fetch all published publications
+  // Fetch all publications
   const allPublished = await db
     .select()
-    .from(publications)
-    .where(eq(publications.status, "published"));
+    .from(publications);
 
   // Filter by language if requested
   let filtered = allPublished;
@@ -151,7 +150,7 @@ publicationRoutes.get("/:id/pdf", authMiddleware, async (c) => {
     .from(publications)
     .where(eq(publications.id, id));
 
-  if (!publication || publication.status !== "published") {
+  if (!publication) {
     throw AppError.notFound("Publication not found");
   }
 

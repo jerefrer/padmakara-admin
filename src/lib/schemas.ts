@@ -56,6 +56,8 @@ export const createTeacherSchema = z.object({
   photoUrl: z.string().url().optional().nullable(),
   avatarS3Key: z.string().optional().nullable(),
   heroS3Key: z.string().optional().nullable(),
+  heroFocalX: z.number().int().min(0).max(100).optional(),
+  heroFocalY: z.number().int().min(0).max(100).optional(),
 });
 
 export const updateTeacherSchema = createTeacherSchema.partial();
@@ -116,7 +118,6 @@ export const createPublicationSchema = z.object({
   fileSizeBytes: z.number().int().min(0).optional().nullable(),
   pageCount: z.number().int().min(0).optional().nullable(),
   accessLevel: z.enum(["public", "subscribers"]).optional().default("public"),
-  status: z.enum(["draft", "published"]).optional().default("draft"),
 });
 
 export const updatePublicationSchema = createPublicationSchema.partial();

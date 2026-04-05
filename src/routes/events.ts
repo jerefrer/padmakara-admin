@@ -393,7 +393,7 @@ eventRoutes.get("/:id", async (c) => {
 
   // Build related publications with presigned cover URLs
   const relatedPublications = ((event as any).eventPublications || [])
-    .filter((ep: any) => ep.publication?.status === "published")
+    .filter((ep: any) => ep.publication)
     .map((ep: any) => ep.publication);
 
   const relatedPubsWithUrls = await Promise.all(

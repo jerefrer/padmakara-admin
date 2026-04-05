@@ -12,6 +12,16 @@ import {
 } from "./s3.ts";
 
 const ZIP_EXPIRY_HOURS = 24;
+
+/** Convert a title to a filesystem-safe slug for ZIP filenames. */
+function slugify(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")    // non-alphanum → hyphen
+    .replace(/^-+|-+$/g, "");       // trim leading/trailing hyphens
+}
 const PROGRESS_UPDATE_INTERVAL = 5; // Update progress every N files
 
 interface TrackInfo {
@@ -29,7 +39,7 @@ interface TrackInfo {
 export async function generateRetreatZip(
   requestId: string,
   eventId: number,
-  userId: number,
+  userId?: number,
 ): Promise<void> {
   try {
     console.log(`[ZIP] Starting generation for request ${requestId}, event ${eventId}`);
@@ -163,9 +173,11 @@ export async function generateRetreatZip(
 
     console.log(`[ZIP] Archive finalized. Size: ${zipSize} bytes`);
 
-    // Upload ZIP to S3
+    // Upload ZIP to S3 with human-readable filename
     const eventCode = eventData.eventCode || `event-${eventId}`;
-    const zipS3Key = buildZipS3Key(eventCode, requestId);
+    const eventTitle = eventData.titleEn || eventData.titlePt || eventCode;
+    const zipFilename = slugify(eventTitle);
+    const zipS3Key = buildZipS3Key(eventCode, requestId, zipFilename);
 
     console.log(`[ZIP] Uploading to S3: ${zipS3Key}`);
 

@@ -183,11 +183,21 @@ eventRoutes.put("/:id", async (c) => {
   const { teacherIds, groupIds, placeIds, publicationIds, featuredAt, ...eventData } =
     updateEventSchema.parse(body);
 
+  // Only include fields that were actually sent in the request body,
+  // so Zod defaults (e.g. status: "draft") don't overwrite existing values.
+  const bodyKeys = new Set(Object.keys(body));
+  const filteredEventData: Record<string, any> = {};
+  for (const [key, value] of Object.entries(eventData)) {
+    if (bodyKeys.has(key)) {
+      filteredEventData[key] = value;
+    }
+  }
+
   const [event] = await db
     .update(events)
     .set({
-      ...eventData,
-      ...(featuredAt !== undefined ? { featuredAt: featuredAt ? new Date(featuredAt) : null } : {}),
+      ...filteredEventData,
+      ...(bodyKeys.has("featuredAt") ? { featuredAt: featuredAt ? new Date(featuredAt) : null } : {}),
       updatedAt: new Date(),
     })
     .where(eq(events.id, id))
@@ -195,15 +205,20 @@ eventRoutes.put("/:id", async (c) => {
 
   if (!event) throw AppError.notFound("Event not found");
 
-  // Sync junction tables if provided
-  if (teacherIds !== undefined || groupIds !== undefined || placeIds !== undefined) {
-    await syncJunctions(id, teacherIds, groupIds, placeIds);
+  // Sync junction tables only if actually sent in request
+  if (bodyKeys.has("teacherIds") || bodyKeys.has("groupIds") || bodyKeys.has("placeIds")) {
+    await syncJunctions(
+      id,
+      bodyKeys.has("teacherIds") ? teacherIds : undefined,
+      bodyKeys.has("groupIds") ? groupIds : undefined,
+      bodyKeys.has("placeIds") ? placeIds : undefined,
+    );
   }
 
-  // Sync publications
-  if (publicationIds !== undefined) {
+  // Sync publications only if actually sent
+  if (bodyKeys.has("publicationIds")) {
     await db.delete(eventPublications).where(eq(eventPublications.eventId, id));
-    if (publicationIds.length > 0) {
+    if (publicationIds && publicationIds.length > 0) {
       await db.insert(eventPublications).values(
         publicationIds.map((pubId: number) => ({
           eventId: id,

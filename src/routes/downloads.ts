@@ -3,18 +3,32 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { downloadRequests } from "../db/schema/index.ts";
 import { AppError } from "../lib/errors.ts";
-import { authMiddleware, getUser } from "../middleware/auth.ts";
+import { optionalAuthMiddleware, getOptionalUser } from "../middleware/auth.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 
 const downloadsRoutes = new Hono();
 
-downloadsRoutes.use("*", authMiddleware);
+downloadsRoutes.use("*", optionalAuthMiddleware);
+
+/**
+ * Verify the caller has access to a download request.
+ * Anonymous requests (userId is null) are accessible to anyone with the request ID.
+ * Authenticated requests require ownership.
+ */
+function verifyDownloadAccess(
+  request: { userId: number | null },
+  callerId: number | undefined,
+) {
+  if (request.userId === null) return; // anonymous request — open access
+  if (callerId && request.userId === callerId) return; // owner match
+  throw AppError.forbidden("Access denied");
+}
 
 /**
  * GET /api/download-requests/:id/status - Get ZIP generation status
  */
 downloadsRoutes.get("/:id/status", async (c) => {
-  const user = getUser(c);
+  const user = getOptionalUser(c);
   const requestId = c.req.param("id");
 
   // Fetch download request
@@ -26,10 +40,7 @@ downloadsRoutes.get("/:id/status", async (c) => {
     throw AppError.notFound("Download request not found");
   }
 
-  // Verify ownership
-  if (request.userId !== user.id) {
-    throw AppError.forbidden("Access denied");
-  }
+  verifyDownloadAccess(request, user?.id);
 
   // Check if expired (status is ready but past expiration time)
   if (
@@ -64,7 +75,7 @@ downloadsRoutes.get("/:id/status", async (c) => {
  * GET /api/download-requests/:id/download - Get presigned download URL
  */
 downloadsRoutes.get("/:id/download", async (c) => {
-  const user = getUser(c);
+  const user = getOptionalUser(c);
   const requestId = c.req.param("id");
 
   // Fetch download request
@@ -76,10 +87,7 @@ downloadsRoutes.get("/:id/download", async (c) => {
     throw AppError.notFound("Download request not found");
   }
 
-  // Verify ownership
-  if (request.userId !== user.id) {
-    throw AppError.forbidden("Access denied");
-  }
+  verifyDownloadAccess(request, user?.id);
 
   // Check status
   if (request.status !== "ready") {

@@ -7,6 +7,8 @@ interface TeacherDbRecord {
   photoUrl: string | null;
   avatarS3Key: string | null;
   heroS3Key: string | null;
+  heroFocalX: number;
+  heroFocalY: number;
   avatarUpdatedAt: Date | null;
   heroUpdatedAt: Date | null;
 }
@@ -17,6 +19,8 @@ export interface TeacherResponse {
   abbreviation: string;
   avatarUrl: string | null;
   heroUrl: string | null;
+  heroFocalX: number;
+  heroFocalY: number;
   avatarUpdatedAt: string | null;
   heroUpdatedAt: string | null;
 }
@@ -43,6 +47,8 @@ export async function resolveTeacherUrls(
     abbreviation: teacher.abbreviation,
     avatarUrl,
     heroUrl,
+    heroFocalX: teacher.heroFocalX ?? 50,
+    heroFocalY: teacher.heroFocalY ?? 50,
     avatarUpdatedAt: teacher.avatarUpdatedAt?.toISOString() || null,
     heroUpdatedAt: teacher.heroUpdatedAt?.toISOString() || null,
   };
