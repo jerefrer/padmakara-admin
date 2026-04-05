@@ -20,7 +20,8 @@ echo "[1/10] Updating system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get upgrade -y -qq
-apt-get install -y -qq curl unzip git ufw fail2ban unattended-upgrades
+apt-get install -y -qq curl unzip git ufw fail2ban unattended-upgrades \
+    build-essential poppler-utils
 
 # Install AWS CLI v2 (not in Ubuntu 24.04 apt repos)
 if ! command -v aws &>/dev/null; then

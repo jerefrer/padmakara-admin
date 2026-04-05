@@ -51,9 +51,25 @@ This file provides guidance to Claude Code when working with the **padmakara-api
 
 ## Development Commands
 
+### System Dependencies
+
+The API uses `pdftoppm` (from poppler) to auto-generate publication cover images from PDFs, and `sharp` for image resizing.
+
+**macOS:** `brew bundle` (installs poppler)
+
+**Linux (production):**
+```bash
+sudo apt-get install -y poppler-utils
+```
+
+These are already included in `deploy/setup-server.sh` for production provisioning.
+
 ### Setup & Installation
 
 ```bash
+# Install system dependencies (macOS)
+brew bundle
+
 # Install dependencies
 bun install
 
