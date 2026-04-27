@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { sessions } from "../../db/schema/sessions.ts";
 import { createSessionSchema, updateSessionSchema } from "../../lib/schemas.ts";
@@ -80,11 +80,26 @@ sessionRoutes.delete("/:id", async (c) => {
     .returning();
   if (!session) throw AppError.notFound("Session not found");
 
-  // Best-effort cleanup of the Bunny video — orphaned videos rack up storage cost.
+  // Reference-counted cleanup: only delete the Bunny video if no other session
+  // still points at the same GUID. Migration may share one video across
+  // multiple events when the source file is identical (e.g. mandala demos
+  // referenced from three different retreat events).
   if (session.bunnyVideoId) {
-    deleteVideo(session.bunnyVideoId).catch((err) => {
-      console.error(`Failed to delete Bunny video ${session.bunnyVideoId}:`, err);
+    const stillReferenced = await db.query.sessions.findFirst({
+      where: and(
+        eq(sessions.bunnyVideoId, session.bunnyVideoId),
+        ne(sessions.id, session.id),
+      ),
     });
+    if (!stillReferenced) {
+      deleteVideo(session.bunnyVideoId).catch((err) => {
+        console.error(`Failed to delete Bunny video ${session.bunnyVideoId}:`, err);
+      });
+    } else {
+      console.log(
+        `[sessions] Keeping Bunny video ${session.bunnyVideoId} — still referenced by session ${stillReferenced.id}`,
+      );
+    }
   }
 
   return c.json(session);

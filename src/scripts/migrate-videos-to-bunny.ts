@@ -65,6 +65,12 @@ interface MigrationState {
     reason?: string;
     completedAt: string;
   }>;
+  /**
+   * Content-fingerprint -> Bunny GUID. Lets us reuse one Bunny upload across
+   * multiple S3 keys (and therefore multiple sessions) when the file content
+   * is byte-identical. Fingerprint format: `${size}-${etag}`.
+   */
+  byFingerprint?: Record<string, string>;
 }
 
 function loadState(): MigrationState {
@@ -86,6 +92,78 @@ function parseS3Key(key: string): { eventCode: string; filename: string } | null
   return { eventCode: m[1]!, filename: m[2]! };
 }
 
+const MONTHS_EN = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+] as const;
+
+const MONTH_ABBR_EN: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * Extract every plausible YYYY-MM-DD date from a filename. Handles:
+ *   - 2025-10-17  /  2025_10_17  /  2025.10.17  /  2025/10/17
+ *   - 20251017 (compact, no separators)
+ *   - "16 May 2022" / "16 May" / "May 16 2022"
+ *
+ * Returns ISO strings in the order they appear.
+ */
+function extractDates(filename: string): string[] {
+  const lower = filename.toLowerCase();
+  const out: string[] = [];
+
+  // YYYY[-_./]MM[-_./]DD
+  for (const m of lower.matchAll(/(\d{4})[._\-/](\d{1,2})[._\-/](\d{1,2})/g)) {
+    out.push(`${m[1]}-${m[2]!.padStart(2, "0")}-${m[3]!.padStart(2, "0")}`);
+  }
+
+  // YYYYMMDD compact
+  for (const m of lower.matchAll(/\b(\d{4})(\d{2})(\d{2})\b/g)) {
+    out.push(`${m[1]}-${m[2]}-${m[3]}`);
+  }
+
+  // "16 May 2022" / "May 16 2022" with optional year
+  const monthRe = MONTHS_EN.join("|");
+  const reA = new RegExp(`(\\d{1,2})[ _-]+(${monthRe})(?:[ _-]+(\\d{4}))?`, "g");
+  const reB = new RegExp(`(${monthRe})[ _-]+(\\d{1,2})(?:[ _-]+(\\d{4}))?`, "g");
+  for (const m of lower.matchAll(reA)) {
+    const day = m[1]!.padStart(2, "0");
+    const month = String(MONTHS_EN.indexOf(m[2] as any) + 1).padStart(2, "0");
+    if (m[3]) out.push(`${m[3]}-${month}-${day}`);
+    else out.push(`????-${month}-${day}`);
+  }
+  for (const m of lower.matchAll(reB)) {
+    const month = String(MONTHS_EN.indexOf(m[1] as any) + 1).padStart(2, "0");
+    const day = m[2]!.padStart(2, "0");
+    if (m[3]) out.push(`${m[3]}-${month}-${day}`);
+    else out.push(`????-${month}-${day}`);
+  }
+
+  // Abbreviated months: "16 may", "16-may-22"
+  const abbrRe = Object.keys(MONTH_ABBR_EN).join("|");
+  const reC = new RegExp(`(\\d{1,2})[ _-]+(${abbrRe})\\b(?:[ _-]+(\\d{2,4}))?`, "g");
+  for (const m of lower.matchAll(reC)) {
+    const day = m[1]!.padStart(2, "0");
+    const month = String(MONTH_ABBR_EN[m[2]!]!).padStart(2, "0");
+    let year = m[3];
+    if (year && year.length === 2) year = `20${year}`;
+    if (year) out.push(`${year}-${month}-${day}`);
+    else out.push(`????-${month}-${day}`);
+  }
+
+  return Array.from(new Set(out));
+}
+
+/**
+ * Tokenize for fuzzy substring matching. Lowercase, replaces non-alphanumerics
+ * with spaces, collapses whitespace.
+ */
+function tokenize(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+}
+
 /**
  * Pick the best session for a given filename within an event.
  * Returns the session id, or null if it can't decide unambiguously.
@@ -105,36 +183,76 @@ async function pickSession(eventId: number, filename: string): Promise<{
     return { sessionId: eventSessions[0]!.id, reason: "only one session in event" };
   }
 
-  // Multiple sessions — try filename keyword match.
-  const lower = filename.toLowerCase();
+  const fileLower = filename.toLowerCase();
+  const fileTokens = tokenize(filename);
 
-  // Day N
-  const dayMatch = lower.match(/day[ _-]?(\d+)/);
+  // 1. "Day N" → sessionNumber
+  const dayMatch = fileLower.match(/day[ _-]?(\d+)/);
   if (dayMatch) {
     const n = parseInt(dayMatch[1]!, 10);
-    const candidate = eventSessions.find((s) => s.sessionNumber === n);
-    if (candidate) return { sessionId: candidate.id, reason: `matched Day ${n}` };
+    const candidates = eventSessions.filter((s) => s.sessionNumber === n);
+    if (candidates.length === 1) return { sessionId: candidates[0]!.id, reason: `matched Day ${n}` };
   }
 
-  // ISO date
-  const dateMatch = lower.match(/(\d{4})[._-](\d{2})[._-](\d{2})/);
-  if (dateMatch) {
-    const target = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
-    const candidate = eventSessions.find((s) => s.sessionDate === target);
-    if (candidate) return { sessionId: candidate.id, reason: `matched date ${target}` };
-  }
-
-  // Title substring (e.g. "Bodhicitta", "Refuge")
-  for (const s of eventSessions) {
-    const title = (s.titleEn ?? "").toLowerCase();
-    if (title && lower.includes(title)) {
-      return { sessionId: s.id, reason: `title substring "${title}"` };
+  // 2. Date matching (any of: ISO, compact, "16 May 2022")
+  const fileDates = extractDates(filename);
+  for (const target of fileDates) {
+    if (target.startsWith("????")) continue;
+    const candidates = eventSessions.filter((s) => s.sessionDate === target);
+    if (candidates.length === 1) return { sessionId: candidates[0]!.id, reason: `matched date ${target}` };
+    if (candidates.length > 1) {
+      // Multiple sessions on the same date — try to disambiguate by teacher
+      // abbreviation appearing in the filename (e.g. "JKR", "KPSR", "PWR").
+      const tokens = fileTokens;
+      const abbrev = candidates.find((s) => {
+        const title = tokenize(s.titleEn ?? "");
+        const firstWord = title.split(" ")[0];
+        return firstWord && firstWord.length >= 2 && tokens.includes(firstWord);
+      });
+      if (abbrev) return { sessionId: abbrev.id, reason: `matched date ${target} + teacher tag` };
     }
+  }
+
+  // 3. Title substring — both directions:
+  //    a) filename includes session title  (filename "Bodhicitta teaching.mp4", title "Bodhicitta")
+  //    b) session title includes the filename core  (filename "Refuge.mp4", title "Refuge — Day 1")
+  for (const s of eventSessions) {
+    const titleLower = (s.titleEn ?? "").toLowerCase().trim();
+    if (!titleLower) continue;
+    if (fileLower.includes(titleLower) || titleLower.includes(fileLower.replace(/\.[^.]+$/, ""))) {
+      return { sessionId: s.id, reason: `title substring "${titleLower}"` };
+    }
+  }
+
+  // 4. Token-based intersection: session whose title shares the most distinctive
+  //    tokens with the filename, requiring at least 2 distinctive shared tokens.
+  const STOPWORDS = new Set([
+    "the", "of", "and", "on", "a", "an", "in", "to", "for", "video", "audio",
+    "eng", "por", "tib", "fra", "fr", "en", "pt", "mp3", "mp4", "with", "session",
+    "part", "day", "morning", "afternoon", "evening",
+  ]);
+  const fileTokenSet = new Set(
+    fileTokens.split(" ").filter((t) => t.length >= 3 && !STOPWORDS.has(t) && !/^\d+$/.test(t)),
+  );
+
+  let bestSession: { id: number; matchedTokens: string[] } | null = null;
+  for (const s of eventSessions) {
+    const titleTokens = tokenize(s.titleEn ?? "").split(" ");
+    const matched = titleTokens.filter((t) => fileTokenSet.has(t) && t.length >= 3 && !STOPWORDS.has(t));
+    if (matched.length >= 2 && (!bestSession || matched.length > bestSession.matchedTokens.length)) {
+      bestSession = { id: s.id, matchedTokens: matched };
+    }
+  }
+  if (bestSession) {
+    return {
+      sessionId: bestSession.id,
+      reason: `token match: [${bestSession.matchedTokens.join(", ")}]`,
+    };
   }
 
   return {
     sessionId: null,
-    reason: `ambiguous — ${eventSessions.length} sessions, no keyword match in filename`,
+    reason: `ambiguous — ${eventSessions.length} sessions, no keyword/date/title/token match`,
   };
 }
 
@@ -233,7 +351,7 @@ async function main() {
 
   // 1. Enumerate all video objects in the production bucket.
   console.log(`Listing videos in s3://${bucket}/events/*/video/...`);
-  const allKeys: { key: string; size: number }[] = [];
+  const allKeys: { key: string; size: number; etag: string }[] = [];
   let continuationToken: string | undefined;
   do {
     const res = await s3.send(new ListObjectsV2Command({
@@ -244,7 +362,12 @@ async function main() {
     for (const obj of res.Contents ?? []) {
       if (obj.Key && obj.Size && parseS3Key(obj.Key)) {
         if (onlyKey && obj.Key !== onlyKey) continue;
-        allKeys.push({ key: obj.Key, size: obj.Size });
+        // S3 ETag is wrapped in quotes; strip them. For non-multipart uploads
+        // it's the MD5 of the object — a perfectly good content fingerprint.
+        // For multipart it's still deterministic per-object so byte-identical
+        // uploads of the same file via the same multipart settings collide.
+        const etag = (obj.ETag ?? "").replace(/^"|"$/g, "");
+        allKeys.push({ key: obj.Key, size: obj.Size, etag });
       }
     }
     continuationToken = res.NextContinuationToken;
@@ -258,8 +381,12 @@ async function main() {
   let skipped = 0;
   let failed = 0;
 
-  for (const { key, size } of allKeys) {
+  // Fingerprint -> GUID cache, populated as we go and persisted to state.
+  state.byFingerprint = state.byFingerprint ?? {};
+
+  for (const { key, size, etag } of allKeys) {
     const parsed = parseS3Key(key)!;
+    const fingerprint = `${size}-${etag}`;
     console.log(`\n=== ${parsed.eventCode} :: ${parsed.filename} (${(size / 1024 / 1024).toFixed(0)} MB) ===`);
 
     // Skip if we've already processed this key successfully.
@@ -312,12 +439,51 @@ async function main() {
       continue;
     }
 
+    // 5a. Content-dedup short-circuit: if we've already uploaded a file with
+    //     this exact fingerprint (size + S3 ETag), reuse the same Bunny GUID
+    //     and just point this session at it. Sessions sharing a GUID are
+    //     handled correctly by the ref-counted DELETE in admin/sessions.ts.
+    const existingGuid = state.byFingerprint[fingerprint];
+    if (existingGuid) {
+      console.log(`  Content matches an already-uploaded file (fingerprint ${fingerprint.slice(0, 32)}...)`);
+      console.log(`  Reusing Bunny ${existingGuid} -> session ${sessionId} (no new upload)`);
+      if (!apply) {
+        console.log(`  [dry-run] Would attach existing GUID to session ${sessionId}`);
+        continue;
+      }
+      try {
+        // Pull duration from Bunny in case the original upload didn't capture it.
+        const meta = await getVideoMeta(existingGuid).catch(() => null);
+        const duration = meta ? Math.round(meta.length || 0) : null;
+        await db.update(sessions)
+          .set({ bunnyVideoId: existingGuid, videoDurationSeconds: duration, updatedAt: new Date() })
+          .where(eq(sessions.id, sessionId));
+        state.processed[key] = {
+          s3Key: key, eventCode: parsed.eventCode, sessionId, bunnyVideoId: existingGuid,
+          status: "ok", reason: "deduplicated by content fingerprint",
+          completedAt: new Date().toISOString(),
+        };
+        saveState(state);
+        succeeded++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`  FAILED to reuse GUID: ${msg}`);
+        state.processed[key] = {
+          s3Key: key, eventCode: parsed.eventCode, sessionId, bunnyVideoId: null,
+          status: "error", reason: msg, completedAt: new Date().toISOString(),
+        };
+        saveState(state);
+        failed++;
+      }
+      continue;
+    }
+
     if (!apply) {
       console.log(`  [dry-run] Would upload to Bunny and set sessions.bunnyVideoId on session ${sessionId}`);
       continue;
     }
 
-    // 5. Upload.
+    // 5b. New content — full upload.
     try {
       const { guid, durationSeconds } = await uploadFromS3ToBunny({
         s3, bucket, key, filename: parsed.filename, fileSize: size,
@@ -327,6 +493,10 @@ async function main() {
       await db.update(sessions)
         .set({ bunnyVideoId: guid, videoDurationSeconds: durationSeconds || null, updatedAt: new Date() })
         .where(eq(sessions.id, sessionId));
+
+      // Cache the fingerprint -> GUID so any later S3 keys with identical
+      // content reuse this upload instead of duplicating.
+      state.byFingerprint[fingerprint] = guid;
 
       console.log(`  Done: bunny=${guid} duration=${durationSeconds}s -> session ${sessionId}`);
       state.processed[key] = {
