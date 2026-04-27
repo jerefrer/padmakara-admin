@@ -165,21 +165,106 @@ function tokenize(s: string): string {
 }
 
 /**
+ * Strip extension and known media-marker suffixes from a filename to derive
+ * a clean session title. Examples:
+ *   "John Canti - Gyu Lama - 17 May 2022 [AUDIO].mp4"
+ *     → "John Canti - Gyu Lama - 17 May 2022"
+ *   "2025-10-17-Mind_Trainning_1 [ENG - Video].mp4"
+ *     → "Mind Trainning 1 — 2025-10-17"   (date moved to the end if it leads)
+ */
+function deriveSessionTitle(filename: string): string {
+  let title = filename.replace(/\.[^.]+$/, ""); // strip extension
+  // Strip bracketed metadata: [ENG], [POR], [Audio], [Video], [ENG - Audio], etc.
+  title = title.replace(/\[[^\]]*\]/g, "").trim();
+  // Strip trailing markers like "- Video", "- Audio", "- EN", "- POR"
+  title = title.replace(/[-_\s]+(?:video|audio|eng?|por|fra|tib|fr|en|pt)\b/gi, "").trim();
+  // Collapse separators
+  title = title.replace(/[_]+/g, " ").replace(/\s+/g, " ").replace(/^[-\s]+|[-\s]+$/g, "");
+  return title || filename.replace(/\.[^.]+$/, "");
+}
+
+/**
  * Pick the best session for a given filename within an event.
  * Returns the session id, or null if it can't decide unambiguously.
+ *
+ * `autoCreate=true` creates a brand-new session for the file when the event
+ * has zero sessions yet. The session inherits the date from the filename
+ * (when extractable) and a title derived from the filename. Used for events
+ * that landed in the DB without sessions because they were added to S3
+ * after the original Wix CSV export.
  */
-async function pickSession(eventId: number, filename: string): Promise<{
+async function pickSession(
+  eventId: number,
+  filename: string,
+  opts: { autoCreate: boolean; apply: boolean } = { autoCreate: false, apply: false },
+): Promise<{
   sessionId: number | null;
   reason: string;
+  created?: boolean;
 }> {
   const eventSessions = await db.query.sessions.findMany({
     where: eq(sessions.eventId, eventId),
   });
 
   if (eventSessions.length === 0) {
-    return { sessionId: null, reason: "no sessions exist for this event" };
+    if (!opts.autoCreate) {
+      return { sessionId: null, reason: "no sessions exist for this event" };
+    }
+    // Create a new session for this video.
+    const fileDates = extractDates(filename).filter((d) => !d.startsWith("????"));
+    const sessionDate = fileDates[0] ?? null;
+    const titleEn = deriveSessionTitle(filename);
+    if (!opts.apply) {
+      return {
+        sessionId: null,
+        reason: `[would auto-create session #1: date=${sessionDate ?? "n/a"}, title="${titleEn}"]`,
+        created: true,
+      };
+    }
+    const [created] = await db.insert(sessions).values({
+      eventId,
+      titleEn,
+      sessionDate,
+      sessionNumber: 1,
+      timePeriod: null,
+    }).returning();
+    if (!created) return { sessionId: null, reason: "failed to create session" };
+    return {
+      sessionId: created.id,
+      reason: `auto-created session #1 (date=${sessionDate ?? "n/a"}, title="${titleEn}")`,
+      created: true,
+    };
   }
   if (eventSessions.length === 1) {
+    // If autoCreate is on AND the existing session already has a video
+    // attached, create a sibling session for THIS video instead of refusing.
+    if (opts.autoCreate && eventSessions[0]!.bunnyVideoId) {
+      const fileDates = extractDates(filename).filter((d) => !d.startsWith("????"));
+      const sessionDate = fileDates[0] ?? null;
+      const titleEn = deriveSessionTitle(filename);
+      const nextNum = (eventSessions[0]!.sessionNumber || 0) + 1;
+      if (!opts.apply) {
+        return {
+          sessionId: null,
+          reason: `[would auto-create sibling session #${nextNum}: date=${sessionDate ?? "n/a"}, title="${titleEn}"]`,
+          created: true,
+        };
+      }
+      const [created] = await db.insert(sessions).values({
+        eventId,
+        titleEn,
+        sessionDate,
+        sessionNumber: nextNum,
+        timePeriod: null,
+      }).returning();
+      if (created) {
+        return {
+          sessionId: created.id,
+          reason: `auto-created session #${nextNum} (existing session has different video)`,
+          created: true,
+        };
+      }
+    }
     return { sessionId: eventSessions[0]!.id, reason: "only one session in event" };
   }
 
@@ -380,6 +465,14 @@ async function main() {
   let succeeded = 0;
   let skipped = 0;
   let failed = 0;
+  const manualActions = {
+    /** Event exists in code path but is missing from the DB entirely. */
+    missingEvents: new Set<string>(),
+    /** Event has multiple sessions and the matcher couldn't pick one. */
+    ambiguous: [] as { key: string; eventCode: string; reason: string }[],
+    /** Anything else that needed to be skipped. */
+    otherSkipped: [] as { key: string; eventCode: string; reason: string }[],
+  };
 
   // Fingerprint -> GUID cache, populated as we go and persisted to state.
   state.byFingerprint = state.byFingerprint ?? {};
@@ -402,7 +495,8 @@ async function main() {
       where: eq(events.eventCode, parsed.eventCode),
     });
     if (!event) {
-      console.log(`  No event with eventCode "${parsed.eventCode}" — skipping`);
+      console.log(`  No event with eventCode "${parsed.eventCode}" — needs manual creation in admin`);
+      manualActions.missingEvents.add(parsed.eventCode);
       state.processed[key] = {
         s3Key: key, eventCode: parsed.eventCode, sessionId: null, bunnyVideoId: null,
         status: "skipped", reason: "event not found", completedAt: new Date().toISOString(),
@@ -412,10 +506,28 @@ async function main() {
       continue;
     }
 
-    // 3. Pick a session.
-    const { sessionId, reason } = await pickSession(event.id, parsed.filename);
+    // 3. Pick or auto-create a session.
+    //    - Empty event (no sessions yet): create one named after the file.
+    //    - Single session already used by a different video: create a sibling.
+    //    - Multi-session event with no match: still skip and surface for review.
+    const result = await pickSession(event.id, parsed.filename, {
+      autoCreate: true,
+      apply,
+    });
+    const sessionId: number | null = result.sessionId;
+    const reason = result.reason;
+
     if (!sessionId) {
+      // In dry-run, an auto-create reason still ends up here (sessionId is
+      // null because we didn't actually insert). Treat it as "would succeed"
+      // for the dry-run summary, not as a manual action.
+      if (!apply && result.created) {
+        console.log(`  ${reason}`);
+        console.log(`  [dry-run] Would upload to Bunny and attach to the new session`);
+        continue;
+      }
       console.log(`  Cannot pick session: ${reason} — skipping (resolve manually then re-run)`);
+      manualActions.ambiguous.push({ key, eventCode: parsed.eventCode, reason });
       state.processed[key] = {
         s3Key: key, eventCode: parsed.eventCode, sessionId: null, bunnyVideoId: null,
         status: "skipped", reason: `no session: ${reason}`, completedAt: new Date().toISOString(),
@@ -522,7 +634,50 @@ async function main() {
   console.log(`  Skipped:   ${skipped}`);
   console.log(`  Failed:    ${failed}`);
   console.log(`  State file: ${STATE_FILE}`);
-  if (!apply) console.log(`\n(dry run — pass --apply to actually migrate)`);
+  if (!apply) console.log(`(dry run — pass --apply to actually migrate)`);
+
+  // Clear, actionable list of what still needs human attention.
+  const hasManual =
+    manualActions.missingEvents.size > 0 ||
+    manualActions.ambiguous.length > 0 ||
+    manualActions.otherSkipped.length > 0;
+
+  if (hasManual) {
+    console.log(`\n=== Manual actions needed ===`);
+
+    if (manualActions.missingEvents.size > 0) {
+      console.log(`\n${manualActions.missingEvents.size} event(s) referenced by S3 do NOT exist in the DB.`);
+      console.log(`These must be created in the admin UI (set audience, retreat group, titles, etc.).`);
+      console.log(`After creating them, just re-run this script — the rest is automatic.\n`);
+      const sorted = Array.from(manualActions.missingEvents).sort();
+      for (const code of sorted) {
+        // How many video files would attach once the event exists?
+        const fileCount = allKeys.filter((k) => parseS3Key(k.key)?.eventCode === code).length;
+        console.log(`  - ${code}  (${fileCount} video file${fileCount === 1 ? "" : "s"} waiting)`);
+      }
+    }
+
+    if (manualActions.ambiguous.length > 0) {
+      console.log(`\n${manualActions.ambiguous.length} file(s) couldn't be matched to a specific session in a multi-session event.`);
+      console.log(`Either: (a) rename/edit a session's titleEn or sessionDate so the matcher picks it up,`);
+      console.log(`        (b) create a new session in the admin UI for this video, OR`);
+      console.log(`        (c) attach manually via the admin (SQL: UPDATE sessions SET bunny_video_id = ... WHERE id = ...).`);
+      console.log(`Re-running the script after option (a) or (b) will pick these up automatically.\n`);
+      for (const m of manualActions.ambiguous) {
+        console.log(`  - ${m.eventCode} :: ${parseS3Key(m.key)?.filename}`);
+        console.log(`      reason: ${m.reason}`);
+      }
+    }
+
+    if (manualActions.otherSkipped.length > 0) {
+      console.log(`\nOther skipped:`);
+      for (const m of manualActions.otherSkipped) {
+        console.log(`  - ${m.key}  →  ${m.reason}`);
+      }
+    }
+  } else {
+    console.log(`\nNothing left to do manually. Run with --apply to migrate everything.`);
+  }
 }
 
 main().then(() => process.exit(0)).catch((err) => {
