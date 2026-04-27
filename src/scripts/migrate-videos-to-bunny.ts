@@ -40,16 +40,14 @@
 
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from "node:stream";
-import { eq, and } from "drizzle-orm";
-import * as tus from "tus-js-client";
+import { eq } from "drizzle-orm";
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
 import { sessions } from "../db/schema/sessions.ts";
 import { config } from "../config.ts";
-import { createVideo, buildTusCredentials, getVideoMeta } from "../services/bunny.ts";
+import { createVideo, getVideoMeta } from "../services/bunny.ts";
 
 const STATE_FILE = path.resolve(process.cwd(), "migration-videos-state.json");
 const VIDEO_KEY_RE = /^events\/([^/]+)\/video\/(.+\.(?:mp4|mov|m4v|mkv|webm))$/i;
@@ -149,78 +147,68 @@ async function uploadFromS3ToBunny(args: {
 }): Promise<{ guid: string; durationSeconds: number }> {
   const { s3, bucket, key, filename, fileSize } = args;
 
-  // 1. Stage to /tmp so tus-js-client can resume if needed. Streaming directly
-  //    from S3 to TUS is doable but adds complexity for marginal benefit at
-  //    this scale (35 GB across ~64 files).
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "padmakara-mig-"));
-  const tmpPath = path.join(tmpDir, filename);
+  // 1. Create the Bunny video entry.
+  console.log(`  Creating Bunny video: ${filename}`);
+  const { guid } = await createVideo(filename);
 
-  try {
-    console.log(`  Downloading from S3 -> ${tmpPath}`);
-    const response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-    if (!response.Body) throw new Error(`S3 returned no body for ${key}`);
-    const stream = response.Body as Readable;
-    await new Promise<void>((resolve, reject) => {
-      const out = fs.createWriteStream(tmpPath);
-      stream.pipe(out);
-      out.on("finish", () => resolve());
-      out.on("error", reject);
-      stream.on("error", reject);
-    });
+  // 2. Stream the S3 object straight into Bunny's direct upload endpoint.
+  //    No /tmp staging; no TUS bookkeeping. If the upload errors we'll
+  //    retry the whole file on the next script run (idempotent — the state
+  //    file remembers we never finished this key).
+  console.log(`  Streaming S3 -> Bunny: ${(fileSize / 1024 / 1024).toFixed(0)} MB`);
+  const s3Response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  if (!s3Response.Body) throw new Error(`S3 returned no body for ${key}`);
+  const s3Stream = s3Response.Body as Readable;
 
-    // 2. Create the Bunny video entry.
-    console.log(`  Creating Bunny video: ${filename}`);
-    const { guid } = await createVideo(filename);
-
-    // 3. TUS upload.
-    const creds = buildTusCredentials(guid, 6 * 60 * 60); // 6h TTL for big files
-    const fileBuffer = fs.readFileSync(tmpPath);
-
-    await new Promise<void>((resolve, reject) => {
-      const upload = new tus.Upload(fileBuffer as any, {
-        endpoint: creds.endpoint,
-        retryDelays: [0, 3000, 6000, 12000, 24000],
-        uploadSize: fileSize,
-        headers: {
-          AuthorizationSignature: creds.signature,
-          AuthorizationExpire: String(creds.expirationTime),
-          VideoId: creds.videoId,
-          LibraryId: creds.libraryId,
-        },
-        metadata: { filetype: "video/mp4", title: filename },
-        onError: reject,
-        onProgress: (bytesUploaded, bytesTotal) => {
-          const pct = ((bytesUploaded / bytesTotal) * 100).toFixed(1);
-          process.stdout.write(`\r  Uploading to Bunny: ${pct}%   `);
-        },
-        onSuccess: () => {
-          process.stdout.write("\n");
-          resolve();
-        },
-      });
-      upload.start();
-    });
-
-    // 4. Poll for transcoding to finish so we can capture duration.
-    console.log(`  Waiting for Bunny to finish transcoding...`);
-    const start = Date.now();
-    while (true) {
-      const meta = await getVideoMeta(guid);
-      if (meta.status === 5 || meta.status === 6) {
-        throw new Error(`Bunny transcoding failed (status ${meta.status})`);
-      }
-      if (meta.status >= 4) {
-        return { guid, durationSeconds: Math.round(meta.length || 0) };
-      }
-      if (Date.now() - start > POLL_TIMEOUT_MS) {
-        // Don't fail — webhook will backfill duration. Return 0 for now.
-        console.log(`  Transcoding still running after 30 min — webhook will backfill duration`);
-        return { guid, durationSeconds: 0 };
-      }
-      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+  // Light progress logging.
+  let bytesPiped = 0;
+  let lastLogged = 0;
+  s3Stream.on("data", (chunk: Buffer | string) => {
+    bytesPiped += typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+    const pct = (bytesPiped / fileSize) * 100;
+    if (pct - lastLogged >= 5) {
+      lastLogged = pct;
+      process.stdout.write(`\r    ...${pct.toFixed(0)}% (${(bytesPiped / 1024 / 1024).toFixed(0)} MB)   `);
     }
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // Convert Node Readable -> Web ReadableStream so undici/fetch can consume it.
+  const webStream = Readable.toWeb(s3Stream) as unknown as ReadableStream<Uint8Array>;
+
+  const uploadUrl = `https://video.bunnycdn.com/library/${config.bunny.libraryId}/videos/${guid}`;
+  const uploadResponse = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      AccessKey: config.bunny.apiKey,
+      "Content-Type": "application/octet-stream",
+      "Content-Length": String(fileSize),
+    },
+    body: webStream,
+    // duplex required by undici when streaming a request body
+    ...{ duplex: "half" },
+  } as RequestInit);
+  process.stdout.write("\n");
+  if (!uploadResponse.ok) {
+    throw new Error(`Bunny PUT ${uploadResponse.status}: ${await uploadResponse.text()}`);
+  }
+
+  // 3. Poll for transcoding to finish so we can capture duration.
+  console.log(`  Waiting for Bunny to finish transcoding...`);
+  const start = Date.now();
+  while (true) {
+    const meta = await getVideoMeta(guid);
+    if (meta.status === 5 || meta.status === 6) {
+      throw new Error(`Bunny transcoding failed (status ${meta.status})`);
+    }
+    if (meta.status >= 4) {
+      return { guid, durationSeconds: Math.round(meta.length || 0) };
+    }
+    if (Date.now() - start > POLL_TIMEOUT_MS) {
+      // Don't fail — webhook will backfill duration. Return 0 for now.
+      console.log(`  Transcoding still running after 30 min — webhook will backfill duration`);
+      return { guid, durationSeconds: 0 };
+    }
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
 }
 
