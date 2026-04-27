@@ -5,6 +5,7 @@ import { sessions } from "../../db/schema/sessions.ts";
 import { createSessionSchema, updateSessionSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
+import { deleteVideo } from "../../services/bunny.ts";
 
 const sessionRoutes = new Hono();
 
@@ -78,6 +79,14 @@ sessionRoutes.delete("/:id", async (c) => {
     .where(eq(sessions.id, id))
     .returning();
   if (!session) throw AppError.notFound("Session not found");
+
+  // Best-effort cleanup of the Bunny video — orphaned videos rack up storage cost.
+  if (session.bunnyVideoId) {
+    deleteVideo(session.bunnyVideoId).catch((err) => {
+      console.error(`Failed to delete Bunny video ${session.bunnyVideoId}:`, err);
+    });
+  }
+
   return c.json(session);
 });
 

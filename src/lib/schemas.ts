@@ -160,11 +160,14 @@ export const createSessionSchema = z.object({
   timePeriod: z.enum(["morning", "afternoon", "evening", "full_day"]).optional().nullable(),
   sessionNumber: z.number().int().min(1),
   description: z.string().optional().nullable(),
+  bunnyVideoId: z.string().optional().nullable(),
+  videoDurationSeconds: z.number().int().min(0).optional().nullable(),
+  videoPosterUrl: z.string().optional().nullable(),
 });
 
 export const updateSessionSchema = createSessionSchema.partial();
 
-// Tracks
+// Tracks (audio only — video lives on the parent session)
 export const createTrackSchema = z.object({
   sessionId: z.number().int(),
   title: z.string().min(1).max(200),

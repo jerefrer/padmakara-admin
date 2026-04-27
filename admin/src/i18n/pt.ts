@@ -366,6 +366,10 @@ export const pt = {
       secondsRemaining: "~%{seconds}s restantes",
       minutesRemaining: "~%{minutes} min restantes",
       hoursRemaining: "~%{hours}h %{minutes}m restantes",
+      bunnyStatusUploaded: "Carregado — em fila para transcodificação",
+      bunnyStatusProcessing: "Bunny está a processar o vídeo…",
+      bunnyStatusTranscoding: "A transcodificar variantes do vídeo…",
+      bunnyStatusWaiting: "À espera do Bunny…",
     },
   },
 };

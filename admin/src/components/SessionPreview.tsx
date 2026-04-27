@@ -352,10 +352,13 @@ const TrackRow = ({
   });
   const [saving, setSaving] = useState(false);
 
-  // Determine icon based on file format
-  const fileType = track.fileFormat
-    ? getFileType(track.originalFilename)
-    : "audio";
+  // Determine icon — prefer the explicit mediaType discriminator (set by parser
+  // for video tracks), falling back to format-based detection for legacy rows.
+  const fileType = track.mediaType === "video"
+    ? "video"
+    : track.fileFormat
+      ? getFileType(track.originalFilename)
+      : "audio";
   const icon = getFileIcon(fileType);
 
   const handleSave = async () => {

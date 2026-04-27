@@ -49,4 +49,18 @@ export const config = {
     jobQueue: env("BATCH_JOB_QUEUE", "padmakara-read-along-queue"),
     webhookSecret: env("READ_ALONG_WEBHOOK_SECRET", "dev-webhook-secret"),
   },
+
+  bunny: {
+    libraryId: env("BUNNY_STREAM_LIBRARY_ID", ""),
+    apiKey: env("BUNNY_STREAM_API_KEY", ""),
+    cdnHostname: env("BUNNY_STREAM_CDN_HOSTNAME", ""),
+    tokenAuthKey: env("BUNNY_STREAM_TOKEN_AUTH_KEY", ""),
+    playbackTtlSeconds: parseInt(env("BUNNY_STREAM_PLAYBACK_TTL", "3600"), 10),
+    /**
+     * Shared secret appended to the webhook URL as `?secret=...`. Configure the
+     * same value in the Bunny library "Webhook URL" setting. If blank, the
+     * webhook endpoint refuses all requests.
+     */
+    webhookSecret: env("BUNNY_WEBHOOK_SECRET", ""),
+  },
 } as const;

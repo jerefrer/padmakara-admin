@@ -3,6 +3,8 @@
  * Mirrors the backend parser — extracts metadata from audio filenames.
  */
 
+export type TrackMediaType = "audio" | "video";
+
 export interface ParsedTrack {
   id?: number;
   trackNumber: number;
@@ -19,6 +21,7 @@ export interface ParsedTrack {
   file: File;
   isPractice?: boolean;
   fileFormat?: string | null;
+  mediaType: TrackMediaType;
 }
 
 export interface InferredSession {
@@ -41,9 +44,29 @@ function normalizeLanguage(lang: string): string {
   return LANGUAGE_MAP[lang.toUpperCase().trim()] ?? lang.toLowerCase();
 }
 
+const AUDIO_EXT_RE = /\.(mp3|wav|m4a|flac|ogg)$/i;
+const VIDEO_EXT_RE = /\.(mp4|mov|m4v|mkv|webm)$/i;
+
+export function isAudioFilename(name: string): boolean {
+  return AUDIO_EXT_RE.test(name);
+}
+
+export function isVideoFilename(name: string): boolean {
+  return VIDEO_EXT_RE.test(name);
+}
+
+export function isMediaFilename(name: string): boolean {
+  return isAudioFilename(name) || isVideoFilename(name);
+}
+
+export function detectMediaType(name: string): TrackMediaType {
+  return isVideoFilename(name) ? "video" : "audio";
+}
+
 export function parseTrackFile(file: File): ParsedTrack {
   const filename = file.name;
-  const baseName = filename.replace(/\.(mp3|wav|m4a|flac|ogg)$/i, "");
+  const baseName = filename.replace(AUDIO_EXT_RE, "").replace(VIDEO_EXT_RE, "");
+  const mediaType = detectMediaType(filename);
 
   let trackNumber = 0;
   let speaker: string | null = null;
@@ -120,6 +143,7 @@ export function parseTrackFile(file: File): ParsedTrack {
     languages: [language],
     originalLanguage: language,
     date, timePeriod, partNumber, originalFilename: filename, file,
+    mediaType,
   };
 }
 

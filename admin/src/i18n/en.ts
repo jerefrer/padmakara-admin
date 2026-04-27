@@ -165,6 +165,10 @@ export const en = {
       secondsRemaining: "~%{seconds}s remaining",
       minutesRemaining: "~%{minutes} min remaining",
       hoursRemaining: "~%{hours}h %{minutes}m remaining",
+      bunnyStatusUploaded: "Uploaded — queued for transcoding",
+      bunnyStatusProcessing: "Bunny is processing the video…",
+      bunnyStatusTranscoding: "Transcoding video variants…",
+      bunnyStatusWaiting: "Waiting for Bunny…",
     },
   },
 };

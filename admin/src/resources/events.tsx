@@ -972,6 +972,23 @@ export const EventCreate = () => {
           },
         });
         for (const track of session.tracks) {
+          if (track.mediaType === "video") {
+            // Videos attach to the session itself — no track row is created.
+            // The uploader patches the session with bunnyVideoId once Bunny
+            // finishes transcoding.
+            uploadItems.push({
+              // trackId is unused on the video path; satisfy the type with -1.
+              trackId: -1,
+              sessionId: createdSession.id,
+              sessionNumber: session.sessionNumber,
+              file: track.file,
+              filename: track.originalFilename,
+              mediaType: "video",
+              title: track.title,
+            });
+            continue;
+          }
+
           const { data: createdTrack } = await dataProvider.create("tracks", {
             data: {
               sessionId: createdSession.id,
@@ -990,6 +1007,8 @@ export const EventCreate = () => {
             sessionNumber: session.sessionNumber,
             file: track.file,
             filename: track.originalFilename,
+            mediaType: "audio",
+            title: track.title,
           });
         }
       }

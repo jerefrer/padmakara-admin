@@ -7,8 +7,26 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
+import MovieFilterIcon from "@mui/icons-material/MovieFilter";
 import { useTranslate } from "react-admin";
 import type { UploadProgress as UploadProgressData, FileStatus } from "../utils/uploadManager";
+
+/**
+ * Bunny Stream status codes (subset we surface to admins):
+ *   0 created · 1 uploaded · 2 processing · 3 transcoding · 4 finished · 5/6 error
+ */
+function transcodeLabel(status: number | undefined, translate: (key: string) => string): string {
+  switch (status) {
+    case 1:
+      return translate("padmakara.upload.bunnyStatusUploaded") || "Uploaded — queued for transcoding";
+    case 2:
+      return translate("padmakara.upload.bunnyStatusProcessing") || "Bunny is processing the video…";
+    case 3:
+      return translate("padmakara.upload.bunnyStatusTranscoding") || "Transcoding video variants…";
+    default:
+      return translate("padmakara.upload.bunnyStatusWaiting") || "Waiting for Bunny…";
+  }
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -28,9 +46,11 @@ function formatEta(bytesRemaining: number, speed: number, translate: (key: strin
 }
 
 function FileRow({ file, speed }: { file: FileStatus; speed: number }) {
+  const translate = useTranslate();
   const icon =
     file.status === "done" ? <CheckCircleIcon sx={{ fontSize: 16, color: "success.main" }} /> :
     file.status === "error" ? <ErrorIcon sx={{ fontSize: 16, color: "error.main" }} /> :
+    file.status === "transcoding" ? <MovieFilterIcon sx={{ fontSize: 16, color: "info.main" }} /> :
     file.status === "uploading" ? <CloudUploadIcon sx={{ fontSize: 16, color: "primary.main" }} /> :
     <HourglassEmptyIcon sx={{ fontSize: 16, color: "text.disabled" }} />;
 
@@ -40,7 +60,10 @@ function FileRow({ file, speed }: { file: FileStatus; speed: number }) {
         px: 1.5,
         py: 0.75,
         borderRadius: 1,
-        bgcolor: file.status === "uploading" ? "action.hover" : "transparent",
+        bgcolor:
+          file.status === "uploading" || file.status === "transcoding"
+            ? "action.hover"
+            : "transparent",
         opacity: file.status === "pending" ? 0.6 : 1,
       }}
     >
@@ -80,6 +103,14 @@ function FileRow({ file, speed }: { file: FileStatus; speed: number }) {
               </Typography>
             )}
           </Box>
+        </Box>
+      )}
+      {file.status === "transcoding" && (
+        <Box sx={{ mt: 0.5, ml: 3 }}>
+          <LinearProgress sx={{ height: 3, borderRadius: 1 }} />
+          <Typography variant="caption" color="info.main" sx={{ mt: 0.2, display: "block" }}>
+            {transcodeLabel(file.transcodeStatus, translate)}
+          </Typography>
         </Box>
       )}
     </Box>

@@ -3,10 +3,19 @@ import { eq } from "drizzle-orm";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { db } from "../db/index.ts";
 import { tracks } from "../db/schema/tracks.ts";
+import { sessions } from "../db/schema/sessions.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
 import { events } from "../db/schema/retreats.ts";
 import { users } from "../db/schema/users.ts";
 import { generatePresignedDownloadUrl, getObjectText } from "../services/s3.ts";
+import {
+  buildPlaybackUrls,
+  buildMp4DownloadUrl,
+  getVideoMeta,
+  parseAvailableResolutions,
+  bestAvailableResolution,
+  type BunnyResolution,
+} from "../services/bunny.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
 import { checkEventAccess } from "../services/access.ts";
@@ -34,6 +43,22 @@ async function getEventForTrack(trackId: number) {
   });
   if (!track) return null;
   return { track, event: track.session?.event ?? null };
+}
+
+/**
+ * Look up the event for a session (session → event with audience)
+ */
+async function getEventForSession(sessionId: number) {
+  const session = await db.query.sessions.findFirst({
+    where: eq(sessions.id, sessionId),
+    with: {
+      event: {
+        with: { audience: true },
+      },
+    },
+  });
+  if (!session) return null;
+  return { session, event: session.event ?? null };
 }
 
 /**
@@ -96,6 +121,100 @@ mediaRoutes.get("/audio/:trackId", async (c) => {
 
   const url = await generatePresignedDownloadUrl(result.track.s3Key);
   return c.json({ url, expiresIn: 3600 });
+});
+
+/**
+ * GET /api/media/video/session/:sessionId
+ *
+ * Token-signed Bunny Stream playback URLs for the session's video recording.
+ * Audio tracks remain the canonical, topic-indexed content; the session video
+ * is the unedited full recording, viewed via Bunny.
+ *
+ * Returns 404 if the session has no video attached. Same access control as
+ * audio (audience rules on the parent event).
+ */
+mediaRoutes.get("/video/session/:sessionId", async (c) => {
+  const sessionId = parseInt(c.req.param("sessionId"), 10);
+  const authUser = getOptionalUser(c);
+
+  const result = await getEventForSession(sessionId);
+  if (!result?.session) throw AppError.notFound("Session not found");
+  if (!result.session.bunnyVideoId) {
+    throw AppError.notFound("Video file not available");
+  }
+
+  if (result.event) {
+    const userForAccess = await getUserForAccess(authUser);
+    const accessResult = await checkEventAccess(userForAccess, result.event);
+    if (!accessResult.allowed) {
+      if (accessResult.reason === "AUTH_REQUIRED") {
+        throw AppError.unauthorized("Authentication required");
+      }
+      throw AppError.forbidden("Access denied");
+    }
+  }
+
+  const urls = buildPlaybackUrls(result.session.bunnyVideoId);
+  return c.json({
+    hls: urls.hls,
+    iframe: urls.iframe,
+    thumbnail: result.session.videoPosterUrl ?? urls.thumbnail,
+    durationSeconds: result.session.videoDurationSeconds ?? null,
+    expiresAt: urls.expiresAt,
+  });
+});
+
+/**
+ * GET /api/media/video/session/:sessionId/download?quality=720p
+ *
+ * Token-signed direct-MP4 URL for downloading the session's video to local
+ * storage. Picks the best available variant ≤ requested quality (low-res
+ * sources may not have a 720p variant). Requires "MP4 Fallback" enabled on
+ * the Bunny library.
+ */
+mediaRoutes.get("/video/session/:sessionId/download", async (c) => {
+  const sessionId = parseInt(c.req.param("sessionId"), 10);
+  const authUser = getOptionalUser(c);
+  const qualityParam = (c.req.query("quality") ?? "720p") as BunnyResolution;
+  const allowed: ReadonlySet<string> = new Set([
+    "240p", "360p", "480p", "720p", "1080p", "1440p", "2160p",
+  ]);
+  if (!allowed.has(qualityParam)) {
+    throw AppError.badRequest("invalid quality");
+  }
+
+  const result = await getEventForSession(sessionId);
+  if (!result?.session) throw AppError.notFound("Session not found");
+  if (!result.session.bunnyVideoId) {
+    throw AppError.notFound("Video file not available");
+  }
+
+  if (result.event) {
+    const userForAccess = await getUserForAccess(authUser);
+    const accessResult = await checkEventAccess(userForAccess, result.event);
+    if (!accessResult.allowed) {
+      if (accessResult.reason === "AUTH_REQUIRED") {
+        throw AppError.unauthorized("Authentication required");
+      }
+      throw AppError.forbidden("Access denied");
+    }
+  }
+
+  const meta = await getVideoMeta(result.session.bunnyVideoId);
+  const available = parseAvailableResolutions(meta.availableResolutions);
+  const chosen = bestAvailableResolution(qualityParam, available);
+  if (!chosen) {
+    throw AppError.notFound("No downloadable variant available for this video");
+  }
+
+  const { url, expiresAt } = buildMp4DownloadUrl(result.session.bunnyVideoId, chosen);
+  return c.json({
+    url,
+    quality: chosen,
+    requestedQuality: qualityParam,
+    availableResolutions: available,
+    expiresAt,
+  });
 });
 
 /**
@@ -193,19 +312,24 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
   const watermarkedPdfBytes = await pdfDoc.save();
 
   // Use original filename if available, fall back to generated name
-  const filename = result.transcript.originalFilename
+  const rawFilename = result.transcript.originalFilename
     || (() => {
         const eventName = result.event?.titleEn || result.event?.titlePt || "transcript";
         const cleanName = eventName.replace(/[^a-zA-Z0-9_-]/g, "_").substring(0, 60);
         return `${cleanName}_${result.transcript.language}.pdf`;
       })();
 
+  // Sanitize for Content-Disposition: ASCII-only for filename, UTF-8 in filename*
+  const asciiFilename = rawFilename.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "'");
+  const utf8Filename = encodeURIComponent(rawFilename);
+
   const isDownload = c.req.query("download") === "true";
+  const disposition = isDownload ? "attachment" : "inline";
 
   return new Response(watermarkedPdfBytes, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${filename}"`,
+      "Content-Disposition": `${disposition}; filename="${asciiFilename}"; filename*=UTF-8''${utf8Filename}`,
       "Content-Length": String(watermarkedPdfBytes.byteLength),
     },
   });

@@ -25,6 +25,12 @@ export const sessions = pgTable(
     sessionNumber: integer("session_number").notNull(),
     partNumber: integer("part_number"),
     description: text("description"),
+    // Optional video recording for this session. Audio tracks (above) remain
+    // the canonical topic-indexed content; the session video is the unedited
+    // full recording, viewed via Bunny Stream.
+    bunnyVideoId: text("bunny_video_id"),
+    videoDurationSeconds: integer("video_duration_seconds"),
+    videoPosterUrl: text("video_poster_url"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

@@ -4,7 +4,13 @@ import Typography from "@mui/material/Typography";
 import FolderIcon from "@mui/icons-material/FolderOpen";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import { useTranslate } from "react-admin";
-import { type ParsedTrack, type FolderMetadata, parseTrackFile, parseFolderName } from "../utils/trackParser";
+import {
+  type ParsedTrack,
+  type FolderMetadata,
+  parseTrackFile,
+  parseFolderName,
+  isMediaFilename,
+} from "../utils/trackParser";
 
 interface TrackDropZoneProps {
   onFolderDropped: (meta: FolderMetadata, tracks: ParsedTrack[]) => void;
@@ -12,10 +18,8 @@ interface TrackDropZoneProps {
   folderName: string | null;
 }
 
-const ACCEPTED_EXT = /\.(mp3|wav|m4a|flac|ogg)$/i;
-
-function isAudioFile(file: File): boolean {
-  return ACCEPTED_EXT.test(file.name);
+function isMediaFile(file: File): boolean {
+  return isMediaFilename(file.name);
 }
 
 /** readEntries returns batches — must loop until empty */
@@ -83,10 +87,10 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName }: TrackD
 
       // Read all files from the folder
       readEntry(dirEntry).then((files) => {
-        const audioFiles = files.filter(isAudioFile);
-        if (audioFiles.length === 0) return;
+        const mediaFiles = files.filter(isMediaFile);
+        if (mediaFiles.length === 0) return;
 
-        const parsed = audioFiles
+        const parsed = mediaFiles
           .map(parseTrackFile)
           .sort((a, b) => a.trackNumber - b.trackNumber);
 

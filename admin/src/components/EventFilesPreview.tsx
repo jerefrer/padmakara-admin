@@ -61,6 +61,7 @@ export const EventFilesPreview = ({ transcripts, eventFiles }: EventFilesPreview
     timePeriod: null,
     isPractice: false,
     fileFormat: "pdf",
+    mediaType: "audio",
   }));
 
   // Group event files by type
@@ -85,6 +86,7 @@ export const EventFilesPreview = ({ transcripts, eventFiles }: EventFilesPreview
       timePeriod: null,
       isPractice: false,
       fileFormat: ef.originalFilename ? ef.originalFilename.split(".").pop()?.toLowerCase() : null,
+      mediaType: "audio",
     };
 
     eventFilesByType.get(type)!.push(track);

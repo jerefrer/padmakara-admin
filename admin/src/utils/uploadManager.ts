@@ -1,17 +1,37 @@
+import { uploadVideoFile } from "./videoUploader";
+import { isVideoFilename } from "./trackParser";
+
 const API_URL = "/api/admin";
 
+/**
+ * An audio upload item — one file becomes one track on a session.
+ *
+ * Videos use a different shape (`UploadVideoItem`) because a video doesn't
+ * become a track; it attaches to the session itself.
+ */
 export interface UploadItem {
   trackId: number;
   sessionNumber: number;
   file: File;
   filename: string;
+  mediaType?: "audio" | "video";
+  /** Display title used as the Bunny video name. Defaults to filename. */
+  title?: string;
+  /**
+   * For video items: the database session ID to attach the Bunny video to.
+   * The audio path uses sessionNumber + presigned-URL flow; the video path
+   * needs the session row's primary key for the final patch.
+   */
+  sessionId?: number;
 }
 
 export interface FileStatus {
   filename: string;
   size: number;
-  status: "pending" | "uploading" | "done" | "error";
+  status: "pending" | "uploading" | "transcoding" | "done" | "error";
   progress: number; // 0-1
+  /** For video items: Bunny status code (0..6) while transcoding. */
+  transcodeStatus?: number;
 }
 
 export interface UploadProgress {
@@ -163,10 +183,19 @@ export function uploadTracks(
     progress: 0,
   }));
 
+  // Split audio (S3) from video (Bunny TUS). Audio is batched per session
+  // for presigned URLs; video uploads run sequentially after audio finishes.
+  const audioItems = items.filter(
+    (i) => (i.mediaType ?? (isVideoFilename(i.filename) ? "video" : "audio")) === "audio",
+  );
+  const videoItems = items.filter(
+    (i) => (i.mediaType ?? (isVideoFilename(i.filename) ? "video" : "audio")) === "video",
+  );
+
   const promise = (async () => {
-    // Phase 1: Get presigned URLs grouped by session
+    // Phase 1: Get presigned URLs grouped by session (audio only)
     const bySession = new Map<number, UploadItem[]>();
-    for (const item of items) {
+    for (const item of audioItems) {
       const group = bySession.get(item.sessionNumber) ?? [];
       group.push(item);
       bySession.set(item.sessionNumber, group);
@@ -271,6 +300,108 @@ export function uploadTracks(
         fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, status: "done", progress: 1 };
       }
       bytesCompleted += queued.file.size;
+      filesCompleted++;
+    }
+
+    // Phase 3: Upload video items sequentially via Bunny TUS.
+    for (const item of videoItems) {
+      if (signal.cancelled) throw new Error("Upload cancelled");
+
+      const fileStart = bytesCompleted;
+      const fileIdx = fileStatuses.findIndex((f) => f.filename === item.filename);
+      if (fileIdx >= 0) {
+        fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, status: "uploading", progress: 0 };
+      }
+
+      onProgress({
+        phase: "uploading",
+        currentFilename: item.filename,
+        fileProgress: 0,
+        filesCompleted,
+        filesTotal: items.length,
+        bytesUploaded: bytesCompleted,
+        bytesTotal,
+        speed: speedTracker.getSpeed(),
+        files: fileStatuses,
+      });
+
+      if (typeof item.sessionId !== "number") {
+        throw new Error(
+          `Video upload requires a sessionId on the upload item (filename: ${item.filename})`,
+        );
+      }
+      await uploadVideoFile({
+        sessionId: item.sessionId,
+        title: item.title ?? item.filename,
+        file: item.file,
+        authToken,
+        signal,
+        onProgress: (loaded, total) => {
+          const totalUploaded = fileStart + loaded;
+          const pct = total > 0 ? loaded / total : 0;
+          speedTracker.record(totalUploaded);
+          if (fileIdx >= 0) {
+            fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, progress: pct };
+          }
+          onProgress({
+            phase: "uploading",
+            currentFilename: item.filename,
+            fileProgress: pct,
+            filesCompleted,
+            filesTotal: items.length,
+            bytesUploaded: totalUploaded,
+            bytesTotal,
+            speed: speedTracker.getSpeed(),
+            files: fileStatuses,
+          });
+        },
+        onTranscodingStart: () => {
+          if (fileIdx >= 0) {
+            fileStatuses[fileIdx] = {
+              ...fileStatuses[fileIdx]!,
+              status: "transcoding",
+              progress: 1,
+            };
+          }
+          // Count the upload bytes as completed so the overall bar advances —
+          // transcoding doesn't have its own byte-level progress.
+          onProgress({
+            phase: "uploading",
+            currentFilename: item.filename,
+            fileProgress: 1,
+            filesCompleted,
+            filesTotal: items.length,
+            bytesUploaded: fileStart + item.file.size,
+            bytesTotal,
+            speed: speedTracker.getSpeed(),
+            files: fileStatuses,
+          });
+        },
+        onTranscodeStatus: (status) => {
+          if (fileIdx >= 0) {
+            fileStatuses[fileIdx] = {
+              ...fileStatuses[fileIdx]!,
+              transcodeStatus: status,
+            };
+          }
+          onProgress({
+            phase: "uploading",
+            currentFilename: item.filename,
+            fileProgress: 1,
+            filesCompleted,
+            filesTotal: items.length,
+            bytesUploaded: fileStart + item.file.size,
+            bytesTotal,
+            speed: speedTracker.getSpeed(),
+            files: fileStatuses,
+          });
+        },
+      });
+
+      if (fileIdx >= 0) {
+        fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, status: "done", progress: 1 };
+      }
+      bytesCompleted += item.file.size;
       filesCompleted++;
     }
 
