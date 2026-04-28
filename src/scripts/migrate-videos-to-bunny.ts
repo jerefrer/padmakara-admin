@@ -538,18 +538,59 @@ async function main() {
     }
     console.log(`  Target session: id=${sessionId} (${reason})`);
 
-    // 4. Skip if the session already has a video.
-    const existingSession = await db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
-    if (existingSession?.bunnyVideoId) {
-      console.log(`  Session ${sessionId} already has bunnyVideoId=${existingSession.bunnyVideoId} — skipping`);
-      state.processed[key] = {
-        s3Key: key, eventCode: parsed.eventCode, sessionId, bunnyVideoId: existingSession.bunnyVideoId,
-        status: "skipped", reason: "session already has a video", completedAt: new Date().toISOString(),
-      };
-      saveState(state);
-      skipped++;
-      continue;
+    // 4. The picked session already has a video. There are two cases:
+    //    (a) Same content (fingerprint matches): genuine dedup — skip and
+    //        attach by sharing the GUID. The fingerprint check below handles
+    //        this case correctly; we let it fall through.
+    //    (b) Different content: the matcher picked a session that's a
+    //        plausible-but-wrong target (e.g. token overlap with a sibling
+    //        session). Auto-create a fresh sibling session so we don't drop
+    //        the file. This rescues the "auto-create only fired for length=1"
+    //        bug — once an event has 2+ sessions all with videos, the matcher
+    //        used to dead-end here.
+    let resolvedSessionId = sessionId;
+    {
+      const picked = await db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
+      if (picked?.bunnyVideoId && picked.bunnyVideoId !== state.byFingerprint[fingerprint]) {
+        // Different content. The picked session would be the wrong target.
+        // Find the next free sessionNumber for this event and create a sibling.
+        const allForEvent = await db.query.sessions.findMany({ where: eq(sessions.eventId, event.id) });
+        const nextNum = allForEvent.reduce((m, s) => Math.max(m, s.sessionNumber || 0), 0) + 1;
+        const fileDates = extractDates(parsed.filename).filter((d) => !d.startsWith("????"));
+        const sessionDate = fileDates[0] ?? null;
+        const titleEn = deriveSessionTitle(parsed.filename);
+
+        if (!apply) {
+          console.log(`  Picked session ${sessionId} already has a different video.`);
+          console.log(`  [would auto-create sibling session #${nextNum}: date=${sessionDate ?? "n/a"}, title="${titleEn}"]`);
+          console.log(`  [dry-run] Would upload to Bunny and attach to the new session`);
+          continue;
+        }
+        const [created] = await db.insert(sessions).values({
+          eventId: event.id,
+          titleEn,
+          sessionDate,
+          sessionNumber: nextNum,
+          timePeriod: null,
+        }).returning();
+        if (!created) {
+          console.error(`  Failed to auto-create sibling session — skipping`);
+          state.processed[key] = {
+            s3Key: key, eventCode: parsed.eventCode, sessionId: null, bunnyVideoId: null,
+            status: "error", reason: "failed to insert sibling session", completedAt: new Date().toISOString(),
+          };
+          saveState(state);
+          failed++;
+          continue;
+        }
+        console.log(`  Picked session ${sessionId} already has a different video → auto-created sibling session ${created.id} (#${nextNum}, date=${sessionDate ?? "n/a"}, title="${titleEn}")`);
+        resolvedSessionId = created.id;
+      } else if (picked?.bunnyVideoId) {
+        // Same content (fingerprint matches). Fall through; the dedup branch
+        // below will attach by sharing the GUID — no work to do here.
+      }
     }
+    const targetSession = resolvedSessionId;
 
     // 5a. Content-dedup short-circuit: if we've already uploaded a file with
     //     this exact fingerprint (size + S3 ETag), reuse the same Bunny GUID
@@ -558,9 +599,9 @@ async function main() {
     const existingGuid = state.byFingerprint[fingerprint];
     if (existingGuid) {
       console.log(`  Content matches an already-uploaded file (fingerprint ${fingerprint.slice(0, 32)}...)`);
-      console.log(`  Reusing Bunny ${existingGuid} -> session ${sessionId} (no new upload)`);
+      console.log(`  Reusing Bunny ${existingGuid} -> session ${targetSession} (no new upload)`);
       if (!apply) {
-        console.log(`  [dry-run] Would attach existing GUID to session ${sessionId}`);
+        console.log(`  [dry-run] Would attach existing GUID to session ${targetSession}`);
         continue;
       }
       try {
@@ -569,9 +610,9 @@ async function main() {
         const duration = meta ? Math.round(meta.length || 0) : null;
         await db.update(sessions)
           .set({ bunnyVideoId: existingGuid, videoDurationSeconds: duration, updatedAt: new Date() })
-          .where(eq(sessions.id, sessionId));
+          .where(eq(sessions.id, targetSession));
         state.processed[key] = {
-          s3Key: key, eventCode: parsed.eventCode, sessionId, bunnyVideoId: existingGuid,
+          s3Key: key, eventCode: parsed.eventCode, sessionId: targetSession, bunnyVideoId: existingGuid,
           status: "ok", reason: "deduplicated by content fingerprint",
           completedAt: new Date().toISOString(),
         };
@@ -581,7 +622,7 @@ async function main() {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`  FAILED to reuse GUID: ${msg}`);
         state.processed[key] = {
-          s3Key: key, eventCode: parsed.eventCode, sessionId, bunnyVideoId: null,
+          s3Key: key, eventCode: parsed.eventCode, sessionId: targetSession, bunnyVideoId: null,
           status: "error", reason: msg, completedAt: new Date().toISOString(),
         };
         saveState(state);
@@ -591,7 +632,7 @@ async function main() {
     }
 
     if (!apply) {
-      console.log(`  [dry-run] Would upload to Bunny and set sessions.bunnyVideoId on session ${sessionId}`);
+      console.log(`  [dry-run] Would upload to Bunny and set sessions.bunnyVideoId on session ${targetSession}`);
       continue;
     }
 
@@ -604,15 +645,15 @@ async function main() {
       // 6. Patch the session row.
       await db.update(sessions)
         .set({ bunnyVideoId: guid, videoDurationSeconds: durationSeconds || null, updatedAt: new Date() })
-        .where(eq(sessions.id, sessionId));
+        .where(eq(sessions.id, targetSession));
 
       // Cache the fingerprint -> GUID so any later S3 keys with identical
       // content reuse this upload instead of duplicating.
       state.byFingerprint[fingerprint] = guid;
 
-      console.log(`  Done: bunny=${guid} duration=${durationSeconds}s -> session ${sessionId}`);
+      console.log(`  Done: bunny=${guid} duration=${durationSeconds}s -> session ${targetSession}`);
       state.processed[key] = {
-        s3Key: key, eventCode: parsed.eventCode, sessionId, bunnyVideoId: guid,
+        s3Key: key, eventCode: parsed.eventCode, sessionId: targetSession, bunnyVideoId: guid,
         status: "ok", completedAt: new Date().toISOString(),
       };
       saveState(state);
@@ -621,7 +662,7 @@ async function main() {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`  FAILED: ${msg}`);
       state.processed[key] = {
-        s3Key: key, eventCode: parsed.eventCode, sessionId, bunnyVideoId: null,
+        s3Key: key, eventCode: parsed.eventCode, sessionId: targetSession, bunnyVideoId: null,
         status: "error", reason: msg, completedAt: new Date().toISOString(),
       };
       saveState(state);
