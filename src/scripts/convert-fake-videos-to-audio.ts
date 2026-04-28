@@ -94,11 +94,32 @@ function emptySteps(): ConversionCheckpoint["steps"] {
 
 function loadState(): AudioState {
   if (!fs.existsSync(STATE_FILE)) return { processed: {} };
+  let state: AudioState;
   try {
-    return JSON.parse(fs.readFileSync(STATE_FILE, "utf-8"));
+    state = JSON.parse(fs.readFileSync(STATE_FILE, "utf-8"));
   } catch {
     return { processed: {} };
   }
+  // Migrate legacy checkpoints (written before the per-step refactor) that
+  // lack a `steps` field. Backfill from `status === "ok"` when possible.
+  for (const cp of Object.values(state.processed ?? {})) {
+    if (!cp.steps) {
+      cp.steps = emptySteps();
+      if (cp.status === "ok") {
+        cp.steps.transcoded = true;
+        cp.steps.trackInserted = !!cp.trackId;
+        cp.steps.sourceMoved = true;
+        if (cp.pass === "A") {
+          cp.steps.bunnyDetached = true;
+          cp.steps.bunnyDeleted = true;
+        }
+      }
+    }
+    if (!cp.archivedS3Key) {
+      cp.archivedS3Key = sourceKeyFromVideoKey(cp.sourceS3Key);
+    }
+  }
+  return state;
 }
 
 function saveState(state: AudioState): void {
@@ -422,9 +443,12 @@ async function reconcileSourceMoves(args: {
       console.log(`    Moved -> ${archivedKey}`);
       out.moved++;
 
-      // Update state if there's a matching checkpoint.
+      // Update state if there's a matching checkpoint. Legacy checkpoints
+      // (written before the per-step refactor) may not have a steps field —
+      // initialise it so the rest of the script can rely on its shape.
       const cp = state.processed[audioKey];
       if (cp) {
+        if (!cp.steps) cp.steps = emptySteps();
         cp.steps.sourceMoved = true;
         if (cp.steps.transcoded && cp.steps.trackInserted) {
           if (cp.pass === "B" || (cp.steps.bunnyDetached && cp.steps.bunnyDeleted)) {
