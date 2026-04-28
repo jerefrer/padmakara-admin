@@ -73,10 +73,8 @@ brew bundle
 # Install dependencies
 bun install
 
-# Setup database (create tables, run migrations)
-bun db:push                    # Push schema changes to database
-bun db:generate                # Generate migration files
-bun db:migrate                 # Run migrations
+# Setup database (apply migration files in src/db/migrations/)
+bun db:migrate                 # Apply all pending migrations
 bun db:studio                  # Open Drizzle Studio (database GUI)
 ```
 
@@ -97,13 +95,31 @@ bun test:watch                 # Run tests in watch mode
 bun run typecheck              # Run TypeScript compiler checks
 ```
 
-### Database Operations
+### Database Schema Workflow — Migrations Only
+
+**Never use `db:push`.** It is intentionally disabled in `package.json` and will fail. The reason: `db:push` mutates the local DB without creating a migration file, so the schema code drifts ahead of `migrations/` and prod silently breaks the next time it deploys. We have been bitten by this — see migration `0013_teacher_images.sql`, which had to be reconstructed by hand after the schema added 6 columns with no migration.
+
+The only schema workflow:
 
 ```bash
-# Schema management
-bun db:push                    # Direct schema push (development)
-bun db:generate                # Generate SQL migrations
-bun db:migrate                 # Apply migrations (production)
+# 1. Edit src/db/schema/*.ts as needed.
+# 2. Hand-write src/db/migrations/NNNN_short_name.sql with the exact ALTER/CREATE statements.
+#    Use ADD COLUMN IF NOT EXISTS / DROP COLUMN IF EXISTS for safety.
+# 3. Append a corresponding entry to src/db/migrations/meta/_journal.json.
+# 4. Apply locally: bun db:migrate    (or: psql "$DATABASE_URL" -f src/db/migrations/NNNN_*.sql)
+# 5. Commit + push.
+# 6. On prod:
+#      ssh padmakara@admin.padmakara.pt
+#      cd ~/padmakara-api && git pull
+#      psql "$DATABASE_URL" -f src/db/migrations/NNNN_*.sql
+#      # then INSERT a row into drizzle.__drizzle_migrations with the file's sha256 hash
+#      sudo systemctl restart padmakara-api
+```
+
+**Why hand-written, not `db:generate`?** The migration meta snapshots (`migrations/meta/0005_snapshot.json` → `0012_snapshot.json`) are missing — earlier hand-written migrations never recorded snapshots, so `db:generate` cannot diff cleanly and prompts interactively for spurious renames. Until those snapshots are reconstructed (a future cleanup task), every new migration is hand-written.
+
+```bash
+bun db:migrate                 # Apply pending migrations
 bun db:studio                  # Visual database browser
 
 # Data seeding
@@ -544,11 +560,13 @@ VITE_API_URL=http://localhost:3000
 
 2. Export from `src/db/schema/index.ts`
 
-3. Generate migration: `bun db:generate`
+3. Hand-write `src/db/migrations/NNNN_short_name.sql` with `CREATE TABLE` / `ALTER TABLE` (use `IF NOT EXISTS` clauses for idempotency).
 
-4. Apply migration: `bun db:push` (dev) or `bun db:migrate` (prod)
+4. Append the matching entry to `src/db/migrations/meta/_journal.json`.
 
-5. Write tests for database operations
+5. Apply locally: `bun db:migrate`. Apply on prod: `psql "$DATABASE_URL" -f src/db/migrations/NNNN_*.sql` then `INSERT` a row into `drizzle.__drizzle_migrations` with the file's sha256 hash. Never use `db:push` — it is disabled in `package.json`.
+
+6. Write tests for database operations.
 
 ### Troubleshooting
 

@@ -11,7 +11,7 @@
     "typecheck": "bunx tsc --noEmit",
     "db:generate": "bunx drizzle-kit generate",
     "db:migrate": "bunx drizzle-kit migrate",
-    "db:push": "bunx drizzle-kit push",
+    "db:push": "echo '\"db:push\" is disabled — use db:generate + db:migrate instead. See CLAUDE.md.' && exit 1",
     "db:studio": "bunx drizzle-kit studio",
     "db:seed": "bun run src/scripts/seed-from-csv.ts",
     "db:seed-content": "bun run src/scripts/seed-content.ts",
