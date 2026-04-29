@@ -310,8 +310,9 @@ export const EventList = () => {
         // floating MUI label. That makes the button look slightly too high
         // relative to the visible input border. Nudge it down to sit
         // optically centered against the input's border box.
-        "& .RaFilterFormInput .RaFilterFormInput-hideButton": {
-          mt: "8px",
+        "& .RaFilterFormInput-hideButton": {
+          position: "relative",
+          top: "4px",
         },
       }}
     >
