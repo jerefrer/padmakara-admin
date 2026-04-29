@@ -171,8 +171,7 @@ mediaRoutes.get("/video/session/:sessionId", async (c) => {
     bunnyVideoId: result.session.bunnyVideoId,
   });
 
-  const reqUrl = new URL(c.req.url);
-  const baseUrl = `${reqUrl.protocol}//${reqUrl.host}/api/media/video/hls/${sessionId}`;
+  const baseUrl = proxyBaseUrl(c, sessionId);
   const proxyHls = `${baseUrl}/master.m3u8?mat=${encodeURIComponent(mat.token)}`;
 
   return c.json({
@@ -224,8 +223,14 @@ function bunnyUrl(path: string): string {
 }
 
 function proxyBaseUrl(c: any, sessionId: number): string {
+  // Honour X-Forwarded-Proto / X-Forwarded-Host so URLs stay https when
+  // the API runs behind Caddy (prod). c.req.url reports the upstream
+  // http://localhost:3000 scheme/host inside the systemd unit, which
+  // would force every segment fetch through an extra http→https 308.
   const reqUrl = new URL(c.req.url);
-  return `${reqUrl.protocol}//${reqUrl.host}/api/media/video/hls/${sessionId}`;
+  const proto = c.req.header("x-forwarded-proto") ?? reqUrl.protocol.replace(":", "");
+  const host = c.req.header("x-forwarded-host") ?? reqUrl.host;
+  return `${proto}://${host}/api/media/video/hls/${sessionId}`;
 }
 
 /**
