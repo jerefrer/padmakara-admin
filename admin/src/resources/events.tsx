@@ -113,69 +113,73 @@ const StatusChip = ({ status }: { status: string }) => {
 };
 
 /**
- * Wrapper around AutocompleteArrayInput that prepends a synthetic
- * "(None)" choice with id="none". The backend recognises that sentinel
- * in the ids list and matches events whose junction-table relation is
- * empty (no teacher / no group / no audience).
+ * Build a choice list with a synthetic "(None)" entry prepended.
+ *
+ * Each choice carries a `__label` field that the inputs render via a
+ * function-based `optionText`. Going through a fixed field name avoids
+ * react-admin's `optionText` string-resolution path (which doesn't
+ * always read the requested field when `choices` is passed as a prop
+ * outside a ReferenceInput context).
  */
+function useChoicesWithNone(resource: string, labelField: string): { id: any; __label: string }[] {
+  const { data = [] } = useGetList(resource, {
+    pagination: { page: 1, perPage: 1000 },
+    sort: { field: "id", order: "ASC" },
+  });
+  return [
+    { id: "none", __label: "(None)" },
+    ...data.map((d: any) => ({ ...d, __label: d[labelField] ?? "" })),
+  ];
+}
+
 const ArrayFilterWithNone = ({
   source,
   resource,
   label,
   optionText,
+  ...rest
 }: {
   source: string;
   resource: string;
   label: string;
   optionText: string;
+  [k: string]: any;
 }) => {
-  const { data = [] } = useGetList(resource, {
-    pagination: { page: 1, perPage: 1000 },
-    sort: { field: "id", order: "ASC" },
-  });
-  const choices = [
-    { id: "none", [optionText]: "(None)" } as Record<string, any>,
-    ...data,
-  ];
+  const choices = useChoicesWithNone(resource, optionText);
   return (
     <AutocompleteArrayInput
+      {...rest}
       source={source}
       label={label}
       choices={choices}
-      optionText={optionText}
+      optionText={(r: any) => r.__label}
+      optionValue="id"
     />
   );
 };
 
-/**
- * Wrapper for the single-value Event Type filter — same idea, different
- * input shape (SelectInput, not AutocompleteArrayInput).
- */
 const SingleFilterWithNone = ({
   source,
   resource,
   label,
   optionText,
+  ...rest
 }: {
   source: string;
   resource: string;
   label: string;
   optionText: string;
+  [k: string]: any;
 }) => {
-  const { data = [] } = useGetList(resource, {
-    pagination: { page: 1, perPage: 1000 },
-    sort: { field: "id", order: "ASC" },
-  });
-  const choices = [
-    { id: "none", [optionText]: "(None)" } as Record<string, any>,
-    ...data,
-  ];
+  const choices = useChoicesWithNone(resource, optionText);
   return (
     <SelectInput
+      {...rest}
       source={source}
       label={label}
       choices={choices}
-      optionText={optionText}
+      optionText={(r: any) => r.__label}
+      optionValue="id"
     />
   );
 };
