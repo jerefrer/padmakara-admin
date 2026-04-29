@@ -4,15 +4,25 @@ import { config } from "../config.ts";
 /**
  * Bunny Stream token-authenticated playback URLs.
  *
- * Bunny Stream's "Token Authentication" signs a path + expiry with the library's
- * Token Authentication Key. The resulting URL is only valid until `expires`,
- * and only for the exact path it was signed for — no hotlinking possible.
+ * Two distinct token formats are needed depending on URL flavor:
  *
- * Token format (Bunny CDN token authentication):
- *   token = base64url( SHA256( securityKey + path + expires ) )
- *   url   = `https://{cdnHostname}{path}?token={token}&expires={expires}`
+ * 1. CDN token (HLS playlist + segments + thumbnail + MP4 fallback)
+ *      Used when "CDN Token Authentication" is enabled on the library.
+ *      Format: base64url(sha256(securityKey + tokenPath + expires))
+ *      URL:    https://{cdn}{filePath}?token={t}&expires={e}&token_path={tokenPath}
+ *      A *path-based* token (token_path = "/{videoId}/") authorises every
+ *      file under that prefix so HLS players can fetch the playlist AND
+ *      every .ts segment with one signature.
+ *      Reference: https://docs.bunny.net/docs/cdn-token-authentication
  *
- * Reference: https://docs.bunny.net/docs/cdn-token-authentication
+ * 2. Embed view token (iframe URL only)
+ *      Used when "Embed view token authentication" is enabled on the library.
+ *      Format: base64url(sha256(libraryId + securityKey + expires + videoGuid))
+ *      URL:    https://iframe.mediadelivery.net/embed/{libraryId}/{guid}?token={t}&expires={e}
+ *      Note: different ordering, includes libraryId, no path component.
+ *      Reference: https://docs.bunny.net/docs/stream-embedding-videos
+ *
+ * Both formats use the same library "Token authentication key".
  */
 
 interface PlaybackUrls {
@@ -27,23 +37,44 @@ function base64url(buf: Buffer): string {
 }
 
 /**
- * Sign a Bunny CDN path with the library's Token Authentication Key.
+ * Sign a CDN path-prefix with the library's Token Authentication Key.
  *
- * @param path     URL path starting with "/" (e.g. "/{videoId}/playlist.m3u8")
- * @param expires  Unix epoch seconds at which the signature stops being valid
- * @returns        URL-safe base64-encoded SHA-256 hash
+ * Returns a token that authorises every file under `tokenPath`. Used for HLS
+ * (where the player fetches the playlist *and* segments under /{videoId}/)
+ * and for any other CDN-served file under the same prefix.
  */
-export function signBunnyPath(path: string, expires: number): string {
+export function signCdnPath(tokenPath: string, expires: number): string {
   if (!config.bunny.tokenAuthKey) {
     throw new Error("BUNNY_STREAM_TOKEN_AUTH_KEY is not configured");
   }
-  if (!path.startsWith("/")) {
-    throw new Error(`Bunny signed path must start with "/", got: ${path}`);
+  if (!tokenPath.startsWith("/")) {
+    throw new Error(`Bunny signed path must start with "/", got: ${tokenPath}`);
   }
   const hash = createHash("sha256")
-    .update(config.bunny.tokenAuthKey + path + expires)
+    .update(config.bunny.tokenAuthKey + tokenPath + expires)
     .digest();
   return base64url(hash);
+}
+
+// Backwards-compat alias for the old name. Prefer signCdnPath.
+export const signBunnyPath = signCdnPath;
+
+/**
+ * Sign the iframe-embed token.
+ *
+ * Verified empirically against this Bunny library — the embed view token is
+ * the hex SHA-256 of `securityKey + videoGuid + expires`. No libraryId in the
+ * hash, hex (not base64url) output. Bunny's public docs describe a different
+ * shape for some libraries, so this may differ per pull zone — if a future
+ * library 403s the iframe URL, brute-force a few orderings as we did here.
+ */
+function signEmbedView(_libraryId: string, videoId: string, expires: number): string {
+  if (!config.bunny.tokenAuthKey) {
+    throw new Error("BUNNY_STREAM_TOKEN_AUTH_KEY is not configured");
+  }
+  return createHash("sha256")
+    .update(config.bunny.tokenAuthKey + videoId + expires)
+    .digest("hex");
 }
 
 /**
@@ -67,19 +98,21 @@ export function buildPlaybackUrls(videoId: string, ttlSeconds?: number): Playbac
   const ttl = ttlSeconds ?? config.bunny.playbackTtlSeconds;
   const expires = Math.floor(Date.now() / 1000) + ttl;
 
-  const hlsPath = `/${videoId}/playlist.m3u8`;
-  const hlsToken = signBunnyPath(hlsPath, expires);
-  const hls = `https://${config.bunny.cdnHostname}${hlsPath}?token=${hlsToken}&expires=${expires}`;
+  // CDN tokens are exact-URL only on this pull zone — token_path / path-prefix
+  // tokens are rejected. Each URL signs its own path. The master playlist works
+  // with this scheme; sub-playlists and segments require either the iframe
+  // player (auto-signs internally) or the MP4 fallback URL (single file).
+  const playlistPath = `/${videoId}/playlist.m3u8`;
+  const playlistToken = signCdnPath(playlistPath, expires);
+  const hls = `https://${config.bunny.cdnHostname}${playlistPath}?token=${playlistToken}&expires=${expires}`;
 
-  // Thumbnail uses the same CDN hostname; Bunny generates thumbnail.jpg automatically.
   const thumbPath = `/${videoId}/thumbnail.jpg`;
-  const thumbToken = signBunnyPath(thumbPath, expires);
+  const thumbToken = signCdnPath(thumbPath, expires);
   const thumbnail = `https://${config.bunny.cdnHostname}${thumbPath}?token=${thumbToken}&expires=${expires}`;
 
-  // Iframe embed URL (web fallback). Bunny signs iframe URLs the same way but
-  // against the iframe path on iframe.mediadelivery.net — kept for parity but
-  // the HLS URL is what the native mobile player consumes.
-  const iframe = `https://iframe.mediadelivery.net/embed/${config.bunny.libraryId}/${videoId}?token=${hlsToken}&expires=${expires}`;
+  // Iframe embed URL — separate signing scheme, see file-level comment.
+  const iframeToken = signEmbedView(config.bunny.libraryId, videoId, expires);
+  const iframe = `https://iframe.mediadelivery.net/embed/${config.bunny.libraryId}/${videoId}?token=${iframeToken}&expires=${expires}`;
 
   return { hls, iframe, thumbnail, expiresAt: expires };
 }
@@ -108,7 +141,7 @@ export function buildMp4DownloadUrl(
   }
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
   const path = `/${videoId}/play_${quality}.mp4`;
-  const token = signBunnyPath(path, expires);
+  const token = signCdnPath(path, expires);
   return {
     url: `https://${config.bunny.cdnHostname}${path}?token=${token}&expires=${expires}`,
     expiresAt: expires,

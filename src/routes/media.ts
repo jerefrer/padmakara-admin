@@ -155,9 +155,32 @@ mediaRoutes.get("/video/session/:sessionId", async (c) => {
   }
 
   const urls = buildPlaybackUrls(result.session.bunnyVideoId);
+
+  // Also pick the best available MP4 variant so native players (iOS AVPlayer)
+  // can play the video as a single signed file. Bunny's pull zone here only
+  // accepts exact-URL CDN tokens, so HLS sub-playlists 403 — the MP4 fallback
+  // sidesteps that entirely. Fail soft: if probing Bunny fails, the response
+  // still carries the HLS / iframe URLs so callers can try those.
+  let mp4: string | null = null;
+  let mp4Quality: BunnyResolution | null = null;
+  try {
+    const meta = await getVideoMeta(result.session.bunnyVideoId);
+    const available = parseAvailableResolutions(meta.availableResolutions);
+    const chosen = bestAvailableResolution("720p", available);
+    if (chosen) {
+      const built = buildMp4DownloadUrl(result.session.bunnyVideoId, chosen);
+      mp4 = built.url;
+      mp4Quality = chosen;
+    }
+  } catch (err) {
+    console.warn(`Failed to build MP4 URL for video ${result.session.bunnyVideoId}:`, err);
+  }
+
   return c.json({
     hls: urls.hls,
     iframe: urls.iframe,
+    mp4,
+    mp4Quality,
     thumbnail: result.session.videoPosterUrl ?? urls.thumbnail,
     durationSeconds: result.session.videoDurationSeconds ?? null,
     expiresAt: urls.expiresAt,
