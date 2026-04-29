@@ -59,6 +59,7 @@ import {
   type UploadItem,
   type UploadProgress as UploadProgressData,
 } from "../utils/uploadManager";
+import { uploadVideoFile } from "../utils/videoUploader";
 import {
   type ParsedTrack,
   type InferredSession,
@@ -354,6 +355,8 @@ interface EventFormProps {
   eventFiles: any[];
   onSessionTitleChange: (idx: number, title: string) => void;
   onTrackUpdate?: (trackId: number, updates: Partial<ParsedTrack>) => Promise<void>;
+  onSessionVideoUpload?: (sessionId: number, file: File) => void;
+  onSessionVideoDelete?: (sessionId: number) => Promise<void>;
   onFeaturedToggle?: () => void;
   onStatusChange?: (newStatus: string) => void;
   trackCount: number;
@@ -403,7 +406,9 @@ const EventFormFields = ({
   selectedEventType, setSelectedEventType,
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
-  sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
+  sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate,
+  onSessionVideoUpload, onSessionVideoDelete,
+  onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
 }: EventFormProps) => {
   const translate = useTranslate();
   const [locale] = useLocaleState();
@@ -765,7 +770,14 @@ const EventFormFields = ({
           {/* Sessions (with their session-level tracks) */}
           {sessions.length > 0 && (
             <Box sx={{ mb: 3 }}>
-              <SessionPreview sessions={sessions} onSessionTitleChange={onSessionTitleChange} onTrackUpdate={onTrackUpdate} allTeachers={allTeachers} />
+              <SessionPreview
+                sessions={sessions}
+                onSessionTitleChange={onSessionTitleChange}
+                onTrackUpdate={onTrackUpdate}
+                onSessionVideoUpload={onSessionVideoUpload}
+                onSessionVideoDelete={onSessionVideoDelete}
+                allTeachers={allTeachers}
+              />
             </Box>
           )}
 
@@ -1115,6 +1127,8 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
     date: s.sessionDate || null,
     timePeriod: s.timePeriod || null,
     titleEn: s.titleEn || `Session ${s.sessionNumber}`,
+    bunnyVideoId: s.bunnyVideoId || null,
+    videoDurationSeconds: s.videoDurationSeconds ?? null,
     tracks: (s.tracks || []).map((t: any) => ({
       id: t.id,
       trackNumber: t.trackNumber,
@@ -1159,6 +1173,8 @@ export const EventEdit = () => {
   const [initialized, setInitialized] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
+  const cancelUploadRef = useRef<(() => void) | null>(null);
 
   const { allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
   const [selectedTeachers, setSelectedTeachers] = useState<TeacherOption[]>([]);
@@ -1272,6 +1288,128 @@ export const EventEdit = () => {
     [dataProvider, notify, translate, refresh]
   );
 
+  // Single-video upload from the edit page. Drives the same UploadProgress
+  // overlay used by the create wizard so progress + transcoding feedback look
+  // identical. The promise resolves when Bunny finishes transcoding and the
+  // session row is patched with bunnyVideoId + videoDurationSeconds.
+  const handleSessionVideoUpload = useCallback(
+    (sessionId: number, file: File) => {
+      const authToken = localStorage.getItem("accessToken") || "";
+      if (!authToken) {
+        notify("Not authenticated — please log in again", { type: "error" });
+        return;
+      }
+      const signal: { cancelled: boolean; abort?: () => void } = { cancelled: false };
+      cancelUploadRef.current = () => {
+        signal.cancelled = true;
+        signal.abort?.();
+      };
+
+      const baseProgress: UploadProgressData = {
+        phase: "uploading",
+        currentFilename: file.name,
+        fileProgress: 0,
+        filesCompleted: 0,
+        filesTotal: 1,
+        bytesUploaded: 0,
+        bytesTotal: file.size,
+        speed: 0,
+        files: [{ filename: file.name, size: file.size, status: "uploading", progress: 0 }],
+      };
+      setUploadProgress(baseProgress);
+
+      uploadVideoFile({
+        sessionId,
+        title: file.name.replace(/\.[^.]+$/, ""),
+        file,
+        authToken,
+        signal,
+        onProgress: (loaded, total) => {
+          setUploadProgress((p) => p && {
+            ...p,
+            phase: "uploading",
+            bytesUploaded: loaded,
+            bytesTotal: total,
+            fileProgress: total > 0 ? loaded / total : 0,
+            files: p.files.map((f) =>
+              f.filename === file.name ? { ...f, status: "uploading", progress: total > 0 ? loaded / total : 0 } : f,
+            ),
+          });
+        },
+        onTranscodingStart: () => {
+          setUploadProgress((p) => p && {
+            ...p,
+            files: p.files.map((f) =>
+              f.filename === file.name ? { ...f, status: "transcoding", progress: 1 } : f,
+            ),
+          });
+        },
+        onTranscodeStatus: (status) => {
+          setUploadProgress((p) => p && {
+            ...p,
+            files: p.files.map((f) =>
+              f.filename === file.name ? { ...f, status: "transcoding", transcodeStatus: status } : f,
+            ),
+          });
+        },
+      })
+        .then(() => {
+          setUploadProgress((p) => p && {
+            ...p,
+            phase: "done",
+            filesCompleted: 1,
+            files: p.files.map((f) =>
+              f.filename === file.name ? { ...f, status: "done", progress: 1 } : f,
+            ),
+          });
+          notify(translate("padmakara.session.videoUploadSuccess") || "Video uploaded", { type: "success" });
+          refresh();
+          // Auto-dismiss the success panel after a beat so the admin returns to the list.
+          setTimeout(() => setUploadProgress(null), 1500);
+        })
+        .catch((err: any) => {
+          setUploadProgress((p) => p && {
+            ...p,
+            phase: "error",
+            error: err?.message || String(err),
+            files: p.files.map((f) =>
+              f.filename === file.name ? { ...f, status: "error" } : f,
+            ),
+          });
+          notify(`Video upload failed: ${err?.message || err}`, { type: "error" });
+        })
+        .finally(() => {
+          cancelUploadRef.current = null;
+        });
+    },
+    [notify, refresh, translate],
+  );
+
+  const handleSessionVideoDelete = useCallback(
+    async (sessionId: number) => {
+      try {
+        await dataProvider.update("sessions", {
+          id: sessionId,
+          data: { bunnyVideoId: null, videoDurationSeconds: null, videoPosterUrl: null },
+          previousData: {},
+        });
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === sessionId
+              ? { ...s, bunnyVideoId: null, videoDurationSeconds: null }
+              : s,
+          ),
+        );
+        notify(translate("padmakara.session.videoDeleted") || "Video removed", { type: "success" });
+        refresh();
+      } catch (error: any) {
+        notify(`Failed to remove video: ${error?.message || error}`, { type: "error" });
+        throw error;
+      }
+    },
+    [dataProvider, notify, refresh, translate],
+  );
+
   const handleFeaturedToggle = useCallback(async () => {
     if (!id) return;
     const newFeaturedAt = form.featuredAt ? null : new Date().toISOString();
@@ -1372,6 +1510,8 @@ export const EventEdit = () => {
         allEventTypes={allEventTypes} allAudiences={allAudiences}
         sessions={sessions} transcripts={event?.transcripts || []} eventFiles={event?.eventFiles || []} onSessionTitleChange={handleSessionTitleChange}
         onTrackUpdate={handleTrackUpdate}
+        onSessionVideoUpload={handleSessionVideoUpload}
+        onSessionVideoDelete={handleSessionVideoDelete}
         onFeaturedToggle={handleFeaturedToggle}
         onStatusChange={handleStatusChange}
         trackCount={trackCount}
@@ -1413,6 +1553,19 @@ export const EventEdit = () => {
         eventTitle={event?.titleEn || "this event"}
         deleting={deleting}
       />
+
+      {/* Video upload overlay — only present while a single-video upload is in flight. */}
+      {uploadProgress && (
+        <Box sx={{ position: "fixed", bottom: 24, right: 24, width: 420, zIndex: 1300 }}>
+          <UploadProgress
+            progress={uploadProgress}
+            onCancel={() => {
+              cancelUploadRef.current?.();
+              setUploadProgress(null);
+            }}
+          />
+        </Box>
+      )}
     </Box>
   );
 };

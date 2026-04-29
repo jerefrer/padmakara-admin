@@ -63,12 +63,44 @@ sessionRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
   const data = updateSessionSchema.parse(body);
+
+  // Capture the previous Bunny GUID before the update so we can run the same
+  // ref-counted cleanup as DELETE if the admin is detaching the video.
+  const previous = await db.query.sessions.findFirst({ where: eq(sessions.id, id) });
+  if (!previous) throw AppError.notFound("Session not found");
+
   const [session] = await db
     .update(sessions)
     .set({ ...data, updatedAt: new Date() })
     .where(eq(sessions.id, id))
     .returning();
   if (!session) throw AppError.notFound("Session not found");
+
+  // Detach detected: previous had a GUID, the new value is explicitly null.
+  // Mirror the DELETE handler's ref-count check so a video shared across
+  // sessions isn't yanked from Bunny while another session still uses it.
+  const detached =
+    previous.bunnyVideoId &&
+    "bunnyVideoId" in body &&
+    session.bunnyVideoId === null;
+  if (detached) {
+    const stillReferenced = await db.query.sessions.findFirst({
+      where: and(
+        eq(sessions.bunnyVideoId, previous.bunnyVideoId!),
+        ne(sessions.id, session.id),
+      ),
+    });
+    if (!stillReferenced) {
+      deleteVideo(previous.bunnyVideoId!).catch((err) => {
+        console.error(`Failed to delete Bunny video ${previous.bunnyVideoId}:`, err);
+      });
+    } else {
+      console.log(
+        `[sessions] Keeping Bunny video ${previous.bunnyVideoId} — still referenced by session ${stillReferenced.id}`,
+      );
+    }
+  }
+
   return c.json(session);
 });
 

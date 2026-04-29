@@ -31,6 +31,10 @@ export interface InferredSession {
   timePeriod: string | null;
   titleEn: string;
   tracks: ParsedTrack[];
+  /** Bunny Stream GUID when this session has a recorded video. Null if audio-only. */
+  bunnyVideoId?: string | null;
+  /** Cached duration of the Bunny video in seconds; null while transcoding. */
+  videoDurationSeconds?: number | null;
 }
 
 const LANGUAGE_MAP: Record<string, string> = {
