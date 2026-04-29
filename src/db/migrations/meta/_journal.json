@@ -99,6 +99,13 @@
       "when": 1782000000000,
       "tag": "0013_teacher_images",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782086400000,
+      "tag": "0014_video_progress",
+      "breakpoints": true
     }
   ]
 }

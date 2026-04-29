@@ -58,6 +58,12 @@ export {
   userNotesRelations,
 } from "./user-content.ts";
 
+// Video progress (session-level, distinct from track-level userProgress)
+export {
+  videoProgress,
+  videoProgressRelations,
+} from "./video-progress.ts";
+
 // Download requests
 export {
   downloadRequests,
