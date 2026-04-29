@@ -1,8 +1,10 @@
 import { BatchClient, SubmitJobCommand } from "@aws-sdk/client-batch";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, isNotNull } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { readAlongJobs } from "../db/schema/read-along-jobs.ts";
 import { events } from "../db/schema/retreats.ts";
+import { sessions } from "../db/schema/sessions.ts";
+import { tracks } from "../db/schema/tracks.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
@@ -44,6 +46,35 @@ export async function submitReadAlongJob(
   const skipPages = options.skipPages ?? 7;
   const whisperModel = options.whisperModel ?? "turbo";
 
+  // Build the audio S3 key list. Only original-language tracks are aligned —
+  // translation tracks (e.g. Portuguese voice-over of an English teaching) are
+  // skipped because the PDF is in the original language and aligning a
+  // different-language audio against it produces useless output. Filtering
+  // here also halves cost/wall-time vs. the container's prefix-listing fallback.
+  const audioTracks = await db
+    .select({ s3Key: tracks.s3Key })
+    .from(tracks)
+    .innerJoin(sessions, eq(sessions.id, tracks.sessionId))
+    .where(
+      and(
+        eq(sessions.eventId, eventId),
+        eq(tracks.originalLanguage, language),
+        eq(tracks.isTranslation, false),
+        isNotNull(tracks.s3Key),
+      ),
+    );
+
+  const audioS3Keys = audioTracks
+    .map((t) => t.s3Key)
+    .filter((k): k is string => Boolean(k));
+
+  if (audioS3Keys.length === 0) {
+    throw AppError.badRequest(
+      `No ${language} original-language tracks found for event ${event.eventCode}`,
+      "NO_ELIGIBLE_TRACKS",
+    );
+  }
+
   // Create job record
   const [job] = await db
     .insert(readAlongJobs)
@@ -73,6 +104,7 @@ export async function submitReadAlongJob(
         { name: "LANGUAGE", value: language },
         { name: "SKIP_PAGES", value: String(skipPages) },
         { name: "WHISPER_MODEL", value: whisperModel },
+        { name: "AUDIO_S3_KEYS", value: JSON.stringify(audioS3Keys) },
         { name: "WEBHOOK_URL", value: webhookUrl },
         { name: "WEBHOOK_SECRET", value: config.readAlong.webhookSecret },
       ],
@@ -100,6 +132,7 @@ export async function submitReadAlongJob(
     language,
     skipPages,
     whisperModel,
+    trackCount: audioS3Keys.length,
   };
 }
 
