@@ -305,6 +305,14 @@ export const EventList = () => {
       sx={{
         "& .RaList-main": { maxWidth: "100%" },
         "& .RaList-content": { mt: 2 },
+        // The "remove filter" minus button is aligned to the whole filter
+        // wrapper, which reserves vertical space above the input for the
+        // floating MUI label. That makes the button look slightly too high
+        // relative to the visible input border. Nudge it down to sit
+        // optically centered against the input's border box.
+        "& .RaFilterFormInput .RaFilterFormInput-hideButton": {
+          mt: "8px",
+        },
       }}
     >
       <Datagrid
