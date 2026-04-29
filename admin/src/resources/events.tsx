@@ -125,6 +125,14 @@ const eventFilters = [
   <ReferenceArrayInput key="audiences" source="audienceIds" reference="audiences">
     <AutocompleteArrayInput optionText="nameEn" label="Audiences" />
   </ReferenceArrayInput>,
+  // Admin triage filter: react-admin sends ?noAudience=true when "Yes" is
+  // selected, which the backend interprets as audience_id IS NULL.
+  <SelectInput
+    key="noAudience"
+    source="noAudience"
+    label="No audience set"
+    choices={[{ id: "true", name: "Yes" }]}
+  />,
   <SelectInput
     key="status"
     source="status"

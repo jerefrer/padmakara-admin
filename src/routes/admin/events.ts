@@ -40,6 +40,9 @@ eventRoutes.get("/", async (c) => {
   const teacherIds = c.req.query("teacherIds");
   const groupIds = c.req.query("groupIds");
   const audienceIds = c.req.query("audienceIds");
+  // Admin-only convenience filter: surface events whose audience is unset so
+  // they can be triaged. Sent as a stringified boolean by react-admin.
+  const noAudience = c.req.query("noAudience") === "true";
 
   // Build WHERE conditions
   const conditions: any[] = [];
@@ -102,6 +105,10 @@ eventRoutes.get("/", async (c) => {
     filteredData = filteredData.filter((event) =>
       ids.includes(event.audienceId)
     );
+  }
+
+  if (noAudience) {
+    filteredData = filteredData.filter((event) => event.audienceId == null);
   }
 
   // Apply pagination to filtered results
