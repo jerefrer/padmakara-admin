@@ -14,8 +14,11 @@ import {
   getVideoMeta,
   parseAvailableResolutions,
   bestAvailableResolution,
+  signCdnPath,
   type BunnyResolution,
 } from "../services/bunny.ts";
+import { issueMat, verifyMat } from "../services/media-access.ts";
+import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
 import { checkEventAccess } from "../services/access.ts";
@@ -156,35 +159,174 @@ mediaRoutes.get("/video/session/:sessionId", async (c) => {
 
   const urls = buildPlaybackUrls(result.session.bunnyVideoId);
 
-  // Also pick the best available MP4 variant so native players (iOS AVPlayer)
-  // can play the video as a single signed file. Bunny's pull zone here only
-  // accepts exact-URL CDN tokens, so HLS sub-playlists 403 — the MP4 fallback
-  // sidesteps that entirely. Fail soft: if probing Bunny fails, the response
-  // still carries the HLS / iframe URLs so callers can try those.
-  let mp4: string | null = null;
-  let mp4Quality: BunnyResolution | null = null;
-  try {
-    const meta = await getVideoMeta(result.session.bunnyVideoId);
-    const available = parseAvailableResolutions(meta.availableResolutions);
-    const chosen = bestAvailableResolution("720p", available);
-    if (chosen) {
-      const built = buildMp4DownloadUrl(result.session.bunnyVideoId, chosen);
-      mp4 = built.url;
-      mp4Quality = chosen;
-    }
-  } catch (err) {
-    console.warn(`Failed to build MP4 URL for video ${result.session.bunnyVideoId}:`, err);
-  }
+  // Issue a media access token (MAT) and build the HLS-proxy URL. The proxy
+  // signs each Bunny URL on the fly and redirects, so native players get
+  // full HLS + ABR + per-segment token authentication, and we don't pay any
+  // bandwidth cost (segments stream Bunny→user direct via 302). Audience
+  // access is verified above; the MAT carries that proof for ~4h, scoped
+  // to this session and (when authenticated) this user.
+  const mat = await issueMat({
+    userId: authUser?.id ?? 0,
+    sessionId,
+    bunnyVideoId: result.session.bunnyVideoId,
+  });
+
+  const reqUrl = new URL(c.req.url);
+  const baseUrl = `${reqUrl.protocol}//${reqUrl.host}/api/media/video/hls/${sessionId}`;
+  const proxyHls = `${baseUrl}/master.m3u8?mat=${encodeURIComponent(mat.token)}`;
 
   return c.json({
-    hls: urls.hls,
+    proxyHls,
     iframe: urls.iframe,
-    mp4,
-    mp4Quality,
+    hls: urls.hls,
     thumbnail: result.session.videoPosterUrl ?? urls.thumbnail,
     durationSeconds: result.session.videoDurationSeconds ?? null,
-    expiresAt: urls.expiresAt,
+    expiresAt: mat.expiresAt,
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// HLS proxy: rewrites Bunny's playlist URLs through this backend so we
+// can sign each Bunny request individually (Bunny's pull zone only
+// validates exact-URL tokens, not path-prefix tokens). Segments are
+// served via 302 redirect — the bytes go Bunny→client direct, the
+// backend just stamps each request with a fresh signature.
+//
+// All three endpoints accept ?mat=<token> rather than relying on the
+// caller's session JWT, because native HLS players don't reliably
+// pass Authorization headers to sub-resources fetched from a playlist.
+// The MAT is short-lived, scoped to one session and one user, and is
+// validated cryptographically without a DB lookup.
+// ─────────────────────────────────────────────────────────────────────
+
+const BUNNY_PROXY_TTL_SECONDS = 5 * 60;
+
+async function authorizeProxyRequest(
+  matParam: string | undefined,
+  routeSessionId: number,
+): Promise<string> {
+  if (!matParam) throw AppError.unauthorized("Missing media access token");
+  const decoded = await verifyMat(matParam);
+  if (!decoded) throw AppError.unauthorized("Invalid or expired media access token");
+  if (decoded.sid !== routeSessionId) {
+    throw AppError.forbidden("Token is not valid for this session");
+  }
+  return decoded.gid;
+}
+
+function bunnyUrl(path: string): string {
+  if (!config.bunny.cdnHostname) {
+    throw new Error("BUNNY_STREAM_CDN_HOSTNAME is not configured");
+  }
+  const expires = Math.floor(Date.now() / 1000) + BUNNY_PROXY_TTL_SECONDS;
+  const token = signCdnPath(path, expires);
+  return `https://${config.bunny.cdnHostname}${path}?token=${token}&expires=${expires}`;
+}
+
+function proxyBaseUrl(c: any, sessionId: number): string {
+  const reqUrl = new URL(c.req.url);
+  return `${reqUrl.protocol}//${reqUrl.host}/api/media/video/hls/${sessionId}`;
+}
+
+/**
+ * Master playlist. Fetches the upstream `/{guid}/playlist.m3u8` and rewrites
+ * each sub-playlist reference (e.g. `360p/video.m3u8`) into a URL that
+ * routes back through this proxy with the MAT preserved.
+ */
+mediaRoutes.get("/video/hls/:sessionId/master.m3u8", async (c) => {
+  const sessionId = parseInt(c.req.param("sessionId"), 10);
+  const mat = c.req.query("mat");
+  const guid = await authorizeProxyRequest(mat, sessionId);
+
+  const upstream = bunnyUrl(`/${guid}/playlist.m3u8`);
+  const res = await fetch(upstream);
+  if (!res.ok) {
+    throw AppError.internal(`Bunny returned ${res.status} for master playlist`);
+  }
+  const body = await res.text();
+
+  const base = proxyBaseUrl(c, sessionId);
+  const matEnc = encodeURIComponent(mat!);
+
+  // Sub-playlists are referenced as `<quality>/video.m3u8` — single line
+  // per variant, no leading `#`.
+  const rewritten = body.replace(
+    /^([^\s#][^\r\n]*\.m3u8)\s*$/gm,
+    (line) => {
+      const trimmed = line.trim();
+      const quality = trimmed.split("/")[0]!;
+      return `${base}/v/${encodeURIComponent(quality)}?mat=${matEnc}`;
+    },
+  );
+
+  c.header("Content-Type", "application/vnd.apple.mpegurl");
+  c.header("Cache-Control", "no-store");
+  return c.body(rewritten);
+});
+
+/**
+ * Sub-playlist for a specific quality. Fetches `/{guid}/{quality}/video.m3u8`
+ * upstream and rewrites every segment URL to route through this proxy.
+ */
+mediaRoutes.get("/video/hls/:sessionId/v/:quality", async (c) => {
+  const sessionId = parseInt(c.req.param("sessionId"), 10);
+  const quality = c.req.param("quality");
+  // Defensive: only allow a small known set of variant names.
+  if (!/^[0-9]{2,4}p$/.test(quality)) {
+    throw AppError.badRequest("Invalid quality variant");
+  }
+  const mat = c.req.query("mat");
+  const guid = await authorizeProxyRequest(mat, sessionId);
+
+  const upstream = bunnyUrl(`/${guid}/${quality}/video.m3u8`);
+  const res = await fetch(upstream);
+  if (!res.ok) {
+    throw AppError.internal(`Bunny returned ${res.status} for ${quality} sub-playlist`);
+  }
+  const body = await res.text();
+
+  const base = proxyBaseUrl(c, sessionId);
+  const matEnc = encodeURIComponent(mat!);
+
+  // Segment URIs are non-comment lines that aren't another m3u8.
+  const rewritten = body.replace(
+    /^([^\s#][^\r\n]*)$/gm,
+    (line) => {
+      const trimmed = line.trim();
+      if (trimmed.endsWith(".m3u8")) return line; // ignore stray sub-playlist refs
+      const fullPath = `${quality}/${trimmed}`;
+      return `${base}/s?p=${encodeURIComponent(fullPath)}&mat=${matEnc}`;
+    },
+  );
+
+  c.header("Content-Type", "application/vnd.apple.mpegurl");
+  c.header("Cache-Control", "no-store");
+  return c.body(rewritten);
+});
+
+/**
+ * Segment redirect. Verifies the MAT, builds a fresh signed Bunny URL for
+ * the requested path, and 302's the client. The actual segment bytes flow
+ * Bunny→client without passing through this backend.
+ */
+mediaRoutes.get("/video/hls/:sessionId/s", async (c) => {
+  const sessionId = parseInt(c.req.param("sessionId"), 10);
+  const mat = c.req.query("mat");
+  const segPath = c.req.query("p");
+  if (!segPath) throw AppError.badRequest("Missing segment path");
+
+  // Path safety: relative-only, no traversal, no leading slash, no scheme.
+  if (
+    segPath.includes("..") ||
+    segPath.startsWith("/") ||
+    /^[a-z]+:/i.test(segPath)
+  ) {
+    throw AppError.badRequest("Invalid segment path");
+  }
+
+  const guid = await authorizeProxyRequest(mat, sessionId);
+  const upstream = bunnyUrl(`/${guid}/${segPath}`);
+  return c.redirect(upstream, 302);
 });
 
 /**
