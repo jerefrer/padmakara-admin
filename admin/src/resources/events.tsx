@@ -24,6 +24,7 @@ import {
   SelectInput,
   ReferenceArrayInput,
   AutocompleteArrayInput,
+  useGetList,
 } from "react-admin";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
@@ -111,27 +112,103 @@ const StatusChip = ({ status }: { status: string }) => {
   );
 };
 
+/**
+ * Wrapper around AutocompleteArrayInput that prepends a synthetic
+ * "(None)" choice with id="none". The backend recognises that sentinel
+ * in the ids list and matches events whose junction-table relation is
+ * empty (no teacher / no group / no audience).
+ */
+const ArrayFilterWithNone = ({
+  source,
+  resource,
+  label,
+  optionText,
+}: {
+  source: string;
+  resource: string;
+  label: string;
+  optionText: string;
+}) => {
+  const { data = [] } = useGetList(resource, {
+    pagination: { page: 1, perPage: 1000 },
+    sort: { field: "id", order: "ASC" },
+  });
+  const choices = [
+    { id: "none", [optionText]: "(None)" } as Record<string, any>,
+    ...data,
+  ];
+  return (
+    <AutocompleteArrayInput
+      source={source}
+      label={label}
+      choices={choices}
+      optionText={optionText}
+    />
+  );
+};
+
+/**
+ * Wrapper for the single-value Event Type filter — same idea, different
+ * input shape (SelectInput, not AutocompleteArrayInput).
+ */
+const SingleFilterWithNone = ({
+  source,
+  resource,
+  label,
+  optionText,
+}: {
+  source: string;
+  resource: string;
+  label: string;
+  optionText: string;
+}) => {
+  const { data = [] } = useGetList(resource, {
+    pagination: { page: 1, perPage: 1000 },
+    sort: { field: "id", order: "ASC" },
+  });
+  const choices = [
+    { id: "none", [optionText]: "(None)" } as Record<string, any>,
+    ...data,
+  ];
+  return (
+    <SelectInput
+      source={source}
+      label={label}
+      choices={choices}
+      optionText={optionText}
+    />
+  );
+};
+
 const eventFilters = [
   <TextInput key="q" label="Search" source="q" alwaysOn />,
-  <ReferenceInput key="eventType" source="eventTypeId" reference="event-types">
-    <SelectInput optionText="nameEn" label="Event Type" />
-  </ReferenceInput>,
-  <ReferenceArrayInput key="groups" source="groupIds" reference="groups">
-    <AutocompleteArrayInput optionText="nameEn" label="Retreat Groups" />
-  </ReferenceArrayInput>,
-  <ReferenceArrayInput key="teachers" source="teacherIds" reference="teachers">
-    <AutocompleteArrayInput optionText="name" label="Teachers" />
-  </ReferenceArrayInput>,
-  <ReferenceArrayInput key="audiences" source="audienceIds" reference="audiences">
-    <AutocompleteArrayInput optionText="nameEn" label="Audiences" />
-  </ReferenceArrayInput>,
-  // Admin triage filter: react-admin sends ?noAudience=true when "Yes" is
-  // selected, which the backend interprets as audience_id IS NULL.
-  <SelectInput
-    key="noAudience"
-    source="noAudience"
-    label="No audience set"
-    choices={[{ id: "true", name: "Yes" }]}
+  <SingleFilterWithNone
+    key="eventType"
+    source="eventTypeId"
+    resource="event-types"
+    label="Event Type"
+    optionText="nameEn"
+  />,
+  <ArrayFilterWithNone
+    key="groups"
+    source="groupIds"
+    resource="groups"
+    label="Retreat Groups"
+    optionText="nameEn"
+  />,
+  <ArrayFilterWithNone
+    key="teachers"
+    source="teacherIds"
+    resource="teachers"
+    label="Teachers"
+    optionText="name"
+  />,
+  <ArrayFilterWithNone
+    key="audiences"
+    source="audienceIds"
+    resource="audiences"
+    label="Audiences"
+    optionText="nameEn"
   />,
   <SelectInput
     key="status"

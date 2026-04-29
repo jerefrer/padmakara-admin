@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, or, like, ilike, inArray, sql } from "drizzle-orm";
+import { eq, and, or, like, ilike, inArray, isNull, sql } from "drizzle-orm";
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../../db/index.ts";
 import {
@@ -40,9 +40,6 @@ eventRoutes.get("/", async (c) => {
   const teacherIds = c.req.query("teacherIds");
   const groupIds = c.req.query("groupIds");
   const audienceIds = c.req.query("audienceIds");
-  // Admin-only convenience filter: surface events whose audience is unset so
-  // they can be triaged. Sent as a stringified boolean by react-admin.
-  const noAudience = c.req.query("noAudience") === "true";
 
   // Build WHERE conditions
   const conditions: any[] = [];
@@ -63,8 +60,10 @@ eventRoutes.get("/", async (c) => {
     conditions.push(eq(events.status, status));
   }
 
-  // Event type filter
-  if (eventTypeId) {
+  // Event type filter — supports the "none" sentinel for events with no type set.
+  if (eventTypeId === "none") {
+    conditions.push(isNull(events.eventTypeId));
+  } else if (eventTypeId) {
     conditions.push(eq(events.eventTypeId, parseInt(eventTypeId, 10)));
   }
 
@@ -87,28 +86,32 @@ eventRoutes.get("/", async (c) => {
   let filteredData = allData;
 
   if (teacherIds) {
-    const ids = teacherIds.split(",").map((id) => parseInt(id, 10));
+    const parts = teacherIds.split(",");
+    const includeEmpty = parts.includes("none");
+    const ids = parts.filter((p) => p !== "none").map((id) => parseInt(id, 10));
     filteredData = filteredData.filter((event) =>
-      event.eventTeachers.some((et) => ids.includes(et.teacherId))
+      event.eventTeachers.some((et) => ids.includes(et.teacherId)) ||
+      (includeEmpty && event.eventTeachers.length === 0)
     );
   }
 
   if (groupIds) {
-    const ids = groupIds.split(",").map((id) => parseInt(id, 10));
+    const parts = groupIds.split(",");
+    const includeEmpty = parts.includes("none");
+    const ids = parts.filter((p) => p !== "none").map((id) => parseInt(id, 10));
     filteredData = filteredData.filter((event) =>
-      event.eventRetreatGroups.some((eg) => ids.includes(eg.retreatGroupId))
+      event.eventRetreatGroups.some((eg) => ids.includes(eg.retreatGroupId)) ||
+      (includeEmpty && event.eventRetreatGroups.length === 0)
     );
   }
 
   if (audienceIds) {
-    const ids = audienceIds.split(",").map((id) => parseInt(id, 10));
+    const parts = audienceIds.split(",");
+    const includeNull = parts.includes("none");
+    const ids = parts.filter((p) => p !== "none").map((id) => parseInt(id, 10));
     filteredData = filteredData.filter((event) =>
-      ids.includes(event.audienceId)
+      ids.includes(event.audienceId) || (includeNull && event.audienceId == null)
     );
-  }
-
-  if (noAudience) {
-    filteredData = filteredData.filter((event) => event.audienceId == null);
   }
 
   // Apply pagination to filtered results
