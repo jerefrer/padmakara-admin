@@ -24,7 +24,6 @@ import {
   SelectInput,
   ReferenceArrayInput,
   AutocompleteArrayInput,
-  useGetList,
 } from "react-admin";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
@@ -113,23 +112,53 @@ const StatusChip = ({ status }: { status: string }) => {
 };
 
 /**
- * Build a choice list with a synthetic "(None)" entry prepended.
- *
- * Each choice carries a `__label` field that the inputs render via a
- * function-based `optionText`. Going through a fixed field name avoids
- * react-admin's `optionText` string-resolution path (which doesn't
- * always read the requested field when `choices` is passed as a prop
- * outside a ReferenceInput context).
+ * Fetch a resource list directly via the data provider and prepend a
+ * synthetic "(None)" entry. We bypass react-admin's `useGetList` hook
+ * because passing the resulting choices into AutocompleteArrayInput as
+ * a prop (outside a ReferenceInput context) wasn't surfacing the label
+ * fields correctly. Going through dataProvider.getList gives us the
+ * raw payload — the same shape <ReferenceArrayInput> sees — and lets
+ * us pre-compute a `__label` field that a function-based optionText
+ * reads unconditionally.
  */
-function useChoicesWithNone(resource: string, labelField: string): { id: any; __label: string }[] {
-  const { data = [] } = useGetList(resource, {
-    pagination: { page: 1, perPage: 1000 },
-    sort: { field: "id", order: "ASC" },
-  });
-  return [
+function useChoicesWithNone(
+  resource: string,
+  labelField: string,
+): { id: any; __label: string }[] {
+  const dataProvider = useDataProvider();
+  const [choices, setChoices] = useState<{ id: any; __label: string }[]>([
     { id: "none", __label: "(None)" },
-    ...data.map((d: any) => ({ ...d, __label: d[labelField] ?? "" })),
-  ];
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    dataProvider
+      .getList(resource, {
+        pagination: { page: 1, perPage: 1000 },
+        sort: { field: "id", order: "ASC" },
+        filter: {},
+      })
+      .then((res) => {
+        if (cancelled) return;
+        const labelOf = (d: any): string =>
+          d?.[labelField] ?? d?.nameEn ?? d?.name ?? d?.titleEn ?? `#${d?.id}`;
+        setChoices([
+          { id: "none", __label: "(None)" },
+          ...(res.data ?? []).map((d: any) => ({ ...d, __label: labelOf(d) })),
+        ]);
+      })
+      .catch((err: unknown) => {
+        // Keep the fallback "(None)"-only list visible; surface the failure
+        // in the console so devs can diagnose, but don't crash the form.
+        // eslint-disable-next-line no-console
+        console.error(`useChoicesWithNone(${resource}) failed:`, err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataProvider, resource, labelField]);
+
+  return choices;
 }
 
 const ArrayFilterWithNone = ({
