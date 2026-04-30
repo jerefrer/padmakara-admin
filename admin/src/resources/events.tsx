@@ -161,20 +161,26 @@ function useChoicesWithNone(
   return choices;
 }
 
+// IMPORTANT — The reference resource is named `referenceResource`, not
+// `resource`. React-Admin's <FilterFormInput> calls
+// React.cloneElement(filter, { resource: <listResource> }) which silently
+// overrides any `resource` prop we set, so the audiences/event-types/etc.
+// filter would re-fetch from the events resource. Naming the prop
+// differently sidesteps the clone.
 const ArrayFilterWithNone = ({
   source,
-  resource,
+  referenceResource,
   label,
   optionText,
   ...rest
 }: {
   source: string;
-  resource: string;
+  referenceResource: string;
   label: string;
   optionText: string;
   [k: string]: any;
 }) => {
-  const choices = useChoicesWithNone(resource, optionText);
+  const choices = useChoicesWithNone(referenceResource, optionText);
   return (
     <AutocompleteArrayInput
       {...rest}
@@ -189,18 +195,18 @@ const ArrayFilterWithNone = ({
 
 const SingleFilterWithNone = ({
   source,
-  resource,
+  referenceResource,
   label,
   optionText,
   ...rest
 }: {
   source: string;
-  resource: string;
+  referenceResource: string;
   label: string;
   optionText: string;
   [k: string]: any;
 }) => {
-  const choices = useChoicesWithNone(resource, optionText);
+  const choices = useChoicesWithNone(referenceResource, optionText);
   return (
     <SelectInput
       {...rest}
@@ -218,28 +224,28 @@ const eventFilters = [
   <SingleFilterWithNone
     key="eventType"
     source="eventTypeId"
-    resource="event-types"
+    referenceResource="event-types"
     label="Event Type"
     optionText="nameEn"
   />,
   <ArrayFilterWithNone
     key="groups"
     source="groupIds"
-    resource="groups"
+    referenceResource="groups"
     label="Retreat Groups"
     optionText="nameEn"
   />,
   <ArrayFilterWithNone
     key="teachers"
     source="teacherIds"
-    resource="teachers"
+    referenceResource="teachers"
     label="Teachers"
     optionText="name"
   />,
   <ArrayFilterWithNone
     key="audiences"
     source="audienceIds"
-    resource="audiences"
+    referenceResource="audiences"
     label="Audiences"
     optionText="nameEn"
   />,
