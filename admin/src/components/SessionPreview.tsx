@@ -9,6 +9,7 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import MovieIcon from "@mui/icons-material/Movie";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SelfImprovementIcon from "@mui/icons-material/SelfImprovement";
 import TranslateIcon from "@mui/icons-material/Translate";
 import VideoFileIcon from "@mui/icons-material/VideoFile";
@@ -31,6 +32,16 @@ import {
   formatFileSize,
   languageLabel,
 } from "../utils/trackParser";
+import { MediaPreviewDialog } from "./MediaPreviewDialog";
+
+type PreviewSource =
+  | { kind: "track"; trackId: number; mediaType: "audio" | "video" }
+  | { kind: "session-video"; sessionId: number };
+
+interface PreviewState {
+  source: PreviewSource;
+  title: string;
+}
 
 const LANG_CHIP_COLORS: Record<string, { bg: string; text: string }> = {
   en: { bg: "#eff6ff", text: "#1d4ed8" },
@@ -91,6 +102,8 @@ export const SessionPreview = ({
   onSessionVideoDelete,
   allTeachers,
 }: SessionPreviewProps) => {
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+
   if (sessions.length === 0) return null;
 
   return (
@@ -121,10 +134,17 @@ export const SessionPreview = ({
               onSessionVideoUpload={onSessionVideoUpload}
               onSessionVideoDelete={onSessionVideoDelete}
               allTeachers={allTeachers}
+              onPreview={setPreview}
             />
           ))}
         </Box>
       </Paper>
+      <MediaPreviewDialog
+        open={preview !== null}
+        title={preview?.title ?? ""}
+        source={preview?.source ?? null}
+        onClose={() => setPreview(null)}
+      />
     </Box>
   );
 };
@@ -140,6 +160,7 @@ interface SessionCardProps {
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
   onSessionVideoDelete?: (sessionId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
+  onPreview: (state: PreviewState) => void;
 }
 
 const SessionCard = ({
@@ -150,6 +171,7 @@ const SessionCard = ({
   onSessionVideoUpload,
   onSessionVideoDelete,
   allTeachers,
+  onPreview,
 }: SessionCardProps) => {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -338,6 +360,8 @@ const SessionCard = ({
               onUpload={onSessionVideoUpload}
               onDelete={onSessionVideoDelete}
               hasFollowingTracks={session.tracks.length > 0}
+              sessionTitle={session.titleEn}
+              onPreview={onPreview}
             />
           )}
           {session.tracks.map((track, tidx) => (
@@ -347,6 +371,7 @@ const SessionCard = ({
               isLast={tidx === session.tracks.length - 1}
               onTrackUpdate={onTrackUpdate}
               allTeachers={allTeachers}
+              onPreview={onPreview}
             />
           ))}
         </Box>
@@ -373,6 +398,8 @@ interface SessionVideoRowProps {
   onUpload?: (sessionId: number, file: File) => void;
   onDelete?: (sessionId: number) => Promise<void>;
   hasFollowingTracks: boolean;
+  sessionTitle: string;
+  onPreview: (state: PreviewState) => void;
 }
 
 const SessionVideoRow = ({
@@ -382,6 +409,8 @@ const SessionVideoRow = ({
   onUpload,
   onDelete,
   hasFollowingTracks,
+  sessionTitle,
+  onPreview,
 }: SessionVideoRowProps) => {
   const translate = useTranslate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -441,6 +470,19 @@ const SessionVideoRow = ({
             {bunnyVideoId.slice(0, 8)}
           </Typography>
           <Box sx={{ flex: 1 }} />
+          <IconButton
+            size="small"
+            onClick={() =>
+              onPreview({
+                source: { kind: "session-video", sessionId },
+                title: sessionTitle,
+              })
+            }
+            sx={{ color: "#b91c1c" }}
+            title={translate("padmakara.session.videoPlay") || "Play"}
+          >
+            <PlayArrowIcon sx={{ fontSize: 20 }} />
+          </IconButton>
           {onUpload && (
             <Button
               size="small"
@@ -518,6 +560,7 @@ const TrackRow = ({
   isLast,
   onTrackUpdate,
   allTeachers = [],
+  onPreview,
 }: {
   track: ParsedTrack;
   isLast: boolean;
@@ -526,6 +569,7 @@ const TrackRow = ({
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
+  onPreview: (state: PreviewState) => void;
 }) => {
   const translate = useTranslate();
   const [editing, setEditing] = useState(false);
@@ -871,6 +915,28 @@ const TrackRow = ({
       >
         {formatFileSize(track.file.size)}
       </Typography>
+
+      {/* Play button — only show for saved (DB-backed) tracks */}
+      {track.id && (
+        <IconButton
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPreview({
+              source: {
+                kind: "track",
+                trackId: track.id!,
+                mediaType: track.mediaType === "video" ? "video" : "audio",
+              },
+              title: cleanTitle(track),
+            });
+          }}
+          sx={{ opacity: 0.5, "&:hover": { opacity: 1, color: "primary.main" } }}
+          title={translate("padmakara.session.trackPlay") || "Play"}
+        >
+          <PlayArrowIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+      )}
 
       {/* Edit button — only show if onTrackUpdate is provided */}
       {onTrackUpdate && (
