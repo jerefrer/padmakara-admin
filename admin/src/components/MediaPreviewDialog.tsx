@@ -7,6 +7,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import { useEffect, useState } from "react";
+import { authFetch } from "../utils/authFetch";
 
 type MediaSource =
   | { kind: "track"; trackId: number; mediaType: "audio" | "video" }
@@ -25,18 +26,15 @@ interface ResolvedMedia {
 }
 
 async function fetchMedia(source: MediaSource): Promise<ResolvedMedia> {
-  const token = localStorage.getItem("accessToken");
-  const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-
   if (source.kind === "track") {
-    const res = await fetch(`/api/media/audio/${source.trackId}`, { headers });
+    const res = await authFetch(`/api/media/audio/${source.trackId}`);
     if (!res.ok) throw new Error(`Failed to load media (${res.status})`);
     const json = (await res.json()) as { url: string };
     return { url: json.url, mediaType: source.mediaType };
   }
 
   // Session video — Bunny iframe is the simplest reliable player here.
-  const res = await fetch(`/api/media/video/session/${source.sessionId}`, { headers });
+  const res = await authFetch(`/api/media/video/session/${source.sessionId}`);
   if (!res.ok) throw new Error(`Failed to load video (${res.status})`);
   const json = (await res.json()) as { iframe: string };
   return { url: json.iframe, mediaType: "iframe" };

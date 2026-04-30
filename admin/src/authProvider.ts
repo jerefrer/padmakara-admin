@@ -1,4 +1,5 @@
 import { AuthProvider } from "react-admin";
+import { refreshAccessToken } from "./utils/authFetch";
 
 const API_URL = "/api/auth";
 
@@ -49,41 +50,24 @@ export const authProvider: AuthProvider = {
     const token = localStorage.getItem("accessToken");
     if (!token) throw new Error("Not authenticated");
 
-    // Verify token is still valid
     const res = await fetch(`${API_URL}/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.ok) return;
 
-    if (!res.ok) {
-      // Try refreshing
-      const refreshToken = localStorage.getItem("refreshToken");
-      if (!refreshToken) throw new Error("No refresh token");
-
-      const refreshRes = await fetch(`${API_URL}/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
-      });
-
-      if (!refreshRes.ok) {
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
-        localStorage.removeItem("user");
-        throw new Error("Session expired");
-      }
-
-      const tokens = await refreshRes.json();
-      localStorage.setItem("accessToken", tokens.accessToken);
-      localStorage.setItem("refreshToken", tokens.refreshToken);
-    }
+    // Access token rejected — try a refresh before giving up.
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) throw new Error("Session expired");
   },
 
   checkError: async (error) => {
-    if (error.status === 401 || error.status === 403) {
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
-      localStorage.removeItem("user");
-      throw new Error("Unauthorized");
+    // Don't wipe credentials on a single 401 — the data provider already
+    // refreshes and retries. If the refresh itself failed it has cleared
+    // localStorage on its own, so the next checkAuth will route to /login.
+    // 403 is "forbidden", not "unauthenticated" — leaving auth state intact
+    // lets the user navigate elsewhere instead of being kicked out entirely.
+    if (error.status === 401 && !localStorage.getItem("accessToken")) {
+      throw new Error("Session expired");
     }
   },
 

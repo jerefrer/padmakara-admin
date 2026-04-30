@@ -1,14 +1,29 @@
-import { DataProvider, fetchUtils } from "react-admin";
+import { DataProvider, fetchUtils, HttpError } from "react-admin";
+import { refreshAccessToken } from "./utils/authFetch";
 
 const API_URL = "/api/admin";
 
-const httpClient = (url: string, options: fetchUtils.Options = {}) => {
+const fetchWithToken = (url: string, options: fetchUtils.Options = {}) => {
   const token = localStorage.getItem("accessToken");
   const headers = new Headers(options.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetchUtils.fetchJson(url, { ...options, headers });
+};
+
+const httpClient = async (url: string, options: fetchUtils.Options = {}) => {
+  try {
+    return await fetchWithToken(url, options);
+  } catch (err) {
+    // fetchJson throws an HttpError on non-2xx responses. On 401 we try to
+    // refresh the access token once and retry — keeps long-running admin
+    // sessions seamless instead of bouncing the user back to /login each
+    // time the 1h access token expires.
+    if (err instanceof HttpError && err.status === 401) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) return fetchWithToken(url, options);
+    }
+    throw err;
+  }
 };
 
 /**
