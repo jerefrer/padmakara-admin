@@ -3,6 +3,7 @@ import { useRecordContext, useDataProvider, useNotify, useRefresh } from "react-
 import { Box, Button, Typography, CircularProgress } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import { AvatarCropDialog } from "./AvatarCropDialog";
+import { authFetch } from "../utils/authFetch";
 
 async function presignUpload(
   teacherId: number,
@@ -10,13 +11,9 @@ async function presignUpload(
   filename: string,
   contentType: string,
 ): Promise<{ s3Key: string; uploadUrl: string }> {
-  const token = localStorage.getItem("accessToken");
-  const res = await fetch(`/api/admin/teachers/presign-upload`, {
+  const res = await authFetch(`/api/admin/teachers/presign-upload`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ teacherId, type, contentType, filename }),
   });
   if (!res.ok) throw new Error("Failed to get upload URL");
@@ -57,12 +54,10 @@ export function TeacherImageUpload() {
     setDetectingFace(true);
 
     try {
-      const token = localStorage.getItem("accessToken");
       const formData = new FormData();
       formData.append("image", file);
-      const res = await fetch(`/api/admin/teachers/detect-face`, {
+      const res = await authFetch(`/api/admin/teachers/detect-face`, {
         method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
       });
       if (res.ok) {

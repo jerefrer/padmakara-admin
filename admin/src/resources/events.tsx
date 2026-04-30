@@ -1155,11 +1155,9 @@ export const EventCreate = () => {
       setSaving(false);
 
       if (uploadItems.length > 0) {
-        const authToken = localStorage.getItem("accessToken") || "";
         const { promise, cancel } = uploadTracks(
           uploadItems,
           form.eventCode,
-          authToken,
           (progress) => setUploadProgress({ ...progress }),
         );
         cancelUploadRef.current = cancel;
@@ -1421,11 +1419,6 @@ export const EventEdit = () => {
   // session row is patched with bunnyVideoId + videoDurationSeconds.
   const handleSessionVideoUpload = useCallback(
     (sessionId: number, file: File) => {
-      const authToken = localStorage.getItem("accessToken") || "";
-      if (!authToken) {
-        notify("Not authenticated — please log in again", { type: "error" });
-        return;
-      }
       const signal: { cancelled: boolean; abort?: () => void } = { cancelled: false };
       cancelUploadRef.current = () => {
         signal.cancelled = true;
@@ -1449,7 +1442,6 @@ export const EventEdit = () => {
         sessionId,
         title: file.name.replace(/\.[^.]+$/, ""),
         file,
-        authToken,
         signal,
         onProgress: (loaded, total) => {
           setUploadProgress((p) => p && {

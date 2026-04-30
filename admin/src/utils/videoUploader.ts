@@ -1,4 +1,5 @@
 import * as tus from "tus-js-client";
+import { authFetch } from "./authFetch";
 
 const API_URL = "/api/admin";
 
@@ -18,13 +19,10 @@ interface BunnyVideoMeta {
 }
 
 /** Ask the backend to create a Bunny video and return TUS upload credentials. */
-async function createBunnyVideo(title: string, authToken: string): Promise<TusCredentials> {
-  const res = await fetch(`${API_URL}/upload/bunny/create`, {
+async function createBunnyVideo(title: string): Promise<TusCredentials> {
+  const res = await authFetch(`${API_URL}/upload/bunny/create`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${authToken}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title }),
   });
   if (!res.ok) {
@@ -46,7 +44,6 @@ async function createBunnyVideo(title: string, authToken: string): Promise<TusCr
  */
 async function pollBunnyMeta(
   videoId: string,
-  authToken: string,
   signal: { cancelled: boolean },
   onStatusChange?: (status: number) => void,
   timeoutMs = 30 * 60 * 1000,
@@ -60,9 +57,7 @@ async function pollBunnyMeta(
   };
 
   while (!signal.cancelled) {
-    const res = await fetch(`${API_URL}/upload/bunny/${videoId}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
+    const res = await authFetch(`${API_URL}/upload/bunny/${videoId}`);
     if (res.ok) {
       const meta = (await res.json()) as BunnyVideoMeta;
       if (meta.status !== lastReportedStatus) {
@@ -87,14 +82,10 @@ async function pollBunnyMeta(
 async function patchSession(
   sessionId: number,
   patch: Record<string, unknown>,
-  authToken: string,
 ): Promise<void> {
-  const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+  const res = await authFetch(`${API_URL}/sessions/${sessionId}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${authToken}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
@@ -103,12 +94,9 @@ async function patchSession(
 }
 
 /** Best-effort cleanup if upload fails before the track row is patched. */
-async function deleteBunnyVideo(videoId: string, authToken: string): Promise<void> {
+async function deleteBunnyVideo(videoId: string): Promise<void> {
   try {
-    await fetch(`${API_URL}/upload/bunny/${videoId}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${authToken}` },
-    });
+    await authFetch(`${API_URL}/upload/bunny/${videoId}`, { method: "DELETE" });
   } catch {
     // Swallow — cleanup is best-effort and the orphan can be removed manually.
   }
@@ -119,7 +107,6 @@ interface UploadVideoOpts {
   sessionId: number;
   title: string;
   file: File;
-  authToken: string;
   signal: { cancelled: boolean; abort?: () => void };
   onProgress: (loaded: number, total: number) => void;
   /** Called when the file finishes uploading and Bunny starts transcoding. */
@@ -138,10 +125,10 @@ interface UploadVideoOpts {
  * best-effort deletes the orphan video) on any failure.
  */
 export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
-  const { sessionId, title, file, authToken, signal, onProgress, onTranscodingStart, onTranscodeStatus } = opts;
+  const { sessionId, title, file, signal, onProgress, onTranscodingStart, onTranscodeStatus } = opts;
 
   // 1. Create the Bunny video record.
-  const creds = await createBunnyVideo(title, authToken);
+  const creds = await createBunnyVideo(title);
 
   // 2. TUS resumable upload.
   let createdVideoId: string | null = creds.videoId;
@@ -177,24 +164,20 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
 
     // 3. Poll Bunny until transcoding finishes (or fails).
     onTranscodingStart?.();
-    const meta = await pollBunnyMeta(creds.videoId, authToken, signal, onTranscodeStatus);
+    const meta = await pollBunnyMeta(creds.videoId, signal, onTranscodeStatus);
 
     // 4. Patch the session row with the Bunny GUID + duration. We deliberately
     //    leave videoPosterUrl null — the public media endpoint computes a
     //    signed thumbnail URL on the fly so the CDN hostname stays server-side.
-    await patchSession(
-      sessionId,
-      {
-        bunnyVideoId: creds.videoId,
-        videoDurationSeconds: Math.round(meta.durationSeconds),
-      },
-      authToken,
-    );
+    await patchSession(sessionId, {
+      bunnyVideoId: creds.videoId,
+      videoDurationSeconds: Math.round(meta.durationSeconds),
+    });
 
     createdVideoId = null; // success — don't clean up
   } finally {
     if (createdVideoId) {
-      await deleteBunnyVideo(createdVideoId, authToken);
+      await deleteBunnyVideo(createdVideoId);
     }
   }
 }

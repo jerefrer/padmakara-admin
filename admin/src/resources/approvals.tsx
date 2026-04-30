@@ -24,20 +24,18 @@ import {
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import { authFetch as baseAuthFetch } from "../utils/authFetch";
 
 const API_URL = "/api/admin";
 
-const authFetch = (url: string, options: RequestInit = {}) => {
-  const token = localStorage.getItem("accessToken");
-  return fetch(url, {
+const authFetch = (url: string, options: RequestInit = {}) =>
+  baseAuthFetch(url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
   });
-};
 
 // ─── Status Chip ──────────────────────────────────────────────────────────────
 

@@ -16,6 +16,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { authFetch } from "../utils/authFetch";
 import {
   Create,
   Datagrid,
@@ -412,7 +413,6 @@ export const PublicationCreate = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  const token = localStorage.getItem("accessToken");
   const allTeachers = useTeachers();
 
   // Build author suggestions from teachers + extracted authors
@@ -433,12 +433,9 @@ export const PublicationCreate = () => {
 
     try {
       // 1. Get presigned upload URL
-      const presignRes = await fetch(`/api/admin/publications/presign-upload`, {
+      const presignRes = await authFetch(`/api/admin/publications/presign-upload`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           filename: file.name,
           contentType: file.type,
@@ -448,7 +445,7 @@ export const PublicationCreate = () => {
       if (!presignRes.ok) throw new Error("Failed to get upload URL");
       const { s3Key, uploadUrl } = await presignRes.json();
 
-      // 2. Upload PDF to S3
+      // 2. Upload PDF to S3 (presigned URL — no auth header)
       setExtractionStatus("Uploading PDF to storage...");
       const uploadRes = await fetch(uploadUrl, {
         method: "PUT",
@@ -461,14 +458,11 @@ export const PublicationCreate = () => {
       setExtractionStatus(
         "Extracting metadata with AI (this may take a moment)...",
       );
-      const extractRes = await fetch(
+      const extractRes = await authFetch(
         `/api/admin/publications/extract-metadata`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ pdfS3Key: s3Key }),
         },
       );
@@ -504,14 +498,11 @@ export const PublicationCreate = () => {
   const handleCoverReplace = useCallback(
     async (file: File) => {
       try {
-        const presignRes = await fetch(
+        const presignRes = await authFetch(
           `/api/admin/publications/presign-upload`,
           {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               filename: file.name,
               contentType: file.type,
@@ -534,7 +525,7 @@ export const PublicationCreate = () => {
         setError("Failed to upload cover image");
       }
     },
-    [token],
+    [],
   );
 
   if (phase === "extracting") {

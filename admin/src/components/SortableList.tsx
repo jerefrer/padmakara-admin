@@ -100,15 +100,27 @@ const SortableRow = ({
   );
 };
 
+import { refreshAccessToken } from "../utils/authFetch";
+
 const API_URL = "/api/admin";
 
-const httpClient = (url: string, options: fetchUtils.Options = {}) => {
+const fetchWithToken = (url: string, options: fetchUtils.Options = {}) => {
   const token = localStorage.getItem("accessToken");
   const headers = new Headers(options.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetchUtils.fetchJson(url, { ...options, headers });
+};
+
+const httpClient = async (url: string, options: fetchUtils.Options = {}) => {
+  try {
+    return await fetchWithToken(url, options);
+  } catch (err: any) {
+    if (err?.status === 401) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) return fetchWithToken(url, options);
+    }
+    throw err;
+  }
 };
 
 export const SortableList = ({ columns, resource }: SortableListProps) => {

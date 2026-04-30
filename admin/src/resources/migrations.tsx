@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
+import { authFetch } from "../utils/authFetch";
 import {
   List,
   Datagrid,
@@ -273,11 +274,8 @@ export const MigrationCreate = () => {
       formData.append("title", title);
       if (notes) formData.append("notes", notes);
 
-      const response = await fetch("/api/admin/migrations/upload", {
+      const response = await authFetch("/api/admin/migrations/upload", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-        },
         body: formData,
       });
 
@@ -424,12 +422,9 @@ export const MigrationShow = () => {
   const handleAnalyze = async () => {
     setAnalyzing(true);
     try {
-      const response = await fetch(`/api/admin/migrations/${id}/analyze`, {
+      const response = await authFetch(`/api/admin/migrations/${id}/analyze`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
 
       if (!response.ok) throw new Error("Analysis failed");
@@ -663,12 +658,8 @@ const FileDecisionsTab = ({ migrationId }: { migrationId: number }) => {
     const fetchData = async () => {
       try {
         const [catalogsRes, decisionsRes] = await Promise.all([
-          fetch(`/api/admin/migrations/${migrationId}`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
-          }),
-          fetch(`/api/admin/migrations/${migrationId}/decisions`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
-          }),
+          authFetch(`/api/admin/migrations/${migrationId}`),
+          authFetch(`/api/admin/migrations/${migrationId}/decisions`),
         ]);
 
         const catalogsData = await catalogsRes.json();
@@ -717,12 +708,9 @@ const FileDecisionsTab = ({ migrationId }: { migrationId: number }) => {
     setSaving(true);
     try {
       const decisionsArray = Array.from(decisions.values());
-      await fetch(`/api/admin/migrations/${migrationId}/decisions`, {
+      await authFetch(`/api/admin/migrations/${migrationId}/decisions`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ decisions: decisionsArray }),
       });
       notify("Decisions saved", { type: "success" });
@@ -1112,12 +1100,9 @@ const ReviewTab = ({ migration, onApproved }: { migration: Migration; onApproved
   const handleApprove = async () => {
     setApproving(true);
     try {
-      const response = await fetch(`/api/admin/migrations/${migration.id}/approve`, {
+      const response = await authFetch(`/api/admin/migrations/${migration.id}/approve`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
       if (!response.ok) {
         const data = await response.json();
@@ -1135,12 +1120,9 @@ const ReviewTab = ({ migration, onApproved }: { migration: Migration; onApproved
   const handleExecute = async () => {
     setExecuting(true);
     try {
-      const response = await fetch(`/api/admin/migrations/${migration.id}/execute`, {
+      const response = await authFetch(`/api/admin/migrations/${migration.id}/execute`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
       if (!response.ok) {
         const data = await response.json();

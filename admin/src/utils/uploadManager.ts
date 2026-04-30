@@ -1,5 +1,6 @@
 import { uploadVideoFile } from "./videoUploader";
 import { isVideoFilename } from "./trackParser";
+import { authFetch } from "./authFetch";
 
 const API_URL = "/api/admin";
 
@@ -62,14 +63,10 @@ async function presignBatch(
   files: { filename: string; contentType: string; size: number }[],
   eventCode: string,
   sessionNumber: number,
-  authToken: string,
 ): Promise<{ filename: string; s3Key: string; uploadUrl: string }[]> {
-  const res = await fetch(`${API_URL}/upload/presign`, {
+  const res = await authFetch(`${API_URL}/upload/presign`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${authToken}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ files, eventCode, sessionNumber }),
   });
   if (!res.ok) {
@@ -122,14 +119,10 @@ async function updateTrackS3Key(
   trackId: number,
   s3Key: string,
   fileSizeBytes: number,
-  authToken: string,
 ): Promise<void> {
-  const res = await fetch(`${API_URL}/tracks/${trackId}`, {
+  const res = await authFetch(`${API_URL}/tracks/${trackId}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${authToken}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ s3Key, fileSizeBytes }),
   });
   if (!res.ok) {
@@ -169,7 +162,6 @@ class SpeedTracker {
 export function uploadTracks(
   items: UploadItem[],
   eventCode: string,
-  authToken: string,
   onProgress: ProgressCallback,
 ): { promise: Promise<void>; cancel: () => void } {
   const signal = { cancelled: false };
@@ -225,7 +217,7 @@ export function uploadTracks(
         size: item.file.size,
       }));
 
-      const urls = await presignBatch(presignFiles, eventCode, sessionNumber, authToken);
+      const urls = await presignBatch(presignFiles, eventCode, sessionNumber);
 
       // Match presigned URLs back to items by filename
       for (const url of urls) {
@@ -294,7 +286,7 @@ export function uploadTracks(
       );
 
       // Update track record with S3 key
-      await updateTrackS3Key(queued.trackId, queued.s3Key, queued.file.size, authToken);
+      await updateTrackS3Key(queued.trackId, queued.s3Key, queued.file.size);
 
       if (fileIdx >= 0) {
         fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, status: "done", progress: 1 };
@@ -334,7 +326,6 @@ export function uploadTracks(
         sessionId: item.sessionId,
         title: item.title ?? item.filename,
         file: item.file,
-        authToken,
         signal,
         onProgress: (loaded, total) => {
           const totalUploaded = fileStart + loaded;
