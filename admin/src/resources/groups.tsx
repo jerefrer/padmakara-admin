@@ -27,7 +27,7 @@ export const GroupList = () => {
         columns={[
           { source: "nameEn", label: translate("padmakara.fields.nameEn") },
           { source: "namePt", label: translate("padmakara.fields.namePt") },
-          { source: "abbreviation", label: translate("padmakara.fields.abbreviation") },
+          { source: "abbreviation", label: translate("padmakara.fields.abbreviation"), width: 90 },
           { source: "slug", label: translate("padmakara.fields.slug") },
         ]}
       />

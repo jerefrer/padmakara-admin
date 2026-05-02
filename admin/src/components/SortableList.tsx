@@ -30,6 +30,13 @@ import DragHandleIcon from "@mui/icons-material/DragHandle";
 interface Column {
   source: string;
   label?: string;
+  /**
+   * Fixed pixel width for this column. When set, the column is sized to
+   * exactly this width instead of taking an equal share of available space.
+   * Useful for short fields like abbreviations or codes so that wider
+   * columns (names) keep their breathing room on narrow screens.
+   */
+  width?: number;
 }
 
 interface SortableListProps {
@@ -90,7 +97,15 @@ const SortableRow = ({
         <Typography
           key={col.source}
           variant="body2"
-          sx={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          sx={{
+            ...(col.width != null
+              ? { width: col.width, flex: "none" }
+              : { flex: 1 }),
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
         >
           {record[col.source] ?? "—"}
         </Typography>
@@ -197,7 +212,14 @@ export const SortableList = ({ columns, resource }: SortableListProps) => {
           <Typography
             key={col.source}
             variant="caption"
-            sx={{ flex: 1, fontWeight: 600, textTransform: "uppercase", color: "text.secondary" }}
+            sx={{
+              ...(col.width != null
+                ? { width: col.width, flex: "none" }
+                : { flex: 1 }),
+              fontWeight: 600,
+              textTransform: "uppercase",
+              color: "text.secondary",
+            }}
           >
             {col.label || col.source}
           </Typography>
