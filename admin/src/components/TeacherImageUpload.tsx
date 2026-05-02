@@ -3,7 +3,7 @@ import { useRecordContext, useDataProvider, useNotify, useRefresh } from "react-
 import { Box, Button, Typography, CircularProgress } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import EditIcon from "@mui/icons-material/Edit";
-import { ImageCropDialog, type HeroSaveParams } from "./ImageCropDialog";
+import { ImageCropDialog, applyGrayscale, type HeroSaveParams } from "./ImageCropDialog";
 import { authFetch } from "../utils/authFetch";
 
 type DialogState =
@@ -47,7 +47,11 @@ async function fetchUrlAsFile(url: string, filename: string): Promise<File> {
 }
 
 /** Crop the source image to the given pixel area and return a JPEG blob. */
-async function cropImageToBlob(file: File, area: { x: number; y: number; width: number; height: number }): Promise<Blob> {
+async function cropImageToBlob(
+  file: File,
+  area: { x: number; y: number; width: number; height: number },
+  grayscale = false,
+): Promise<Blob> {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -62,6 +66,7 @@ async function cropImageToBlob(file: File, area: { x: number; y: number; width: 
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2d context unavailable");
     ctx.drawImage(img, area.x, area.y, area.width, area.height, 0, 0, area.width, area.height);
+    if (grayscale) applyGrayscale(ctx, area.width, area.height);
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (blob) => (blob ? resolve(blob) : reject(new Error("Failed to encode blob"))),
@@ -174,7 +179,7 @@ export function TeacherImageUpload() {
         if (dialog.kind !== "hero") return;
 
         // Produce the cropped hero blob and upload it.
-        const blob = await cropImageToBlob(dialog.file, params.cropAreaPixels);
+        const blob = await cropImageToBlob(dialog.file, params.cropAreaPixels, params.grayscale);
         const { s3Key, uploadUrl } = await presignUpload(
           record.id as number,
           "hero",

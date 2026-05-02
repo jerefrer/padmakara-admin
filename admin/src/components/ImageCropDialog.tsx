@@ -9,6 +9,8 @@ import {
   Slider,
   Box,
   Typography,
+  FormControlLabel,
+  Switch,
 } from "@mui/material";
 
 export type CropMode = "avatar" | "hero";
@@ -19,6 +21,8 @@ export interface HeroSaveParams {
   /** Focal point (subject location) within the CROPPED image, 0..100 each. */
   focalX: number;
   focalY: number;
+  /** When true, the cropped image will be converted to grayscale before upload. */
+  grayscale: boolean;
 }
 
 interface BaseProps {
@@ -50,6 +54,7 @@ export function ImageCropDialog(props: Props) {
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+  const [grayscale, setGrayscale] = useState(false);
 
   // Focal marker position, in % of the visible CROPPED area (the rectangle
   // that will be saved). Only meaningful in hero mode.
@@ -75,6 +80,7 @@ export function ImageCropDialog(props: Props) {
       setZoom(1);
       setCroppedAreaPixels(null);
       setFocal({ x: 50, y: 50 });
+      setGrayscale(false);
     } else if (initialFocal) {
       setFocal({
         x: clamp(initialFocal.x, 0, 100),
@@ -123,13 +129,14 @@ export function ImageCropDialog(props: Props) {
     if (!image || !croppedAreaPixels) return;
 
     if (mode === "avatar") {
-      const blob = await getCroppedBlob(image, croppedAreaPixels);
+      const blob = await getCroppedBlob(image, croppedAreaPixels, grayscale);
       props.onSave(blob);
     } else {
       await props.onSave({
         cropAreaPixels: croppedAreaPixels,
         focalX: Math.round(focal.x),
         focalY: Math.round(focal.y),
+        grayscale,
       });
     }
   };
@@ -155,20 +162,28 @@ export function ImageCropDialog(props: Props) {
                 overflow: "hidden",
               }}
             >
-              <Cropper
-                image={imageUrl}
-                crop={crop}
-                zoom={zoom}
-                aspect={aspect}
-                cropShape={mode === "avatar" ? "round" : "rect"}
-                showGrid={false}
-                minZoom={1}
-                maxZoom={4}
-                objectFit="cover"
-                onCropChange={setCrop}
-                onZoomChange={setZoom}
-                onCropComplete={onCropComplete}
-              />
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  filter: grayscale ? "grayscale(1)" : "none",
+                }}
+              >
+                <Cropper
+                  image={imageUrl}
+                  crop={crop}
+                  zoom={zoom}
+                  aspect={aspect}
+                  cropShape={mode === "avatar" ? "round" : "rect"}
+                  showGrid={false}
+                  minZoom={1}
+                  maxZoom={4}
+                  objectFit="cover"
+                  onCropChange={setCrop}
+                  onZoomChange={setZoom}
+                  onCropComplete={onCropComplete}
+                />
+              </Box>
               {mode === "hero" && (
                 <Box
                   onPointerDown={onMarkerPointerDown}
@@ -216,6 +231,17 @@ export function ImageCropDialog(props: Props) {
               valueLabelDisplay="auto"
             />
           </Box>
+          <Box sx={{ width: "100%", px: 2, display: "flex", alignItems: "center" }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={grayscale}
+                  onChange={(_, v) => setGrayscale(v)}
+                />
+              }
+              label="Black & white"
+            />
+          </Box>
           <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
             {mode === "avatar"
               ? "Drag to position, slide or scroll to zoom."
@@ -235,7 +261,7 @@ export function ImageCropDialog(props: Props) {
   );
 }
 
-async function getCroppedBlob(file: File, areaPixels: Area): Promise<Blob> {
+async function getCroppedBlob(file: File, areaPixels: Area, grayscale = false): Promise<Blob> {
   const img = await loadImage(file);
   const canvas = document.createElement("canvas");
   canvas.width = areaPixels.width;
@@ -253,6 +279,7 @@ async function getCroppedBlob(file: File, areaPixels: Area): Promise<Blob> {
     areaPixels.width,
     areaPixels.height,
   );
+  if (grayscale) applyGrayscale(ctx, areaPixels.width, areaPixels.height);
   return await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -263,6 +290,23 @@ async function getCroppedBlob(file: File, areaPixels: Area): Promise<Blob> {
       0.9,
     );
   });
+}
+
+/** Convert the entire canvas to grayscale in-place using ITU-R BT.601 luminance. */
+export function applyGrayscale(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): void {
+  const imgData = ctx.getImageData(0, 0, width, height);
+  const data = imgData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const lum = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    data[i] = lum;
+    data[i + 1] = lum;
+    data[i + 2] = lum;
+  }
+  ctx.putImageData(imgData, 0, 0);
 }
 
 function loadImage(file: File): Promise<HTMLImageElement> {
