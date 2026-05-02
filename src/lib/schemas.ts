@@ -80,6 +80,11 @@ export const createRetreatGroupSchema = z.object({
   slug: z.string().min(1).max(100),
   description: z.string().optional().nullable(),
   logoUrl: z.string().url().optional().nullable(),
+  avatarS3Key: z.string().optional().nullable(),
+  heroS3Key: z.string().optional().nullable(),
+  heroFocalX: z.number().int().min(0).max(100).optional(),
+  heroFocalY: z.number().int().min(0).max(100).optional(),
+  heroScale: z.number().int().min(50).max(300).optional(),
   displayOrder: z.number().int().min(0).optional().default(0),
 });
 

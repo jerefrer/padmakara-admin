@@ -216,3 +216,19 @@ export function buildTeacherAvatarS3Key(teacherId: number, ext: string): string 
 export function buildTeacherHeroS3Key(teacherId: number, ext: string): string {
   return `teachers/heroes/${teacherId}-${Date.now()}.${ext}`;
 }
+
+/**
+ * Build S3 key for retreat-group avatar images.
+ * Format: groups/avatars/{groupId}-{timestamp}.{ext}
+ */
+export function buildGroupAvatarS3Key(groupId: number, ext: string): string {
+  return `groups/avatars/${groupId}-${Date.now()}.${ext}`;
+}
+
+/**
+ * Build S3 key for retreat-group hero/banner images.
+ * Format: groups/heroes/{groupId}-{timestamp}.{ext}
+ */
+export function buildGroupHeroS3Key(groupId: number, ext: string): string {
+  return `groups/heroes/${groupId}-${Date.now()}.${ext}`;
+}

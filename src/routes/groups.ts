@@ -8,6 +8,7 @@ import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { filterAccessibleEvents } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
+import { resolveGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 
 const groupRoutes = new Hono();
 
@@ -38,7 +39,8 @@ groupRoutes.get("/", async (c) => {
   // Admin sees all groups
   if (user.role === "admin" || user.role === "superadmin") {
     const data = await db.select().from(retreatGroups).orderBy(retreatGroups.displayOrder);
-    return c.json(data);
+    const resolved = await resolveGroupsUrls(data);
+    return c.json(resolved);
   }
 
   // Get all published events with audience + retreat group info
@@ -70,7 +72,8 @@ groupRoutes.get("/", async (c) => {
     (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0),
   );
 
-  return c.json(data);
+  const resolved = await resolveGroupsUrls(data);
+  return c.json(resolved);
 });
 
 /**
@@ -127,6 +130,7 @@ groupRoutes.get("/:id/events", async (c) => {
   const accessibleEvents = await filterAccessibleEvents(fullUser, data);
 
   await resolveEventsTeacherUrls(accessibleEvents);
+  await resolveEventsGroupUrls(accessibleEvents);
   return c.json(accessibleEvents);
 });
 

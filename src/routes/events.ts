@@ -14,6 +14,7 @@ import { generateRetreatZip } from "../services/zip-generator.ts";
 import { checkEventAccess, filterAccessibleEvents, AUDIENCE_SLUGS } from "../services/access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
+import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 
 const eventRoutes = new Hono();
 
@@ -103,6 +104,7 @@ eventRoutes.get("/public", async (c) => {
   });
 
   await resolveEventsTeacherUrls(data);
+  await resolveEventsGroupUrls(data);
   return c.json(data);
 });
 
@@ -128,6 +130,7 @@ eventRoutes.get("/public/:id", async (c) => {
   }
 
   await resolveEventTeacherUrls(event);
+  await resolveEventGroupUrls(event);
   return c.json(event);
 });
 
@@ -151,6 +154,7 @@ eventRoutes.get("/featured", async (c) => {
   }
 
   await resolveEventTeacherUrls(event);
+  await resolveEventGroupUrls(event);
   return c.json(event);
 });
 
@@ -333,6 +337,7 @@ eventRoutes.get("/", async (c) => {
       with: eventWith,
     });
     await resolveEventsTeacherUrls(data);
+    await resolveEventsGroupUrls(data);
     return c.json(data);
   }
 
@@ -364,6 +369,7 @@ eventRoutes.get("/", async (c) => {
   );
 
   await resolveEventsTeacherUrls(accessibleEvents);
+  await resolveEventsGroupUrls(accessibleEvents);
   return c.json(accessibleEvents);
 });
 
@@ -408,6 +414,7 @@ eventRoutes.get("/:id", async (c) => {
   );
 
   await resolveEventTeacherUrls(event);
+  await resolveEventGroupUrls(event);
   return c.json({ ...event, relatedPublications: relatedPubsWithUrls });
 });
 
