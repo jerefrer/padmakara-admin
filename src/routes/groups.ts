@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { retreatGroups } from "../db/schema/retreat-groups.ts";
 import { eventRetreatGroups, events } from "../db/schema/retreats.ts";
@@ -83,16 +83,23 @@ groupRoutes.get("/", async (c) => {
  * in this group (e.g. via event-participants), they'll see them.
  */
 groupRoutes.get("/:id/events", async (c) => {
-  const groupId = parseInt(c.req.param("id"), 10);
+  const idParam = c.req.param("id");
   const user = getUser(c);
 
-  // Verify group exists
+  // Resolve group by numeric id, abbreviation (case-insensitive), or slug.
+  const numericId = /^\d+$/.test(idParam) ? parseInt(idParam, 10) : null;
   const group = await db.query.retreatGroups.findFirst({
-    where: eq(retreatGroups.id, groupId),
+    where: numericId !== null
+      ? eq(retreatGroups.id, numericId)
+      : or(
+          sql`lower(${retreatGroups.abbreviation}) = lower(${idParam})`,
+          eq(retreatGroups.slug, idParam),
+        ),
   });
   if (!group) {
     throw AppError.notFound("Group not found");
   }
+  const groupId = group.id;
 
   // Get events linked to this group
   const links = await db
