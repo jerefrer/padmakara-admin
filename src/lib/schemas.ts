@@ -58,6 +58,7 @@ export const createTeacherSchema = z.object({
   heroS3Key: z.string().optional().nullable(),
   heroFocalX: z.number().int().min(0).max(100).optional(),
   heroFocalY: z.number().int().min(0).max(100).optional(),
+  heroScale: z.number().int().min(50).max(300).optional(),
 });
 
 export const updateTeacherSchema = createTeacherSchema.partial();

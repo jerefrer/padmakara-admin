@@ -17,6 +17,9 @@ describe("resolveTeacherUrls", () => {
       photoUrl: "https://old-photo.example.com/pwr.jpg",
       avatarS3Key: "teachers/avatars/1-123456.jpg",
       heroS3Key: "teachers/heroes/1-123456.jpg",
+      heroFocalX: 50,
+      heroFocalY: 50,
+      heroScale: 100,
       avatarUpdatedAt: new Date("2026-03-31T10:00:00Z"),
       heroUpdatedAt: new Date("2026-03-31T10:00:00Z"),
     };
@@ -29,6 +32,9 @@ describe("resolveTeacherUrls", () => {
       abbreviation: "PWR",
       avatarUrl: "https://s3.example.com/presigned/teachers/avatars/1-123456.jpg",
       heroUrl: "https://s3.example.com/presigned/teachers/heroes/1-123456.jpg",
+      heroFocalX: 50,
+      heroFocalY: 50,
+      heroScale: 100,
       avatarUpdatedAt: "2026-03-31T10:00:00.000Z",
       heroUpdatedAt: "2026-03-31T10:00:00.000Z",
     });
@@ -42,6 +48,9 @@ describe("resolveTeacherUrls", () => {
       photoUrl: "https://old-photo.example.com/jkr.jpg",
       avatarS3Key: null,
       heroS3Key: null,
+      heroFocalX: 50,
+      heroFocalY: 50,
+      heroScale: 100,
       avatarUpdatedAt: null,
       heroUpdatedAt: null,
     };
@@ -54,6 +63,9 @@ describe("resolveTeacherUrls", () => {
       abbreviation: "JKR",
       avatarUrl: "https://old-photo.example.com/jkr.jpg",
       heroUrl: null,
+      heroFocalX: 50,
+      heroFocalY: 50,
+      heroScale: 100,
       avatarUpdatedAt: null,
       heroUpdatedAt: null,
     });
