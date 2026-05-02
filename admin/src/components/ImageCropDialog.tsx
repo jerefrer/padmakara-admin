@@ -184,6 +184,113 @@ export function ImageCropDialog(props: Props) {
                   onCropComplete={onCropComplete}
                 />
               </Box>
+              {/* Mobile safe-zone overlay — two danger zones get drawn over
+                  the cropper viewport so the editor can see at a glance
+                  what will be hidden on a phone:
+                    • TOP band ≈ status bar + notch (~16% of hero height
+                      on iPhone Pro). The photo extends behind the notch
+                      so any subject placed there is partially obscured.
+                    • LEFT/RIGHT bands ≈ horizontal cover crop. Mobile is
+                      nearly square (≈ 55% of the source banner's width
+                      around the focal X is visible on the narrowest
+                      phone). Anything outside that central band gets
+                      cropped on iPhone SE / similar devices. */}
+              {mode === "hero" && (() => {
+                const safeWidthPct = 55;
+                const half = safeWidthPct / 2;
+                const safeLeft = Math.max(0, Math.min(100 - safeWidthPct, focal.x - half));
+                const safeRight = safeLeft + safeWidthPct;
+                const notchPct = 16;
+                return (
+                  <>
+                    {/* Top "covered by notch / status bar" band — full width */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: `${notchPct}%`,
+                        bgcolor: "rgba(0,0,0,0.45)",
+                        borderBottom: "1px dashed rgba(255,255,255,0.7)",
+                        pointerEvents: "none",
+                        zIndex: 5,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          bgcolor: "rgba(0,0,0,0.6)",
+                          color: "white",
+                          fontSize: 10,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                          px: 1,
+                          py: 0.25,
+                          borderRadius: 0.5,
+                        }}
+                      >
+                        Notch / status bar
+                      </Box>
+                    </Box>
+                    {/* Left "may be cropped" band */}
+                    {safeLeft > 0 && (
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          top: `${notchPct}%`,
+                          bottom: 0,
+                          left: 0,
+                          width: `${safeLeft}%`,
+                          bgcolor: "rgba(0,0,0,0.45)",
+                          borderRight: "1px dashed rgba(255,255,255,0.7)",
+                          pointerEvents: "none",
+                          zIndex: 5,
+                        }}
+                      />
+                    )}
+                    {/* Right "may be cropped" band */}
+                    {safeRight < 100 && (
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          top: `${notchPct}%`,
+                          bottom: 0,
+                          left: `${safeRight}%`,
+                          right: 0,
+                          bgcolor: "rgba(0,0,0,0.45)",
+                          borderLeft: "1px dashed rgba(255,255,255,0.7)",
+                          pointerEvents: "none",
+                          zIndex: 5,
+                        }}
+                      />
+                    )}
+                    {/* Tiny "Mobile" tag near the top of the safe central zone */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        top: `calc(${notchPct}% + 6px)`,
+                        left: `${safeLeft + safeWidthPct / 2}%`,
+                        transform: "translateX(-50%)",
+                        bgcolor: "rgba(0,0,0,0.6)",
+                        color: "white",
+                        fontSize: 10,
+                        letterSpacing: 0.5,
+                        textTransform: "uppercase",
+                        px: 1,
+                        py: 0.25,
+                        borderRadius: 0.5,
+                        pointerEvents: "none",
+                        zIndex: 6,
+                      }}
+                    >
+                      Mobile safe area
+                    </Box>
+                  </>
+                );
+              })()}
               {mode === "hero" && (
                 <Box
                   onPointerDown={onMarkerPointerDown}
@@ -245,7 +352,7 @@ export function ImageCropDialog(props: Props) {
           <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
             {mode === "avatar"
               ? "Drag to position, slide or scroll to zoom."
-              : "Drag the image with the slider/scroll to zoom and frame. Click on the image to place the focal point (the spot that stays centered when the banner adapts to different screens)."}
+              : "Drag the image with the slider/scroll to zoom and frame. Click on the image to place the focal point. The clear central rectangle is the Mobile safe area; the darkened top band sits behind the iPhone notch / status bar, and the darkened sides may be cropped on narrower phones."}
           </Typography>
         </Box>
       </DialogContent>
