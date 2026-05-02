@@ -70,7 +70,21 @@ async function uploadToS3(uploadUrl: string, blob: Blob, contentType: string): P
 }
 
 async function fetchUrlAsFile(url: string, filename: string): Promise<File> {
-  const res = await fetch(url);
+  // Likely failure mode here is CORS — the S3 bucket doesn't have a CORS
+  // policy for this origin, so fetch is blocked even though <img> works
+  // (image tags don't trigger CORS preflight). When that happens, we log
+  // the underlying error and let the caller surface a friendly toast.
+  let res: Response;
+  try {
+    res = await fetch(url, { mode: "cors", cache: "no-cache" });
+  } catch (err) {
+    console.error("[fetchUrlAsFile] fetch failed (likely CORS):", err, "url:", url);
+    throw err;
+  }
+  if (!res.ok) {
+    console.error("[fetchUrlAsFile] HTTP", res.status, res.statusText, "url:", url);
+    throw new Error(`HTTP ${res.status}`);
+  }
   const blob = await res.blob();
   return new File([blob], filename, { type: blob.type || "image/jpeg" });
 }
