@@ -10,6 +10,7 @@ import {
   Toolbar,
 } from "react-admin";
 import { SortableList } from "../components/SortableList";
+import { GroupImageUpload } from "../components/GroupImageUpload";
 
 const NoDeleteToolbar = () => (
   <Toolbar>
@@ -44,7 +45,8 @@ export const GroupEdit = () => {
         <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} />
         <TextInput source="slug" label={translate("padmakara.fields.slug")} validate={required()} />
         <TextInput source="description" label={translate("padmakara.fields.description")} multiline />
-        <TextInput source="logoUrl" label={translate("padmakara.fields.logoUrl")} />
+        <GroupImageUpload />
+        <TextInput source="logoUrl" label={translate("padmakara.fields.logoUrl")} helperText="Legacy field — replaced by Avatar above" />
       </SimpleForm>
     </Edit>
   );

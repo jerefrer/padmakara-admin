@@ -129,6 +129,12 @@ export const en = {
       heroUploaded: "Hero image uploaded",
       heroUploadFailed: "Hero image upload failed",
     },
+    groups: {
+      avatarUploaded: "Avatar uploaded",
+      avatarUploadFailed: "Avatar upload failed",
+      heroUploaded: "Hero image uploaded",
+      heroUploadFailed: "Hero image upload failed",
+    },
     approvals: {
       approve: "Approve",
       reject: "Reject",

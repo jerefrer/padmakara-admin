@@ -330,6 +330,12 @@ export const pt = {
       heroUploaded: "Imagem de capa carregada",
       heroUploadFailed: "Falha ao carregar imagem de capa",
     },
+    groups: {
+      avatarUploaded: "Avatar carregado",
+      avatarUploadFailed: "Falha ao carregar avatar",
+      heroUploaded: "Imagem de capa carregada",
+      heroUploadFailed: "Falha ao carregar imagem de capa",
+    },
     approvals: {
       approve: "Aprovar",
       reject: "Rejeitar",
