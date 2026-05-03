@@ -35,15 +35,53 @@ export async function generatePresignedUploadUrl(
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
 
+/**
+ * In-memory cache of presigned GET URLs. Key = s3 object key. We hand out
+ * the same URL for ~half its expiry window, so successive API calls return
+ * an identical URL — that lets the browser (and expo-image's URL-based
+ * cache on web) reuse the cached image instead of refetching the same
+ * bytes under a new signature on every navigation.
+ *
+ * The s3Key already embeds the upload timestamp (`avatars/{id}-{ts}.jpg`),
+ * so when the admin replaces an image the key changes and we automatically
+ * generate a fresh presigned URL — no manual invalidation needed.
+ */
+interface CachedUrl {
+  url: string;
+  expiresAt: number; // epoch ms when WE consider it stale (≈ half the actual S3 expiry)
+}
+const presignedDownloadCache = new Map<string, CachedUrl>();
+const MAX_CACHE_ENTRIES = 5_000;
+
 export async function generatePresignedDownloadUrl(
   key: string,
   expiresIn = 3600,
 ): Promise<string> {
-  const command = new GetObjectCommand({
-    Bucket: BUCKET,
-    Key: key,
-  });
-  return await getSignedUrl(s3Client, command, { expiresIn });
+  const now = Date.now();
+  const cached = presignedDownloadCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached.url;
+  }
+
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+  const url = await getSignedUrl(s3Client, command, { expiresIn });
+
+  // Hand the URL out for half its lifetime so the client never receives an
+  // about-to-expire URL (which could fail on slow connections).
+  const cacheTtlMs = (expiresIn / 2) * 1000;
+  presignedDownloadCache.set(key, { url, expiresAt: now + cacheTtlMs });
+
+  // Soft cap on the cache size — drop the oldest entries when we exceed it.
+  if (presignedDownloadCache.size > MAX_CACHE_ENTRIES) {
+    const overflow = presignedDownloadCache.size - MAX_CACHE_ENTRIES;
+    const it = presignedDownloadCache.keys();
+    for (let i = 0; i < overflow; i++) {
+      const k = it.next().value;
+      if (k) presignedDownloadCache.delete(k);
+    }
+  }
+
+  return url;
 }
 
 export async function deleteObject(key: string): Promise<void> {
