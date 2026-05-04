@@ -574,6 +574,7 @@ const TrackRow = ({
   const translate = useTranslate();
   const [editing, setEditing] = useState(false);
   const [editValues, setEditValues] = useState({
+    title: track.title || "",
     originalFilename: track.originalFilename || "",
     languages: track.languages && track.languages.length > 0
       ? [...track.languages]
@@ -612,6 +613,7 @@ const TrackRow = ({
 
   const handleCancel = () => {
     setEditValues({
+      title: track.title || "",
       originalFilename: track.originalFilename || "",
       languages: track.languages && track.languages.length > 0
         ? [...track.languages]
@@ -651,15 +653,28 @@ const TrackRow = ({
             {String(track.trackNumber).padStart(2, "0")}
           </Typography>
 
-          <TextField
-            size="small"
-            label="Filename"
-            value={editValues.originalFilename}
-            onChange={(e) =>
-              setEditValues({ ...editValues, originalFilename: e.target.value })
-            }
-            sx={{ flex: 1 }}
-          />
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+            <TextField
+              size="small"
+              label="Title"
+              value={editValues.title}
+              onChange={(e) =>
+                setEditValues({ ...editValues, title: e.target.value })
+              }
+              autoFocus
+              helperText="Shown to users in the mobile app"
+            />
+            <TextField
+              size="small"
+              label="Source filename (read-only)"
+              value={editValues.originalFilename}
+              InputProps={{ readOnly: true }}
+              sx={{
+                "& .MuiInputBase-input": { color: "text.secondary", fontFamily: "monospace", fontSize: 12 },
+              }}
+              helperText="Original filename from upload, kept for admin reference. Editing has no effect on the S3 object or what users see."
+            />
+          </Box>
         </Box>
 
         <Box sx={{ display: "flex", gap: 1.5, ml: "40px" }}>

@@ -1378,6 +1378,7 @@ export const EventEdit = () => {
         await dataProvider.update("tracks", {
           id: trackId,
           data: {
+            title: updates.title,
             originalFilename: updates.originalFilename,
             languages: updates.languages,
             originalLanguage: updates.originalLanguage,
@@ -1396,6 +1397,7 @@ export const EventEdit = () => {
               track.id === trackId
                 ? {
                     ...track,
+                    title: updates.title ?? track.title,
                     originalFilename: updates.originalFilename ?? track.originalFilename,
                     languages: updates.languages ?? track.languages,
                     originalLanguage: updates.originalLanguage ?? track.originalLanguage,
