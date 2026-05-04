@@ -336,6 +336,10 @@ export const pt = {
       heroUploaded: "Imagem de capa carregada",
       heroUploadFailed: "Falha ao carregar imagem de capa",
     },
+    tracks: {
+      download: "Descarregar áudio",
+      downloadFailed: "Não foi possível descarregar a faixa",
+    },
     approvals: {
       approve: "Aprovar",
       reject: "Rejeitar",

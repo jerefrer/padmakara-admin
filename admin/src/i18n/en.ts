@@ -135,6 +135,10 @@ export const en = {
       heroUploaded: "Hero image uploaded",
       heroUploadFailed: "Hero image upload failed",
     },
+    tracks: {
+      download: "Download audio",
+      downloadFailed: "Could not download track",
+    },
     approvals: {
       approve: "Approve",
       reject: "Reject",

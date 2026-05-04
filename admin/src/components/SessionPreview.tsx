@@ -4,6 +4,7 @@ import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import CheckIcon from "@mui/icons-material/Check";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DescriptionIcon from "@mui/icons-material/Description";
+import DownloadIcon from "@mui/icons-material/Download";
 import EditIcon from "@mui/icons-material/Edit";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -25,7 +26,8 @@ import Paper from "@mui/material/Paper";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useRef, useState } from "react";
-import { useTranslate } from "react-admin";
+import { useNotify, useTranslate } from "react-admin";
+import { authFetch } from "../utils/authFetch";
 import {
   type InferredSession,
   type ParsedTrack,
@@ -572,7 +574,9 @@ const TrackRow = ({
   onPreview: (state: PreviewState) => void;
 }) => {
   const translate = useTranslate();
+  const notify = useNotify();
   const [editing, setEditing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [editValues, setEditValues] = useState({
     title: track.title || "",
     originalFilename: track.originalFilename || "",
@@ -623,6 +627,27 @@ const TrackRow = ({
       speaker: track.speaker || "",
     });
     setEditing(false);
+  };
+
+  const handleDownload = async () => {
+    if (!track.id) return;
+    setDownloading(true);
+    try {
+      const res = await authFetch(`/api/admin/tracks/${track.id}/download-url`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { url } = (await res.json()) as { url: string };
+      // window.open with the same target avoids the popup blocker on a
+      // user-initiated click and lets the Content-Disposition header drive
+      // the actual download.
+      window.location.href = url;
+    } catch (err) {
+      console.error("Track download failed:", err);
+      notify(translate("padmakara.tracks.downloadFailed") || "Could not download track", {
+        type: "error",
+      });
+    } finally {
+      setDownloading(false);
+    }
   };
 
   if (editing) {
@@ -950,6 +975,20 @@ const TrackRow = ({
           title={translate("padmakara.session.trackPlay") || "Play"}
         >
           <PlayArrowIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+      )}
+
+      {/* Download button — fetches a fresh presigned URL and triggers a
+          browser download with the track's title as filename. */}
+      {track.id && (
+        <IconButton
+          size="small"
+          onClick={handleDownload}
+          disabled={downloading}
+          sx={{ opacity: 0.5, "&:hover": { opacity: 1, color: "primary.main" } }}
+          title={translate("padmakara.tracks.download") || "Download audio"}
+        >
+          <DownloadIcon sx={{ fontSize: 16 }} />
         </IconButton>
       )}
 

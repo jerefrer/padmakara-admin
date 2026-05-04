@@ -84,6 +84,26 @@ export async function generatePresignedDownloadUrl(
   return url;
 }
 
+/**
+ * Like generatePresignedDownloadUrl but tells the browser to attach the
+ * file as a download (and use the given filename) instead of streaming
+ * inline. Not cached — the filename can vary per request and these URLs
+ * are short-lived by design.
+ */
+export async function generatePresignedAttachmentUrl(
+  key: string,
+  filename: string,
+  expiresIn = 600,
+): Promise<string> {
+  const safe = filename.replace(/"/g, "");
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    ResponseContentDisposition: `attachment; filename="${safe}"`,
+  });
+  return await getSignedUrl(s3Client, command, { expiresIn });
+}
+
 export async function deleteObject(key: string): Promise<void> {
   const command = new DeleteObjectCommand({
     Bucket: BUCKET,
