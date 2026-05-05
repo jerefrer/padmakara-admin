@@ -5,17 +5,20 @@ import {
   Autocomplete,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   MenuItem,
   TextField as MuiTextField,
   Typography,
 } from "@mui/material";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useFormContext } from "react-hook-form";
 import { authFetch } from "../utils/authFetch";
 import {
   Create,
@@ -330,6 +333,206 @@ export const PublicationList = () => (
 
 // ─── Edit ────────────────────────────────────────────────────────────────────
 
+/**
+ * PDF replacement zone shown on the Edit form. Supports drag-and-drop, with
+ * optional re-extraction of textual metadata (title, subtitle, etc — off by
+ * default to avoid silently overwriting human-edited fields). The cover is
+ * ALWAYS regenerated server-side from the new PDF on save, because the version
+ * label on Padmakara covers means the old auto-cover is no longer accurate.
+ */
+function PdfReplaceSection() {
+  const notify = useNotify();
+  const { setValue } = useFormContext();
+  const [uploading, setUploading] = useState(false);
+  const [statusText, setStatusText] = useState("");
+  const [extractMeta, setExtractMeta] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type !== "application/pdf") {
+      notify("Please select a PDF file", { type: "error" });
+      return;
+    }
+
+    setUploading(true);
+    try {
+      // 1. Presign upload
+      setStatusText("Requesting upload URL...");
+      const presignRes = await authFetch(
+        "/api/admin/publications/presign-upload",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type,
+            type: "pdf",
+          }),
+        },
+      );
+      if (!presignRes.ok) throw new Error("Failed to get upload URL");
+      const { s3Key, uploadUrl } = await presignRes.json();
+
+      // 2. Upload PDF
+      setStatusText("Uploading PDF to storage...");
+      const uploadRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!uploadRes.ok) throw new Error("Upload failed");
+
+      // 3. Optionally re-extract textual metadata. The cover is always
+      // regenerated server-side on save (PUT /:id detects the PDF change),
+      // so we don't touch coverImageS3Key here regardless of the checkbox.
+      if (extractMeta) {
+        setStatusText("Extracting metadata with AI...");
+        const extractRes = await authFetch(
+          "/api/admin/publications/extract-metadata",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pdfS3Key: s3Key }),
+          },
+        );
+        if (!extractRes.ok) throw new Error("Metadata extraction failed");
+        const meta = await extractRes.json();
+
+        if (meta.title) setValue("title", meta.title, { shouldDirty: true });
+        if (meta.subtitle !== undefined)
+          setValue("subtitle", meta.subtitle, { shouldDirty: true });
+        if (meta.description !== undefined)
+          setValue("description", meta.description, { shouldDirty: true });
+        if (Array.isArray(meta.authors) && meta.authors.length > 0)
+          setValue("authors", meta.authors, { shouldDirty: true });
+        if (meta.language)
+          setValue("language", meta.language, { shouldDirty: true });
+        if (meta.publicationDate)
+          setValue("publicationDate", meta.publicationDate, {
+            shouldDirty: true,
+          });
+        if (meta.version)
+          setValue("version", meta.version, { shouldDirty: true });
+        if (typeof meta.pageCount === "number")
+          setValue("pageCount", meta.pageCount, { shouldDirty: true });
+        if (typeof meta.fileSizeBytes === "number")
+          setValue("fileSizeBytes", meta.fileSizeBytes, { shouldDirty: true });
+      } else {
+        // Backend re-derives pageCount/fileSizeBytes server-side from the new
+        // pdfS3Key on save. Surface the local file size immediately for UX.
+        setValue("fileSizeBytes", file.size, { shouldDirty: true });
+      }
+
+      setValue("pdfS3Key", s3Key, { shouldDirty: true });
+
+      notify(
+        extractMeta
+          ? "PDF replaced and metadata re-extracted — review and Save"
+          : "PDF replaced — cover will be regenerated on Save",
+        { type: "info" },
+      );
+    } catch (err) {
+      notify(
+        err instanceof Error ? err.message : "Failed to replace PDF",
+        { type: "error" },
+      );
+    } finally {
+      setUploading(false);
+      setStatusText("");
+    }
+  };
+
+  return (
+    <Box sx={{ width: "100%" }}>
+      <Typography
+        variant="subtitle2"
+        sx={{ fontWeight: 600, mb: 1, color: "text.secondary" }}
+      >
+        Replace PDF
+      </Typography>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf"
+        style={{ display: "none" }}
+        onChange={(e) => handleFile(e.target.files?.[0])}
+      />
+
+      <Box
+        sx={{
+          border: "2px dashed",
+          borderColor: isDragging
+            ? "primary.main"
+            : uploading
+              ? "primary.light"
+              : "grey.400",
+          borderRadius: 2,
+          p: 3,
+          textAlign: "center",
+          cursor: uploading ? "default" : "pointer",
+          bgcolor: isDragging ? "action.hover" : "background.paper",
+          transition: "all 0.2s",
+          opacity: uploading ? 0.7 : 1,
+        }}
+        onDragOver={(e) => {
+          if (uploading) return;
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          if (uploading) return;
+          handleFile(e.dataTransfer.files[0]);
+        }}
+        onClick={() => {
+          if (!uploading) fileInputRef.current?.click();
+        }}
+      >
+        {uploading ? (
+          <Box>
+            <CircularProgress size={24} sx={{ mb: 1 }} />
+            <Typography variant="body2" color="text.secondary">
+              {statusText}
+            </Typography>
+          </Box>
+        ) : (
+          <>
+            <CloudUploadIcon sx={{ fontSize: 32, color: "grey.500", mb: 0.5 }} />
+            <Typography variant="body2">
+              Drag and drop a PDF here, or click to browse
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              The cover image is always regenerated from the new PDF on save
+            </Typography>
+          </>
+        )}
+      </Box>
+
+      <FormControlLabel
+        sx={{ mt: 1 }}
+        control={
+          <Checkbox
+            checked={extractMeta}
+            onChange={(e) => setExtractMeta(e.target.checked)}
+            size="small"
+            disabled={uploading}
+          />
+        }
+        label={
+          <Typography variant="body2">
+            Re-extract metadata (title, subtitle, version…) from new PDF
+          </Typography>
+        }
+      />
+    </Box>
+  );
+}
+
 export const PublicationEdit = () => (
   <Edit>
     <SimpleForm toolbar={<PublicationToolbar />}>
@@ -374,7 +577,12 @@ export const PublicationEdit = () => (
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
             <SelectInput source="language" label="Language" choices={LANGUAGE_CHOICES} validate={required()} />
             <DateInput source="publicationDate" label="Publication Date" />
+            <TextInput source="version" label="Version" helperText="e.g. V.1.2 - Março 2026" />
             <SelectInput source="accessLevel" label="Access Level" choices={ACCESS_LEVEL_CHOICES} validate={required()} />
+          </Box>
+
+          <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>
+            <PdfReplaceSection />
           </Box>
         </Box>
       </Box>
@@ -391,6 +599,7 @@ interface ExtractedMetadata {
   authors?: string[];
   language?: string;
   publicationDate?: string;
+  version?: string;
   pageCount?: number;
   fileSizeBytes?: number;
   coverImageS3Key?: string;
@@ -482,6 +691,7 @@ export const PublicationCreate = () => {
         authors: extractedAuthors,
         language: metadata.language || "pt",
         publicationDate: metadata.publicationDate || undefined,
+        version: metadata.version || "",
         accessLevel: "public",
         pdfS3Key: s3Key,
         coverImageS3Key: metadata.coverImageS3Key || "",
@@ -712,6 +922,19 @@ export const PublicationCreate = () => {
                   }
                   slotProps={{ inputLabel: { shrink: true } }}
                   sx={{ minWidth: 170 }}
+                />
+                <MuiTextField
+                  label="Version"
+                  defaultValue={(defaultValues.version as string) || ""}
+                  onChange={(e) =>
+                    setDefaultValues((prev) => ({
+                      ...prev,
+                      version: e.target.value,
+                    }))
+                  }
+                  helperText="e.g. V.1.2 - Março 2026"
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  sx={{ minWidth: 200 }}
                 />
                 <MuiTextField
                   label="Access Level"

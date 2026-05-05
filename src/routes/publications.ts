@@ -120,9 +120,11 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
         language: p.language,
         pageCount: p.pageCount,
         publicationDate: p.publicationDate,
+        version: p.version,
         coverImageUrl,
         fileSizeBytes: p.fileSizeBytes,
         accessLevel: p.accessLevel,
+        updatedAt: p.updatedAt,
       };
     }),
   );

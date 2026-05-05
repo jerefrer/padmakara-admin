@@ -183,14 +183,22 @@ publicationRoutes.post("/extract-metadata", async (c) => {
             },
             {
               type: "text",
-              text: `Extract metadata from this Buddhist publication cover/first page. Return a JSON object with these fields:
+              text: `Extract metadata from this Buddhist publication cover/first page. Return a JSON object with these fields.
 
-- "title": The main title of the publication (in the original language as printed)
-- "subtitle": A subtitle or secondary title if present, otherwise null
-- "authors": Array of author/translator names found. Look for names after "by", "par", "por", "traduit par", "translated by", etc.
-- "language": The primary language code: "pt" for Portuguese, "en" for English, "fr" for French, "tib" for Tibetan, etc.
-- "description": A brief description if there's a blurb or summary visible, otherwise null
-- "publicationDate": Publication year if visible, as "YYYY-01-01" format, otherwise null
+TITLE STRUCTURE (very important — covers often contain up to FOUR title elements arranged vertically):
+1. TIBETAN-SCRIPT TITLE at the very top, in Tibetan script (༄༅། །བླ་སྤྲུལ་…). IGNORE this — do not include it anywhere in the output.
+2. SUBTITLE: smaller italic line(s) ABOVE the main title (e.g. "As Práticas Preliminares d'A Quintessência do Guru Kīlaya").
+3. MAIN TITLE: the most prominent text, usually in LARGE CAPITALS / SMALL-CAPS in the center of the cover (e.g. "O EXCELENTE CAMINHO DA LIBERTAÇÃO"). This is the primary title in a European language (Portuguese, English, French).
+4. PHONETIC / ROMANIZED TIBETAN NAME: an italic line BELOW the main title with a transliteration of the Tibetan title (e.g. "Laphur Thugtik Ngöndro"). Append this in parentheses to the main title.
+
+Fields:
+- "title": Main title (CAPS/center) followed by the romanized/phonetic Tibetan name in parentheses if it exists below the main title (e.g. "O Excelente Caminho da Libertação (Laphur Thugtik Ngöndro)"). Never use the Tibetan-script title. If no romanized name appears below, return just the main title.
+- "subtitle": The italic subtitle ABOVE the main title. Otherwise null. Do NOT put the romanized Tibetan name here.
+- "authors": Array of author/translator names found. Look for names after "by", "par", "por", "traduit par", "translated by", or listed prominently near the bottom (e.g. "Kangyur Rinpoche, Longchen Yeshe Dorje").
+- "language": Primary language of the MAIN title: "pt" for Portuguese, "en" for English, "fr" for French, "tib" for Tibetan only, etc.
+- "description": Brief description if a blurb or summary is visible, otherwise null.
+- "publicationDate": Publication date if visible, as "YYYY-MM-DD" format. If only month + year are shown (e.g. "Março 2026"), use day "01" (→ "2026-03-01"). Otherwise null.
+- "version": The document version string if printed on the cover (often vertically along the spine/edge, e.g. "V.1.2 - Março 2026", "v2.0", "Version 1.0"). Return the version label exactly as printed (e.g. "V.1.2"). If a date is included next to the version, keep it ("V.1.2 - Março 2026"). Otherwise null.
 
 Also, here are the known teachers in our system. If any author matches or is clearly the same person as one of these teachers, include their ID:
 ${teacherList}
@@ -246,6 +254,7 @@ Return ONLY the JSON object, no markdown fences, no explanation.`,
     language: (extracted.language as string) || "pt",
     description: (extracted.description as string) || null,
     publicationDate: (extracted.publicationDate as string) || null,
+    version: (extracted.version as string) || null,
     matchedTeacherIds: Array.isArray(extracted.matchedTeacherIds)
       ? extracted.matchedTeacherIds
       : [],
@@ -302,17 +311,33 @@ publicationRoutes.put("/:id", async (c) => {
   const body = await c.req.json();
   const data = updatePublicationSchema.parse(body);
 
+  // Fetch existing record so we can detect a real PDF change and force cover
+  // regeneration when it happens. The version label usually appears on the
+  // cover, so a stale auto-cover after a PDF replacement would be wrong.
+  const existing = await db.query.publications.findFirst({
+    where: eq(publications.id, id),
+  });
+  if (!existing) throw AppError.notFound("Publication not found");
+
   let pageCount = data.pageCount;
   let fileSizeBytes = data.fileSizeBytes;
   let coverImageS3Key = data.coverImageS3Key;
 
-  // Re-extract metadata when the PDF changes
   if (data.pdfS3Key) {
+    const pdfChanged = data.pdfS3Key !== existing.pdfS3Key;
     try {
-      const metadata = await extractPdfMetadata(data.pdfS3Key, coverImageS3Key, id);
+      // Pass null when the PDF changed so extractPdfMetadata regenerates the
+      // cover; otherwise preserve any existing/manual cover.
+      const metadata = await extractPdfMetadata(
+        data.pdfS3Key,
+        pdfChanged ? null : coverImageS3Key,
+        id,
+      );
       pageCount = metadata.pageCount;
       fileSizeBytes = metadata.fileSizeBytes;
-      if (!coverImageS3Key) coverImageS3Key = metadata.coverImageS3Key;
+      if (pdfChanged || !coverImageS3Key) {
+        coverImageS3Key = metadata.coverImageS3Key;
+      }
     } catch (err) {
       console.error("Failed to extract PDF metadata:", err);
     }

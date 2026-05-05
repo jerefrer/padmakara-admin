@@ -118,6 +118,7 @@ export const createPublicationSchema = z.object({
   description: z.string().optional().nullable(),
   authors: z.array(z.string().max(200)).optional().default([]),
   language: z.string().min(2).max(10).optional().default("pt"),
+  version: z.string().max(50).optional().nullable(),
   publicationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   coverImageS3Key: z.string().optional().nullable(),
   pdfS3Key: z.string().min(1),

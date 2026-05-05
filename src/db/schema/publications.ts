@@ -19,6 +19,7 @@ export const publications = pgTable("publications", {
   authors: text("authors").array().notNull().default([]),
   language: text("language").notNull().default("pt"),
   pageCount: integer("page_count"),
+  version: text("version"),
   publicationDate: date("publication_date", { mode: "string" }),
   coverImageS3Key: text("cover_image_s3_key"),
   pdfS3Key: text("pdf_s3_key").notNull(),
