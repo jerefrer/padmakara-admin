@@ -574,7 +574,7 @@ export const PublicationEdit = () => (
             fullWidth
             helperText="Comma-separated names"
           />
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-start" }}>
             <SelectInput source="language" label="Language" choices={LANGUAGE_CHOICES} validate={required()} />
             <DateInput source="publicationDate" label="Publication Date" />
             <TextInput source="version" label="Version" helperText="e.g. V.1.2 - Março 2026" />
@@ -890,7 +890,7 @@ export const PublicationCreate = () => {
               />
 
               {/* Language, Date, Access, Status */}
-              <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+              <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-start" }}>
                 <MuiTextField
                   label="Language"
                   select
@@ -932,6 +932,7 @@ export const PublicationCreate = () => {
                       version: e.target.value,
                     }))
                   }
+                  placeholder="V.1.2 - Março 2026"
                   helperText="e.g. V.1.2 - Março 2026"
                   slotProps={{ inputLabel: { shrink: true } }}
                   sx={{ minWidth: 200 }}
