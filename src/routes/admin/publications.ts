@@ -60,7 +60,9 @@ async function extractPdfMetadata(
 
   let pageCount: number | null = null;
   try {
-    const pdfDoc = await PDFDocument.load(pdfBytes);
+    // ignoreEncryption: many publisher PDFs ship with copy/edit-protection
+// flags set even though no password is needed to read them.
+const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
     pageCount = pdfDoc.getPageCount();
   } catch (err) {
     console.error("Failed to extract page count:", err);
@@ -144,7 +146,9 @@ publicationRoutes.post("/extract-metadata", async (c) => {
 
   // Extract pages 1-3 + last 3 (deduplicated) so version/date metadata
   // can be picked up from cover, front matter, OR colophon at the end.
-  const pdfDoc = await PDFDocument.load(pdfBytes);
+  // ignoreEncryption: many publisher PDFs ship with copy/edit-protection
+// flags set even though no password is needed to read them.
+const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
   const pageCount = pdfDoc.getPageCount();
   const candidateIndices = [
     0, 1, 2,
