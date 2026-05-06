@@ -128,7 +128,9 @@ publicationRoutes.get("/", async (c) => {
 });
 
 /**
- * POST /extract-metadata — Use Claude AI to extract metadata from a PDF's first page
+ * POST /extract-metadata — Use Claude AI to extract metadata from a PDF.
+ * Sends pages 1-3 + the last 3 pages so version/date info can be picked up
+ * from the cover, front matter, OR colophon.
  */
 publicationRoutes.post("/extract-metadata", async (c) => {
   const { pdfS3Key } = (await c.req.json()) as { pdfS3Key: string };
@@ -140,14 +142,30 @@ publicationRoutes.post("/extract-metadata", async (c) => {
   if (!response.ok) throw new AppError(500,"Failed to download PDF from S3");
   const pdfBytes = new Uint8Array(await response.arrayBuffer());
 
-  // Extract first page as a single-page PDF
+  // Extract pages 1-3 + last 3 (deduplicated) so version/date metadata
+  // can be picked up from cover, front matter, OR colophon at the end.
   const pdfDoc = await PDFDocument.load(pdfBytes);
   const pageCount = pdfDoc.getPageCount();
-  const singlePageDoc = await PDFDocument.create();
-  const [copiedPage] = await singlePageDoc.copyPages(pdfDoc, [0]);
-  singlePageDoc.addPage(copiedPage);
-  const firstPagePdf = await singlePageDoc.save();
-  const pdfBase64 = Buffer.from(firstPagePdf).toString("base64");
+  const candidateIndices = [
+    0, 1, 2,
+    pageCount - 3, pageCount - 2, pageCount - 1,
+  ];
+  const pageIndices = Array.from(
+    new Set(candidateIndices.filter((i) => i >= 0 && i < pageCount)),
+  ).sort((a, b) => a - b);
+  const subsetDoc = await PDFDocument.create();
+  const copiedPages = await subsetDoc.copyPages(pdfDoc, pageIndices);
+  copiedPages.forEach((p) => subsetDoc.addPage(p));
+  const subsetPdf = await subsetDoc.save();
+  const pdfBase64 = Buffer.from(subsetPdf).toString("base64");
+
+  // Describe the page selection so Claude knows what it is looking at
+  const pageDescriptions = pageIndices.map((i) => {
+    if (i === 0) return "page 1 (cover)";
+    if (i === pageCount - 1) return `page ${i + 1} (last page)`;
+    return `page ${i + 1}`;
+  });
+  const pageContextLine = `This document contains ${pageIndices.length} page${pageIndices.length > 1 ? "s" : ""} extracted from a ${pageCount}-page publication: ${pageDescriptions.join(", ")}.`;
 
   // Fetch existing teachers for matching
   const allTeachers = await db.select().from(teachers);
@@ -183,27 +201,31 @@ publicationRoutes.post("/extract-metadata", async (c) => {
             },
             {
               type: "text",
-              text: `Extract metadata from this Buddhist publication cover/first page. Return a JSON object with these fields.
+              text: `Extract metadata from this Buddhist publication. Return a JSON object with these fields.
 
-TITLE STRUCTURE (very important — covers often contain up to FOUR title elements arranged vertically):
+${pageContextLine}
+
+The cover (page 1) carries the title, subtitle, and authors. The version label and publication date may appear on the cover, on the front matter (pages 2–3, e.g. copyright/credits page), or on the LAST pages (colophon). Look across all pages provided.
+
+TITLE STRUCTURE (cover only — covers often contain up to FOUR title elements arranged vertically):
 1. TIBETAN-SCRIPT TITLE at the very top, in Tibetan script (༄༅། །བླ་སྤྲུལ་…). IGNORE this — do not include it anywhere in the output.
 2. SUBTITLE: smaller italic line(s) ABOVE the main title (e.g. "As Práticas Preliminares d'A Quintessência do Guru Kīlaya").
 3. MAIN TITLE: the most prominent text, usually in LARGE CAPITALS / SMALL-CAPS in the center of the cover (e.g. "O EXCELENTE CAMINHO DA LIBERTAÇÃO"). This is the primary title in a European language (Portuguese, English, French).
 4. PHONETIC / ROMANIZED TIBETAN NAME: an italic line BELOW the main title with a transliteration of the Tibetan title (e.g. "Laphur Thugtik Ngöndro"). Append this in parentheses to the main title.
 
 Fields:
-- "title": Main title (CAPS/center) followed by the romanized/phonetic Tibetan name in parentheses if it exists below the main title (e.g. "O Excelente Caminho da Libertação (Laphur Thugtik Ngöndro)"). Never use the Tibetan-script title. If no romanized name appears below, return just the main title.
-- "subtitle": The italic subtitle ABOVE the main title. Otherwise null. Do NOT put the romanized Tibetan name here.
-- "authors": Array of author/translator names found. Look for names after "by", "par", "por", "traduit par", "translated by", or listed prominently near the bottom (e.g. "Kangyur Rinpoche, Longchen Yeshe Dorje").
+- "title": From the COVER. Main title (CAPS/center) followed by the romanized/phonetic Tibetan name in parentheses if it exists below the main title (e.g. "O Excelente Caminho da Libertação (Laphur Thugtik Ngöndro)"). Never use the Tibetan-script title. If no romanized name appears below, return just the main title.
+- "subtitle": From the COVER. The italic subtitle ABOVE the main title. Otherwise null. Do NOT put the romanized Tibetan name here.
+- "authors": From the COVER. Array of author/translator names found. Look for names after "by", "par", "por", "traduit par", "translated by", or listed prominently near the bottom (e.g. "Kangyur Rinpoche, Longchen Yeshe Dorje").
 - "language": Primary language of the MAIN title: "pt" for Portuguese, "en" for English, "fr" for French, "tib" for Tibetan only, etc.
 - "description": Brief description if a blurb or summary is visible, otherwise null.
-- "publicationDate": Publication date if visible, as "YYYY-MM-DD" format. If only month + year are shown (e.g. "Março 2026"), use day "01" (→ "2026-03-01"). Otherwise null.
-- "version": The document version string if printed on the cover (often vertically along the spine/edge, e.g. "V.1.2 - Março 2026", "v2.0", "Version 1.0"). Return the version label exactly as printed (e.g. "V.1.2"). If a date is included next to the version, keep it ("V.1.2 - Março 2026"). Otherwise null.
+- "publicationDate": Publication date in "YYYY-MM-DD" format. Look on the cover, copyright/credits page (front matter), AND the colophon (last pages). If only month + year are shown (e.g. "Março 2026"), use day "01" (→ "2026-03-01"). Only return a date if you can clearly identify it as the publication/edition date — ignore retreat dates, dharma event dates, and historical dates inside the body text. Otherwise null.
+- "version": The document version string. It may be printed on the cover (often vertically along the spine/edge, e.g. "V.1.2 - Março 2026"), on the copyright page, or on the colophon. Look for explicit labels like "Version", "Versão", "V.", "Edition", "Edição", "Rev.". Return the version label exactly as printed (e.g. "V.1.2"). If a date is included next to the version, keep it ("V.1.2 - Março 2026"). Otherwise null.
 
 Also, here are the known teachers in our system. If any author matches or is clearly the same person as one of these teachers, include their ID:
 ${teacherList}
 
-- "matchedTeacherIds": Array of teacher IDs (numbers) that match authors found on this page. Only include confident matches.
+- "matchedTeacherIds": Array of teacher IDs (numbers) that match authors found on the cover. Only include confident matches.
 
 Return ONLY the JSON object, no markdown fences, no explanation.`,
             },
