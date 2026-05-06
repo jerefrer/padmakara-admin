@@ -224,7 +224,12 @@ Fields:
 - "language": Primary language of the MAIN title: "pt" for Portuguese, "en" for English, "fr" for French, "tib" for Tibetan only, etc.
 - "description": Brief description if a blurb or summary is visible, otherwise null.
 - "publicationDate": Publication date in "YYYY-MM-DD" format. Look on the cover, copyright/credits page (front matter), AND the colophon / back cover (last pages) — including ROTATED text along the edges. If only month + year are shown (e.g. "Novembro 2016"), use day "01" (→ "2016-11-01"). If the date appears inside a version string like "Edição (v1.0 Novembro 2016)", extract "2016-11-01". Only return a date if you can clearly identify it as the publication/edition date — ignore retreat dates, dharma event dates, and historical dates inside the body text. Otherwise null.
-- "version": The document version string. It may be printed on the cover or back cover (often ROTATED VERTICALLY along the spine/edge, e.g. "Edição (v1.0 Novembro 2016)", "V.1.2 - Março 2026"), on the copyright page, or on the colophon. Look for explicit labels like "Version", "Versão", "V.", "v", "Edition", "Edição", "Ed.", "Rev.". Return the version label exactly as printed, including any date in parentheses (e.g. "v1.0 Novembro 2016", "Edição (v1.0 Novembro 2016)", "V.1.2 - Março 2026"). Otherwise null.
+- "version": The version identifier ONLY — a short tag like "v1.0" or "V.1.2". STRIP any wrapping word ("Edição", "Edition", "Versão", "Version"), STRIP the date (the date goes in publicationDate, not here), and STRIP surrounding parentheses or punctuation. The version may be printed on the cover or back cover (often ROTATED VERTICALLY along the spine/edge), on the copyright page, or on the colophon. Examples of the exact transformation expected:
+  - "Edição (v1.0 Novembro 2016)" → "v1.0"
+  - "V.1.2 - Março 2026" → "V.1.2"
+  - "Versão 2.0 / Outubro 2022" → "v2.0"
+  - "Edition 3, October 2024" → "v3"
+Preserve the original casing of the version letter ("v" or "V") when one is printed; otherwise prefix a lowercase "v". Otherwise null.
 
 Also, here are the known teachers in our system. If any author matches or is clearly the same person as one of these teachers, include their ID:
 ${teacherList}

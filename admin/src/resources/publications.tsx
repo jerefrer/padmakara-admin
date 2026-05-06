@@ -577,7 +577,7 @@ export const PublicationEdit = () => (
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-start" }}>
             <SelectInput source="language" label="Language" choices={LANGUAGE_CHOICES} validate={required()} />
             <DateInput source="publicationDate" label="Publication Date" />
-            <TextInput source="version" label="Version" helperText="e.g. V.1.2 - Março 2026" />
+            <TextInput source="version" label="Version" helperText="e.g. v1.0 or V.1.2" />
             <SelectInput source="accessLevel" label="Access Level" choices={ACCESS_LEVEL_CHOICES} validate={required()} />
           </Box>
 
@@ -932,8 +932,8 @@ export const PublicationCreate = () => {
                       version: e.target.value,
                     }))
                   }
-                  placeholder="V.1.2 - Março 2026"
-                  helperText="e.g. V.1.2 - Março 2026"
+                  placeholder="v1.0"
+                  helperText="e.g. v1.0 or V.1.2"
                   slotProps={{ inputLabel: { shrink: true } }}
                   sx={{ minWidth: 200 }}
                 />
