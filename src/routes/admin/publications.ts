@@ -185,7 +185,9 @@ publicationRoutes.post("/extract-metadata", async (c) => {
   let aiResponse;
   try {
     aiResponse = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
+      // Sonnet (not Haiku) — we need solid PDF/vision skills to catch
+      // rotated/vertical text on covers and colophons.
+      model: "claude-sonnet-4-6",
       max_tokens: 1024,
       messages: [
         {
@@ -205,7 +207,9 @@ publicationRoutes.post("/extract-metadata", async (c) => {
 
 ${pageContextLine}
 
-The cover (page 1) carries the title, subtitle, and authors. The version label and publication date may appear on the cover, on the front matter (pages 2–3, e.g. copyright/credits page), or on the LAST pages (colophon). Look across all pages provided.
+The cover (page 1) carries the title, subtitle, and authors. The version label and publication date may appear on the cover, on the front matter (pages 2–3, e.g. copyright/credits page), or on the LAST pages (colophon, back cover). Look across all pages provided.
+
+IMPORTANT — version/date text is often ROTATED 90° (printed VERTICALLY along the spine, the gutter, or the outer edge of the cover or back cover). Examples of vertical text you must catch: "Edição (v1.0 Novembro 2016)", "v2.0 — Março 2024", "Versão 1.3 / Outubro 2022". Always inspect the four edges of the cover and the back cover for such text, even when the rest of the page looks empty.
 
 TITLE STRUCTURE (cover only — covers often contain up to FOUR title elements arranged vertically):
 1. TIBETAN-SCRIPT TITLE at the very top, in Tibetan script (༄༅། །བླ་སྤྲུལ་…). IGNORE this — do not include it anywhere in the output.
@@ -219,8 +223,8 @@ Fields:
 - "authors": From the COVER. Array of author/translator names found. Look for names after "by", "par", "por", "traduit par", "translated by", or listed prominently near the bottom (e.g. "Kangyur Rinpoche, Longchen Yeshe Dorje").
 - "language": Primary language of the MAIN title: "pt" for Portuguese, "en" for English, "fr" for French, "tib" for Tibetan only, etc.
 - "description": Brief description if a blurb or summary is visible, otherwise null.
-- "publicationDate": Publication date in "YYYY-MM-DD" format. Look on the cover, copyright/credits page (front matter), AND the colophon (last pages). If only month + year are shown (e.g. "Março 2026"), use day "01" (→ "2026-03-01"). Only return a date if you can clearly identify it as the publication/edition date — ignore retreat dates, dharma event dates, and historical dates inside the body text. Otherwise null.
-- "version": The document version string. It may be printed on the cover (often vertically along the spine/edge, e.g. "V.1.2 - Março 2026"), on the copyright page, or on the colophon. Look for explicit labels like "Version", "Versão", "V.", "Edition", "Edição", "Rev.". Return the version label exactly as printed (e.g. "V.1.2"). If a date is included next to the version, keep it ("V.1.2 - Março 2026"). Otherwise null.
+- "publicationDate": Publication date in "YYYY-MM-DD" format. Look on the cover, copyright/credits page (front matter), AND the colophon / back cover (last pages) — including ROTATED text along the edges. If only month + year are shown (e.g. "Novembro 2016"), use day "01" (→ "2016-11-01"). If the date appears inside a version string like "Edição (v1.0 Novembro 2016)", extract "2016-11-01". Only return a date if you can clearly identify it as the publication/edition date — ignore retreat dates, dharma event dates, and historical dates inside the body text. Otherwise null.
+- "version": The document version string. It may be printed on the cover or back cover (often ROTATED VERTICALLY along the spine/edge, e.g. "Edição (v1.0 Novembro 2016)", "V.1.2 - Março 2026"), on the copyright page, or on the colophon. Look for explicit labels like "Version", "Versão", "V.", "v", "Edition", "Edição", "Ed.", "Rev.". Return the version label exactly as printed, including any date in parentheses (e.g. "v1.0 Novembro 2016", "Edição (v1.0 Novembro 2016)", "V.1.2 - Março 2026"). Otherwise null.
 
 Also, here are the known teachers in our system. If any author matches or is clearly the same person as one of these teachers, include their ID:
 ${teacherList}
