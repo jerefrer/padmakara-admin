@@ -40,6 +40,47 @@ async function generateCoverFromPdf(pdfBuffer: Buffer | Uint8Array): Promise<Buf
 }
 
 /**
+ * Render a single page of a PDF as a JPEG via pdftoppm. Used to feed Claude's
+ * vision API when pdf-lib's page subsetting fails on malformed/encrypted PDFs.
+ */
+async function renderPageAsJpeg(
+  pdfBuffer: Uint8Array,
+  pageNum: number,
+  width = 1280,
+): Promise<Buffer> {
+  const proc = Bun.spawn(
+    [
+      "pdftoppm",
+      "-jpeg",
+      "-jpegopt", "quality=85",
+      "-f", String(pageNum),
+      "-l", String(pageNum),
+      "-scale-to", String(width),
+      "-",
+    ],
+    {
+      stdin: new Blob([pdfBuffer]),
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).arrayBuffer(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(
+      `pdftoppm page ${pageNum} failed (exit ${exitCode}): ${stderr.substring(0, 200)}`,
+    );
+  }
+
+  return Buffer.from(stdout);
+}
+
+/**
  * Extract PDF metadata and optionally auto-generate a cover image.
  * Returns updated pageCount, fileSizeBytes, and coverImageS3Key.
  */
@@ -144,32 +185,31 @@ publicationRoutes.post("/extract-metadata", async (c) => {
   if (!response.ok) throw new AppError(500,"Failed to download PDF from S3");
   const pdfBytes = new Uint8Array(await response.arrayBuffer());
 
-  // Extract pages 1-3 + last 3 (deduplicated) so version/date metadata
-  // can be picked up from cover, front matter, OR colophon at the end.
+  // We need pages 1-3 + last 3 so version/date metadata can be picked up
+  // from cover, front matter, OR colophon. pdf-lib's copyPages chokes on
+  // publisher PDFs with non-standard cross-reference tables, so render each
+  // page as a JPEG via pdftoppm (poppler) and send those to Claude's vision
+  // API instead of a subset PDF.
   // ignoreEncryption: many publisher PDFs ship with copy/edit-protection
-// flags set even though no password is needed to read them.
-const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  // flags set even though no password is needed to read them.
+  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
   const pageCount = pdfDoc.getPageCount();
-  const candidateIndices = [
-    0, 1, 2,
-    pageCount - 3, pageCount - 2, pageCount - 1,
-  ];
-  const pageIndices = Array.from(
-    new Set(candidateIndices.filter((i) => i >= 0 && i < pageCount)),
+  const candidatePages = [1, 2, 3, pageCount - 2, pageCount - 1, pageCount];
+  const pageNums = Array.from(
+    new Set(candidatePages.filter((n) => n >= 1 && n <= pageCount)),
   ).sort((a, b) => a - b);
-  const subsetDoc = await PDFDocument.create();
-  const copiedPages = await subsetDoc.copyPages(pdfDoc, pageIndices);
-  copiedPages.forEach((p) => subsetDoc.addPage(p));
-  const subsetPdf = await subsetDoc.save();
-  const pdfBase64 = Buffer.from(subsetPdf).toString("base64");
 
-  // Describe the page selection so Claude knows what it is looking at
-  const pageDescriptions = pageIndices.map((i) => {
-    if (i === 0) return "page 1 (cover)";
-    if (i === pageCount - 1) return `page ${i + 1} (last page)`;
-    return `page ${i + 1}`;
+  const pageImages = await Promise.all(
+    pageNums.map((n) => renderPageAsJpeg(pdfBytes, n)),
+  );
+
+  // Describe each image so Claude knows which page it came from
+  const pageDescriptions = pageNums.map((n) => {
+    if (n === 1) return "page 1 (cover)";
+    if (n === pageCount) return `page ${n} (last page)`;
+    return `page ${n}`;
   });
-  const pageContextLine = `This document contains ${pageIndices.length} page${pageIndices.length > 1 ? "s" : ""} extracted from a ${pageCount}-page publication: ${pageDescriptions.join(", ")}.`;
+  const pageContextLine = `You are looking at ${pageNums.length} image${pageNums.length > 1 ? "s" : ""} extracted from a ${pageCount}-page publication: ${pageDescriptions.join(", ")} — in that exact order.`;
 
   // Fetch existing teachers for matching
   const allTeachers = await db.select().from(teachers);
@@ -197,14 +237,14 @@ const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
         {
           role: "user",
           content: [
-            {
-              type: "document",
+            ...pageImages.map((img) => ({
+              type: "image" as const,
               source: {
-                type: "base64",
-                media_type: "application/pdf",
-                data: pdfBase64,
+                type: "base64" as const,
+                media_type: "image/jpeg" as const,
+                data: img.toString("base64"),
               },
-            },
+            })),
             {
               type: "text",
               text: `Extract metadata from this Buddhist publication. Return a JSON object with these fields.
