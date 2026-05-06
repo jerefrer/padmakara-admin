@@ -9,7 +9,6 @@ import { createPublicationSchema, updatePublicationSchema } from "../../lib/sche
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { generatePresignedDownloadUrl, generatePresignedUploadUrl, putObject } from "../../services/s3.ts";
-import { PDFDocument } from "pdf-lib";
 
 /**
  * Generate a cover image from the first page of a PDF.
@@ -37,6 +36,34 @@ async function generateCoverFromPdf(pdfBuffer: Buffer | Uint8Array): Promise<Buf
     .resize({ width: 240 })
     .jpeg({ quality: 80 })
     .toBuffer();
+}
+
+/**
+ * Count the pages of a PDF via poppler's pdfinfo. Robust against malformed
+ * cross-reference tables that crash pdf-lib.
+ */
+async function getPdfPageCount(pdfBuffer: Uint8Array): Promise<number> {
+  const proc = Bun.spawn(["pdfinfo", "-"], {
+    stdin: new Blob([pdfBuffer]),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  if (exitCode !== 0) {
+    throw new Error(`pdfinfo failed (exit ${exitCode}): ${stderr.substring(0, 200)}`);
+  }
+
+  const match = stdout.match(/^Pages:\s+(\d+)/m);
+  if (!match) {
+    throw new Error(`pdfinfo did not return a page count: ${stdout.substring(0, 200)}`);
+  }
+  return parseInt(match[1], 10);
 }
 
 /**
@@ -101,10 +128,7 @@ async function extractPdfMetadata(
 
   let pageCount: number | null = null;
   try {
-    // ignoreEncryption: many publisher PDFs ship with copy/edit-protection
-// flags set even though no password is needed to read them.
-const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-    pageCount = pdfDoc.getPageCount();
+    pageCount = await getPdfPageCount(pdfBytes);
   } catch (err) {
     console.error("Failed to extract page count:", err);
   }
@@ -186,14 +210,11 @@ publicationRoutes.post("/extract-metadata", async (c) => {
   const pdfBytes = new Uint8Array(await response.arrayBuffer());
 
   // We need pages 1-3 + last 3 so version/date metadata can be picked up
-  // from cover, front matter, OR colophon. pdf-lib's copyPages chokes on
-  // publisher PDFs with non-standard cross-reference tables, so render each
-  // page as a JPEG via pdftoppm (poppler) and send those to Claude's vision
-  // API instead of a subset PDF.
-  // ignoreEncryption: many publisher PDFs ship with copy/edit-protection
-  // flags set even though no password is needed to read them.
-  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-  const pageCount = pdfDoc.getPageCount();
+  // from cover, front matter, OR colophon. pdf-lib chokes on publisher PDFs
+  // with non-standard xref tables (even just getPageCount walks the page
+  // tree and throws), so use poppler — pdfinfo for the count, pdftoppm to
+  // render each page as a JPEG for Claude's vision API.
+  const pageCount = await getPdfPageCount(pdfBytes);
   const candidatePages = [1, 2, 3, pageCount - 2, pageCount - 1, pageCount];
   const pageNums = Array.from(
     new Set(candidatePages.filter((n) => n >= 1 && n <= pageCount)),
