@@ -11,7 +11,7 @@ import { downloadRequests } from "../db/schema/index.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
-import { checkEventAccess, filterAccessibleEvents, AUDIENCE_SLUGS } from "../services/access.ts";
+import { checkEventAccess, filterAccessibleEvents, canUserSeeSubscriberContent, AUDIENCE_SLUGS } from "../services/access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
@@ -397,10 +397,14 @@ eventRoutes.get("/:id", async (c) => {
     await enrichTracksWithSpeakerNames(session.tracks ?? []);
   }
 
-  // Build related publications with presigned cover URLs
+  // Build related publications with presigned cover URLs.
+  // Hide subscribers-only publications from non-subscribers so the event page
+  // never advertises content the user cannot open.
+  const canSeeSubscriber = await canUserSeeSubscriberContent(user);
   const relatedPublications = ((event as any).eventPublications || [])
     .filter((ep: any) => ep.publication)
-    .map((ep: any) => ep.publication);
+    .map((ep: any) => ep.publication)
+    .filter((pub: any) => canSeeSubscriber || pub.accessLevel === "public");
 
   const relatedPubsWithUrls = await Promise.all(
     relatedPublications.map(async (pub: any) => ({

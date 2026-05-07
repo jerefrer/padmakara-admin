@@ -2,25 +2,13 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { publications } from "../db/schema/publications.ts";
-import { users } from "../db/schema/users.ts";
 import {
   optionalAuthMiddleware,
   getOptionalUser,
-  authMiddleware,
-  getUser,
 } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
-
-function hasActiveSubscription(user: {
-  subscriptionStatus: string;
-  subscriptionExpiresAt: Date | null;
-}): boolean {
-  if (user.subscriptionStatus !== "active") return false;
-  if (user.subscriptionExpiresAt && user.subscriptionExpiresAt < new Date())
-    return false;
-  return true;
-}
+import { canUserSeeSubscriberContent } from "../services/access.ts";
 
 export const publicationRoutes = new Hono();
 
@@ -39,26 +27,7 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
   const language = c.req.query("language");
 
   const authUser = getOptionalUser(c);
-
-  // Determine if user can see subscriber-only publications
-  let canSeeSubscriber = false;
-  if (authUser) {
-    if (authUser.role === "admin" || authUser.role === "superadmin") {
-      canSeeSubscriber = true;
-    } else {
-      const [dbUser] = await db
-        .select({
-          subscriptionStatus: users.subscriptionStatus,
-          subscriptionExpiresAt: users.subscriptionExpiresAt,
-        })
-        .from(users)
-        .where(eq(users.id, authUser.id));
-
-      if (dbUser && hasActiveSubscription(dbUser)) {
-        canSeeSubscriber = true;
-      }
-    }
-  }
+  const canSeeSubscriber = await canUserSeeSubscriberContent(authUser);
 
   // Fetch all publications
   const allPublished = await db
@@ -133,19 +102,21 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
 });
 
 /**
- * GET /api/publications/:id/pdf — Get presigned PDF download URL (auth required)
+ * GET /api/publications/:id/pdf — Get presigned PDF download URL.
  *
- * Checks publication exists and is published.
- * If accessLevel is "subscribers", checks user subscription or admin role.
- * Returns { url: string, expiresIn: 3600 }
+ * Public publications: open to anyone (auth not required).
+ * Subscribers-only publications: require authenticated user with active
+ * subscription (or admin/superadmin role).
+ *
+ * Returns { url: string, expiresIn: 3600 }.
  */
-publicationRoutes.get("/:id/pdf", authMiddleware, async (c) => {
+publicationRoutes.get("/:id/pdf", optionalAuthMiddleware, async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   if (isNaN(id)) {
     throw AppError.badRequest("Invalid publication ID");
   }
 
-  const authUser = getUser(c);
+  const authUser = getOptionalUser(c);
 
   const [publication] = await db
     .select()
@@ -156,27 +127,12 @@ publicationRoutes.get("/:id/pdf", authMiddleware, async (c) => {
     throw AppError.notFound("Publication not found");
   }
 
-  // Check subscriber access
   if (publication.accessLevel === "subscribers") {
-    let hasAccess = false;
-
-    if (authUser.role === "admin" || authUser.role === "superadmin") {
-      hasAccess = true;
-    } else {
-      const [dbUser] = await db
-        .select({
-          subscriptionStatus: users.subscriptionStatus,
-          subscriptionExpiresAt: users.subscriptionExpiresAt,
-        })
-        .from(users)
-        .where(eq(users.id, authUser.id));
-
-      if (dbUser && hasActiveSubscription(dbUser)) {
-        hasAccess = true;
-      }
+    if (!authUser) {
+      throw AppError.unauthorized();
     }
-
-    if (!hasAccess) {
+    const canSee = await canUserSeeSubscriberContent(authUser);
+    if (!canSee) {
       throw AppError.forbidden(
         "Active subscription required to access this publication",
       );

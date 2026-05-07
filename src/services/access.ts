@@ -1,6 +1,6 @@
 import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db/index.ts";
-import { userGroupMemberships, userEventAttendance } from "../db/schema/users.ts";
+import { users, userGroupMemberships, userEventAttendance } from "../db/schema/users.ts";
 import { eventRetreatGroups } from "../db/schema/retreats.ts";
 
 // Audience slugs from seed-from-csv.ts (slugify of English names)
@@ -37,10 +37,33 @@ interface EventForAccess {
   audienceId?: number | null;
 }
 
-function hasActiveSubscription(user: UserForAccess): boolean {
+export function hasActiveSubscription(user: {
+  subscriptionStatus: string;
+  subscriptionExpiresAt: Date | null;
+}): boolean {
   if (user.subscriptionStatus !== "active") return false;
   if (user.subscriptionExpiresAt && user.subscriptionExpiresAt < new Date()) return false;
   return true;
+}
+
+/**
+ * Whether the user is allowed to see content marked as "subscribers" only.
+ * True for admins/superadmins and for users with an active, non-expired subscription.
+ * False for unauthenticated users.
+ */
+export async function canUserSeeSubscriberContent(
+  user: { id: number; role: string } | null,
+): Promise<boolean> {
+  if (!user) return false;
+  if (user.role === "admin" || user.role === "superadmin") return true;
+  const [dbUser] = await db
+    .select({
+      subscriptionStatus: users.subscriptionStatus,
+      subscriptionExpiresAt: users.subscriptionExpiresAt,
+    })
+    .from(users)
+    .where(eq(users.id, user.id));
+  return dbUser ? hasActiveSubscription(dbUser) : false;
 }
 
 /**

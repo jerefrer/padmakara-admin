@@ -4,15 +4,13 @@ import { testJson } from "../helpers.ts";
 // ─── Mock setup (BEFORE imports) ─────────────────────────────────────────
 
 vi.mock("../../src/db/index.ts", () => {
-  const mockWhere = vi.fn(() => Promise.resolve([]));
-  const mockFrom = vi.fn(() => ({ where: mockWhere }));
+  const mockFrom = vi.fn();
   const mockSelect = vi.fn(() => ({ from: mockFrom }));
   return {
     db: {
       select: mockSelect,
       _mockSelect: mockSelect,
       _mockFrom: mockFrom,
-      _mockWhere: mockWhere,
     },
   };
 });
@@ -26,10 +24,22 @@ vi.mock("../../src/services/s3.ts", () => ({
 import { db } from "../../src/db/index.ts";
 import { createAccessToken } from "../../src/services/auth.ts";
 
-// Access mock helpers from the db mock
 const mockSelect = (db as any)._mockSelect as ReturnType<typeof vi.fn>;
 const mockFrom = (db as any)._mockFrom as ReturnType<typeof vi.fn>;
-const mockWhere = (db as any)._mockWhere as ReturnType<typeof vi.fn>;
+
+/**
+ * Drizzle-style chainable thenable: awaitable at any step (`from(...)` or
+ * `from(...).where(...)`), both resolving to `rows`. The test data is
+ * pre-filtered for the scenario under test, so `.where()` does not actually
+ * narrow — it just returns the same rows wrapped in another thenable.
+ */
+function chainable(rows: any[]) {
+  return {
+    then: (onFulfilled: any, onRejected?: any) =>
+      Promise.resolve(rows).then(onFulfilled, onRejected),
+    where: vi.fn(() => chainable(rows)),
+  };
+}
 
 // ─── Test data factories ─────────────────────────────────────────────────
 
@@ -70,24 +80,79 @@ describe("GET /api/publications", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelect.mockImplementation(() => ({ from: mockFrom }));
-    mockFrom.mockImplementation(() => ({ where: mockWhere }));
-    mockWhere.mockImplementation(() => Promise.resolve([]));
   });
 
   it("returns only public publications for unauthenticated users", async () => {
     const publicPub = makePublication();
     const subscriberPub = makeSubscriberPublication();
 
-    // db.select().from(publications).where(status=published)
-    mockWhere.mockResolvedValueOnce([publicPub, subscriberPub]);
+    // No auth → no user lookup, single publications query
+    mockFrom.mockReturnValueOnce(chainable([publicPub, subscriberPub]));
 
     const { status, body } = await testJson("/api/publications");
 
     expect(status).toBe(200);
-    // Unauthenticated: should only see the public one
     expect(body.publications).toHaveLength(1);
     expect(body.publications[0].id).toBe(1);
     expect(body.publications[0].title).toBe("Guia de Meditação");
+    expect(body.hasHiddenPublications).toBe(true);
+  });
+
+  it("returns only public publications for authenticated non-subscriber", async () => {
+    const publicPub = makePublication();
+    const subscriberPub = makeSubscriberPublication();
+
+    mockFrom
+      .mockReturnValueOnce(
+        chainable([
+          { subscriptionStatus: "none", subscriptionExpiresAt: null },
+        ]),
+      )
+      .mockReturnValueOnce(chainable([publicPub, subscriberPub]));
+
+    const token = await createAccessToken({
+      sub: 1,
+      email: "free@test.com",
+      role: "user",
+    });
+
+    const { status, body } = await testJson("/api/publications", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(status).toBe(200);
+    expect(body.publications).toHaveLength(1);
+    expect(body.publications[0].id).toBe(1);
+    expect(body.hasHiddenPublications).toBe(true);
+  });
+
+  it("hides subscriber publications from authenticated user with expired subscription", async () => {
+    const publicPub = makePublication();
+    const subscriberPub = makeSubscriberPublication();
+
+    mockFrom
+      .mockReturnValueOnce(
+        chainable([
+          {
+            subscriptionStatus: "active",
+            subscriptionExpiresAt: new Date(Date.now() - 86400000),
+          },
+        ]),
+      )
+      .mockReturnValueOnce(chainable([publicPub, subscriberPub]));
+
+    const token = await createAccessToken({
+      sub: 1,
+      email: "expired@test.com",
+      role: "user",
+    });
+
+    const { status, body } = await testJson("/api/publications", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(status).toBe(200);
+    expect(body.publications).toHaveLength(1);
     expect(body.hasHiddenPublications).toBe(true);
   });
 
@@ -95,16 +160,16 @@ describe("GET /api/publications", () => {
     const publicPub = makePublication();
     const subscriberPub = makeSubscriberPublication();
 
-    // First select: user subscription lookup
-    // Second select: publications query
-    mockWhere
-      .mockResolvedValueOnce([
-        {
-          subscriptionStatus: "active",
-          subscriptionExpiresAt: new Date(Date.now() + 86400000),
-        },
-      ])
-      .mockResolvedValueOnce([publicPub, subscriberPub]);
+    mockFrom
+      .mockReturnValueOnce(
+        chainable([
+          {
+            subscriptionStatus: "active",
+            subscriptionExpiresAt: new Date(Date.now() + 86400000),
+          },
+        ]),
+      )
+      .mockReturnValueOnce(chainable([publicPub, subscriberPub]));
 
     const token = await createAccessToken({
       sub: 1,
@@ -125,8 +190,8 @@ describe("GET /api/publications", () => {
     const publicPub = makePublication();
     const subscriberPub = makeSubscriberPublication();
 
-    // Admin skips user subscription lookup, goes straight to publications query
-    mockWhere.mockResolvedValueOnce([publicPub, subscriberPub]);
+    // Admin → skip user lookup, only one from() call
+    mockFrom.mockReturnValueOnce(chainable([publicPub, subscriberPub]));
 
     const token = await createAccessToken({
       sub: 1,
@@ -146,7 +211,7 @@ describe("GET /api/publications", () => {
   it("never exposes S3 keys in response", async () => {
     const publicPub = makePublication();
 
-    mockWhere.mockResolvedValueOnce([publicPub]);
+    mockFrom.mockReturnValueOnce(chainable([publicPub]));
 
     const { status, body } = await testJson("/api/publications");
 
@@ -154,11 +219,8 @@ describe("GET /api/publications", () => {
     expect(body.publications).toHaveLength(1);
     const pub = body.publications[0];
 
-    // S3 keys must never be exposed
     expect(pub.pdfS3Key).toBeUndefined();
     expect(pub.coverImageS3Key).toBeUndefined();
-
-    // Should have presigned coverImageUrl instead
     expect(pub.coverImageUrl).toBe("https://s3.example.com/signed-url");
   });
 
@@ -169,7 +231,7 @@ describe("GET /api/publications", () => {
       coverImageS3Key: null,
     });
 
-    mockWhere.mockResolvedValueOnce([pubWithCover, pubWithoutCover]);
+    mockFrom.mockReturnValueOnce(chainable([pubWithCover, pubWithoutCover]));
 
     const { status, body } = await testJson("/api/publications");
 
@@ -185,29 +247,38 @@ describe("GET /api/publications/:id/pdf", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelect.mockImplementation(() => ({ from: mockFrom }));
-    mockFrom.mockImplementation(() => ({ where: mockWhere }));
-    mockWhere.mockImplementation(() => Promise.resolve([]));
   });
 
-  it("returns 401 for unauthenticated requests", async () => {
+  it("returns presigned URL for public publication WITHOUT auth", async () => {
+    const publicPub = makePublication();
+    mockFrom.mockReturnValueOnce(chainable([publicPub]));
+
     const { status, body } = await testJson("/api/publications/1/pdf");
+
+    expect(status).toBe(200);
+    expect(body.url).toBe("https://s3.example.com/signed-url");
+    expect(body.expiresIn).toBe(3600);
+  });
+
+  it("returns 401 for subscribers-only publication when unauthenticated", async () => {
+    const subscriberPub = makeSubscriberPublication();
+    mockFrom.mockReturnValueOnce(chainable([subscriberPub]));
+
+    const { status, body } = await testJson("/api/publications/2/pdf");
 
     expect(status).toBe(401);
     expect(body.code).toBe("UNAUTHORIZED");
   });
 
-  it("returns 403 for subscriber-only publication without subscription", async () => {
+  it("returns 403 for subscribers-only publication when user lacks subscription", async () => {
     const subscriberPub = makeSubscriberPublication();
-
-    // First call: publication lookup; second call: user subscription check
-    mockWhere
-      .mockResolvedValueOnce([subscriberPub])
-      .mockResolvedValueOnce([
-        {
-          subscriptionStatus: "none",
-          subscriptionExpiresAt: null,
-        },
-      ]);
+    mockFrom
+      .mockReturnValueOnce(chainable([subscriberPub]))
+      .mockReturnValueOnce(
+        chainable([
+          { subscriptionStatus: "none", subscriptionExpiresAt: null },
+        ]),
+      );
 
     const token = await createAccessToken({
       sub: 1,
@@ -223,10 +294,9 @@ describe("GET /api/publications/:id/pdf", () => {
     expect(body.code).toBe("FORBIDDEN");
   });
 
-  it("returns presigned URL for public publication", async () => {
+  it("returns presigned URL for public publication when authenticated", async () => {
     const publicPub = makePublication();
-
-    mockWhere.mockResolvedValueOnce([publicPub]);
+    mockFrom.mockReturnValueOnce(chainable([publicPub]));
 
     const token = await createAccessToken({
       sub: 1,
@@ -244,17 +314,9 @@ describe("GET /api/publications/:id/pdf", () => {
   });
 
   it("returns 404 for non-existent publication", async () => {
-    mockWhere.mockResolvedValueOnce([]);
+    mockFrom.mockReturnValueOnce(chainable([]));
 
-    const token = await createAccessToken({
-      sub: 1,
-      email: "user@test.com",
-      role: "user",
-    });
-
-    const { status, body } = await testJson("/api/publications/999/pdf", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const { status, body } = await testJson("/api/publications/999/pdf");
 
     expect(status).toBe(404);
     expect(body.code).toBe("NOT_FOUND");
@@ -262,15 +324,16 @@ describe("GET /api/publications/:id/pdf", () => {
 
   it("returns presigned URL for subscriber publication with active subscription", async () => {
     const subscriberPub = makeSubscriberPublication();
-
-    mockWhere
-      .mockResolvedValueOnce([subscriberPub])
-      .mockResolvedValueOnce([
-        {
-          subscriptionStatus: "active",
-          subscriptionExpiresAt: new Date(Date.now() + 86400000),
-        },
-      ]);
+    mockFrom
+      .mockReturnValueOnce(chainable([subscriberPub]))
+      .mockReturnValueOnce(
+        chainable([
+          {
+            subscriptionStatus: "active",
+            subscriptionExpiresAt: new Date(Date.now() + 86400000),
+          },
+        ]),
+      );
 
     const token = await createAccessToken({
       sub: 1,
@@ -287,17 +350,27 @@ describe("GET /api/publications/:id/pdf", () => {
     expect(body.expiresIn).toBe(3600);
   });
 
-  it("returns 400 for invalid publication ID", async () => {
+  it("returns presigned URL for subscriber publication when caller is admin", async () => {
+    const subscriberPub = makeSubscriberPublication();
+    // Admin → skip user lookup, single publication lookup
+    mockFrom.mockReturnValueOnce(chainable([subscriberPub]));
+
     const token = await createAccessToken({
       sub: 1,
-      email: "user@test.com",
-      role: "user",
+      email: "admin@test.com",
+      role: "admin",
     });
 
-    const { status, body } = await testJson("/api/publications/abc/pdf", {
+    const { status, body } = await testJson("/api/publications/2/pdf", {
       headers: { Authorization: `Bearer ${token}` },
     });
 
+    expect(status).toBe(200);
+    expect(body.url).toBe("https://s3.example.com/signed-url");
+  });
+
+  it("returns 400 for invalid publication ID", async () => {
+    const { status } = await testJson("/api/publications/abc/pdf");
     expect(status).toBe(400);
   });
 });
