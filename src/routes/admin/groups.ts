@@ -6,11 +6,12 @@ import { createRetreatGroupSchema, updateRetreatGroupSchema } from "../../lib/sc
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import {
-  generatePresignedUploadUrl,
+  putObject,
   deleteObject,
   buildGroupAvatarS3Key,
   buildGroupHeroS3Key,
 } from "../../services/s3.ts";
+import { processAvatar, processHero } from "../../services/image-pipeline.ts";
 import { resolveGroupUrls } from "../../lib/group-utils.ts";
 
 const groupRoutes = new Hono();
@@ -61,28 +62,97 @@ groupRoutes.put("/reorder", async (c) => {
 });
 
 /**
- * POST /presign-upload — Get a presigned URL for uploading a group avatar
- * or hero image to S3. The admin uploads directly to S3 with the returned
- * URL, then PUTs the resulting `s3Key` back via the resource update.
+ * POST /:id/avatar — Upload and resize a retreat-group avatar.
+ *
+ * Accepts multipart/form-data with a `file` field. The server resizes to
+ * 400×400 (sharp center-cover) before storing on S3.
  */
-groupRoutes.post("/presign-upload", async (c) => {
-  const { groupId, type, contentType, filename } = (await c.req.json()) as {
-    groupId: number;
-    type: "avatar" | "hero";
-    contentType: string;
-    filename: string;
-  };
+groupRoutes.post("/:id/avatar", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid group ID");
 
-  const ext = filename.split(".").pop() || "jpg";
-  const s3Key =
-    type === "avatar"
-      ? buildGroupAvatarS3Key(groupId, ext)
-      : buildGroupHeroS3Key(groupId, ext);
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) throw AppError.badRequest("Missing file");
 
-  const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const resized = await processAvatar(buffer);
 
-  return c.json({ s3Key, uploadUrl });
+  const s3Key = buildGroupAvatarS3Key(id, "jpg");
+  await putObject(s3Key, resized, "image/jpeg");
+
+  const existing = await db.query.retreatGroups.findFirst({
+    where: eq(retreatGroups.id, id),
+  });
+  if (existing?.avatarS3Key && existing.avatarS3Key !== s3Key) {
+    await deleteObject(existing.avatarS3Key).catch(() => {});
+  }
+
+  const now = new Date();
+  const [group] = await db
+    .update(retreatGroups)
+    .set({ avatarS3Key: s3Key, avatarUpdatedAt: now, updatedAt: now })
+    .where(eq(retreatGroups.id, id))
+    .returning();
+  if (!group) throw AppError.notFound("Group not found");
+
+  const resolved = await resolveGroupUrls(group);
+  return c.json({ ...group, ...resolved });
 });
+
+/**
+ * POST /:id/hero — Upload and resize a retreat-group hero banner.
+ *
+ * Accepts multipart/form-data with `file` and optional `focalX`/`focalY`
+ * (0–100, default 50). The server resizes to 1200px wide.
+ */
+groupRoutes.post("/:id/hero", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid group ID");
+
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) throw AppError.badRequest("Missing file");
+  const focalX = clampPercent(form.get("focalX"));
+  const focalY = clampPercent(form.get("focalY"));
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const resized = await processHero(buffer);
+
+  const s3Key = buildGroupHeroS3Key(id, "jpg");
+  await putObject(s3Key, resized, "image/jpeg");
+
+  const existing = await db.query.retreatGroups.findFirst({
+    where: eq(retreatGroups.id, id),
+  });
+  if (existing?.heroS3Key && existing.heroS3Key !== s3Key) {
+    await deleteObject(existing.heroS3Key).catch(() => {});
+  }
+
+  const now = new Date();
+  const [group] = await db
+    .update(retreatGroups)
+    .set({
+      heroS3Key: s3Key,
+      heroFocalX: focalX,
+      heroFocalY: focalY,
+      heroScale: 100,
+      heroUpdatedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(retreatGroups.id, id))
+    .returning();
+  if (!group) throw AppError.notFound("Group not found");
+
+  const resolved = await resolveGroupUrls(group);
+  return c.json({ ...group, ...resolved });
+});
+
+function clampPercent(raw: FormDataEntryValue | null): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 50;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
 
 groupRoutes.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);

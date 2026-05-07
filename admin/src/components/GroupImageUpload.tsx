@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { useRecordContext, useDataProvider, useNotify, useRefresh } from "react-admin";
+import { useRecordContext, useNotify, useRefresh } from "react-admin";
 import { Box, Button, Typography, CircularProgress } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import EditIcon from "@mui/icons-material/Edit";
@@ -15,6 +15,39 @@ type DialogState =
       initialFocal?: { x: number; y: number };
     };
 
+async function uploadGroupAvatar(groupId: number, blob: Blob): Promise<void> {
+  const form = new FormData();
+  form.append("file", blob, "avatar.jpg");
+  const res = await authFetch(`/api/admin/groups/${groupId}/avatar`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) throw new Error("Failed to upload avatar");
+}
+
+async function uploadGroupHero(
+  groupId: number,
+  blob: Blob,
+  focalX: number,
+  focalY: number,
+): Promise<void> {
+  const form = new FormData();
+  form.append("file", blob, "hero.jpg");
+  form.append("focalX", String(focalX));
+  form.append("focalY", String(focalY));
+  const res = await authFetch(`/api/admin/groups/${groupId}/hero`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) throw new Error("Failed to upload hero");
+}
+
+/**
+ * Crop the source image to the given pixel area and return a JPEG blob.
+ * The output keeps the source pixel dimensions of the crop region; the
+ * server's image pipeline (sharp) downsizes to 1200px wide, so the admin
+ * keeps full source quality through the crop and the resize happens once.
+ */
 async function cropImageToBlob(
   file: File,
   area: { x: number; y: number; width: number; height: number },
@@ -37,36 +70,12 @@ async function cropImageToBlob(
       canvas.toBlob(
         (blob) => (blob ? resolve(blob) : reject(new Error("Failed to encode blob"))),
         "image/jpeg",
-        0.9,
+        0.95,
       );
     });
   } finally {
     URL.revokeObjectURL(url);
   }
-}
-
-async function presignUpload(
-  groupId: number,
-  type: "avatar" | "hero",
-  filename: string,
-  contentType: string,
-): Promise<{ s3Key: string; uploadUrl: string }> {
-  const res = await authFetch(`/api/admin/groups/presign-upload`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ groupId, type, contentType, filename }),
-  });
-  if (!res.ok) throw new Error("Failed to get upload URL");
-  return res.json();
-}
-
-async function uploadToS3(uploadUrl: string, blob: Blob, contentType: string): Promise<void> {
-  const res = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: blob,
-  });
-  if (!res.ok) throw new Error("Failed to upload to S3");
 }
 
 async function fetchUrlAsFile(url: string, filename: string): Promise<File> {
@@ -91,7 +100,6 @@ async function fetchUrlAsFile(url: string, filename: string): Promise<File> {
 
 export function GroupImageUpload() {
   const record = useRecordContext();
-  const dataProvider = useDataProvider();
   const notify = useNotify();
   const refresh = useRefresh();
 
@@ -129,18 +137,7 @@ export function GroupImageUpload() {
       if (!record?.id) return;
       setSavingAvatar(true);
       try {
-        const { s3Key, uploadUrl } = await presignUpload(
-          record.id as number,
-          "avatar",
-          "avatar.jpg",
-          "image/jpeg",
-        );
-        await uploadToS3(uploadUrl, blob, "image/jpeg");
-        await dataProvider.update("groups", {
-          id: record.id,
-          data: { ...record, avatarS3Key: s3Key },
-          previousData: record,
-        });
+        await uploadGroupAvatar(record.id as number, blob);
         notify("padmakara.groups.avatarUploaded", { type: "success" });
         setDialog({ kind: "closed" });
         refresh();
@@ -150,7 +147,7 @@ export function GroupImageUpload() {
         setSavingAvatar(false);
       }
     },
-    [record, dataProvider, notify, refresh],
+    [record, notify, refresh],
   );
 
   // ============ HERO ============
@@ -187,25 +184,12 @@ export function GroupImageUpload() {
       setSavingHero(true);
       try {
         const blob = await cropImageToBlob(dialog.file, params.cropAreaPixels);
-        const { s3Key, uploadUrl } = await presignUpload(
+        await uploadGroupHero(
           record.id as number,
-          "hero",
-          "hero.jpg",
-          "image/jpeg",
+          blob,
+          params.focalX,
+          params.focalY,
         );
-        await uploadToS3(uploadUrl, blob, "image/jpeg");
-
-        await dataProvider.update("groups", {
-          id: record.id,
-          data: {
-            ...record,
-            heroS3Key: s3Key,
-            heroFocalX: params.focalX,
-            heroFocalY: params.focalY,
-            heroScale: 100,
-          },
-          previousData: record,
-        });
         notify("padmakara.groups.heroUploaded", { type: "success" });
         setDialog({ kind: "closed" });
         refresh();
@@ -215,7 +199,7 @@ export function GroupImageUpload() {
         setSavingHero(false);
       }
     },
-    [record, dialog, dataProvider, notify, refresh],
+    [record, dialog, notify, refresh],
   );
 
   // ============ INPUT HANDLERS ============

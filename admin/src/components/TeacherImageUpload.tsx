@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { useRecordContext, useDataProvider, useNotify, useRefresh } from "react-admin";
+import { useRecordContext, useNotify, useRefresh } from "react-admin";
 import { Box, Button, Typography, CircularProgress } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import EditIcon from "@mui/icons-material/Edit";
@@ -16,28 +16,34 @@ type DialogState =
       initialFocal?: { x: number; y: number };
     };
 
-async function presignUpload(
+async function uploadTeacherAvatar(
   teacherId: number,
-  type: "avatar" | "hero",
-  filename: string,
-  contentType: string,
-): Promise<{ s3Key: string; uploadUrl: string }> {
-  const res = await authFetch(`/api/admin/teachers/presign-upload`, {
+  blob: Blob,
+): Promise<void> {
+  const form = new FormData();
+  form.append("file", blob, "avatar.jpg");
+  const res = await authFetch(`/api/admin/teachers/${teacherId}/avatar`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ teacherId, type, contentType, filename }),
+    body: form,
   });
-  if (!res.ok) throw new Error("Failed to get upload URL");
-  return res.json();
+  if (!res.ok) throw new Error("Failed to upload avatar");
 }
 
-async function uploadToS3(uploadUrl: string, blob: Blob, contentType: string): Promise<void> {
-  const res = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": contentType },
-    body: blob,
+async function uploadTeacherHero(
+  teacherId: number,
+  blob: Blob,
+  focalX: number,
+  focalY: number,
+): Promise<void> {
+  const form = new FormData();
+  form.append("file", blob, "hero.jpg");
+  form.append("focalX", String(focalX));
+  form.append("focalY", String(focalY));
+  const res = await authFetch(`/api/admin/teachers/${teacherId}/hero`, {
+    method: "POST",
+    body: form,
   });
-  if (!res.ok) throw new Error("Failed to upload to S3");
+  if (!res.ok) throw new Error("Failed to upload hero");
 }
 
 async function fetchUrlAsFile(url: string, filename: string): Promise<File> {
@@ -60,7 +66,12 @@ async function fetchUrlAsFile(url: string, filename: string): Promise<File> {
   return new File([blob], filename, { type: blob.type || "image/jpeg" });
 }
 
-/** Crop the source image to the given pixel area and return a JPEG blob. */
+/** Crop the source image to the given pixel area and return a JPEG blob.
+ * The output keeps the source pixel dimensions of the crop region; the
+ * server's image pipeline (sharp) is what actually downsizes to the
+ * canonical 1200px-wide hero, so the admin keeps full source quality
+ * through the crop and the resize happens once, on the server.
+ */
 async function cropImageToBlob(
   file: File,
   area: { x: number; y: number; width: number; height: number },
@@ -85,7 +96,7 @@ async function cropImageToBlob(
       canvas.toBlob(
         (blob) => (blob ? resolve(blob) : reject(new Error("Failed to encode blob"))),
         "image/jpeg",
-        0.9,
+        0.95,
       );
     });
   } finally {
@@ -95,7 +106,6 @@ async function cropImageToBlob(
 
 export function TeacherImageUpload() {
   const record = useRecordContext();
-  const dataProvider = useDataProvider();
   const notify = useNotify();
   const refresh = useRefresh();
 
@@ -133,18 +143,7 @@ export function TeacherImageUpload() {
       if (!record?.id) return;
       setSavingAvatar(true);
       try {
-        const { s3Key, uploadUrl } = await presignUpload(
-          record.id as number,
-          "avatar",
-          "avatar.jpg",
-          "image/jpeg",
-        );
-        await uploadToS3(uploadUrl, blob, "image/jpeg");
-        await dataProvider.update("teachers", {
-          id: record.id,
-          data: { ...record, avatarS3Key: s3Key },
-          previousData: record,
-        });
+        await uploadTeacherAvatar(record.id as number, blob);
         notify("padmakara.teachers.avatarUploaded", { type: "success" });
         setDialog({ kind: "closed" });
         refresh();
@@ -154,7 +153,7 @@ export function TeacherImageUpload() {
         setSavingAvatar(false);
       }
     },
-    [record, dataProvider, notify, refresh],
+    [record, notify, refresh],
   );
 
   // ============ HERO ============
@@ -192,29 +191,17 @@ export function TeacherImageUpload() {
       try {
         if (dialog.kind !== "hero") return;
 
-        // Produce the cropped hero blob and upload it.
-        const blob = await cropImageToBlob(dialog.file, params.cropAreaPixels, params.grayscale);
-        const { s3Key, uploadUrl } = await presignUpload(
-          record.id as number,
-          "hero",
-          "hero.jpg",
-          "image/jpeg",
+        const blob = await cropImageToBlob(
+          dialog.file,
+          params.cropAreaPixels,
+          params.grayscale,
         );
-        await uploadToS3(uploadUrl, blob, "image/jpeg");
-
-        await dataProvider.update("teachers", {
-          id: record.id,
-          data: {
-            ...record,
-            heroS3Key: s3Key,
-            heroFocalX: params.focalX,
-            heroFocalY: params.focalY,
-            // heroScale stays at 100 — the image is already cropped so the
-            // app shows it at native scale + focal as objectPosition.
-            heroScale: 100,
-          },
-          previousData: record,
-        });
+        await uploadTeacherHero(
+          record.id as number,
+          blob,
+          params.focalX,
+          params.focalY,
+        );
         notify("padmakara.teachers.heroUploaded", { type: "success" });
         setDialog({ kind: "closed" });
         refresh();
@@ -224,7 +211,7 @@ export function TeacherImageUpload() {
         setSavingHero(false);
       }
     },
-    [record, dialog, dataProvider, notify, refresh],
+    [record, dialog, notify, refresh],
   );
 
   // ============ INPUT HANDLERS ============

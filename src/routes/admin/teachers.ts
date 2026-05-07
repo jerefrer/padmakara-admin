@@ -6,11 +6,12 @@ import { createTeacherSchema, updateTeacherSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import {
-  generatePresignedUploadUrl,
+  putObject,
   deleteObject,
   buildTeacherAvatarS3Key,
   buildTeacherHeroS3Key,
 } from "../../services/s3.ts";
+import { processAvatar, processHero } from "../../services/image-pipeline.ts";
 import { resolveTeacherUrls } from "../../lib/teacher-utils.ts";
 
 const teacherRoutes = new Hono();
@@ -45,24 +46,104 @@ teacherRoutes.get("/", async (c) => {
   return listResponse(c, resolved, total, offset, offset + limit, "teachers");
 });
 
-teacherRoutes.post("/presign-upload", async (c) => {
-  const { teacherId, type, contentType, filename } = (await c.req.json()) as {
-    teacherId: number;
-    type: "avatar" | "hero";
-    contentType: string;
-    filename: string;
-  };
+/**
+ * POST /:id/avatar — Upload and resize a teacher avatar.
+ *
+ * Accepts multipart/form-data with a `file` field. The server resizes the
+ * upload to 400×400 (sharp center-cover) before storing on S3 so the app
+ * always serves a small, correctly-sized image regardless of source size.
+ * Pass `grayscale=true` to also desaturate the result.
+ */
+teacherRoutes.post("/:id/avatar", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid teacher ID");
 
-  const ext = filename.split(".").pop() || "jpg";
-  const s3Key =
-    type === "avatar"
-      ? buildTeacherAvatarS3Key(teacherId, ext)
-      : buildTeacherHeroS3Key(teacherId, ext);
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) throw AppError.badRequest("Missing file");
+  const grayscale = form.get("grayscale") === "true";
 
-  const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const resized = await processAvatar(buffer, { grayscale });
 
-  return c.json({ s3Key, uploadUrl });
+  const s3Key = buildTeacherAvatarS3Key(id, "jpg");
+  await putObject(s3Key, resized, "image/jpeg");
+
+  const existing = await db.query.teachers.findFirst({
+    where: eq(teachers.id, id),
+  });
+  if (existing?.avatarS3Key && existing.avatarS3Key !== s3Key) {
+    await deleteObject(existing.avatarS3Key).catch(() => {});
+  }
+
+  const now = new Date();
+  const [teacher] = await db
+    .update(teachers)
+    .set({ avatarS3Key: s3Key, avatarUpdatedAt: now, updatedAt: now })
+    .where(eq(teachers.id, id))
+    .returning();
+  if (!teacher) throw AppError.notFound("Teacher not found");
+
+  const resolved = await resolveTeacherUrls(teacher);
+  return c.json({ ...teacher, ...resolved });
 });
+
+/**
+ * POST /:id/hero — Upload and resize a teacher hero banner.
+ *
+ * Accepts multipart/form-data with `file`, optional `focalX`/`focalY`
+ * (0–100, default 50), and optional `grayscale`. The server resizes the
+ * upload to 1200px wide (aspect preserved, never enlarged). Focal/scale
+ * are pure display metadata used by the apps' object-position styling.
+ */
+teacherRoutes.post("/:id/hero", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid teacher ID");
+
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) throw AppError.badRequest("Missing file");
+  const focalX = clampPercent(form.get("focalX"));
+  const focalY = clampPercent(form.get("focalY"));
+  const grayscale = form.get("grayscale") === "true";
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const resized = await processHero(buffer, { grayscale });
+
+  const s3Key = buildTeacherHeroS3Key(id, "jpg");
+  await putObject(s3Key, resized, "image/jpeg");
+
+  const existing = await db.query.teachers.findFirst({
+    where: eq(teachers.id, id),
+  });
+  if (existing?.heroS3Key && existing.heroS3Key !== s3Key) {
+    await deleteObject(existing.heroS3Key).catch(() => {});
+  }
+
+  const now = new Date();
+  const [teacher] = await db
+    .update(teachers)
+    .set({
+      heroS3Key: s3Key,
+      heroFocalX: focalX,
+      heroFocalY: focalY,
+      heroScale: 100,
+      heroUpdatedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(teachers.id, id))
+    .returning();
+  if (!teacher) throw AppError.notFound("Teacher not found");
+
+  const resolved = await resolveTeacherUrls(teacher);
+  return c.json({ ...teacher, ...resolved });
+});
+
+function clampPercent(raw: FormDataEntryValue | null): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 50;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
 
 teacherRoutes.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);

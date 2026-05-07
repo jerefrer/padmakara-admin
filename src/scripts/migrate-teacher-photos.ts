@@ -8,8 +8,8 @@
 import { db } from "../db/index.ts";
 import { teachers } from "../db/schema/teachers.ts";
 import { putObject, buildTeacherAvatarS3Key, buildTeacherHeroS3Key } from "../services/s3.ts";
+import { processAvatar, processHero } from "../services/image-pipeline.ts";
 import { isNotNull, eq } from "drizzle-orm";
-import sharp from "sharp";
 
 async function main() {
   console.log("Starting teacher photo migration...");
@@ -36,22 +36,12 @@ async function main() {
       const imageBuffer = Buffer.from(arrayBuffer);
       console.log(`  Downloaded: ${imageBuffer.length} bytes`);
 
-      // Create avatar: 400x400 center crop
-      const avatarBuffer = await sharp(imageBuffer)
-        .resize(400, 400, { fit: "cover", position: "centre" })
-        .jpeg({ quality: 90 })
-        .toBuffer();
-
+      const avatarBuffer = await processAvatar(imageBuffer);
       const avatarS3Key = buildTeacherAvatarS3Key(teacher.id, "jpg");
       await putObject(avatarS3Key, avatarBuffer, "image/jpeg");
       console.log(`  Avatar uploaded: ${avatarS3Key} (${avatarBuffer.length} bytes)`);
 
-      // Create hero: 1200px wide, maintain aspect ratio
-      const heroBuffer = await sharp(imageBuffer)
-        .resize(1200, null, { fit: "inside", withoutEnlargement: true })
-        .jpeg({ quality: 85 })
-        .toBuffer();
-
+      const heroBuffer = await processHero(imageBuffer);
       const heroS3Key = buildTeacherHeroS3Key(teacher.id, "jpg");
       await putObject(heroS3Key, heroBuffer, "image/jpeg");
       console.log(`  Hero uploaded: ${heroS3Key} (${heroBuffer.length} bytes)`);
