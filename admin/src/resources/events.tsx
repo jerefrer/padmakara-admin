@@ -54,6 +54,7 @@ import { TrackDropZone } from "../components/TrackDropZone";
 import { SessionPreview } from "../components/SessionPreview";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
+import { ReadAlongPanel } from "../components/ReadAlongPanel";
 import {
   uploadTracks,
   type UploadItem,
@@ -1679,6 +1680,10 @@ export const EventEdit = () => {
         trackCount={trackCount}
         transcriptCount={transcriptCount}
       />
+
+      {trackCount > 0 && transcriptCount > 0 && event?.id && (
+        <ReadAlongPanel eventId={Number(event.id)} />
+      )}
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
