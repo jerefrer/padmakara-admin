@@ -5,7 +5,7 @@ import { tracks } from "../../db/schema/tracks.ts";
 import { createTrackSchema, updateTrackSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
-import { generatePresignedAttachmentUrl } from "../../services/s3.ts";
+import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
 
 const trackRoutes = new Hono();
 
@@ -93,6 +93,15 @@ trackRoutes.get("/:id/download-url", async (c) => {
   return c.json({ url, filename, expiresIn: 600 });
 });
 
+/**
+ * DELETE /:id — Remove a track and its associated S3 objects.
+ *
+ * Deletes the audio file (`s3Key`) and any read-along JSON
+ * (`readAlongS3Key`) before dropping the row. S3 deletes are
+ * best-effort: a missing or already-deleted object should not block the
+ * DB delete, since the source of truth for whether the track exists is
+ * the row itself.
+ */
 trackRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const [track] = await db
@@ -100,6 +109,14 @@ trackRoutes.delete("/:id", async (c) => {
     .where(eq(tracks.id, id))
     .returning();
   if (!track) throw AppError.notFound("Track not found");
+
+  if (track.s3Key) {
+    await deleteObject(track.s3Key).catch(() => {});
+  }
+  if (track.readAlongS3Key) {
+    await deleteObject(track.readAlongS3Key).catch(() => {});
+  }
+
   return c.json(track);
 });
 

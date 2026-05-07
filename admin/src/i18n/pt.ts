@@ -339,6 +339,10 @@ export const pt = {
     tracks: {
       download: "Descarregar áudio",
       downloadFailed: "Não foi possível descarregar a faixa",
+      delete: "Eliminar faixa",
+      deleteConfirm: "Eliminar permanentemente \"%{title}\"? O ficheiro de áudio será removido do S3 e esta ação não pode ser anulada.",
+      deleted: "Faixa eliminada",
+      deleteFailed: "Não foi possível eliminar a faixa",
     },
     approvals: {
       approve: "Aprovar",

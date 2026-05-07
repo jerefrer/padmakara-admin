@@ -89,6 +89,9 @@ interface SessionPreviewProps {
     trackId: number,
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
+  /** Edit-mode only: deletes the track row + its S3 audio (and read-along
+   *  JSON). Confirmation is handled by the row before this fires. */
+  onTrackDelete?: (trackId: number) => Promise<void>;
   /** Edit-mode only: triggered when admin picks a new video file for a session. */
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
   /** Edit-mode only: detach + ref-counted Bunny cleanup. */
@@ -100,6 +103,7 @@ export const SessionPreview = ({
   sessions,
   onSessionTitleChange,
   onTrackUpdate,
+  onTrackDelete,
   onSessionVideoUpload,
   onSessionVideoDelete,
   allTeachers,
@@ -133,6 +137,7 @@ export const SessionPreview = ({
               index={idx}
               onTitleChange={(title) => onSessionTitleChange(idx, title)}
               onTrackUpdate={onTrackUpdate}
+              onTrackDelete={onTrackDelete}
               onSessionVideoUpload={onSessionVideoUpload}
               onSessionVideoDelete={onSessionVideoDelete}
               allTeachers={allTeachers}
@@ -159,6 +164,7 @@ interface SessionCardProps {
     trackId: number,
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
+  onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
   onSessionVideoDelete?: (sessionId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
@@ -170,6 +176,7 @@ const SessionCard = ({
   index,
   onTitleChange,
   onTrackUpdate,
+  onTrackDelete,
   onSessionVideoUpload,
   onSessionVideoDelete,
   allTeachers,
@@ -372,6 +379,7 @@ const SessionCard = ({
               track={track}
               isLast={tidx === session.tracks.length - 1}
               onTrackUpdate={onTrackUpdate}
+              onTrackDelete={onTrackDelete}
               allTeachers={allTeachers}
               onPreview={onPreview}
             />
@@ -561,6 +569,7 @@ const TrackRow = ({
   track,
   isLast,
   onTrackUpdate,
+  onTrackDelete,
   allTeachers = [],
   onPreview,
 }: {
@@ -570,6 +579,7 @@ const TrackRow = ({
     trackId: number,
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
+  onTrackDelete?: (trackId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   onPreview: (state: PreviewState) => void;
 }) => {
@@ -577,6 +587,7 @@ const TrackRow = ({
   const notify = useNotify();
   const [editing, setEditing] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [editValues, setEditValues] = useState({
     title: track.title || "",
     originalFilename: track.originalFilename || "",
@@ -627,6 +638,25 @@ const TrackRow = ({
       speaker: track.speaker || "",
     });
     setEditing(false);
+  };
+
+  const handleDelete = async () => {
+    if (!onTrackDelete || !track.id) return;
+    const confirmMsg = translate("padmakara.tracks.deleteConfirm", {
+      title: cleanTitle(track),
+    });
+    if (!window.confirm(confirmMsg)) return;
+    setDeleting(true);
+    try {
+      await onTrackDelete(track.id);
+      // Caller is responsible for removing the row from local state +
+      // surfacing the success notice; we just stay mounted long enough
+      // to look responsive in case the parent doesn't unmount us.
+    } catch {
+      // Caller surfaces the error notification.
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleDownload = async () => {
@@ -1000,6 +1030,22 @@ const TrackRow = ({
           sx={{ opacity: 0.4, "&:hover": { opacity: 1 } }}
         >
           <EditIcon sx={{ fontSize: 14 }} />
+        </IconButton>
+      )}
+
+      {/* Delete button — only on edit-mode rows that have a DB id */}
+      {onTrackDelete && track.id && (
+        <IconButton
+          size="small"
+          onClick={handleDelete}
+          disabled={deleting}
+          sx={{
+            opacity: 0.4,
+            "&:hover": { opacity: 1, color: "error.main" },
+          }}
+          title={translate("padmakara.tracks.delete") || "Delete track"}
+        >
+          <DeleteOutlineIcon sx={{ fontSize: 14 }} />
         </IconButton>
       )}
     </Box>

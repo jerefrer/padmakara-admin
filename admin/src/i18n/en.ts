@@ -138,6 +138,10 @@ export const en = {
     tracks: {
       download: "Download audio",
       downloadFailed: "Could not download track",
+      delete: "Delete track",
+      deleteConfirm: "Permanently delete \"%{title}\"? This removes the audio file from S3 and cannot be undone.",
+      deleted: "Track deleted",
+      deleteFailed: "Could not delete track",
     },
     approvals: {
       approve: "Approve",

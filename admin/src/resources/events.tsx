@@ -488,6 +488,7 @@ interface EventFormProps {
   eventFiles: any[];
   onSessionTitleChange: (idx: number, title: string) => void;
   onTrackUpdate?: (trackId: number, updates: Partial<ParsedTrack>) => Promise<void>;
+  onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
   onSessionVideoDelete?: (sessionId: number) => Promise<void>;
   onFeaturedToggle?: () => void;
@@ -539,7 +540,7 @@ const EventFormFields = ({
   selectedEventType, setSelectedEventType,
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
-  sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate,
+  sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onSessionVideoUpload, onSessionVideoDelete,
   onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
 }: EventFormProps) => {
@@ -907,6 +908,7 @@ const EventFormFields = ({
                 sessions={sessions}
                 onSessionTitleChange={onSessionTitleChange}
                 onTrackUpdate={onTrackUpdate}
+                onTrackDelete={onTrackDelete}
                 onSessionVideoUpload={onSessionVideoUpload}
                 onSessionVideoDelete={onSessionVideoDelete}
                 allTeachers={allTeachers}
@@ -1421,6 +1423,38 @@ export const EventEdit = () => {
     [dataProvider, notify, translate, refresh]
   );
 
+  const handleTrackDelete = useCallback(
+    async (trackId: number) => {
+      try {
+        await dataProvider.delete("tracks", {
+          id: trackId,
+          previousData: { id: trackId },
+        });
+
+        // Drop the row from local state so the list shrinks immediately
+        // without waiting for the refetch.
+        setSessions((prev) =>
+          prev.map((session) => ({
+            ...session,
+            tracks: session.tracks.filter((t) => t.id !== trackId),
+          })),
+        );
+
+        notify(translate("padmakara.tracks.deleted") || "Track deleted", {
+          type: "success",
+        });
+        refresh();
+      } catch (error: any) {
+        notify(
+          translate("padmakara.tracks.deleteFailed") || "Could not delete track",
+          { type: "error" },
+        );
+        throw error;
+      }
+    },
+    [dataProvider, notify, translate, refresh],
+  );
+
   // Single-video upload from the edit page. Drives the same UploadProgress
   // overlay used by the create wizard so progress + transcoding feedback look
   // identical. The promise resolves when Bunny finishes transcoding and the
@@ -1637,6 +1671,7 @@ export const EventEdit = () => {
         allEventTypes={allEventTypes} allAudiences={allAudiences}
         sessions={sessions} transcripts={event?.transcripts || []} eventFiles={event?.eventFiles || []} onSessionTitleChange={handleSessionTitleChange}
         onTrackUpdate={handleTrackUpdate}
+        onTrackDelete={handleTrackDelete}
         onSessionVideoUpload={handleSessionVideoUpload}
         onSessionVideoDelete={handleSessionVideoDelete}
         onFeaturedToggle={handleFeaturedToggle}
