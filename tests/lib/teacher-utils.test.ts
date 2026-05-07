@@ -9,14 +9,15 @@ vi.mock("../../src/services/s3.ts", () => ({
 import { resolveTeacherUrls } from "../../src/lib/teacher-utils.ts";
 
 describe("resolveTeacherUrls", () => {
-  it("resolves S3 keys to presigned URLs", async () => {
+  it("resolves S3 keys to presigned URLs (avatar + desktop hero + mobile hero)", async () => {
     const teacher = {
       id: 1,
       name: "Pema Wangyal Rinpoche",
       abbreviation: "PWR",
       photoUrl: "https://old-photo.example.com/pwr.jpg",
-      avatarS3Key: "teachers/avatars/1-123456.jpg",
-      heroS3Key: "teachers/heroes/1-123456.jpg",
+      avatarS3Key: "teachers/avatars/1-123456.webp",
+      heroS3Key: "teachers/heroes/1-123456.webp",
+      heroMobileS3Key: "teachers/heroes/1-123456-m.webp",
       heroFocalX: 50,
       heroFocalY: 50,
       heroScale: 100,
@@ -30,14 +31,39 @@ describe("resolveTeacherUrls", () => {
       id: 1,
       name: "Pema Wangyal Rinpoche",
       abbreviation: "PWR",
-      avatarUrl: "https://s3.example.com/presigned/teachers/avatars/1-123456.jpg",
-      heroUrl: "https://s3.example.com/presigned/teachers/heroes/1-123456.jpg",
+      avatarUrl: "https://s3.example.com/presigned/teachers/avatars/1-123456.webp",
+      heroUrl: "https://s3.example.com/presigned/teachers/heroes/1-123456.webp",
+      heroMobileUrl: "https://s3.example.com/presigned/teachers/heroes/1-123456-m.webp",
       heroFocalX: 50,
       heroFocalY: 50,
       heroScale: 100,
       avatarUpdatedAt: "2026-03-31T10:00:00.000Z",
       heroUpdatedAt: "2026-03-31T10:00:00.000Z",
     });
+  });
+
+  it("returns null heroMobileUrl for legacy records that pre-date the variant rollout", async () => {
+    const teacher = {
+      id: 4,
+      name: "Legacy Teacher",
+      abbreviation: "LT",
+      photoUrl: null,
+      avatarS3Key: "teachers/avatars/4-old.webp",
+      heroS3Key: "teachers/heroes/4-old.webp",
+      heroMobileS3Key: null,
+      heroFocalX: 50,
+      heroFocalY: 50,
+      heroScale: 100,
+      avatarUpdatedAt: null,
+      heroUpdatedAt: null,
+    };
+
+    const result = await resolveTeacherUrls(teacher);
+
+    expect(result.heroUrl).toBe(
+      "https://s3.example.com/presigned/teachers/heroes/4-old.webp",
+    );
+    expect(result.heroMobileUrl).toBeNull();
   });
 
   it("falls back to photoUrl when no avatarS3Key", async () => {
@@ -48,6 +74,7 @@ describe("resolveTeacherUrls", () => {
       photoUrl: "https://old-photo.example.com/jkr.jpg",
       avatarS3Key: null,
       heroS3Key: null,
+      heroMobileS3Key: null,
       heroFocalX: 50,
       heroFocalY: 50,
       heroScale: 100,
@@ -63,6 +90,7 @@ describe("resolveTeacherUrls", () => {
       abbreviation: "JKR",
       avatarUrl: "https://old-photo.example.com/jkr.jpg",
       heroUrl: null,
+      heroMobileUrl: null,
       heroFocalX: 50,
       heroFocalY: 50,
       heroScale: 100,
@@ -79,6 +107,7 @@ describe("resolveTeacherUrls", () => {
       photoUrl: null,
       avatarS3Key: null,
       heroS3Key: null,
+      heroMobileS3Key: null,
       avatarUpdatedAt: null,
       heroUpdatedAt: null,
     };
@@ -87,5 +116,6 @@ describe("resolveTeacherUrls", () => {
 
     expect(result.avatarUrl).toBeNull();
     expect(result.heroUrl).toBeNull();
+    expect(result.heroMobileUrl).toBeNull();
   });
 });

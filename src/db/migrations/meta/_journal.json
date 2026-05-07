@@ -127,6 +127,13 @@
       "when": 1793404800000,
       "tag": "0017_publication_version",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0018_hero_mobile_variant",
+      "breakpoints": true
     }
   ]
 }

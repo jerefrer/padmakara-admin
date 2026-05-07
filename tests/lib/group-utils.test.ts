@@ -19,8 +19,9 @@ const baseGroup = {
   slug: "mind-training",
   description: "Description",
   logoUrl: "https://old.example.com/logo.png",
-  avatarS3Key: "groups/avatars/7-1.jpg",
-  heroS3Key: "groups/heroes/7-1.jpg",
+  avatarS3Key: "groups/avatars/7-1.webp",
+  heroS3Key: "groups/heroes/7-1.webp",
+  heroMobileS3Key: "groups/heroes/7-1-m.webp",
   heroFocalX: 40,
   heroFocalY: 60,
   heroScale: 120,
@@ -32,13 +33,16 @@ const baseGroup = {
 };
 
 describe("resolveGroupUrls", () => {
-  it("resolves S3 keys to presigned URLs", async () => {
+  it("resolves S3 keys to presigned URLs (avatar + desktop hero + mobile hero)", async () => {
     const result = await resolveGroupUrls(baseGroup);
     expect(result.avatarUrl).toBe(
-      "https://s3.example.com/presigned/groups/avatars/7-1.jpg",
+      "https://s3.example.com/presigned/groups/avatars/7-1.webp",
     );
     expect(result.heroUrl).toBe(
-      "https://s3.example.com/presigned/groups/heroes/7-1.jpg",
+      "https://s3.example.com/presigned/groups/heroes/7-1.webp",
+    );
+    expect(result.heroMobileUrl).toBe(
+      "https://s3.example.com/presigned/groups/heroes/7-1-m.webp",
     );
     expect(result.heroFocalX).toBe(40);
     expect(result.heroFocalY).toBe(60);
@@ -47,16 +51,29 @@ describe("resolveGroupUrls", () => {
     expect(result.heroUpdatedAt).toBe("2026-04-01T10:00:00.000Z");
   });
 
+  it("returns null heroMobileUrl for legacy records without the mobile variant", async () => {
+    const result = await resolveGroupUrls({
+      ...baseGroup,
+      heroMobileS3Key: null,
+    });
+    expect(result.heroUrl).toBe(
+      "https://s3.example.com/presigned/groups/heroes/7-1.webp",
+    );
+    expect(result.heroMobileUrl).toBeNull();
+  });
+
   it("falls back to logoUrl when no avatarS3Key", async () => {
     const result = await resolveGroupUrls({
       ...baseGroup,
       avatarS3Key: null,
       heroS3Key: null,
+      heroMobileS3Key: null,
       avatarUpdatedAt: null,
       heroUpdatedAt: null,
     });
     expect(result.avatarUrl).toBe("https://old.example.com/logo.png");
     expect(result.heroUrl).toBeNull();
+    expect(result.heroMobileUrl).toBeNull();
     expect(result.avatarUpdatedAt).toBeNull();
     expect(result.heroUpdatedAt).toBeNull();
   });
@@ -66,12 +83,14 @@ describe("resolveGroupUrls", () => {
       ...baseGroup,
       avatarS3Key: null,
       heroS3Key: null,
+      heroMobileS3Key: null,
       logoUrl: null,
       avatarUpdatedAt: null,
       heroUpdatedAt: null,
     });
     expect(result.avatarUrl).toBeNull();
     expect(result.heroUrl).toBeNull();
+    expect(result.heroMobileUrl).toBeNull();
   });
 
   it("defaults focal+scale when fields missing", async () => {
@@ -97,10 +116,10 @@ describe("resolveEventGroupUrls", () => {
     };
     await resolveEventGroupUrls(event);
     expect(event.eventRetreatGroups[0].retreatGroup.heroUrl).toBe(
-      "https://s3.example.com/presigned/groups/heroes/7-1.jpg",
+      "https://s3.example.com/presigned/groups/heroes/7-1.webp",
     );
     expect(event.eventRetreatGroups[0].retreatGroup.avatarUrl).toBe(
-      "https://s3.example.com/presigned/groups/avatars/7-1.jpg",
+      "https://s3.example.com/presigned/groups/avatars/7-1.webp",
     );
   });
 

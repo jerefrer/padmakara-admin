@@ -10,8 +10,13 @@ import {
   deleteObject,
   buildGroupAvatarS3Key,
   buildGroupHeroS3Key,
+  buildGroupHeroMobileS3Key,
 } from "../../services/s3.ts";
-import { processAvatar, processHero } from "../../services/image-pipeline.ts";
+import {
+  processAvatar,
+  processHero,
+  processHeroMobile,
+} from "../../services/image-pipeline.ts";
 import { resolveGroupUrls } from "../../lib/group-utils.ts";
 
 const groupRoutes = new Hono();
@@ -78,8 +83,8 @@ groupRoutes.post("/:id/avatar", async (c) => {
   const buffer = Buffer.from(await file.arrayBuffer());
   const resized = await processAvatar(buffer);
 
-  const s3Key = buildGroupAvatarS3Key(id, "jpg");
-  await putObject(s3Key, resized, "image/jpeg");
+  const s3Key = buildGroupAvatarS3Key(id, "webp");
+  await putObject(s3Key, resized, "image/webp");
 
   const existing = await db.query.retreatGroups.findFirst({
     where: eq(retreatGroups.id, id),
@@ -104,7 +109,10 @@ groupRoutes.post("/:id/avatar", async (c) => {
  * POST /:id/hero — Upload and resize a retreat-group hero banner.
  *
  * Accepts multipart/form-data with `file` and optional `focalX`/`focalY`
- * (0–100, default 50). The server resizes to 1200px wide.
+ * (0–100, default 50). The server generates two WebP variants — desktop
+ * (2400px wide) and mobile (1200px wide) — both with aspect ratio
+ * preserved and no enlargement. Frontend picks the right one from the
+ * viewport width.
  */
 groupRoutes.post("/:id/hero", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
@@ -117,23 +125,34 @@ groupRoutes.post("/:id/hero", async (c) => {
   const focalY = clampPercent(form.get("focalY"));
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const resized = await processHero(buffer);
+  const [desktopBuf, mobileBuf] = await Promise.all([
+    processHero(buffer),
+    processHeroMobile(buffer),
+  ]);
 
-  const s3Key = buildGroupHeroS3Key(id, "jpg");
-  await putObject(s3Key, resized, "image/jpeg");
+  const desktopKey = buildGroupHeroS3Key(id, "webp");
+  const mobileKey = buildGroupHeroMobileS3Key(id, "webp");
+  await Promise.all([
+    putObject(desktopKey, desktopBuf, "image/webp"),
+    putObject(mobileKey, mobileBuf, "image/webp"),
+  ]);
 
   const existing = await db.query.retreatGroups.findFirst({
     where: eq(retreatGroups.id, id),
   });
-  if (existing?.heroS3Key && existing.heroS3Key !== s3Key) {
+  if (existing?.heroS3Key && existing.heroS3Key !== desktopKey) {
     await deleteObject(existing.heroS3Key).catch(() => {});
+  }
+  if (existing?.heroMobileS3Key && existing.heroMobileS3Key !== mobileKey) {
+    await deleteObject(existing.heroMobileS3Key).catch(() => {});
   }
 
   const now = new Date();
   const [group] = await db
     .update(retreatGroups)
     .set({
-      heroS3Key: s3Key,
+      heroS3Key: desktopKey,
+      heroMobileS3Key: mobileKey,
       heroFocalX: focalX,
       heroFocalY: focalY,
       heroScale: 100,

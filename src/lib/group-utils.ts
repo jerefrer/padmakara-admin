@@ -10,6 +10,7 @@ interface RetreatGroupDbRecord {
   logoUrl: string | null;
   avatarS3Key: string | null;
   heroS3Key: string | null;
+  heroMobileS3Key: string | null;
   heroFocalX: number;
   heroFocalY: number;
   heroScale: number;
@@ -22,12 +23,16 @@ interface RetreatGroupDbRecord {
 
 export interface RetreatGroupResponse extends Omit<
   RetreatGroupDbRecord,
-  "avatarS3Key" | "heroS3Key" | "avatarUpdatedAt" | "heroUpdatedAt" | "createdAt" | "updatedAt"
+  "avatarS3Key" | "heroS3Key" | "heroMobileS3Key" | "avatarUpdatedAt" | "heroUpdatedAt" | "createdAt" | "updatedAt"
 > {
   avatarS3Key: string | null;
   heroS3Key: string | null;
+  heroMobileS3Key: string | null;
   avatarUrl: string | null;
+  /** Desktop hero (2400px wide). */
   heroUrl: string | null;
+  /** Mobile hero variant (1200px wide); preferred by phone-sized clients. */
+  heroMobileUrl: string | null;
   avatarUpdatedAt: string | null;
   heroUpdatedAt: string | null;
   createdAt: string;
@@ -42,18 +47,23 @@ export interface RetreatGroupResponse extends Omit<
 export async function resolveGroupUrls(
   group: RetreatGroupDbRecord,
 ): Promise<RetreatGroupResponse> {
-  const avatarUrl = group.avatarS3Key
-    ? await generatePresignedDownloadUrl(group.avatarS3Key)
-    : group.logoUrl || null;
-
-  const heroUrl = group.heroS3Key
-    ? await generatePresignedDownloadUrl(group.heroS3Key)
-    : null;
+  const [avatarUrl, heroUrl, heroMobileUrl] = await Promise.all([
+    group.avatarS3Key
+      ? generatePresignedDownloadUrl(group.avatarS3Key)
+      : Promise.resolve(group.logoUrl || null),
+    group.heroS3Key
+      ? generatePresignedDownloadUrl(group.heroS3Key)
+      : Promise.resolve(null),
+    group.heroMobileS3Key
+      ? generatePresignedDownloadUrl(group.heroMobileS3Key)
+      : Promise.resolve(null),
+  ]);
 
   return {
     ...group,
     avatarUrl,
     heroUrl,
+    heroMobileUrl,
     heroFocalX: group.heroFocalX ?? 50,
     heroFocalY: group.heroFocalY ?? 50,
     heroScale: group.heroScale ?? 100,

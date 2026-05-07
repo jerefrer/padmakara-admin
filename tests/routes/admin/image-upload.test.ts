@@ -29,22 +29,29 @@ vi.mock("../../../src/services/s3.ts", () => ({
   putObject: vi.fn(() => Promise.resolve()),
   deleteObject: vi.fn(() => Promise.resolve()),
   buildTeacherAvatarS3Key: vi.fn(
-    (id: number) => `teachers/avatars/${id}-fixed.jpg`,
+    (id: number) => `teachers/avatars/${id}-fixed.webp`,
   ),
   buildTeacherHeroS3Key: vi.fn(
-    (id: number) => `teachers/heroes/${id}-fixed.jpg`,
+    (id: number) => `teachers/heroes/${id}-fixed.webp`,
+  ),
+  buildTeacherHeroMobileS3Key: vi.fn(
+    (id: number) => `teachers/heroes/${id}-fixed-m.webp`,
   ),
   buildGroupAvatarS3Key: vi.fn(
-    (id: number) => `groups/avatars/${id}-fixed.jpg`,
+    (id: number) => `groups/avatars/${id}-fixed.webp`,
   ),
   buildGroupHeroS3Key: vi.fn(
-    (id: number) => `groups/heroes/${id}-fixed.jpg`,
+    (id: number) => `groups/heroes/${id}-fixed.webp`,
+  ),
+  buildGroupHeroMobileS3Key: vi.fn(
+    (id: number) => `groups/heroes/${id}-fixed-m.webp`,
   ),
 }));
 
 vi.mock("../../../src/services/image-pipeline.ts", () => ({
   processAvatar: vi.fn(() => Promise.resolve(Buffer.from("AVATAR_RESIZED"))),
-  processHero: vi.fn(() => Promise.resolve(Buffer.from("HERO_RESIZED"))),
+  processHero: vi.fn(() => Promise.resolve(Buffer.from("HERO_DESKTOP_RESIZED"))),
+  processHeroMobile: vi.fn(() => Promise.resolve(Buffer.from("HERO_MOBILE_RESIZED"))),
 }));
 
 vi.mock("../../../src/lib/teacher-utils.ts", () => ({
@@ -70,6 +77,7 @@ import { putObject, deleteObject } from "../../../src/services/s3.ts";
 import {
   processAvatar,
   processHero,
+  processHeroMobile,
 } from "../../../src/services/image-pipeline.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
 
@@ -79,6 +87,7 @@ const mockPutObject = putObject as ReturnType<typeof vi.fn>;
 const mockDeleteObject = deleteObject as ReturnType<typeof vi.fn>;
 const mockProcessAvatar = processAvatar as ReturnType<typeof vi.fn>;
 const mockProcessHero = processHero as ReturnType<typeof vi.fn>;
+const mockProcessHeroMobile = processHeroMobile as ReturnType<typeof vi.fn>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -122,13 +131,13 @@ describe("POST /api/admin/teachers/:id/avatar", () => {
     vi.clearAllMocks();
   });
 
-  it("resizes via sharp, writes to S3, updates the DB, returns the teacher", async () => {
+  it("resizes via sharp, writes WebP to S3, updates the DB, returns the teacher", async () => {
     mockFindFirst.mockResolvedValueOnce(null); // no existing avatar
     mockReturning.mockResolvedValueOnce([
       {
         id: 7,
         name: "JKR",
-        avatarS3Key: "teachers/avatars/7-fixed.jpg",
+        avatarS3Key: "teachers/avatars/7-fixed.webp",
         heroS3Key: null,
       },
     ]);
@@ -144,14 +153,14 @@ describe("POST /api/admin/teachers/:id/avatar", () => {
     expect(status).toBe(200);
     expect(mockProcessAvatar).toHaveBeenCalledTimes(1);
     expect(mockPutObject).toHaveBeenCalledWith(
-      "teachers/avatars/7-fixed.jpg",
+      "teachers/avatars/7-fixed.webp",
       Buffer.from("AVATAR_RESIZED"),
-      "image/jpeg",
+      "image/webp",
     );
     expect(mockDeleteObject).not.toHaveBeenCalled(); // no previous key
     expect(body).toMatchObject({
       id: 7,
-      avatarS3Key: "teachers/avatars/7-fixed.jpg",
+      avatarS3Key: "teachers/avatars/7-fixed.webp",
       avatarUrl: "https://signed/avatar.jpg",
     });
   });
@@ -159,10 +168,10 @@ describe("POST /api/admin/teachers/:id/avatar", () => {
   it("deletes the previous S3 object when replacing an avatar at a different key", async () => {
     mockFindFirst.mockResolvedValueOnce({
       id: 7,
-      avatarS3Key: "teachers/avatars/7-old.jpg",
+      avatarS3Key: "teachers/avatars/7-old.webp",
     });
     mockReturning.mockResolvedValueOnce([
-      { id: 7, name: "JKR", avatarS3Key: "teachers/avatars/7-fixed.jpg" },
+      { id: 7, name: "JKR", avatarS3Key: "teachers/avatars/7-fixed.webp" },
     ]);
 
     const token = await adminToken();
@@ -174,7 +183,7 @@ describe("POST /api/admin/teachers/:id/avatar", () => {
     );
 
     expect(status).toBe(200);
-    expect(mockDeleteObject).toHaveBeenCalledWith("teachers/avatars/7-old.jpg");
+    expect(mockDeleteObject).toHaveBeenCalledWith("teachers/avatars/7-old.webp");
   });
 
   it("returns 400 when no file is included", async () => {
@@ -229,12 +238,13 @@ describe("POST /api/admin/teachers/:id/hero", () => {
     vi.clearAllMocks();
   });
 
-  it("resizes via sharp, persists focal coordinates, returns the teacher", async () => {
+  it("writes both desktop and mobile WebP variants, persists focal, returns the teacher", async () => {
     mockFindFirst.mockResolvedValueOnce(null);
     mockReturning.mockResolvedValueOnce([
       {
         id: 7,
-        heroS3Key: "teachers/heroes/7-fixed.jpg",
+        heroS3Key: "teachers/heroes/7-fixed.webp",
+        heroMobileS3Key: "teachers/heroes/7-fixed-m.webp",
         heroFocalX: 30,
         heroFocalY: 70,
         heroScale: 100,
@@ -254,18 +264,56 @@ describe("POST /api/admin/teachers/:id/hero", () => {
 
     expect(status).toBe(200);
     expect(mockProcessHero).toHaveBeenCalledTimes(1);
+    expect(mockProcessHeroMobile).toHaveBeenCalledTimes(1);
     expect(mockPutObject).toHaveBeenCalledWith(
-      "teachers/heroes/7-fixed.jpg",
-      Buffer.from("HERO_RESIZED"),
-      "image/jpeg",
+      "teachers/heroes/7-fixed.webp",
+      Buffer.from("HERO_DESKTOP_RESIZED"),
+      "image/webp",
+    );
+    expect(mockPutObject).toHaveBeenCalledWith(
+      "teachers/heroes/7-fixed-m.webp",
+      Buffer.from("HERO_MOBILE_RESIZED"),
+      "image/webp",
     );
     expect(body).toMatchObject({
       id: 7,
-      heroS3Key: "teachers/heroes/7-fixed.jpg",
+      heroS3Key: "teachers/heroes/7-fixed.webp",
+      heroMobileS3Key: "teachers/heroes/7-fixed-m.webp",
       heroFocalX: 30,
       heroFocalY: 70,
       heroScale: 100,
     });
+  });
+
+  it("deletes both old hero S3 objects when replacing", async () => {
+    mockFindFirst.mockResolvedValueOnce({
+      id: 7,
+      heroS3Key: "teachers/heroes/7-old.webp",
+      heroMobileS3Key: "teachers/heroes/7-old-m.webp",
+    });
+    mockReturning.mockResolvedValueOnce([
+      {
+        id: 7,
+        heroS3Key: "teachers/heroes/7-fixed.webp",
+        heroMobileS3Key: "teachers/heroes/7-fixed-m.webp",
+      },
+    ]);
+
+    const token = await adminToken();
+    const form = fileFormData("file", "hero.jpg", "RAW");
+    const { status } = await postMultipart(
+      "/api/admin/teachers/7/hero",
+      form,
+      { Authorization: `Bearer ${token}` },
+    );
+
+    expect(status).toBe(200);
+    expect(mockDeleteObject).toHaveBeenCalledWith(
+      "teachers/heroes/7-old.webp",
+    );
+    expect(mockDeleteObject).toHaveBeenCalledWith(
+      "teachers/heroes/7-old-m.webp",
+    );
   });
 
   it("clamps focal coordinates outside [0, 100]", async () => {
@@ -315,10 +363,10 @@ describe("POST /api/admin/groups/:id/avatar", () => {
     vi.clearAllMocks();
   });
 
-  it("resizes via sharp and updates the group", async () => {
+  it("resizes via sharp, writes WebP, and updates the group", async () => {
     mockFindFirst.mockResolvedValueOnce(null);
     mockReturning.mockResolvedValueOnce([
-      { id: 3, nameEn: "Lisbon", avatarS3Key: "groups/avatars/3-fixed.jpg" },
+      { id: 3, nameEn: "Lisbon", avatarS3Key: "groups/avatars/3-fixed.webp" },
     ]);
 
     const token = await adminToken();
@@ -332,13 +380,13 @@ describe("POST /api/admin/groups/:id/avatar", () => {
     expect(status).toBe(200);
     expect(mockProcessAvatar).toHaveBeenCalledTimes(1);
     expect(mockPutObject).toHaveBeenCalledWith(
-      "groups/avatars/3-fixed.jpg",
+      "groups/avatars/3-fixed.webp",
       Buffer.from("AVATAR_RESIZED"),
-      "image/jpeg",
+      "image/webp",
     );
     expect(body).toMatchObject({
       id: 3,
-      avatarS3Key: "groups/avatars/3-fixed.jpg",
+      avatarS3Key: "groups/avatars/3-fixed.webp",
     });
   });
 
@@ -368,12 +416,13 @@ describe("POST /api/admin/groups/:id/hero", () => {
     vi.clearAllMocks();
   });
 
-  it("resizes via sharp, persists focal, returns the group", async () => {
+  it("writes both desktop and mobile WebP variants, persists focal, returns the group", async () => {
     mockFindFirst.mockResolvedValueOnce(null);
     mockReturning.mockResolvedValueOnce([
       {
         id: 3,
-        heroS3Key: "groups/heroes/3-fixed.jpg",
+        heroS3Key: "groups/heroes/3-fixed.webp",
+        heroMobileS3Key: "groups/heroes/3-fixed-m.webp",
         heroFocalX: 25,
         heroFocalY: 80,
         heroScale: 100,
@@ -393,8 +442,21 @@ describe("POST /api/admin/groups/:id/hero", () => {
 
     expect(status).toBe(200);
     expect(mockProcessHero).toHaveBeenCalledTimes(1);
+    expect(mockProcessHeroMobile).toHaveBeenCalledTimes(1);
+    expect(mockPutObject).toHaveBeenCalledWith(
+      "groups/heroes/3-fixed.webp",
+      Buffer.from("HERO_DESKTOP_RESIZED"),
+      "image/webp",
+    );
+    expect(mockPutObject).toHaveBeenCalledWith(
+      "groups/heroes/3-fixed-m.webp",
+      Buffer.from("HERO_MOBILE_RESIZED"),
+      "image/webp",
+    );
     expect(body).toMatchObject({
       id: 3,
+      heroS3Key: "groups/heroes/3-fixed.webp",
+      heroMobileS3Key: "groups/heroes/3-fixed-m.webp",
       heroFocalX: 25,
       heroFocalY: 80,
       heroScale: 100,

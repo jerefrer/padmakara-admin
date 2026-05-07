@@ -14,6 +14,7 @@ export const teachers = pgTable("teachers", {
   photoUrl: text("photo_url"),
   avatarS3Key: text("avatar_s3_key"),
   heroS3Key: text("hero_s3_key"),
+  heroMobileS3Key: text("hero_mobile_s3_key"),
   heroFocalX: integer("hero_focal_x").notNull().default(50),
   heroFocalY: integer("hero_focal_y").notNull().default(50),
   heroScale: integer("hero_scale").notNull().default(100),

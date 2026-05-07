@@ -10,8 +10,13 @@ import {
   deleteObject,
   buildTeacherAvatarS3Key,
   buildTeacherHeroS3Key,
+  buildTeacherHeroMobileS3Key,
 } from "../../services/s3.ts";
-import { processAvatar, processHero } from "../../services/image-pipeline.ts";
+import {
+  processAvatar,
+  processHero,
+  processHeroMobile,
+} from "../../services/image-pipeline.ts";
 import { resolveTeacherUrls } from "../../lib/teacher-utils.ts";
 
 const teacherRoutes = new Hono();
@@ -66,8 +71,8 @@ teacherRoutes.post("/:id/avatar", async (c) => {
   const buffer = Buffer.from(await file.arrayBuffer());
   const resized = await processAvatar(buffer, { grayscale });
 
-  const s3Key = buildTeacherAvatarS3Key(id, "jpg");
-  await putObject(s3Key, resized, "image/jpeg");
+  const s3Key = buildTeacherAvatarS3Key(id, "webp");
+  await putObject(s3Key, resized, "image/webp");
 
   const existing = await db.query.teachers.findFirst({
     where: eq(teachers.id, id),
@@ -92,9 +97,11 @@ teacherRoutes.post("/:id/avatar", async (c) => {
  * POST /:id/hero — Upload and resize a teacher hero banner.
  *
  * Accepts multipart/form-data with `file`, optional `focalX`/`focalY`
- * (0–100, default 50), and optional `grayscale`. The server resizes the
- * upload to 1200px wide (aspect preserved, never enlarged). Focal/scale
- * are pure display metadata used by the apps' object-position styling.
+ * (0–100, default 50), and optional `grayscale`. The server generates two
+ * WebP variants — desktop (2400px wide) and mobile (1200px wide) — both
+ * with aspect ratio preserved and no enlargement. Frontend picks the right
+ * one from the viewport width. Focal coordinates are display metadata used
+ * by the apps' object-position styling.
  */
 teacherRoutes.post("/:id/hero", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
@@ -108,23 +115,34 @@ teacherRoutes.post("/:id/hero", async (c) => {
   const grayscale = form.get("grayscale") === "true";
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const resized = await processHero(buffer, { grayscale });
+  const [desktopBuf, mobileBuf] = await Promise.all([
+    processHero(buffer, { grayscale }),
+    processHeroMobile(buffer, { grayscale }),
+  ]);
 
-  const s3Key = buildTeacherHeroS3Key(id, "jpg");
-  await putObject(s3Key, resized, "image/jpeg");
+  const desktopKey = buildTeacherHeroS3Key(id, "webp");
+  const mobileKey = buildTeacherHeroMobileS3Key(id, "webp");
+  await Promise.all([
+    putObject(desktopKey, desktopBuf, "image/webp"),
+    putObject(mobileKey, mobileBuf, "image/webp"),
+  ]);
 
   const existing = await db.query.teachers.findFirst({
     where: eq(teachers.id, id),
   });
-  if (existing?.heroS3Key && existing.heroS3Key !== s3Key) {
+  if (existing?.heroS3Key && existing.heroS3Key !== desktopKey) {
     await deleteObject(existing.heroS3Key).catch(() => {});
+  }
+  if (existing?.heroMobileS3Key && existing.heroMobileS3Key !== mobileKey) {
+    await deleteObject(existing.heroMobileS3Key).catch(() => {});
   }
 
   const now = new Date();
   const [teacher] = await db
     .update(teachers)
     .set({
-      heroS3Key: s3Key,
+      heroS3Key: desktopKey,
+      heroMobileS3Key: mobileKey,
       heroFocalX: focalX,
       heroFocalY: focalY,
       heroScale: 100,

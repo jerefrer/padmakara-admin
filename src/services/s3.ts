@@ -268,11 +268,20 @@ export function buildTeacherAvatarS3Key(teacherId: number, ext: string): string 
 }
 
 /**
- * Build S3 key for teacher hero/banner images.
+ * Build S3 key for teacher hero/banner images (desktop, 2400px wide).
  * Format: teachers/heroes/{teacherId}-{timestamp}.{ext}
  */
 export function buildTeacherHeroS3Key(teacherId: number, ext: string): string {
   return `teachers/heroes/${teacherId}-${Date.now()}.${ext}`;
+}
+
+/**
+ * Build S3 key for the mobile-sized teacher hero variant (1200px wide).
+ * Generated alongside the desktop hero so phone clients fetch a smaller
+ * image. Format: teachers/heroes/{teacherId}-{timestamp}-m.{ext}
+ */
+export function buildTeacherHeroMobileS3Key(teacherId: number, ext: string): string {
+  return `teachers/heroes/${teacherId}-${Date.now()}-m.${ext}`;
 }
 
 /**
@@ -284,9 +293,17 @@ export function buildGroupAvatarS3Key(groupId: number, ext: string): string {
 }
 
 /**
- * Build S3 key for retreat-group hero/banner images.
+ * Build S3 key for retreat-group hero/banner images (desktop, 2400px wide).
  * Format: groups/heroes/{groupId}-{timestamp}.{ext}
  */
 export function buildGroupHeroS3Key(groupId: number, ext: string): string {
   return `groups/heroes/${groupId}-${Date.now()}.${ext}`;
+}
+
+/**
+ * Build S3 key for the mobile-sized group hero variant (1200px wide).
+ * Format: groups/heroes/{groupId}-{timestamp}-m.{ext}
+ */
+export function buildGroupHeroMobileS3Key(groupId: number, ext: string): string {
+  return `groups/heroes/${groupId}-${Date.now()}-m.${ext}`;
 }

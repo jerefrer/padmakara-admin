@@ -7,6 +7,7 @@ interface TeacherDbRecord {
   photoUrl: string | null;
   avatarS3Key: string | null;
   heroS3Key: string | null;
+  heroMobileS3Key: string | null;
   heroFocalX: number;
   heroFocalY: number;
   heroScale: number;
@@ -19,7 +20,12 @@ export interface TeacherResponse {
   name: string;
   abbreviation: string;
   avatarUrl: string | null;
+  /** Desktop hero (2400px wide) — apps fall back to this on small screens
+   *  if heroMobileUrl is missing (e.g., for legacy records uploaded before
+   *  the variant rollout). */
   heroUrl: string | null;
+  /** Mobile hero variant (1200px wide); preferred by phone-sized clients. */
+  heroMobileUrl: string | null;
   heroFocalX: number;
   heroFocalY: number;
   heroScale: number;
@@ -35,13 +41,17 @@ export interface TeacherResponse {
 export async function resolveTeacherUrls(
   teacher: TeacherDbRecord,
 ): Promise<TeacherResponse> {
-  const avatarUrl = teacher.avatarS3Key
-    ? await generatePresignedDownloadUrl(teacher.avatarS3Key)
-    : teacher.photoUrl || null;
-
-  const heroUrl = teacher.heroS3Key
-    ? await generatePresignedDownloadUrl(teacher.heroS3Key)
-    : null;
+  const [avatarUrl, heroUrl, heroMobileUrl] = await Promise.all([
+    teacher.avatarS3Key
+      ? generatePresignedDownloadUrl(teacher.avatarS3Key)
+      : Promise.resolve(teacher.photoUrl || null),
+    teacher.heroS3Key
+      ? generatePresignedDownloadUrl(teacher.heroS3Key)
+      : Promise.resolve(null),
+    teacher.heroMobileS3Key
+      ? generatePresignedDownloadUrl(teacher.heroMobileS3Key)
+      : Promise.resolve(null),
+  ]);
 
   return {
     id: teacher.id,
@@ -49,6 +59,7 @@ export async function resolveTeacherUrls(
     abbreviation: teacher.abbreviation,
     avatarUrl,
     heroUrl,
+    heroMobileUrl,
     heroFocalX: teacher.heroFocalX ?? 50,
     heroFocalY: teacher.heroFocalY ?? 50,
     heroScale: teacher.heroScale ?? 100,
