@@ -80,6 +80,12 @@ export {
   readAlongJobsRelations,
 } from "./read-along-jobs.ts";
 
+// Sync versioning
+export { syncVersions } from "./sync-versions.ts";
+export type { SyncVersion } from "./sync-versions.ts";
+export { userSyncVersions } from "./user-sync-versions.ts";
+export type { UserSyncVersion } from "./user-sync-versions.ts";
+
 // Migrations
 export {
   migrations,

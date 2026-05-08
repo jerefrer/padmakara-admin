@@ -2,10 +2,12 @@ import { Hono } from "hono";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { sessions } from "../../db/schema/sessions.ts";
+import { events } from "../../db/schema/retreats.ts";
 import { createSessionSchema, updateSessionSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { deleteVideo } from "../../services/bunny.ts";
+import { bumpVersion } from "../../services/sync-versions.ts";
 
 const sessionRoutes = new Hono();
 
@@ -56,6 +58,13 @@ sessionRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const data = createSessionSchema.parse(body);
   const [session] = await db.insert(sessions).values(data).returning();
+  await db
+    .update(events)
+    .set({ updatedAt: new Date() })
+    .where(eq(events.id, session!.eventId));
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(session!, 201);
 });
 
@@ -101,6 +110,13 @@ sessionRoutes.put("/:id", async (c) => {
     }
   }
 
+  await db
+    .update(events)
+    .set({ updatedAt: new Date() })
+    .where(eq(events.id, session.eventId));
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(session);
 });
 
@@ -134,6 +150,13 @@ sessionRoutes.delete("/:id", async (c) => {
     }
   }
 
+  await db
+    .update(events)
+    .set({ updatedAt: new Date() })
+    .where(eq(events.id, session.eventId));
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(session);
 });
 

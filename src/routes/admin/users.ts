@@ -5,6 +5,7 @@ import { users, userGroupMemberships, userEventAttendance } from "../../db/schem
 import { updateUserSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
+import { bumpUserAccessVersion } from "../../services/sync-versions.ts";
 
 const userRoutes = new Hono();
 
@@ -99,6 +100,10 @@ userRoutes.put("/:id", async (c) => {
       updatedAt: users.updatedAt,
     });
   if (!user) throw AppError.notFound("User not found");
+  // A role or subscription change can affect what content the user can access.
+  bumpUserAccessVersion(id).catch((err) =>
+    console.error("[sync] failed to bump user access version:", err),
+  );
   return c.json(user);
 });
 
@@ -118,6 +123,9 @@ userRoutes.post("/:id/groups", async (c) => {
   const userId = parseInt(c.req.param("id"), 10);
   const { retreatGroupId } = (await c.req.json()) as { retreatGroupId: number };
   await db.insert(userGroupMemberships).values({ userId, retreatGroupId });
+  bumpUserAccessVersion(userId).catch((err) =>
+    console.error("[sync] failed to bump user access version:", err),
+  );
   return c.json({ message: "Added to group" }, 201);
 });
 
@@ -132,6 +140,9 @@ userRoutes.delete("/:id/groups/:groupId", async (c) => {
         eq(userGroupMemberships.retreatGroupId, retreatGroupId),
       ),
     );
+  bumpUserAccessVersion(userId).catch((err) =>
+    console.error("[sync] failed to bump user access version:", err),
+  );
   return c.json({ message: "Removed from group" });
 });
 
@@ -141,6 +152,9 @@ userRoutes.post("/:id/events", async (c) => {
   const userId = parseInt(c.req.param("id"), 10);
   const { eventId } = (await c.req.json()) as { eventId: number };
   await db.insert(userEventAttendance).values({ userId, eventId });
+  bumpUserAccessVersion(userId).catch((err) =>
+    console.error("[sync] failed to bump user access version:", err),
+  );
   return c.json({ message: "Added to event" }, 201);
 });
 
@@ -155,6 +169,9 @@ userRoutes.delete("/:id/events/:eventId", async (c) => {
         eq(userEventAttendance.eventId, eventId),
       ),
     );
+  bumpUserAccessVersion(userId).catch((err) =>
+    console.error("[sync] failed to bump user access version:", err),
+  );
   return c.json({ message: "Removed from event" });
 });
 

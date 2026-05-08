@@ -6,13 +6,23 @@ import { testJson } from "../../helpers.ts";
 vi.mock("../../../src/db/index.ts", () => {
   const mockReturning = vi.fn();
   const mockWhere = vi.fn(() => ({ returning: mockReturning }));
+  const mockSet = vi.fn(() => ({ where: mockWhere }));
   const mockDelete = vi.fn(() => ({ where: mockWhere }));
+  const mockUpdate = vi.fn(() => ({ set: mockSet }));
+  const mockFindFirst = vi.fn(() => Promise.resolve(null));
   return {
     db: {
       delete: mockDelete,
+      update: mockUpdate,
+      query: {
+        sessions: { findFirst: mockFindFirst },
+        tracks: { findFirst: mockFindFirst },
+      },
       _delete: mockDelete,
+      _update: mockUpdate,
       _where: mockWhere,
       _returning: mockReturning,
+      _findFirst: mockFindFirst,
     },
   };
 });

@@ -14,6 +14,7 @@ import { createEventSchema, updateEventSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs } from "../../services/read-along.ts";
+import { bumpVersion } from "../../services/sync-versions.ts";
 
 const eventRoutes = new Hono();
 
@@ -184,6 +185,9 @@ eventRoutes.post("/", async (c) => {
     },
   });
 
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(full!, 201);
 });
 
@@ -250,6 +254,9 @@ eventRoutes.put("/:id", async (c) => {
     },
   });
 
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(full!);
 });
 
@@ -260,6 +267,9 @@ eventRoutes.delete("/:id", async (c) => {
     .where(eq(events.id, id))
     .returning();
   if (!event) throw AppError.notFound("Event not found");
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(event);
 });
 
@@ -385,6 +395,9 @@ eventRoutes.post("/:id/translate-themes", async (c) => {
     },
   });
 
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json({
     translated: Object.keys(updates),
     event: updated,

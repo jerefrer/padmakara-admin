@@ -18,6 +18,7 @@ import {
   processHeroMobile,
 } from "../../services/image-pipeline.ts";
 import { resolveTeacherUrls } from "../../lib/teacher-utils.ts";
+import { bumpVersion } from "../../services/sync-versions.ts";
 
 const teacherRoutes = new Hono();
 
@@ -90,6 +91,9 @@ teacherRoutes.post("/:id/avatar", async (c) => {
   if (!teacher) throw AppError.notFound("Teacher not found");
 
   const resolved = await resolveTeacherUrls(teacher);
+  bumpVersion("teachers").catch((err) =>
+    console.error("[sync] failed to bump teachers version:", err),
+  );
   return c.json({ ...teacher, ...resolved });
 });
 
@@ -154,6 +158,9 @@ teacherRoutes.post("/:id/hero", async (c) => {
   if (!teacher) throw AppError.notFound("Teacher not found");
 
   const resolved = await resolveTeacherUrls(teacher);
+  bumpVersion("teachers").catch((err) =>
+    console.error("[sync] failed to bump teachers version:", err),
+  );
   return c.json({ ...teacher, ...resolved });
 });
 
@@ -177,6 +184,9 @@ teacherRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const data = createTeacherSchema.parse(body);
   const [teacher] = await db.insert(teachers).values(data).returning();
+  bumpVersion("teachers").catch((err) =>
+    console.error("[sync] failed to bump teachers version:", err),
+  );
   return c.json(teacher!, 201);
 });
 
@@ -216,6 +226,9 @@ teacherRoutes.put("/:id", async (c) => {
     .where(eq(teachers.id, id))
     .returning();
   if (!teacher) throw AppError.notFound("Teacher not found");
+  bumpVersion("teachers").catch((err) =>
+    console.error("[sync] failed to bump teachers version:", err),
+  );
   return c.json(teacher);
 });
 
@@ -226,6 +239,9 @@ teacherRoutes.delete("/:id", async (c) => {
     .where(eq(teachers.id, id))
     .returning();
   if (!teacher) throw AppError.notFound("Teacher not found");
+  bumpVersion("teachers").catch((err) =>
+    console.error("[sync] failed to bump teachers version:", err),
+  );
   return c.json(teacher);
 });
 

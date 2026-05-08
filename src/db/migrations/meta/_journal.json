@@ -148,6 +148,20 @@
       "when": 1810086400000,
       "tag": "0020_add_track_bookmarks",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1810172800000,
+      "tag": "0021_sync_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1810259200000,
+      "tag": "0022_user_sync_versions",
+      "breakpoints": true
     }
   ]
 }

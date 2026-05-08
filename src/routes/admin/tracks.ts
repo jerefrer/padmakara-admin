@@ -2,10 +2,13 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { tracks } from "../../db/schema/tracks.ts";
+import { sessions } from "../../db/schema/sessions.ts";
+import { events } from "../../db/schema/retreats.ts";
 import { createTrackSchema, updateTrackSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
+import { bumpVersion } from "../../services/sync-versions.ts";
 
 const trackRoutes = new Hono();
 
@@ -49,6 +52,18 @@ trackRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const data = createTrackSchema.parse(body);
   const [track] = await db.insert(tracks).values(data).returning();
+  const session = await db.query.sessions.findFirst({
+    where: eq(sessions.id, track!.sessionId),
+  });
+  if (session) {
+    await db
+      .update(events)
+      .set({ updatedAt: new Date() })
+      .where(eq(events.id, session.eventId));
+  }
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(track!, 201);
 });
 
@@ -67,6 +82,18 @@ trackRoutes.put("/:id", async (c) => {
     .where(eq(tracks.id, id))
     .returning();
   if (!track) throw AppError.notFound("Track not found");
+  const trackSession = await db.query.sessions.findFirst({
+    where: eq(sessions.id, track.sessionId),
+  });
+  if (trackSession) {
+    await db
+      .update(events)
+      .set({ updatedAt: new Date() })
+      .where(eq(events.id, trackSession.eventId));
+  }
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(track);
 });
 
@@ -117,6 +144,18 @@ trackRoutes.delete("/:id", async (c) => {
     await deleteObject(track.readAlongS3Key).catch(() => {});
   }
 
+  const deletedSession = await db.query.sessions.findFirst({
+    where: eq(sessions.id, track.sessionId),
+  });
+  if (deletedSession) {
+    await db
+      .update(events)
+      .set({ updatedAt: new Date() })
+      .where(eq(events.id, deletedSession.eventId));
+  }
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
   return c.json(track);
 });
 

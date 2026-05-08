@@ -11,6 +11,8 @@ import { paymentRoutes } from "./payment.ts";
 import { searchRoutes } from "./search.ts";
 import { webhookRoutes } from "./webhooks.ts";
 import { publicationRoutes } from "./publications.ts";
+import { syncRoutes } from "./sync.ts";
+import { teacherRoutes } from "./teachers.ts";
 
 const api = new Hono();
 
@@ -37,5 +39,7 @@ api.route("/media", mediaRoutes);
 api.route("/users", userRoutes);
 api.route("/download-requests", downloadsRoutes);
 api.route("/publications", publicationRoutes);
+api.route("/teachers", teacherRoutes);
+api.route("/sync", syncRoutes);
 
 export { api };

@@ -9,6 +9,7 @@ import { createPublicationSchema, updatePublicationSchema } from "../../lib/sche
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { generatePresignedDownloadUrl, generatePresignedUploadUrl, putObject } from "../../services/s3.ts";
+import { bumpVersion } from "../../services/sync-versions.ts";
 
 /**
  * Generate a cover image from the first page of a PDF.
@@ -396,6 +397,9 @@ publicationRoutes.post("/", async (c) => {
     .insert(publications)
     .values({ ...data, pageCount, fileSizeBytes, coverImageS3Key })
     .returning();
+  bumpVersion("publications").catch((err) =>
+    console.error("[sync] failed to bump publications version:", err),
+  );
   return c.json(pub!, 201);
 });
 
@@ -445,6 +449,9 @@ publicationRoutes.put("/:id", async (c) => {
     .where(eq(publications.id, id))
     .returning();
   if (!pub) throw AppError.notFound("Publication not found");
+  bumpVersion("publications").catch((err) =>
+    console.error("[sync] failed to bump publications version:", err),
+  );
   return c.json(pub);
 });
 
@@ -458,6 +465,9 @@ publicationRoutes.delete("/:id", async (c) => {
     .where(eq(publications.id, id))
     .returning();
   if (!pub) throw AppError.notFound("Publication not found");
+  bumpVersion("publications").catch((err) =>
+    console.error("[sync] failed to bump publications version:", err),
+  );
   return c.json(pub);
 });
 
