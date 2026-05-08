@@ -221,6 +221,14 @@ export const createBookmarkSchema = z.object({
   notes: z.string().optional().nullable(),
 });
 
+export const createEventBookmarkSchema = z.object({
+  eventId: z.number().int(),
+});
+
+export const createTrackBookmarkSchema = z.object({
+  trackId: z.number().int(),
+});
+
 export const createNoteSchema = z.object({
   eventId: z.number().int().optional().nullable(),
   trackId: z.number().int().optional().nullable(),

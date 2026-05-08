@@ -134,6 +134,20 @@
       "when": 1793491200000,
       "tag": "0018_hero_mobile_variant",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1810000000000,
+      "tag": "0019_add_event_bookmarks",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1810086400000,
+      "tag": "0020_add_track_bookmarks",
+      "breakpoints": true
     }
   ]
 }

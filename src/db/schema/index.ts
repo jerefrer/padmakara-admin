@@ -52,9 +52,13 @@ export {
 export {
   userProgress,
   bookmarks,
+  eventBookmarks,
+  trackBookmarks,
   userNotes,
   userProgressRelations,
   bookmarksRelations,
+  eventBookmarksRelations,
+  trackBookmarksRelations,
   userNotesRelations,
 } from "./user-content.ts";
 

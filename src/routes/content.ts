@@ -1,14 +1,23 @@
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.ts";
-import { userProgress, bookmarks, userNotes } from "../db/schema/user-content.ts";
+import { userProgress, bookmarks, eventBookmarks, trackBookmarks, userNotes } from "../db/schema/user-content.ts";
 import { videoProgress } from "../db/schema/video-progress.ts";
 import { sessions } from "../db/schema/sessions.ts";
-import { updateProgressSchema, createBookmarkSchema, createNoteSchema, updateNoteSchema } from "../lib/schemas.ts";
+import {
+  updateProgressSchema,
+  createBookmarkSchema,
+  createEventBookmarkSchema,
+  createTrackBookmarkSchema,
+  createNoteSchema,
+  updateNoteSchema,
+} from "../lib/schemas.ts";
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { checkEventAccess } from "../services/access.ts";
 import { users } from "../db/schema/users.ts";
+import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
+import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { z } from "zod";
 
 const contentRoutes = new Hono();
@@ -252,6 +261,183 @@ contentRoutes.delete("/bookmarks/:id", async (c) => {
 
   if (!bookmark) throw AppError.notFound("Bookmark not found");
   return c.json(bookmark);
+});
+
+// --- Event Bookmarks ---
+//
+// Whole-event bookmarks (no track / no position). These coexist with the
+// track-position `bookmarks` table above — they answer different questions:
+// "save this event" vs. "remember this moment in this track".
+
+const eventBookmarkWith = {
+  event: {
+    with: {
+      eventType: true,
+      audience: true,
+      eventTeachers: { with: { teacher: true } },
+      eventRetreatGroups: { with: { retreatGroup: true } },
+      eventPlaces: { with: { place: true } },
+    },
+  },
+} as const;
+
+contentRoutes.get("/event-bookmarks", async (c) => {
+  const user = getUser(c);
+  const rows = await db.query.eventBookmarks.findMany({
+    where: eq(eventBookmarks.userId, user.id),
+    orderBy: (b, { desc }) => [desc(b.createdAt)],
+    with: eventBookmarkWith,
+  });
+
+  // Enrich teacher/group avatars with presigned URLs so the bookmarks tab
+  // can render the same event card the events list uses.
+  const events = rows.map((r) => r.event).filter(Boolean) as any[];
+  await resolveEventsTeacherUrls(events);
+  await resolveEventsGroupUrls(events);
+
+  return c.json(rows);
+});
+
+contentRoutes.post("/event-bookmarks", async (c) => {
+  const user = getUser(c);
+  const body = await c.req.json();
+  const data = createEventBookmarkSchema.parse(body);
+
+  // Idempotent: re-bookmarking the same event returns the existing row.
+  const [row] = await db
+    .insert(eventBookmarks)
+    .values({ userId: user.id, eventId: data.eventId })
+    .onConflictDoNothing({ target: [eventBookmarks.userId, eventBookmarks.eventId] })
+    .returning();
+
+  const existing = row
+    ? await db.query.eventBookmarks.findFirst({
+        where: eq(eventBookmarks.id, row.id),
+        with: eventBookmarkWith,
+      })
+    : await db.query.eventBookmarks.findFirst({
+        where: and(
+          eq(eventBookmarks.userId, user.id),
+          eq(eventBookmarks.eventId, data.eventId),
+        ),
+        with: eventBookmarkWith,
+      });
+
+  if (!existing) throw AppError.notFound("Event not found");
+
+  if (existing.event) {
+    await resolveEventTeacherUrls(existing.event as any);
+    await resolveEventGroupUrls(existing.event as any);
+  }
+
+  return c.json(existing, row ? 201 : 200);
+});
+
+contentRoutes.delete("/event-bookmarks/:eventId", async (c) => {
+  const user = getUser(c);
+  const eventId = parseInt(c.req.param("eventId"), 10);
+
+  const [deleted] = await db
+    .delete(eventBookmarks)
+    .where(
+      and(eq(eventBookmarks.userId, user.id), eq(eventBookmarks.eventId, eventId)),
+    )
+    .returning();
+
+  if (!deleted) throw AppError.notFound("Bookmark not found");
+  return c.json(deleted);
+});
+
+// --- Track Bookmarks ---
+//
+// Whole-track bookmarks (no position). Listed alongside event bookmarks on
+// the Bookmarks tab. The track include carries session+event so the UI can
+// show the bookmarked track in context and navigate back to its parent.
+
+const trackBookmarkWith = {
+  track: {
+    with: {
+      session: {
+        with: {
+          event: {
+            with: {
+              eventTeachers: { with: { teacher: true } },
+              eventRetreatGroups: { with: { retreatGroup: true } },
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+contentRoutes.get("/track-bookmarks", async (c) => {
+  const user = getUser(c);
+  const rows = await db.query.trackBookmarks.findMany({
+    where: eq(trackBookmarks.userId, user.id),
+    orderBy: (b, { desc }) => [desc(b.createdAt)],
+    with: trackBookmarkWith,
+  });
+
+  // Enrich teacher avatars on the embedded events so cards in the bookmarks
+  // list look the same as elsewhere.
+  const events = rows
+    .map((r) => (r.track as any)?.session?.event)
+    .filter(Boolean);
+  await resolveEventsTeacherUrls(events);
+  await resolveEventsGroupUrls(events);
+
+  return c.json(rows);
+});
+
+contentRoutes.post("/track-bookmarks", async (c) => {
+  const user = getUser(c);
+  const body = await c.req.json();
+  const data = createTrackBookmarkSchema.parse(body);
+
+  const [row] = await db
+    .insert(trackBookmarks)
+    .values({ userId: user.id, trackId: data.trackId })
+    .onConflictDoNothing({ target: [trackBookmarks.userId, trackBookmarks.trackId] })
+    .returning();
+
+  const existing = row
+    ? await db.query.trackBookmarks.findFirst({
+        where: eq(trackBookmarks.id, row.id),
+        with: trackBookmarkWith,
+      })
+    : await db.query.trackBookmarks.findFirst({
+        where: and(
+          eq(trackBookmarks.userId, user.id),
+          eq(trackBookmarks.trackId, data.trackId),
+        ),
+        with: trackBookmarkWith,
+      });
+
+  if (!existing) throw AppError.notFound("Track not found");
+
+  const event = (existing.track as any)?.session?.event;
+  if (event) {
+    await resolveEventTeacherUrls(event);
+    await resolveEventGroupUrls(event);
+  }
+
+  return c.json(existing, row ? 201 : 200);
+});
+
+contentRoutes.delete("/track-bookmarks/:trackId", async (c) => {
+  const user = getUser(c);
+  const trackId = parseInt(c.req.param("trackId"), 10);
+
+  const [deleted] = await db
+    .delete(trackBookmarks)
+    .where(
+      and(eq(trackBookmarks.userId, user.id), eq(trackBookmarks.trackId, trackId)),
+    )
+    .returning();
+
+  if (!deleted) throw AppError.notFound("Bookmark not found");
+  return c.json(deleted);
 });
 
 // --- Notes ---

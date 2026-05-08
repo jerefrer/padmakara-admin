@@ -50,6 +50,39 @@ export const bookmarks = pgTable("bookmarks", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const eventBookmarks = pgTable(
+  "event_bookmarks",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [unique().on(t.userId, t.eventId)],
+);
+
+// Whole-track bookmarks (no time position). Coexists with the older
+// position-based `bookmarks` table; this one is what the player toolbar
+// toggles, and it lists alongside event bookmarks on the Bookmarks tab.
+export const trackBookmarks = pgTable(
+  "track_bookmarks",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    trackId: integer("track_id")
+      .notNull()
+      .references(() => tracks.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [unique().on(t.userId, t.trackId)],
+);
+
 export const userNotes = pgTable("user_notes", {
   id: serial("id").primaryKey(),
   userId: integer("user_id")
@@ -87,6 +120,28 @@ export const bookmarksRelations = relations(bookmarks, ({ one }) => ({
   }),
   track: one(tracks, {
     fields: [bookmarks.trackId],
+    references: [tracks.id],
+  }),
+}));
+
+export const eventBookmarksRelations = relations(eventBookmarks, ({ one }) => ({
+  user: one(users, {
+    fields: [eventBookmarks.userId],
+    references: [users.id],
+  }),
+  event: one(events, {
+    fields: [eventBookmarks.eventId],
+    references: [events.id],
+  }),
+}));
+
+export const trackBookmarksRelations = relations(trackBookmarks, ({ one }) => ({
+  user: one(users, {
+    fields: [trackBookmarks.userId],
+    references: [users.id],
+  }),
+  track: one(tracks, {
+    fields: [trackBookmarks.trackId],
     references: [tracks.id],
   }),
 }));
