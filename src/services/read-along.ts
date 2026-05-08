@@ -8,6 +8,7 @@ import { tracks } from "../db/schema/tracks.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
+import { putObject } from "./s3.ts";
 
 const batchClient = new BatchClient({
   region: config.aws.region,
@@ -87,6 +88,16 @@ export async function submitReadAlongJob(
     })
     .returning();
 
+  // Upload the track list to S3 instead of passing it inline. AWS Batch caps
+  // the total size of containerOverrides at 8192 bytes, which an 80+ track
+  // event blows through immediately.
+  const audioKeysS3Key = `read-along-jobs/${job!.id}/audio_keys.json`;
+  await putObject(
+    audioKeysS3Key,
+    Buffer.from(JSON.stringify(audioS3Keys)),
+    "application/json",
+  );
+
   // Build webhook URL
   const webhookUrl = `${config.urls.backend}/api/webhooks/read-along`;
 
@@ -104,7 +115,7 @@ export async function submitReadAlongJob(
         { name: "LANGUAGE", value: language },
         { name: "SKIP_PAGES", value: String(skipPages) },
         { name: "WHISPER_MODEL", value: whisperModel },
-        { name: "AUDIO_S3_KEYS", value: JSON.stringify(audioS3Keys) },
+        { name: "AUDIO_KEYS_S3_KEY", value: audioKeysS3Key },
         { name: "WEBHOOK_URL", value: webhookUrl },
         { name: "WEBHOOK_SECRET", value: config.readAlong.webhookSecret },
       ],
