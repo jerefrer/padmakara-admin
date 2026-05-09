@@ -103,6 +103,46 @@ contentRoutes.get("/progress/:trackId", async (c) => {
   return c.json(progress);
 });
 
+/**
+ * GET /api/content/last-played - Get the user's most recently played track,
+ * joined with track / session / event meta to populate IdleTrackInfo on a
+ * fresh device. Returns null if the user has no progress rows yet.
+ */
+contentRoutes.get("/last-played", async (c) => {
+  const user = getUser(c);
+
+  const row = await db.query.userProgress.findFirst({
+    where: eq(userProgress.userId, user.id),
+    orderBy: (up, { desc }) => [desc(up.lastPlayed)],
+    with: {
+      track: {
+        with: {
+          session: {
+            with: {
+              event: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!row) {
+    return c.json(null);
+  }
+
+  return c.json({
+    trackId: row.trackId,
+    positionSeconds: row.positionSeconds,
+    durationSeconds: null,
+    isCompleted: row.isCompleted,
+    lastPlayed: row.lastPlayed,
+    track: row.track,
+    session: row.track?.session ?? null,
+    event: row.track?.session?.event ?? null,
+  });
+});
+
 // --- Video Progress (session-scoped, cross-device) ---
 
 const updateVideoProgressSchema = z.object({
