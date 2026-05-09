@@ -335,6 +335,20 @@ export const pt = {
       avatarUploadFailed: "Falha ao carregar avatar",
       heroUploaded: "Imagem de capa carregada",
       heroUploadFailed: "Falha ao carregar imagem de capa",
+      delete: "Eliminar Grupo",
+      deleteTitle: "Eliminar Grupo de Retiro",
+      deleteConfirmMessage:
+        "Isto irá eliminar permanentemente <strong>%{name}</strong>. Esta ação não pode ser desfeita.",
+      deleteHasEvents:
+        "%{count} evento está associado a este grupo. |||| %{count} eventos estão associados a este grupo.",
+      reassignLabel: "Reatribuir eventos e membros a (opcional)",
+      reassignPlaceholder: "Não reatribuir — apenas desassociar",
+      reassignHelper:
+        "Se selecionado, os eventos e as adesões dos membros deste grupo serão transferidos para o grupo escolhido. Caso contrário, são simplesmente desassociados.",
+      deleteTypeConfirm: 'Escreva "delete" para confirmar',
+      deleting: "A eliminar...",
+      deleteGroup: "Eliminar Grupo",
+      deletedSuccess: "Grupo eliminado",
     },
     tracks: {
       download: "Descarregar áudio",

@@ -1,7 +1,9 @@
 import { Hono } from "hono";
-import { eq, or, ilike } from "drizzle-orm";
+import { eq, or, and, ilike, inArray } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { retreatGroups } from "../../db/schema/retreat-groups.ts";
+import { events, eventRetreatGroups } from "../../db/schema/retreats.ts";
+import { userGroupMemberships } from "../../db/schema/users.ts";
 import { createRetreatGroupSchema, updateRetreatGroupSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
@@ -18,7 +20,7 @@ import {
   processHeroMobile,
 } from "../../services/image-pipeline.ts";
 import { resolveGroupUrls } from "../../lib/group-utils.ts";
-import { bumpVersion } from "../../services/sync-versions.ts";
+import { bumpVersion, bumpUserAccessVersion } from "../../services/sync-versions.ts";
 
 const groupRoutes = new Hono();
 
@@ -183,6 +185,34 @@ function clampPercent(raw: FormDataEntryValue | null): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+/**
+ * GET /:id/events — Slim list of events linked to this group.
+ *
+ * Used by the admin delete dialog to show what is attached to the group
+ * before the user confirms a delete-or-reassign decision. Returns just
+ * enough to render a preview list — full event detail goes through the
+ * events resource.
+ */
+groupRoutes.get("/:id/events", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid group ID");
+
+  const rows = await db
+    .select({
+      id: events.id,
+      eventCode: events.eventCode,
+      titleEn: events.titleEn,
+      titlePt: events.titlePt,
+      startDate: events.startDate,
+    })
+    .from(eventRetreatGroups)
+    .innerJoin(events, eq(events.id, eventRetreatGroups.eventId))
+    .where(eq(eventRetreatGroups.retreatGroupId, id))
+    .orderBy(events.startDate);
+
+  return c.json({ events: rows, total: rows.length });
+});
+
 groupRoutes.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const group = await db.query.retreatGroups.findFirst({
@@ -248,17 +278,129 @@ groupRoutes.put("/:id", async (c) => {
   return c.json(group);
 });
 
+/**
+ * DELETE /:id — Delete a retreat group, optionally reassigning its events
+ * and user memberships.
+ *
+ * Query params:
+ *   reassignTo (optional) — id of another retreat group to receive both
+ *     events and user memberships currently attached to the deleted
+ *     group. Each junction row is moved to the target group; rows whose
+ *     (event,group) or (user,group) pair already exists in the target
+ *     are left alone and get cascade-deleted with the group (the unique
+ *     primary keys prevent updating them in place).
+ *
+ * When reassignTo is omitted, events and memberships are simply unlinked
+ * from this group via the FK cascade.
+ */
 groupRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid group ID");
+
+  const reassignToRaw = c.req.query("reassignTo");
+  let reassignTo: number | null = null;
+  if (reassignToRaw !== undefined && reassignToRaw !== "") {
+    const parsed = parseInt(reassignToRaw, 10);
+    if (isNaN(parsed)) throw AppError.badRequest("Invalid reassignTo");
+    if (parsed === id)
+      throw AppError.badRequest("Cannot reassign to the group being deleted");
+    const target = await db.query.retreatGroups.findFirst({
+      where: eq(retreatGroups.id, parsed),
+    });
+    if (!target) throw AppError.badRequest("Reassignment target group not found");
+    reassignTo = parsed;
+  }
+
+  let reassignedEventCount = 0;
+  let reassignedMembershipCount = 0;
+  const affectedUserIds = new Set<number>();
+
+  if (reassignTo !== null) {
+    // Move event junction rows.
+    const sourceEventRows = await db
+      .select({ eventId: eventRetreatGroups.eventId })
+      .from(eventRetreatGroups)
+      .where(eq(eventRetreatGroups.retreatGroupId, id));
+
+    if (sourceEventRows.length > 0) {
+      const targetEventRows = await db
+        .select({ eventId: eventRetreatGroups.eventId })
+        .from(eventRetreatGroups)
+        .where(eq(eventRetreatGroups.retreatGroupId, reassignTo));
+      const eventsAlreadyInTarget = new Set(targetEventRows.map((r) => r.eventId));
+
+      const eventsToMove = sourceEventRows
+        .map((r) => r.eventId)
+        .filter((eventId) => !eventsAlreadyInTarget.has(eventId));
+
+      if (eventsToMove.length > 0) {
+        await db
+          .update(eventRetreatGroups)
+          .set({ retreatGroupId: reassignTo })
+          .where(
+            and(
+              eq(eventRetreatGroups.retreatGroupId, id),
+              inArray(eventRetreatGroups.eventId, eventsToMove),
+            ),
+          );
+        reassignedEventCount = eventsToMove.length;
+      }
+    }
+
+    // Move user membership rows.
+    const sourceMemberRows = await db
+      .select({ userId: userGroupMemberships.userId })
+      .from(userGroupMemberships)
+      .where(eq(userGroupMemberships.retreatGroupId, id));
+
+    if (sourceMemberRows.length > 0) {
+      const targetMemberRows = await db
+        .select({ userId: userGroupMemberships.userId })
+        .from(userGroupMemberships)
+        .where(eq(userGroupMemberships.retreatGroupId, reassignTo));
+      const usersAlreadyInTarget = new Set(targetMemberRows.map((r) => r.userId));
+
+      const usersToMove = sourceMemberRows
+        .map((r) => r.userId)
+        .filter((userId) => !usersAlreadyInTarget.has(userId));
+
+      if (usersToMove.length > 0) {
+        await db
+          .update(userGroupMemberships)
+          .set({ retreatGroupId: reassignTo })
+          .where(
+            and(
+              eq(userGroupMemberships.retreatGroupId, id),
+              inArray(userGroupMemberships.userId, usersToMove),
+            ),
+          );
+        reassignedMembershipCount = usersToMove.length;
+        for (const userId of usersToMove) affectedUserIds.add(userId);
+      }
+    }
+  }
+
   const [group] = await db
     .delete(retreatGroups)
     .where(eq(retreatGroups.id, id))
     .returning();
   if (!group) throw AppError.notFound("Group not found");
+
   bumpVersion("groups").catch((err) =>
     console.error("[sync] failed to bump groups version:", err),
   );
-  return c.json(group);
+  if (reassignedEventCount > 0) {
+    bumpVersion("events").catch((err) =>
+      console.error("[sync] failed to bump events version:", err),
+    );
+  }
+  for (const userId of affectedUserIds) {
+    bumpUserAccessVersion(userId).catch((err) =>
+      console.error("[sync] failed to bump user access version:", err),
+    );
+  }
+
+  return c.json({ ...group, reassignedEventCount, reassignedMembershipCount });
 });
 
 export { groupRoutes };

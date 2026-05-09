@@ -134,6 +134,20 @@ export const en = {
       avatarUploadFailed: "Avatar upload failed",
       heroUploaded: "Hero image uploaded",
       heroUploadFailed: "Hero image upload failed",
+      delete: "Delete Group",
+      deleteTitle: "Delete Retreat Group",
+      deleteConfirmMessage:
+        "This will permanently delete <strong>%{name}</strong>. This action cannot be undone.",
+      deleteHasEvents:
+        "%{count} event is attached to this group. |||| %{count} events are attached to this group.",
+      reassignLabel: "Reassign events and members to (optional)",
+      reassignPlaceholder: "Don't reassign — just unlink",
+      reassignHelper:
+        "If selected, this group's events and member memberships will be moved to the chosen group. Otherwise they are simply unlinked.",
+      deleteTypeConfirm: 'Type "delete" to confirm',
+      deleting: "Deleting...",
+      deleteGroup: "Delete Group",
+      deletedSuccess: "Group deleted",
     },
     tracks: {
       download: "Download audio",
