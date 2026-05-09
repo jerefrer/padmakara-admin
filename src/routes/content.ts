@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.ts";
-import { userProgress, bookmarks, eventBookmarks, trackBookmarks, userNotes } from "../db/schema/user-content.ts";
+import { userProgress, bookmarks, eventBookmarks, trackBookmarks } from "../db/schema/user-content.ts";
 import { videoProgress } from "../db/schema/video-progress.ts";
 import { sessions } from "../db/schema/sessions.ts";
 import {
@@ -9,8 +9,6 @@ import {
   createBookmarkSchema,
   createEventBookmarkSchema,
   createTrackBookmarkSchema,
-  createNoteSchema,
-  updateNoteSchema,
 } from "../lib/schemas.ts";
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
@@ -478,59 +476,6 @@ contentRoutes.delete("/track-bookmarks/:trackId", async (c) => {
 
   if (!deleted) throw AppError.notFound("Bookmark not found");
   return c.json(deleted);
-});
-
-// --- Notes ---
-
-contentRoutes.get("/notes", async (c) => {
-  const user = getUser(c);
-  const data = await db.query.userNotes.findMany({
-    where: eq(userNotes.userId, user.id),
-    orderBy: (n, { desc }) => [desc(n.updatedAt)],
-  });
-  return c.json(data);
-});
-
-contentRoutes.post("/notes", async (c) => {
-  const user = getUser(c);
-  const body = await c.req.json();
-  const data = createNoteSchema.parse(body);
-
-  const [note] = await db
-    .insert(userNotes)
-    .values({ ...data, userId: user.id })
-    .returning();
-
-  return c.json(note!, 201);
-});
-
-contentRoutes.put("/notes/:id", async (c) => {
-  const user = getUser(c);
-  const id = parseInt(c.req.param("id"), 10);
-  const body = await c.req.json();
-  const data = updateNoteSchema.parse(body);
-
-  const [note] = await db
-    .update(userNotes)
-    .set({ ...data, updatedAt: new Date() })
-    .where(and(eq(userNotes.id, id), eq(userNotes.userId, user.id)))
-    .returning();
-
-  if (!note) throw AppError.notFound("Note not found");
-  return c.json(note);
-});
-
-contentRoutes.delete("/notes/:id", async (c) => {
-  const user = getUser(c);
-  const id = parseInt(c.req.param("id"), 10);
-
-  const [note] = await db
-    .delete(userNotes)
-    .where(and(eq(userNotes.id, id), eq(userNotes.userId, user.id)))
-    .returning();
-
-  if (!note) throw AppError.notFound("Note not found");
-  return c.json(note);
 });
 
 export { contentRoutes };

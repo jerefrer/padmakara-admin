@@ -6,7 +6,6 @@ import {
   boolean,
   real,
   timestamp,
-  jsonb,
   unique,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -83,24 +82,6 @@ export const trackBookmarks = pgTable(
   (t) => [unique().on(t.userId, t.trackId)],
 );
 
-export const userNotes = pgTable("user_notes", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  eventId: integer("retreat_id").references(() => events.id, {
-    onDelete: "set null",
-  }),
-  trackId: integer("track_id").references(() => tracks.id, {
-    onDelete: "set null",
-  }),
-  title: text("title"),
-  content: text("content").notNull(),
-  tags: jsonb("tags").notNull().default([]),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
-
 // Relations
 export const userProgressRelations = relations(userProgress, ({ one }) => ({
   user: one(users, {
@@ -146,17 +127,3 @@ export const trackBookmarksRelations = relations(trackBookmarks, ({ one }) => ({
   }),
 }));
 
-export const userNotesRelations = relations(userNotes, ({ one }) => ({
-  user: one(users, {
-    fields: [userNotes.userId],
-    references: [users.id],
-  }),
-  event: one(events, {
-    fields: [userNotes.eventId],
-    references: [events.id],
-  }),
-  track: one(tracks, {
-    fields: [userNotes.trackId],
-    references: [tracks.id],
-  }),
-}));

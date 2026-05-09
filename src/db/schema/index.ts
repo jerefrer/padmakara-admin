@@ -54,12 +54,10 @@ export {
   bookmarks,
   eventBookmarks,
   trackBookmarks,
-  userNotes,
   userProgressRelations,
   bookmarksRelations,
   eventBookmarksRelations,
   trackBookmarksRelations,
-  userNotesRelations,
 } from "./user-content.ts";
 
 // Video progress (session-level, distinct from track-level userProgress)

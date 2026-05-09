@@ -229,16 +229,6 @@ export const createTrackBookmarkSchema = z.object({
   trackId: z.number().int(),
 });
 
-export const createNoteSchema = z.object({
-  eventId: z.number().int().optional().nullable(),
-  trackId: z.number().int().optional().nullable(),
-  title: z.string().max(200).optional().nullable(),
-  content: z.string().min(1),
-  tags: z.array(z.string()).optional().default([]),
-});
-
-export const updateNoteSchema = createNoteSchema.partial();
-
 // Upload
 export const presignUploadSchema = z.object({
   files: z.array(z.object({
