@@ -5,6 +5,7 @@ import { testJson } from "../helpers.ts";
 
 const mockFindFirst = vi.fn();
 const mockFindMany = vi.fn();
+const mockTrackFindFirst = vi.fn();
 const mockInsertReturning = vi.fn();
 const mockUpdateReturning = vi.fn();
 
@@ -14,6 +15,9 @@ vi.mock("../../src/db/index.ts", () => ({
       userProgress: {
         findFirst: (...args: any[]) => mockFindFirst(...args),
         findMany: (...args: any[]) => mockFindMany(...args),
+      },
+      tracks: {
+        findFirst: (...args: any[]) => mockTrackFindFirst(...args),
       },
     },
     insert: () => ({
@@ -59,6 +63,7 @@ describe("Content progress routes", () => {
     });
 
     it("BE1 — inserts a new row when none exists", async () => {
+      mockTrackFindFirst.mockResolvedValueOnce({ id: 42 });
       mockFindFirst.mockResolvedValueOnce(null);
       mockInsertReturning.mockResolvedValueOnce([{
         id: 1,
@@ -86,6 +91,7 @@ describe("Content progress routes", () => {
     });
 
     it("BE2 — updates an existing row and recomputes flags", async () => {
+      mockTrackFindFirst.mockResolvedValueOnce({ id: 42 });
       mockFindFirst.mockResolvedValueOnce({
         id: 1,
         userId: 1,
@@ -120,6 +126,19 @@ describe("Content progress routes", () => {
       expect(status).toBe(200);
       expect(body.completionPct).toBe(96);
       expect(body.isCompleted).toBe(true);
+    });
+
+    it("BE10 — returns 404 when trackId does not exist (no FK 500)", async () => {
+      mockTrackFindFirst.mockResolvedValueOnce(null);
+
+      const { status, body } = await testJson("/api/content/progress", {
+        method: "POST",
+        headers: await authHeader(),
+        body: JSON.stringify({ trackId: 9999, positionSeconds: 30, durationSeconds: 100 }),
+      });
+
+      expect(status).toBe(404);
+      expect(body.error?.message || body.message || JSON.stringify(body)).toMatch(/not found/i);
     });
 
     it("BE7 — rejects invalid body with 400", async () => {

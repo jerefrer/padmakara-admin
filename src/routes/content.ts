@@ -4,6 +4,7 @@ import { db } from "../db/index.ts";
 import { userProgress, bookmarks, eventBookmarks, trackBookmarks } from "../db/schema/user-content.ts";
 import { videoProgress } from "../db/schema/video-progress.ts";
 import { sessions } from "../db/schema/sessions.ts";
+import { tracks } from "../db/schema/tracks.ts";
 import {
   updateProgressSchema,
   createBookmarkSchema,
@@ -46,6 +47,19 @@ contentRoutes.post("/progress", async (c) => {
   const user = getUser(c);
   const body = await c.req.json();
   const data = updateProgressSchema.parse(body);
+
+  // Verify the track exists before insert. Without this, an unknown trackId
+  // would surface as a Postgres FK-violation 500 — common in practice when
+  // a client has stale local progress for tracks that were removed (or
+  // came from a different DB seed). Returning 404 lets the client clean
+  // up its local entry instead of retrying forever.
+  const trackExists = await db.query.tracks.findFirst({
+    where: eq(tracks.id, data.trackId),
+    columns: { id: true },
+  });
+  if (!trackExists) {
+    throw AppError.notFound(`Track ${data.trackId} not found`);
+  }
 
   const completionPct = data.durationSeconds
     ? Math.min(100, Math.round((data.positionSeconds / data.durationSeconds) * 100))
