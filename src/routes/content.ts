@@ -50,15 +50,17 @@ contentRoutes.post("/progress", async (c) => {
 
   // Verify the track exists before insert. Without this, an unknown trackId
   // would surface as a Postgres FK-violation 500 — common in practice when
-  // a client has stale local progress for tracks that were removed (or
-  // came from a different DB seed). Returning 404 lets the client clean
-  // up its local entry instead of retrying forever.
+  // a client has stale local progress for tracks that were removed (or came
+  // from a different DB seed). We respond with 200 + a `skipped` marker
+  // (not 404) so browsers don't log a red error in DevTools every time a
+  // legacy orphan tries to sync; the client still sees the marker and
+  // cleans up its local entry so it stops retrying.
   const trackExists = await db.query.tracks.findFirst({
     where: eq(tracks.id, data.trackId),
     columns: { id: true },
   });
   if (!trackExists) {
-    throw AppError.notFound(`Track ${data.trackId} not found`);
+    return c.json({ skipped: true, reason: "unknown_track", trackId: data.trackId });
   }
 
   const completionPct = data.durationSeconds

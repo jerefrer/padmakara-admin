@@ -128,7 +128,7 @@ describe("Content progress routes", () => {
       expect(body.isCompleted).toBe(true);
     });
 
-    it("BE10 — returns 404 when trackId does not exist (no FK 500)", async () => {
+    it("BE10 — returns 200 + {skipped:true} when trackId does not exist (no FK 500, no browser red)", async () => {
       mockTrackFindFirst.mockResolvedValueOnce(null);
 
       const { status, body } = await testJson("/api/content/progress", {
@@ -137,8 +137,10 @@ describe("Content progress routes", () => {
         body: JSON.stringify({ trackId: 9999, positionSeconds: 30, durationSeconds: 100 }),
       });
 
-      expect(status).toBe(404);
-      expect(body.error?.message || body.message || JSON.stringify(body)).toMatch(/not found/i);
+      expect(status).toBe(200);
+      expect(body.skipped).toBe(true);
+      expect(body.reason).toBe("unknown_track");
+      expect(body.trackId).toBe(9999);
     });
 
     it("BE7 — rejects invalid body with 400", async () => {
