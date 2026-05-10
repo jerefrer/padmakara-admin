@@ -4,6 +4,7 @@ import { testJson } from "../helpers.ts";
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
 const mockFindFirst = vi.fn();
+const mockFindMany = vi.fn();
 const mockInsertReturning = vi.fn();
 const mockUpdateReturning = vi.fn();
 
@@ -12,6 +13,7 @@ vi.mock("../../src/db/index.ts", () => ({
     query: {
       userProgress: {
         findFirst: (...args: any[]) => mockFindFirst(...args),
+        findMany: (...args: any[]) => mockFindMany(...args),
       },
     },
     insert: () => ({
@@ -219,6 +221,62 @@ describe("Content progress routes", () => {
       expect(body.track.title).toBe("Track A");
       expect(body.session.name).toBe("Morning");
       expect(body.event.titleEn).toBe("Spring Retreat");
+    });
+  });
+
+  describe("GET /api/content/progress (all)", () => {
+    it("returns 401 when unauthenticated", async () => {
+      const { status } = await testJson("/api/content/progress");
+      expect(status).toBe(401);
+    });
+
+    it("BE8 — returns empty array when user has no rows", async () => {
+      mockFindMany.mockResolvedValueOnce([]);
+
+      const { status, body } = await testJson("/api/content/progress", {
+        headers: await authHeader(),
+      });
+
+      expect(status).toBe(200);
+      expect(body).toEqual([]);
+    });
+
+    it("BE9 — returns all rows ordered by lastPlayed desc", async () => {
+      mockFindMany.mockResolvedValueOnce([
+        {
+          id: 1,
+          userId: 1,
+          trackId: 42,
+          positionSeconds: 47,
+          completionPct: 23,
+          isCompleted: false,
+          playCount: 1,
+          totalListenSeconds: 47,
+          lastPlayed: new Date("2026-05-08T10:00:00Z").toISOString(),
+          completedAt: null,
+        },
+        {
+          id: 2,
+          userId: 1,
+          trackId: 43,
+          positionSeconds: 12,
+          completionPct: 6,
+          isCompleted: false,
+          playCount: 1,
+          totalListenSeconds: 12,
+          lastPlayed: new Date("2026-05-07T10:00:00Z").toISOString(),
+          completedAt: null,
+        },
+      ]);
+
+      const { status, body } = await testJson("/api/content/progress", {
+        headers: await authHeader(),
+      });
+
+      expect(status).toBe(200);
+      expect(body).toHaveLength(2);
+      expect(body[0].trackId).toBe(42);
+      expect(body[1].trackId).toBe(43);
     });
   });
 });

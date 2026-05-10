@@ -25,6 +25,21 @@ contentRoutes.use("*", authMiddleware);
 // --- Progress ---
 
 /**
+ * GET /api/content/progress - Return all listening-progress rows for the
+ * current user, ordered by `lastPlayed` descending. Used by the mobile
+ * client to bulk-sync at app start / foreground resume; the per-track
+ * variant (GET /progress/:trackId) is kept for legacy single-row reads.
+ */
+contentRoutes.get("/progress", async (c) => {
+  const user = getUser(c);
+  const rows = await db.query.userProgress.findMany({
+    where: eq(userProgress.userId, user.id),
+    orderBy: (up, { desc }) => [desc(up.lastPlayed)],
+  });
+  return c.json(rows);
+});
+
+/**
  * POST /api/content/progress - Save/update listening progress
  */
 contentRoutes.post("/progress", async (c) => {
