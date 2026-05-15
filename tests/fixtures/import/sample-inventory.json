@@ -1,0 +1,45 @@
+{
+  "metadata": { "totalEvents": 2, "sourceBucket": "padmakara-pt" },
+  "events": [
+    {
+      "canonicalCode": "TEST-ZIP-EVENT",
+      "s3Path": "mediateca/TEST-ZIP-EVENT/",
+      "matchStatus": "matched",
+      "files": [
+        {
+          "relativePath": "Audio 1/recordings.zip",
+          "s3Key": "mediateca/TEST-ZIP-EVENT/Audio 1/recordings.zip",
+          "type": ".zip",
+          "size": 5000,
+          "category": "audio1",
+          "language": "Inglês | Português",
+          "zipContents": [
+            { "name": "TEST/01-JKR.mp3", "uncompressedSize": 3000, "compressedSize": 2800, "type": ".mp3" },
+            { "name": "TEST/02-JKR.mp3", "uncompressedSize": 4000, "compressedSize": 3700, "type": ".mp3" }
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalCode": "TEST-LOOSE-EVENT",
+      "s3Path": "mediateca/TEST-LOOSE-EVENT/",
+      "matchStatus": "matched",
+      "files": [
+        {
+          "relativePath": "talk.mp3",
+          "s3Key": "mediateca/TEST-LOOSE-EVENT/talk.mp3",
+          "type": ".mp3",
+          "size": 1200,
+          "category": "audio1"
+        },
+        {
+          "relativePath": "transcript.pdf",
+          "s3Key": "mediateca/TEST-LOOSE-EVENT/transcript.pdf",
+          "type": ".pdf",
+          "size": 800,
+          "category": "transcript"
+        }
+      ]
+    }
+  ]
+}
