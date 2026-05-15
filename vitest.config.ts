@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, configDefaults } from "vitest/config";
 import path from "path";
 
 const projectRoot = import.meta.dirname;
@@ -10,6 +10,8 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    // Exclude e2e files from the unit run — they live in their own config.
+    exclude: [...configDefaults.exclude, "tests/e2e/**"],
     setupFiles: ["tests/setup.ts"],
     testTimeout: 10000,
     server: {

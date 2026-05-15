@@ -7,6 +7,7 @@
     "dev:admin": "cd admin && bunx vite",
     "start": "bun run src/index.ts",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:watch": "vitest",
     "typecheck": "bunx tsc --noEmit",
     "db:generate": "bunx drizzle-kit generate",
