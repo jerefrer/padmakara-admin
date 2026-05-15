@@ -1,0 +1,254 @@
+/**
+ * Tests for POST /api/admin/events/:id/rename-tracks
+ *
+ * The event-scoped variant requires an existing event ID in the URL, but
+ * the route itself does not look up the event in the database — it validates
+ * the body and calls Anthropic. The DB mock only needs to satisfy the auth
+ * middleware's user lookup.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { testJson } from "../../helpers.ts";
+
+// ─── Mocks (must come before any imports that trigger route registration) ─────
+
+vi.mock("../../../src/db/index.ts", () => ({
+  db: {
+    query: { users: { findFirst: vi.fn() } },
+    select: vi.fn(),
+  },
+}));
+
+vi.mock("../../../src/services/s3.ts", () => ({
+  generatePresignedUploadUrl: vi.fn(),
+  buildTrackS3Key: vi.fn(),
+  buildTranscriptS3Key: vi.fn(),
+}));
+
+const mockMessagesCreate = vi.fn();
+vi.mock("@anthropic-ai/sdk", () => {
+  class MockAnthropic {
+    messages = { create: mockMessagesCreate };
+  }
+  return { default: MockAnthropic };
+});
+
+import { createAccessToken } from "../../../src/services/auth.ts";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function adminToken() {
+  return createAccessToken({ sub: 1, email: "admin@test.com", role: "admin" });
+}
+
+function makeAnthropicResponse(jsonText: string) {
+  return { content: [{ type: "text", text: jsonText }] };
+}
+
+const VALID_ROWS = [
+  {
+    rowKey: "1-1",
+    originalFilename: "001 JKR - Opening teachings.mp3",
+    title: "001 JKR - Opening teachings",
+    speaker: "JKR",
+  },
+  {
+    rowKey: "1-2",
+    originalFilename: "002 KPS - Prayers.mp3",
+    title: "002 KPS - Prayers",
+    speaker: null,
+  },
+];
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+describe("POST /api/admin/events/:id/rename-tracks", () => {
+  const OLD_ENV = process.env;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env = { ...OLD_ENV, ANTHROPIC_API_KEY: "test-key-123" };
+  });
+
+  afterEach(() => {
+    process.env = OLD_ENV;
+  });
+
+  it("returns AI suggestions for a valid request", async () => {
+    const suggestions = [
+      { rowKey: "1-1", title: "Opening Teachings" },
+      { rowKey: "1-2", title: "Prayers", speaker: "KPS" },
+    ];
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify(suggestions)),
+    );
+
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          instruction: "Capitalise each word in the title",
+          rows: VALID_ROWS,
+        }),
+      },
+    );
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ suggestions });
+    expect(mockMessagesCreate).toHaveBeenCalledOnce();
+  });
+
+  it("strips markdown code fences wrapping the JSON array", async () => {
+    const suggestions = [{ rowKey: "1-1", title: "Opening Teachings" }];
+    const withFences = "```json\n" + JSON.stringify(suggestions) + "\n```";
+    mockMessagesCreate.mockResolvedValueOnce(makeAnthropicResponse(withFences));
+
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ instruction: "Clean up", rows: VALID_ROWS }),
+      },
+    );
+
+    expect(status).toBe(200);
+    expect((body as any).suggestions).toEqual(suggestions);
+  });
+
+  it("returns 400 VALIDATION_ERROR when instruction is missing", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rows: VALID_ROWS }),
+      },
+    );
+
+    expect(status).toBe(400);
+    expect((body as any).code).toBe("VALIDATION_ERROR");
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 VALIDATION_ERROR when rows array is missing", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ instruction: "Fix titles" }),
+      },
+    );
+
+    expect(status).toBe(400);
+    expect((body as any).code).toBe("VALIDATION_ERROR");
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 VALIDATION_ERROR when rows array is empty", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ instruction: "Fix titles", rows: [] }),
+      },
+    );
+
+    expect(status).toBe(400);
+    expect((body as any).code).toBe("VALIDATION_ERROR");
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 VALIDATION_ERROR for non-JSON body", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: "not json",
+      },
+    );
+
+    expect(status).toBe(400);
+    expect((body as any).code).toBe("VALIDATION_ERROR");
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when ANTHROPIC_API_KEY is not set", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(500);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when AI response cannot be parsed as JSON", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse("Sorry, I cannot do that."),
+    );
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(500);
+  });
+
+  it("returns 500 when AI response is valid JSON but not an array", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify({ rowKey: "1-1", title: "Oops" })),
+    );
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(500);
+  });
+
+  it("returns 401 without an auth token", async () => {
+    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(401);
+  });
+
+  it("returns 403 for non-admin users", async () => {
+    const token = await createAccessToken({
+      sub: 2,
+      email: "user@test.com",
+      role: "user",
+    });
+    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(403);
+  });
+});

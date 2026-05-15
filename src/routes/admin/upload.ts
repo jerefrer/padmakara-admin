@@ -1,7 +1,8 @@
 import { Hono } from "hono";
+import Anthropic from "@anthropic-ai/sdk";
 import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key } from "../../services/s3.ts";
 import { parseTrackFilename, inferSessions } from "../../services/track-parser.ts";
-import { presignUploadSchema, presignTranscriptSchema, inferSessionsSchema } from "../../lib/schemas.ts";
+import { presignUploadSchema, presignTranscriptSchema, inferSessionsSchema, renameTracksSchema } from "../../lib/schemas.ts";
 import {
   createVideo,
   deleteVideo,
@@ -131,6 +132,76 @@ uploadRoutes.delete("/bunny/:videoId", async (c) => {
   if (!videoId) throw AppError.badRequest("videoId is required");
   await deleteVideo(videoId);
   return c.json({ ok: true });
+});
+
+/**
+ * POST /api/admin/upload/rename-tracks
+ *
+ * Stateless variant of the rename-tracks AI endpoint for the EventCreate flow
+ * (before an event ID exists). Accepts the same body and returns the same
+ * { suggestions } shape as POST /admin/events/:id/rename-tracks.
+ */
+uploadRoutes.post("/rename-tracks", async (c) => {
+  const parsed = renameTracksSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw AppError.internal("ANTHROPIC_API_KEY not configured");
+  }
+
+  const { instruction, rows } = parsed.data;
+  const anthropic = new Anthropic({ apiKey });
+  const rowsJson = JSON.stringify(rows, null, 2);
+
+  const message = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 4096,
+    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.`,
+    messages: [
+      {
+        role: "user",
+        content: `Instruction: ${instruction}\n\nRows:\n${rowsJson}`,
+      },
+    ],
+  });
+
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw AppError.internal("No text response from AI API");
+  }
+
+  let responseText = textBlock.text.trim();
+  if (responseText.startsWith("```")) {
+    responseText = responseText
+      .replace(/^```(?:json)?\n?/, "")
+      .replace(/\n?```$/, "")
+      .trim();
+  }
+
+  let suggestions: { rowKey: string; title?: string; speaker?: string }[];
+  try {
+    const raw: unknown = JSON.parse(responseText);
+    if (!Array.isArray(raw)) throw new Error("Expected array");
+    suggestions = raw.map((item: unknown) => {
+      if (typeof item !== "object" || item === null) throw new Error("Bad item");
+      const s = item as Record<string, unknown>;
+      const out: { rowKey: string; title?: string; speaker?: string } = {
+        rowKey: String(s.rowKey ?? ""),
+      };
+      if (typeof s.title === "string") out.title = s.title;
+      if (typeof s.speaker === "string") out.speaker = s.speaker;
+      return out;
+    });
+  } catch {
+    throw AppError.internal("Failed to parse AI rename response");
+  }
+
+  return c.json({ suggestions });
 });
 
 export { uploadRoutes };

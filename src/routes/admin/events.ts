@@ -9,7 +9,7 @@ import {
   eventPlaces,
 } from "../../db/schema/retreats.ts";
 import { eventPublications } from "../../db/schema/publications.ts";
-import { createEventSchema, updateEventSchema } from "../../lib/schemas.ts";
+import { createEventSchema, updateEventSchema, renameTracksSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs } from "../../services/read-along.ts";
@@ -402,6 +402,85 @@ eventRoutes.post("/:id/translate-themes", async (c) => {
     translated: Object.keys(updates),
     event: updated,
   });
+});
+
+// ── AI Track Rename ───────────────────────────────────────────────────
+
+/**
+ * POST /admin/events/:id/rename-tracks
+ *
+ * Apply a natural-language instruction to a list of parsed track rows and
+ * return suggested edits. The AI never mutates S3 or the database; the
+ * caller applies the suggestions to the editable rename-preview table and
+ * can review before committing.
+ *
+ * Body: { instruction: string, rows: { rowKey, originalFilename, title, speaker }[] }
+ * Response: { suggestions: { rowKey, title?, speaker? }[] }
+ */
+eventRoutes.post("/:id/rename-tracks", async (c) => {
+  const parsed = renameTracksSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw AppError.internal("ANTHROPIC_API_KEY not configured");
+  }
+
+  const { instruction, rows } = parsed.data;
+
+  const anthropic = new Anthropic({ apiKey });
+
+  const rowsJson = JSON.stringify(rows, null, 2);
+
+  const message = await anthropic.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 4096,
+    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.`,
+    messages: [
+      {
+        role: "user",
+        content: `Instruction: ${instruction}\n\nRows:\n${rowsJson}`,
+      },
+    ],
+  });
+
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw AppError.internal("No text response from AI API");
+  }
+
+  let responseText = textBlock.text.trim();
+  // Strip markdown code fences if present
+  if (responseText.startsWith("```")) {
+    responseText = responseText
+      .replace(/^```(?:json)?\n?/, "")
+      .replace(/\n?```$/, "")
+      .trim();
+  }
+
+  let suggestions: { rowKey: string; title?: string; speaker?: string }[];
+  try {
+    const raw: unknown = JSON.parse(responseText);
+    if (!Array.isArray(raw)) throw new Error("Expected array");
+    suggestions = raw.map((item: unknown) => {
+      if (typeof item !== "object" || item === null) throw new Error("Bad item");
+      const s = item as Record<string, unknown>;
+      const out: { rowKey: string; title?: string; speaker?: string } = {
+        rowKey: String(s.rowKey ?? ""),
+      };
+      if (typeof s.title === "string") out.title = s.title;
+      if (typeof s.speaker === "string") out.speaker = s.speaker;
+      return out;
+    });
+  } catch {
+    throw AppError.internal("Failed to parse AI rename response");
+  }
+
+  return c.json({ suggestions });
 });
 
 // ── Read Along ────────────────────────────────────────────────────────

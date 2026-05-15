@@ -287,6 +287,22 @@ export const inferSessionsSchema = z.object({
   filenames: z.array(safeFilenameSchema).min(1),
 });
 
+// AI rename-tracks (6.4)
+export const renameTracksSchema = z.object({
+  instruction: z.string().min(1).max(2000),
+  rows: z
+    .array(
+      z.object({
+        rowKey: z.string().min(1).max(100),
+        originalFilename: z.string().min(1).max(500),
+        title: z.string().min(1).max(500),
+        speaker: z.string().max(100).optional().nullable(),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+
 // Pagination
 export const paginationSchema = z.object({
   _start: z.coerce.number().int().min(0).optional().default(0),

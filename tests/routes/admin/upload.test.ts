@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { testJson } from "../../helpers.ts";
 
 // Mock S3 so the admin endpoints don't actually call AWS.
@@ -19,6 +19,15 @@ vi.mock("../../../src/db/index.ts", () => ({
     select: vi.fn(),
   },
 }));
+
+// Mock Anthropic SDK so tests never call the real API.
+const mockMessagesCreate = vi.fn();
+vi.mock("@anthropic-ai/sdk", () => {
+  class MockAnthropic {
+    messages = { create: mockMessagesCreate };
+  }
+  return { default: MockAnthropic };
+});
 
 import { createAccessToken } from "../../../src/services/auth.ts";
 import { generatePresignedUploadUrl } from "../../../src/services/s3.ts";
@@ -333,6 +342,169 @@ describe("POST /api/admin/upload/infer-sessions", () => {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ filenames: ["001 JKR - track.mp3"] }),
+    });
+
+    expect(status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rename-tracks (stateless — used by EventCreate before an event ID exists)
+// ---------------------------------------------------------------------------
+
+const VALID_ROWS = [
+  {
+    rowKey: "1-1",
+    originalFilename: "001 JKR - The practice.mp3",
+    title: "001 JKR - The practice",
+    speaker: "JKR",
+  },
+  {
+    rowKey: "1-2",
+    originalFilename: "002 JKR - The practice part 2.mp3",
+    title: "002 JKR - The practice part 2",
+    speaker: null,
+  },
+];
+
+function makeAnthropicResponse(jsonText: string) {
+  return {
+    content: [{ type: "text", text: jsonText }],
+  };
+}
+
+describe("POST /api/admin/upload/rename-tracks", () => {
+  const OLD_ENV = process.env;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env = { ...OLD_ENV, ANTHROPIC_API_KEY: "test-key-123" };
+  });
+
+  afterEach(() => {
+    process.env = OLD_ENV;
+  });
+
+  it("returns suggestions array from AI response", async () => {
+    const suggestions = [
+      { rowKey: "1-1", title: "The Practice" },
+      { rowKey: "1-2", title: "The Practice Part 2", speaker: "JKR" },
+    ];
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify(suggestions)),
+    );
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Capitalise each word", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ suggestions });
+    expect(mockMessagesCreate).toHaveBeenCalledOnce();
+  });
+
+  it("strips markdown code fences from AI response", async () => {
+    const suggestions = [{ rowKey: "1-1", title: "Clean Title" }];
+    const fencedText = "```json\n" + JSON.stringify(suggestions) + "\n```";
+    mockMessagesCreate.mockResolvedValueOnce(makeAnthropicResponse(fencedText));
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Clean titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(200);
+    expect((body as any).suggestions).toEqual(suggestions);
+  });
+
+  it("returns 400 VALIDATION_ERROR when body is missing instruction", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(400);
+    expect((body as any).code).toBe("VALIDATION_ERROR");
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 VALIDATION_ERROR when rows array is empty", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Fix titles", rows: [] }),
+    });
+
+    expect(status).toBe(400);
+    expect((body as any).code).toBe("VALIDATION_ERROR");
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 VALIDATION_ERROR for non-JSON body", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: "not json at all",
+    });
+
+    expect(status).toBe(400);
+    expect((body as any).code).toBe("VALIDATION_ERROR");
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when ANTHROPIC_API_KEY is not configured", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(500);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when AI response is not valid JSON", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse("This is not JSON at all"),
+    );
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(500);
+  });
+
+  it("returns 401 without an auth token", async () => {
+    const { status } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+    });
+
+    expect(status).toBe(401);
+  });
+
+  it("returns 403 for non-admin users", async () => {
+    const token = await createAccessToken({ sub: 2, email: "user@test.com", role: "user" });
+    const { status } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
     });
 
     expect(status).toBe(403);
