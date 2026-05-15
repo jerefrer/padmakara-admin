@@ -19,7 +19,7 @@ export const config = {
   jwt: {
     secret: env("JWT_SECRET", "dev-secret-change-in-production"),
     accessTokenExpiry: env("JWT_ACCESS_TOKEN_EXPIRY", "1h"),
-    refreshTokenExpiry: env("JWT_REFRESH_TOKEN_EXPIRY", "365d"),
+    refreshTokenExpiry: env("JWT_REFRESH_TOKEN_EXPIRY", "60d"),
   },
 
   aws: {
@@ -67,3 +67,43 @@ export const config = {
     webhookSecret: env("BUNNY_WEBHOOK_SECRET", ""),
   },
 } as const;
+
+type ProductionConfigInput = {
+  nodeEnv: string;
+  jwt: { secret: string };
+  readAlong: { webhookSecret: string };
+  bunny: { webhookSecret: string };
+};
+
+const KNOWN_DEV_JWT_SECRET = "dev-secret-change-in-production";
+const KNOWN_DEV_WEBHOOK_SECRET = "dev-webhook-secret";
+const MIN_JWT_SECRET_LENGTH = 32;
+
+export function validateProductionConfig(cfg: ProductionConfigInput): void {
+  if (cfg.jwt.secret === KNOWN_DEV_JWT_SECRET) {
+    throw new Error(
+      "FATAL: JWT_SECRET is set to the publicly-known development default. " +
+        "Set a strong, unique JWT_SECRET (≥32 characters) before starting in production."
+    );
+  }
+  if (cfg.jwt.secret.length < MIN_JWT_SECRET_LENGTH) {
+    throw new Error(
+      `FATAL: JWT_SECRET is too short (${cfg.jwt.secret.length} chars). ` +
+        `Production requires at least ${MIN_JWT_SECRET_LENGTH} characters.`
+    );
+  }
+  if (cfg.readAlong.webhookSecret === KNOWN_DEV_WEBHOOK_SECRET) {
+    throw new Error(
+      "FATAL: READ_ALONG_WEBHOOK_SECRET is set to the publicly-known development default. " +
+        "Set a strong, unique READ_ALONG_WEBHOOK_SECRET before starting in production."
+    );
+  }
+  if (cfg.bunny.webhookSecret === "") {
+    throw new Error(
+      "FATAL: BUNNY_WEBHOOK_SECRET is empty. " +
+        "Set a non-empty BUNNY_WEBHOOK_SECRET before starting in production."
+    );
+  }
+}
+
+if (config.nodeEnv === "production") validateProductionConfig(config);
