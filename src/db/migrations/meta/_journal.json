@@ -169,6 +169,13 @@
       "when": 1810345600000,
       "tag": "0023_drop_user_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1810432000000,
+      "tag": "0024_add_import_system",
+      "breakpoints": true
     }
   ]
 }
