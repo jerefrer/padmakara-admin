@@ -72,6 +72,10 @@ export const importJobsRelations = relations(importJobs, ({ one, many }) => ({
     fields: [importJobs.retreatId],
     references: [events.id],
   }),
+  createdByUser: one(users, {
+    fields: [importJobs.createdBy],
+    references: [users.id],
+  }),
   files: many(importFiles),
 }));
 
