@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 
 export interface InventoryZipEntry {
   name: string;
@@ -53,4 +53,51 @@ export function findInventoryEvent(
   eventCode: string,
 ): InventoryEvent | undefined {
   return inventory.events.find((e) => e.canonicalCode === eventCode);
+}
+
+export interface ImportFileDescriptor {
+  sourceS3Key: string;
+  zipEntryName: string | null;
+  filename: string;
+  extension: string;
+  sizeBytes: number;
+  category: string;
+  language: string | null;
+}
+
+/**
+ * Flatten an inventory event into one descriptor per importable file. ZIP
+ * files expand into one descriptor per entry (carrying the ZIP key plus the
+ * entry path); loose files yield a single descriptor with `zipEntryName: null`.
+ */
+export function flattenInventoryEvent(
+  event: InventoryEvent,
+): ImportFileDescriptor[] {
+  const rows: ImportFileDescriptor[] = [];
+  for (const file of event.files) {
+    if (file.zipContents && file.zipContents.length > 0) {
+      for (const entry of file.zipContents) {
+        rows.push({
+          sourceS3Key: file.s3Key,
+          zipEntryName: entry.name,
+          filename: basename(entry.name),
+          extension: entry.type,
+          sizeBytes: entry.uncompressedSize,
+          category: file.category,
+          language: file.language ?? null,
+        });
+      }
+    } else {
+      rows.push({
+        sourceS3Key: file.s3Key,
+        zipEntryName: null,
+        filename: basename(file.s3Key),
+        extension: file.type,
+        sizeBytes: file.size,
+        category: file.category,
+        language: file.language ?? null,
+      });
+    }
+  }
+  return rows;
 }
