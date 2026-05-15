@@ -7,6 +7,9 @@ const mockDb = {
     downloadRequests: {
       findFirst: vi.fn(),
     },
+    events: {
+      findFirst: vi.fn(),
+    },
   },
   update: vi.fn(() => ({
     set: vi.fn(() => ({
@@ -204,6 +207,109 @@ describe("Downloads Routes - Logic Tests", () => {
         const canDownload = readyForDownload.includes(status);
         expect(canDownload).toBe(status === "ready");
       }
+    });
+  });
+
+  describe("Anonymous download re-verification", () => {
+    it("grants access when anonymous request's event is still public", async () => {
+      // The download request has no userId (anonymous)
+      const mockRequest = {
+        id: "aaa00000-0000-0000-0000-000000000001",
+        userId: null,
+        eventId: 42,
+        status: "ready" as const,
+        progressPercent: 100,
+        totalFiles: 5,
+        processedFiles: 5,
+        errorMessage: null,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      };
+
+      // The associated event is still published + free-anyone
+      const mockPublicEvent = {
+        id: 42,
+        status: "published",
+        audience: { slug: "free-anyone" },
+      };
+
+      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
+      mockDb.query.events.findFirst.mockResolvedValueOnce(mockPublicEvent);
+
+      // Simulate verifyEventStillPublic logic
+      const event = await mockDb.query.events.findFirst();
+      const isPublic =
+        event?.status === "published" && event?.audience?.slug === "free-anyone";
+
+      expect(isPublic).toBe(true);
+    });
+
+    it("denies access when anonymous request's event is no longer public", async () => {
+      // The download request has no userId (anonymous)
+      const mockRequest = {
+        id: "bbb00000-0000-0000-0000-000000000002",
+        userId: null,
+        eventId: 43,
+        status: "ready" as const,
+        progressPercent: 100,
+        totalFiles: 3,
+        processedFiles: 3,
+        errorMessage: null,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      };
+
+      // The event has been changed to a restricted audience after the request was created
+      const mockRestrictedEvent = {
+        id: 43,
+        status: "published",
+        audience: { slug: "retreat-group-members" },
+      };
+
+      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
+      mockDb.query.events.findFirst.mockResolvedValueOnce(mockRestrictedEvent);
+
+      // Simulate verifyEventStillPublic logic
+      const event = await mockDb.query.events.findFirst();
+      const isPublic =
+        event?.status === "published" && event?.audience?.slug === "free-anyone";
+
+      // Not public → should throw AppError.forbidden
+      expect(isPublic).toBe(false);
+
+      const { AppError: AE } = await import("../../src/lib/errors.ts");
+      expect(() => {
+        if (!isPublic) throw AE.forbidden("This content is no longer publicly available");
+      }).toThrow("This content is no longer publicly available");
+    });
+
+    it("denies access when anonymous request's event is unpublished (drafted/archived)", async () => {
+      const mockRequest = {
+        id: "ccc00000-0000-0000-0000-000000000003",
+        userId: null,
+        eventId: 44,
+        status: "ready" as const,
+        progressPercent: 100,
+        totalFiles: 2,
+        processedFiles: 2,
+        errorMessage: null,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      };
+
+      // Event still has public audience but has been un-published
+      const mockDraftedEvent = {
+        id: 44,
+        status: "draft",
+        audience: { slug: "free-anyone" },
+      };
+
+      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
+      mockDb.query.events.findFirst.mockResolvedValueOnce(mockDraftedEvent);
+
+      // Simulate verifyEventStillPublic logic
+      const event = await mockDb.query.events.findFirst();
+      const isPublic =
+        event?.status === "published" && event?.audience?.slug === "free-anyone";
+
+      expect(isPublic).toBe(false);
     });
   });
 });

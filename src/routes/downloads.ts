@@ -2,24 +2,51 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { downloadRequests } from "../db/schema/index.ts";
+import { events } from "../db/schema/retreats.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser } from "../middleware/auth.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
+import { AUDIENCE_SLUGS } from "../services/access.ts";
 
 const downloadsRoutes = new Hono();
 
 downloadsRoutes.use("*", optionalAuthMiddleware);
 
 /**
- * Verify the caller has access to a download request.
- * Anonymous requests (userId is null) are accessible to anyone with the request ID.
- * Authenticated requests require ownership.
+ * Re-verify that the event associated with an anonymous download request is
+ * still publicly accessible (status "published" + audience slug "free-anyone").
+ * Throws AppError.forbidden if the event is no longer public.
  */
-function verifyDownloadAccess(
-  request: { userId: number | null },
+async function verifyEventStillPublic(eventId: number): Promise<void> {
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, eventId),
+    with: { audience: true },
+  });
+
+  const isPublic =
+    event?.status === "published" &&
+    event?.audience?.slug === AUDIENCE_SLUGS.PUBLIC;
+
+  if (!isPublic) {
+    throw AppError.forbidden("This content is no longer publicly available");
+  }
+}
+
+/**
+ * Verify the caller has access to a download request.
+ * - Authenticated requests require ownership.
+ * - Anonymous requests (userId is null) require that the associated event is
+ *   still publicly accessible right now (re-verified on every call).
+ */
+async function verifyDownloadAccess(
+  request: { userId: number | null; eventId: number },
   callerId: number | undefined,
-) {
-  if (request.userId === null) return; // anonymous request — open access
+): Promise<void> {
+  if (request.userId === null) {
+    // Anonymous request: re-verify the event is still public
+    await verifyEventStillPublic(request.eventId);
+    return;
+  }
   if (callerId && request.userId === callerId) return; // owner match
   throw AppError.forbidden("Access denied");
 }
@@ -40,7 +67,7 @@ downloadsRoutes.get("/:id/status", async (c) => {
     throw AppError.notFound("Download request not found");
   }
 
-  verifyDownloadAccess(request, user?.id);
+  await verifyDownloadAccess(request, user?.id);
 
   // Check if expired (status is ready but past expiration time)
   if (
@@ -87,7 +114,7 @@ downloadsRoutes.get("/:id/download", async (c) => {
     throw AppError.notFound("Download request not found");
   }
 
-  verifyDownloadAccess(request, user?.id);
+  await verifyDownloadAccess(request, user?.id);
 
   // Check status
   if (request.status !== "ready") {
