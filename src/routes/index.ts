@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { config } from "../config.ts";
 import { auth } from "./auth.ts";
 import { admin } from "./admin/index.ts";
 import { eventRoutes } from "./events.ts";
@@ -13,6 +14,7 @@ import { webhookRoutes } from "./webhooks.ts";
 import { publicationRoutes } from "./publications.ts";
 import { syncRoutes } from "./sync.ts";
 import { teacherRoutes } from "./teachers.ts";
+import { testRoutes } from "./test.ts";
 
 const api = new Hono();
 
@@ -41,5 +43,10 @@ api.route("/download-requests", downloadsRoutes);
 api.route("/publications", publicationRoutes);
 api.route("/teachers", teacherRoutes);
 api.route("/sync", syncRoutes);
+
+// Test-only routes — never mounted in production
+if (config.nodeEnv !== "production") {
+  api.route("/test", testRoutes);
+}
 
 export { api };
