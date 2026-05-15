@@ -225,6 +225,47 @@ export const createTrackBookmarkSchema = z.object({
   trackId: z.number().int(),
 });
 
+/**
+ * Safe filename: allows letters (including accented), digits, spaces, hyphens,
+ * underscores, dots, parentheses, brackets, and plus signs — but explicitly
+ * forbids path traversal sequences (`..`), directory separators (`/`, `\`),
+ * control characters (0x00–0x1f), and leading dots.
+ *
+ * Examples that PASS: "001 JKR - The practice (17 April AM).mp3"
+ *                     "02_KPS [TIB] Prayers 2017-11-14.mp3"
+ *                     "Transcript Réunion été.pdf"
+ * Examples that FAIL: "../../etc/passwd", "/etc/passwd", ".hidden", "evil\file"
+ */
+const safeFilenameSchema = z
+  .string()
+  .min(1)
+  .max(500)
+  .regex(
+    /^[^/\\].*$/,
+    "Filename must not start with a path separator",
+  )
+  .refine(
+    (v) => !v.includes(".."),
+    "Filename must not contain path traversal sequences (..)",
+  )
+  .refine(
+    (v) => !v.includes("/"),
+    "Filename must not contain forward slashes",
+  )
+  .refine(
+    (v) => !v.includes("\\"),
+    "Filename must not contain backslashes",
+  )
+  .refine(
+    // eslint-disable-next-line no-control-regex
+    (v) => !/[\x00-\x1f]/.test(v),
+    "Filename must not contain control characters",
+  )
+  .refine(
+    (v) => !v.startsWith("."),
+    "Filename must not start with a dot",
+  );
+
 // Upload
 export const presignUploadSchema = z.object({
   files: z.array(z.object({
@@ -234,6 +275,16 @@ export const presignUploadSchema = z.object({
   })),
   eventCode: z.string().min(1),
   sessionNumber: z.number().int().min(1),
+});
+
+export const presignTranscriptSchema = z.object({
+  eventCode: z.string().min(1).max(200),
+  filename: safeFilenameSchema,
+  contentType: z.string().min(1).max(200),
+});
+
+export const inferSessionsSchema = z.object({
+  filenames: z.array(safeFilenameSchema).min(1),
 });
 
 // Pagination

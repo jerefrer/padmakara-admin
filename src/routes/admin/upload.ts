@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key } from "../../services/s3.ts";
 import { parseTrackFilename, inferSessions } from "../../services/track-parser.ts";
-import { presignUploadSchema } from "../../lib/schemas.ts";
+import { presignUploadSchema, presignTranscriptSchema, inferSessionsSchema } from "../../lib/schemas.ts";
 import {
   createVideo,
   deleteVideo,
@@ -38,12 +38,14 @@ uploadRoutes.post("/presign", async (c) => {
  * POST /api/admin/upload/presign-transcript - Generate presigned upload URL for transcript
  */
 uploadRoutes.post("/presign-transcript", async (c) => {
-  const { eventCode, filename, contentType } = (await c.req.json()) as {
-    eventCode: string;
-    filename: string;
-    contentType: string;
-  };
+  const parsed = presignTranscriptSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
 
+  const { eventCode, filename, contentType } = parsed.data;
   const s3Key = buildTranscriptS3Key(eventCode, filename);
   const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
 
@@ -55,17 +57,23 @@ uploadRoutes.post("/presign-transcript", async (c) => {
  * Used by admin UI to preview session structure before creating retreat
  */
 uploadRoutes.post("/infer-sessions", async (c) => {
-  const { filenames } = (await c.req.json()) as { filenames: string[] };
+  const parsed = inferSessionsSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
 
-  const parsed = filenames.map(parseTrackFilename);
-  const originals = parsed.filter((t) => !t.isTranslation);
-  const translations = parsed.filter((t) => t.isTranslation);
+  const { filenames } = parsed.data;
+  const tracks = filenames.map(parseTrackFilename);
+  const originals = tracks.filter((t) => !t.isTranslation);
+  const translations = tracks.filter((t) => t.isTranslation);
   const sessions = inferSessions(originals);
 
   return c.json({
     sessions,
     translations,
-    totalTracks: parsed.length,
+    totalTracks: tracks.length,
     originalTracks: originals.length,
     translationTracks: translations.length,
   });
