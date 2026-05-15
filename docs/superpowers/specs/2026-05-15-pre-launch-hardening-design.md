@@ -66,9 +66,10 @@ Seeded accounts spanning the access matrix, each with a stable known credential:
 - Playwright web e2e uses the route to populate `storageState`, replacing the manual magic-link round-trip in `e2e/auth.setup.ts`.
 
 ### 4.5 S3 for tests
-- A dedicated test bucket (or a `e2e-fixtures/` prefix on a test bucket) seeded with small fixture media: a few short MP3s and one sample PDF, with S3 keys matching the seeded tracks/transcripts.
-- The seed module uploads fixtures if absent.
-- (MinIO/LocalStack noted as a future CI option; not in this round.)
+- **MinIO** (standalone Go binary — no Docker) provides an S3-compatible store for the entire e2e suite. The test harness starts a MinIO subprocess on a local port; teardown stops it.
+- `padmakara-api/src/services/s3.ts` gains env-overridable `endpoint` + `forcePathStyle` so the S3 client targets MinIO under test and real AWS otherwise.
+- The seed module creates the test bucket and uploads small fixture media (a few short MP3s, one sample PDF) with S3 keys matching the seeded tracks/transcripts.
+- Real-AWS S3 configuration (region, IAM, bucket policy, CORS, presigned-URL behaviour) is **not** validated by the e2e suite — it is covered by a separate lightweight check run at deploy time (CI pre-deploy, where credentials and network exist). Out of scope for WS1 itself; noted for the deploy pipeline.
 
 ### 4.6 API e2e against real Postgres
 - New directory `padmakara-api/tests/e2e/`. Reuses the `app.fetch` helper pattern from `tests/helpers.ts`, but the DB is the real `padmakara_test` instead of the `vi.mock`'d module.
@@ -103,7 +104,7 @@ Addresses the HIGH/MEDIUM audit findings. Lands **after** WS1 so the e2e net cat
 - **M3 — Drop `?token=` JWT.** Remove query-parameter JWT acceptance from `optionalAuthMiddleware`; rely on the existing MAT system for HLS/iframe cases. *Behavior change — verify no e2e depends on it.*
 - **M4 — Admin upload validation.** Add Zod schemas to `admin/upload.ts` `presign-transcript` and `infer-sessions`; reject `..`, `/`, and control chars in `filename`.
 - **M5 — Presigned-URL cache.** Scope the `s3.ts` cache to image keys only (its original intent); do not cache audio/transcript keys. Document.
-- **M6 — Legacy magic-link endpoint.** Remove the user-auto-creation branch from `/verify-magic-link` (or remove the endpoint if unused).
+- **M6 — Legacy magic-link endpoint.** Confirmed unused: `/verify-magic-link` has no references in `padmakara-app` (the app authenticates via `request-magic-link` + `auto-activate`) and no internal callers in `padmakara-api/src`. Remove the endpoint, the `verifyMagicLinkSchema`, and the legacy handler. Implementation-time check: confirm the server-side magic-link email template does not generate a `/verify-magic-link` URL before deletion.
 
 ## 6. WS3 — Admin content tooling
 
@@ -140,6 +141,7 @@ Makes the admin usable for the colleague entering historical events one by one. 
 ## 8. Decisions made
 
 - Test DB = local `padmakara_test` (Testcontainers deferred to CI).
+- Test S3 = local MinIO standalone binary for the whole e2e suite; real-AWS config validated separately at deploy time — user decision.
 - Non-interactive test auth = env-gated `POST /api/test/token`, disabled in production.
 - `expo-secure-store` migration is transparent — no forced re-login.
 - E2e scope = comprehensive (all stable user flows) — user decision.
