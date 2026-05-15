@@ -18,6 +18,9 @@ const s3Client = new S3Client({
   },
   requestChecksumCalculation: "WHEN_REQUIRED",
   responseChecksumValidation: "WHEN_REQUIRED",
+  ...(config.aws.endpoint
+    ? { endpoint: config.aws.endpoint, forcePathStyle: config.aws.forcePathStyle }
+    : {}),
 });
 
 const BUCKET = config.aws.s3Bucket;

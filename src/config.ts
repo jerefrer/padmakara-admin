@@ -10,6 +10,7 @@ export const config = {
   port: parseInt(env("PORT", "3000"), 10),
   nodeEnv: env("NODE_ENV", "development"),
   isDev: env("NODE_ENV", "development") === "development",
+  e2eEnabled: env("E2E_ENABLED", "false") === "true",
 
   database: {
     url: env("DATABASE_URL", "postgresql://localhost:5432/padmakara"),
@@ -26,6 +27,8 @@ export const config = {
     secretAccessKey: env("AWS_SECRET_ACCESS_KEY", ""),
     region: env("AWS_REGION", "eu-west-3"),
     s3Bucket: env("S3_BUCKET", "padmakara-pt-app"),
+    endpoint: env("S3_ENDPOINT", ""),
+    forcePathStyle: env("S3_FORCE_PATH_STYLE", "false") === "true",
   },
 
   email: {
