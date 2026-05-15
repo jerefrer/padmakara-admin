@@ -189,19 +189,17 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
     where: eq(users.email, email),
   });
 
-  if (!user) {
-    // Return the same generic response as for a known user who needs a new
-    // device activated.  This prevents account enumeration: an attacker
-    // cannot tell from the response whether the email is registered.
+  if (!user || !user.isActive) {
+    // Return the same generic response whether the email is unregistered OR
+    // the account is deactivated.  This closes the enumeration oracle: an
+    // attacker cannot distinguish "email not registered" (200) from "email
+    // registered but deactivated" (401).  A deactivated user simply cannot
+    // progress past this point; the response must not reveal account existence.
     return c.json({
       status: "magic_link_sent",
       message: "If your email is registered, check your inbox for a login link.",
       expires_in: 3600,
     });
-  }
-
-  if (!user.isActive) {
-    throw AppError.unauthorized("Account is deactivated");
   }
 
   // Check if this device is already activated for this user
@@ -497,7 +495,7 @@ auth.post("/request-approval", authIpLimiter(), authEmailLimiter(), async (c) =>
  * Auto-activate a device using a magic link token directly
  * (for deep link / in-app activation flow).
  */
-auth.post("/auto-activate", async (c) => {
+auth.post("/auto-activate", authIpLimiter(), async (c) => {
   const body = await c.req.json();
   const data = autoActivateSchema.parse(body);
 
