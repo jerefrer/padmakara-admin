@@ -25,7 +25,6 @@ import { AppError } from "../lib/errors.ts";
 import {
   loginSchema,
   requestMagicLinkSchema,
-  verifyMagicLinkSchema,
   refreshTokenSchema,
   discoverDeviceSchema,
   requestApprovalSchema,
@@ -827,79 +826,6 @@ auth.get("/me", authMiddleware, async (c) => {
     role: user.role,
     isVerified: user.isVerified,
     createdAt: user.createdAt,
-  });
-});
-
-/**
- * POST /api/auth/verify-magic-link - Legacy endpoint for direct token verification.
- * Kept for backward compatibility; prefer the activate + discover flow.
- */
-auth.post("/verify-magic-link", async (c) => {
-  const body = await c.req.json();
-  const data = verifyMagicLinkSchema.parse(body);
-
-  const tokenHash = await hashToken(data.token);
-
-  const magicLink = await db.query.magicLinkTokens.findFirst({
-    where: and(
-      eq(magicLinkTokens.tokenHash, tokenHash),
-      eq(magicLinkTokens.isUsed, false),
-      gt(magicLinkTokens.expiresAt, new Date()),
-    ),
-  });
-
-  if (!magicLink) {
-    throw AppError.unauthorized("Invalid or expired magic link");
-  }
-
-  await db
-    .update(magicLinkTokens)
-    .set({ isUsed: true })
-    .where(eq(magicLinkTokens.id, magicLink.id));
-
-  let user = await db.query.users.findFirst({
-    where: eq(users.email, magicLink.email),
-  });
-
-  if (!user) {
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        email: magicLink.email,
-        isVerified: true,
-        preferredLanguage: magicLink.language || "en",
-      })
-      .returning();
-    user = newUser!;
-  } else if (!user.isVerified) {
-    await db
-      .update(users)
-      .set({ isVerified: true, updatedAt: new Date() })
-      .where(eq(users.id, user.id));
-    user = { ...user, isVerified: true };
-  }
-
-  if (!user.isActive) {
-    throw AppError.unauthorized("Account is deactivated");
-  }
-
-  const tokens = await generateTokensForUser(user);
-
-  await db
-    .update(users)
-    .set({ lastActivity: new Date(), updatedAt: new Date() })
-    .where(eq(users.id, user.id));
-
-  return c.json({
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
-    user: {
-      id: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      role: user.role,
-    },
   });
 });
 

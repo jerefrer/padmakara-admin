@@ -14,10 +14,6 @@ export const requestMagicLinkSchema = z.object({
   language: z.enum(["en", "pt"]).optional().default("en"),
 });
 
-export const verifyMagicLinkSchema = z.object({
-  token: z.string().min(1),
-});
-
 export const discoverDeviceSchema = z.object({
   device_fingerprint: z.string().min(1),
 });
