@@ -55,8 +55,11 @@ import { SessionPreview } from "../components/SessionPreview";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
+import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
+import { RenamePreviewTable } from "../components/RenamePreviewTable";
 import {
   uploadTracks,
+  uploadTranscript,
   type UploadItem,
   type UploadProgress as UploadProgressData,
 } from "../utils/uploadManager";
@@ -999,6 +1002,7 @@ export const EventCreate = () => {
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
   const cancelUploadRef = useRef<(() => void) | null>(null);
+  const [transcriptUploads, setTranscriptUploads] = useState<TranscriptUploadState[]>([]);
 
   const { allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
   const [selectedTeachers, setSelectedTeachers] = useState<TeacherOption[]>([]);
@@ -1085,6 +1089,48 @@ export const EventCreate = () => {
       setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, titleEn: title } : s)));
     },
     [],
+  );
+
+  /** Upload transcript PDFs after the event has been created (so we have eventCode). */
+  const handleTranscriptFilesDropped = useCallback(
+    async (files: File[]) => {
+      if (!form.eventCode) {
+        notify(translate("padmakara.transcript.saveFirst") || "Save the event first, then upload transcripts", { type: "warning" });
+        return;
+      }
+      const initial: TranscriptUploadState[] = files.map((f) => ({
+        filename: f.name,
+        status: "pending",
+        progress: 0,
+      }));
+      setTranscriptUploads((prev) => [...prev, ...initial]);
+
+      for (const file of files) {
+        setTranscriptUploads((prev) =>
+          prev.map((u) => u.filename === file.name && u.status === "pending"
+            ? { ...u, status: "uploading" }
+            : u),
+        );
+        try {
+          await uploadTranscript(form.eventCode, file, (progress) => {
+            setTranscriptUploads((prev) =>
+              prev.map((u) => u.filename === file.name ? { ...u, progress } : u),
+            );
+          });
+          setTranscriptUploads((prev) =>
+            prev.map((u) => u.filename === file.name ? { ...u, status: "done", progress: 1 } : u),
+          );
+          notify(`${file.name} — ${translate("padmakara.transcript.uploadSuccess") || "uploaded"}`, { type: "success" });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setTranscriptUploads((prev) =>
+            prev.map((u) => u.filename === file.name ? { ...u, status: "error", error: msg } : u),
+          );
+          notify(`${translate("padmakara.transcript.uploadFailed") || "Upload failed"}: ${msg}`, { type: "error" });
+        }
+      }
+    },
+    [form.eventCode, notify, translate],
   );
 
   const handleSave = async () => {
@@ -1203,6 +1249,12 @@ export const EventCreate = () => {
 
       {hasFolder && !uploadProgress && (
         <>
+          {/* 6.3 — Rename-preview table (editable before commit) */}
+          <RenamePreviewTable
+            sessions={sessions}
+            onSessionsChange={(updated) => setSessions(updated)}
+          />
+
           <EventFormFields
             form={form} setForm={setForm}
             selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
@@ -1216,6 +1268,20 @@ export const EventCreate = () => {
             trackCount={parsedTracks.length}
             transcriptCount={0}
           />
+
+          {/* 6.1 — Transcript upload (allowed before or after save; eventCode needed) */}
+          {form.eventCode && (
+            <Paper sx={{ p: 3, mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: "text.secondary" }}>
+                {translate("padmakara.transcript.sectionTitle") || "Transcripts"}
+              </Typography>
+              <TranscriptDropZone
+                onFilesDropped={handleTranscriptFilesDropped}
+                uploads={transcriptUploads}
+                disabled={saving}
+              />
+            </Paper>
+          )}
 
           {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
           <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2 }}>
@@ -1309,6 +1375,9 @@ export const EventEdit = () => {
   const [deleting, setDeleting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
   const cancelUploadRef = useRef<(() => void) | null>(null);
+  const [transcriptUploads, setTranscriptUploads] = useState<TranscriptUploadState[]>([]);
+  // 6.2 — new-tracks drop state (used when adding sessions to an existing event)
+  const [addTracksUploading, setAddTracksUploading] = useState(false);
 
   const { allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
   const [selectedTeachers, setSelectedTeachers] = useState<TeacherOption[]>([]);
@@ -1572,6 +1641,147 @@ export const EventEdit = () => {
     [dataProvider, notify, refresh, translate],
   );
 
+  // 6.1 — Transcript upload handler for EventEdit
+  const handleEditTranscriptFilesDropped = useCallback(
+    async (files: File[]) => {
+      if (!form.eventCode) {
+        notify(translate("padmakara.transcript.saveFirst") || "Save the event first, then upload transcripts", { type: "warning" });
+        return;
+      }
+      const initial: TranscriptUploadState[] = files.map((f) => ({
+        filename: f.name,
+        status: "pending",
+        progress: 0,
+      }));
+      setTranscriptUploads((prev) => [...prev, ...initial]);
+
+      for (const file of files) {
+        setTranscriptUploads((prev) =>
+          prev.map((u) => u.filename === file.name && u.status === "pending"
+            ? { ...u, status: "uploading" }
+            : u),
+        );
+        try {
+          await uploadTranscript(form.eventCode, file, (progress) => {
+            setTranscriptUploads((prev) =>
+              prev.map((u) => u.filename === file.name ? { ...u, progress } : u),
+            );
+          });
+          setTranscriptUploads((prev) =>
+            prev.map((u) => u.filename === file.name ? { ...u, status: "done", progress: 1 } : u),
+          );
+          notify(`${file.name} — ${translate("padmakara.transcript.uploadSuccess") || "uploaded"}`, { type: "success" });
+          refresh();
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setTranscriptUploads((prev) =>
+            prev.map((u) => u.filename === file.name ? { ...u, status: "error", error: msg } : u),
+          );
+          notify(`${translate("padmakara.transcript.uploadFailed") || "Upload failed"}: ${msg}`, { type: "error" });
+        }
+      }
+    },
+    [form.eventCode, notify, refresh, translate],
+  );
+
+  // 6.2 — Add sessions/tracks to existing event
+  const handleAddFolderDropped = useCallback(
+    async (meta: FolderMetadata, tracks: ParsedTrack[]) => {
+      if (!form.eventCode || !id) {
+        notify("Save the event first before adding new sessions", { type: "warning" });
+        return;
+      }
+      setAddTracksUploading(true);
+      try {
+        const inferredNewSessions = inferSessions(tracks);
+        const existingSessionNumbers = new Set(sessions.map((s) => s.sessionNumber));
+        // Assign new session numbers that don't conflict with existing ones
+        const maxExisting = sessions.reduce((m, s) => Math.max(m, s.sessionNumber), 0);
+        let nextSessionNumber = maxExisting + 1;
+
+        const uploadItems: UploadItem[] = [];
+
+        for (const session of inferredNewSessions) {
+          const sessionNumber = existingSessionNumbers.has(session.sessionNumber)
+            ? nextSessionNumber++
+            : session.sessionNumber;
+
+          const { data: createdSession } = await dataProvider.create("sessions", {
+            data: {
+              eventId: id,
+              sessionNumber,
+              titleEn: session.titleEn,
+              sessionDate: session.date || null,
+              timePeriod: session.timePeriod || null,
+            },
+          });
+
+          for (const track of session.tracks) {
+            if (track.mediaType === "video") {
+              uploadItems.push({
+                trackId: -1,
+                sessionId: createdSession.id,
+                sessionNumber,
+                file: track.file,
+                filename: track.originalFilename,
+                mediaType: "video",
+                title: track.title,
+              });
+              continue;
+            }
+            const { data: createdTrack } = await dataProvider.create("tracks", {
+              data: {
+                sessionId: createdSession.id,
+                trackNumber: track.trackNumber,
+                title: track.title,
+                speaker: track.speaker,
+                languages: track.languages,
+                originalLanguage: track.originalLanguage,
+                isTranslation: track.isTranslation,
+                originalFilename: track.originalFilename,
+                fileSizeBytes: track.file.size,
+              },
+            });
+            uploadItems.push({
+              trackId: createdTrack.id,
+              sessionNumber,
+              file: track.file,
+              filename: track.originalFilename,
+              mediaType: "audio",
+              title: track.title,
+            });
+          }
+        }
+
+        if (uploadItems.length > 0) {
+          const { promise, cancel } = uploadTracks(
+            uploadItems,
+            form.eventCode,
+            (progress) => setUploadProgress({ ...progress }),
+          );
+          cancelUploadRef.current = cancel;
+          try {
+            await promise;
+            notify("Sessions and tracks added and uploaded", { type: "success" });
+            refresh();
+          } catch {
+            // Error shown in UploadProgress
+          } finally {
+            setUploadProgress(null);
+          }
+        } else {
+          notify("Sessions added (no audio to upload)", { type: "success" });
+          refresh();
+        }
+      } catch (error: any) {
+        notify(`Error adding sessions: ${error.message}`, { type: "error" });
+      } finally {
+        setAddTracksUploading(false);
+      }
+    },
+    [form.eventCode, id, sessions, dataProvider, notify, refresh],
+  );
+
   const handleFeaturedToggle = useCallback(async () => {
     if (!id) return;
     const newFeaturedAt = form.featuredAt ? null : new Date().toISOString();
@@ -1680,6 +1890,31 @@ export const EventEdit = () => {
         trackCount={trackCount}
         transcriptCount={transcriptCount}
       />
+
+      {/* 6.2 — Add sessions/tracks to an existing event */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: "text.secondary" }}>
+          Add audio sessions
+        </Typography>
+        <TrackDropZone
+          onFolderDropped={handleAddFolderDropped}
+          fileCount={0}
+          folderName={null}
+        />
+        {addTracksUploading && <LinearProgress sx={{ mt: 1.5, borderRadius: 1 }} />}
+      </Paper>
+
+      {/* 6.1 — Transcript upload for existing event */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: "text.secondary" }}>
+          {translate("padmakara.transcript.sectionTitle") || "Transcripts"}
+        </Typography>
+        <TranscriptDropZone
+          onFilesDropped={handleEditTranscriptFilesDropped}
+          uploads={transcriptUploads}
+          disabled={saving}
+        />
+      </Paper>
 
       {trackCount > 0 && transcriptCount > 0 && event?.id && (
         <ReadAlongPanel eventId={Number(event.id)} />
