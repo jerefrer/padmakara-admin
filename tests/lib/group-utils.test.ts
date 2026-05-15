@@ -9,6 +9,7 @@ vi.mock("../../src/services/s3.ts", () => ({
 import {
   resolveGroupUrls,
   resolveEventGroupUrls,
+  type RetreatGroupResponse,
 } from "../../src/lib/group-utils.ts";
 
 const baseGroup = {
@@ -115,10 +116,13 @@ describe("resolveEventGroupUrls", () => {
       ],
     };
     await resolveEventGroupUrls(event);
-    expect(event.eventRetreatGroups[0].retreatGroup.heroUrl).toBe(
+    const erg = event.eventRetreatGroups[0];
+    expect(erg).toBeDefined();
+    const resolved = (erg!.retreatGroup as unknown) as RetreatGroupResponse;
+    expect(resolved.heroUrl).toBe(
       "https://s3.example.com/presigned/groups/heroes/7-1.webp",
     );
-    expect(event.eventRetreatGroups[0].retreatGroup.avatarUrl).toBe(
+    expect(resolved.avatarUrl).toBe(
       "https://s3.example.com/presigned/groups/avatars/7-1.webp",
     );
   });

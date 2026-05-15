@@ -137,7 +137,7 @@ describe("Payment routes (mock mode)", () => {
       const headers = await authHeader();
       await testJson("/api/payment/subscribe", { method: "POST", headers });
 
-      const setArg = updateChain.set.mock.calls[0][0];
+      const setArg = updateChain.set.mock.calls[0]![0];
       const expiresAt = new Date(setArg.subscriptionExpiresAt);
       const now = new Date();
       const diffDays = (expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);

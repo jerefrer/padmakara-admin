@@ -15,7 +15,7 @@ const mockDb = {
   })),
 };
 
-const mockGeneratePresignedUrl = vi.fn(() =>
+const mockGeneratePresignedUrl = vi.fn((_key: string, _expiresIn?: number) =>
   Promise.resolve("https://s3.amazonaws.com/bucket/file.zip?signature=abc123"),
 );
 

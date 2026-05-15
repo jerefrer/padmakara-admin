@@ -103,12 +103,12 @@ async function postMultipart(
   path: string,
   form: FormData,
   headers: Record<string, string> = {},
-) {
+): Promise<{ status: number; body: Record<string, unknown> | null }> {
   const url = new URL(path, "http://localhost");
   const res = await app.fetch(
     new Request(url.toString(), { method: "POST", headers, body: form }),
   );
-  const body = res.status === 204 ? null : await res.json();
+  const body = res.status === 204 ? null : (await res.json()) as Record<string, unknown>;
   return { status: res.status, body };
 }
 
@@ -196,7 +196,7 @@ describe("POST /api/admin/teachers/:id/avatar", () => {
     );
 
     expect(status).toBe(400);
-    expect(body.error).toMatch(/missing file/i);
+    expect(body!.error).toMatch(/missing file/i);
     expect(mockProcessAvatar).not.toHaveBeenCalled();
     expect(mockPutObject).not.toHaveBeenCalled();
   });
@@ -334,8 +334,8 @@ describe("POST /api/admin/teachers/:id/hero", () => {
     );
 
     expect(status).toBe(200);
-    expect(body.heroFocalX).toBe(100);
-    expect(body.heroFocalY).toBe(0);
+    expect(body!.heroFocalX).toBe(100);
+    expect(body!.heroFocalY).toBe(0);
   });
 
   it("defaults focal to 50/50 when fields are missing", async () => {
@@ -353,8 +353,8 @@ describe("POST /api/admin/teachers/:id/hero", () => {
     );
 
     expect(status).toBe(200);
-    expect(body.heroFocalX).toBe(50);
-    expect(body.heroFocalY).toBe(50);
+    expect(body!.heroFocalX).toBe(50);
+    expect(body!.heroFocalY).toBe(50);
   });
 });
 

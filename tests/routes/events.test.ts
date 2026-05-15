@@ -15,14 +15,14 @@ const mockDb = {
       where: vi.fn(() => Promise.resolve([])),
     })),
   })),
-  insert: vi.fn(() => ({
-    values: vi.fn(() => ({
+  insert: vi.fn((_table: unknown) => ({
+    values: vi.fn((_data: unknown) => ({
       returning: vi.fn(() => Promise.resolve([{}])),
     })),
   })),
 };
 
-const mockGenerateRetreatZip = vi.fn(() => Promise.resolve());
+const mockGenerateRetreatZip = vi.fn((_requestId: string, _eventId: number, _userId: number) => Promise.resolve());
 
 vi.mock("../../src/db/index.ts", () => ({ db: mockDb }));
 vi.mock("../../src/services/zip-generator.ts", () => ({
@@ -170,7 +170,7 @@ describe("Events Routes - Download Request Logic", () => {
     });
 
     it("denies access for regular users not in event groups", async () => {
-      const role = "user";
+      const role: string = "user";
       const userGroups = [1, 2];
       const eventGroups = [999];
 

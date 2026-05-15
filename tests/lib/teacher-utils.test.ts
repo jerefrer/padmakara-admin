@@ -108,6 +108,9 @@ describe("resolveTeacherUrls", () => {
       avatarS3Key: null,
       heroS3Key: null,
       heroMobileS3Key: null,
+      heroFocalX: 50,
+      heroFocalY: 50,
+      heroScale: 100,
       avatarUpdatedAt: null,
       heroUpdatedAt: null,
     };

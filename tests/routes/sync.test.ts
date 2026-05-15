@@ -77,7 +77,7 @@ describe("GET /sync/versions", () => {
 
     const app = buildApp();
     const res = await app.request("/sync/versions");
-    const body = await res.json();
+    const body = await res.json() as Record<string, unknown>;
 
     expect(body.events).toEqual({ global: 10, user: 0 });
   });
