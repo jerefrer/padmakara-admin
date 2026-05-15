@@ -161,7 +161,7 @@ describe("Frontend Compatibility Tests", () => {
       });
     });
 
-    it("should return correct response format for request-magic-link (approval_required)", async () => {
+    it("should return generic magic_link_sent for unknown email (no account enumeration)", async () => {
       (db.query.users.findFirst as any).mockResolvedValue(null); // User doesn't exist
 
       const { status, body } = await testJson("/api/auth/request-magic-link", {
@@ -170,11 +170,15 @@ describe("Frontend Compatibility Tests", () => {
       });
 
       expect(status).toBe(200);
+      // Unknown email must return the same shape as a known email so callers
+      // cannot enumerate registered accounts via the response.
       expect(body).toMatchObject({
-        status: "approval_required",
+        status: "magic_link_sent",
         message: expect.any(String),
-        email: devicePayload.email,
+        expires_in: expect.any(Number),
       });
+      // Must NOT expose the email address or a distinguishing status
+      expect(body).not.toHaveProperty("email");
     });
 
     it("should handle device discovery endpoint correctly", async () => {

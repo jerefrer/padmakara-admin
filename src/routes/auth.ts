@@ -33,6 +33,11 @@ import {
 } from "../lib/schemas.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { config } from "../config.ts";
+import {
+  authIpLimiter,
+  authEmailLimiter,
+  discoverIpLimiter,
+} from "../middleware/rate-limit.ts";
 
 const auth = new Hono();
 
@@ -120,7 +125,7 @@ async function generateTokensForUser(user: { id: number; email: string; role: st
 /**
  * POST /api/auth/login - Admin login with email + password
  */
-auth.post("/login", async (c) => {
+auth.post("/login", authIpLimiter(), authEmailLimiter(), async (c) => {
   const body = await c.req.json();
   const data = loginSchema.parse(body);
 
@@ -173,7 +178,7 @@ auth.post("/login", async (c) => {
  * - If user exists but device not activated → send magic link email
  * - If user doesn't exist → return "approval_required"
  */
-auth.post("/request-magic-link", async (c) => {
+auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) => {
   const body = await c.req.json();
   const data = requestMagicLinkSchema.parse(body);
 
@@ -185,10 +190,13 @@ auth.post("/request-magic-link", async (c) => {
   });
 
   if (!user) {
+    // Return the same generic response as for a known user who needs a new
+    // device activated.  This prevents account enumeration: an attacker
+    // cannot tell from the response whether the email is registered.
     return c.json({
-      status: "approval_required",
-      message: "Email not found. Please request access.",
-      email,
+      status: "magic_link_sent",
+      message: "If your email is registered, check your inbox for a login link.",
+      expires_in: 3600,
     });
   }
 
@@ -380,7 +388,7 @@ auth.get("/activate/:token", async (c) => {
  * requesting a magic link to check if the device was activated
  * (by the user clicking the link in their email).
  */
-auth.post("/device/discover", async (c) => {
+auth.post("/device/discover", discoverIpLimiter(), async (c) => {
   const body = await c.req.json();
   const data = discoverDeviceSchema.parse(body);
 
@@ -445,7 +453,7 @@ auth.post("/device/discover", async (c) => {
  * For new users who don't have an account yet.
  * Creates an approval request that admins can review.
  */
-auth.post("/request-approval", async (c) => {
+auth.post("/request-approval", authIpLimiter(), authEmailLimiter(), async (c) => {
   const body = await c.req.json();
   const data = requestApprovalSchema.parse(body);
 

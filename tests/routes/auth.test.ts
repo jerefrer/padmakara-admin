@@ -232,7 +232,7 @@ describe("Auth routes", () => {
       );
     });
 
-    it("returns approval_required for unknown user", async () => {
+    it("returns magic_link_sent for unknown user (no account enumeration)", async () => {
       (db.query.users.findFirst as any).mockResolvedValue(null);
 
       const { status, body } = await testJson("/api/auth/request-magic-link", {
@@ -241,7 +241,9 @@ describe("Auth routes", () => {
       });
 
       expect(status).toBe(200);
-      expect(body.status).toBe("approval_required");
+      // Must NOT distinguish known vs unknown email — same shape in both cases.
+      expect(body.status).toBe("magic_link_sent");
+      expect(body).not.toHaveProperty("email"); // no address leakage
     });
 
     it("returns already_activated for activated device", async () => {

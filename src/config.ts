@@ -11,6 +11,9 @@ export const config = {
   nodeEnv: env("NODE_ENV", "development"),
   isDev: env("NODE_ENV", "development") === "development",
   e2eEnabled: env("E2E_ENABLED", "false") === "true",
+  rateLimit: {
+    enabled: env("RATE_LIMIT_ENABLED", "true") === "true",
+  },
 
   database: {
     url: env("DATABASE_URL", "postgresql://localhost:5432/padmakara"),
