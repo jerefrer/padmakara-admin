@@ -13,7 +13,7 @@ import { eq, and, sql } from "drizzle-orm";
 const DRY_RUN = process.argv.includes("--dry-run");
 
 console.log("=== Split AM/PM Sessions ===");
-console.log(`Mode: ${DRY_RUN ? "DRY RUN" : "LIVE"}\n");
+console.log(`Mode: ${DRY_RUN ? "DRY RUN" : "LIVE"}\n`);
 
 // Find all events that have tracks with AM/PM patterns
 const allEvents = await db.query.events.findMany({
