@@ -31,7 +31,12 @@ webhookRoutes.post("/read-along", async (c) => {
     .update(rawBody)
     .digest("hex");
 
-  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+  const signatureBuf = Buffer.from(signature);
+  const expectedBuf = Buffer.from(expected);
+  if (
+    signatureBuf.length !== expectedBuf.length ||
+    !timingSafeEqual(signatureBuf, expectedBuf)
+  ) {
     return c.json({ error: "Invalid signature" }, 401);
   }
 
