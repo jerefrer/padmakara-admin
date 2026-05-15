@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { secureHeaders } from "hono/secure-headers";
 import { config } from "./config.ts";
 import { errorHandler } from "./lib/errors.ts";
 import { api } from "./routes/index.ts";
@@ -9,6 +10,7 @@ const app = new Hono();
 
 // Global middleware
 app.use("*", logger());
+app.use("*", secureHeaders());
 app.use(
   "/api/*",
   cors({
