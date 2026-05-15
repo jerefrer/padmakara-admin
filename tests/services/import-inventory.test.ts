@@ -24,3 +24,13 @@ describe("findInventoryEvent", () => {
     expect(findInventoryEvent(inv, "DOES-NOT-EXIST")).toBeUndefined();
   });
 });
+
+describe("loadInventory caching", () => {
+  it("returns the same cached object for repeated default-path calls", () => {
+    expect(loadInventory()).toBe(loadInventory());
+  });
+
+  it("does not cache when an explicit path is given", () => {
+    expect(loadInventory(FIXTURE)).not.toBe(loadInventory(FIXTURE));
+  });
+});

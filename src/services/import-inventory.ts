@@ -14,8 +14,8 @@ export interface InventoryFile {
   type: string;
   size: number;
   category: string;
-  language?: string;
-  zipContents?: InventoryZipEntry[];
+  language?: string | null;
+  zipContents?: InventoryZipEntry[] | null;
 }
 
 export interface InventoryEvent {
