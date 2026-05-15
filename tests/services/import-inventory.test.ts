@@ -59,10 +59,24 @@ describe("flattenInventoryEvent", () => {
     const rows = flattenInventoryEvent(event);
 
     expect(rows).toHaveLength(2);
-    expect(rows[0]?.zipEntryName).toBeNull();
-    expect(rows[0]?.filename).toBe("talk.mp3");
-    expect(rows[1]?.filename).toBe("transcript.pdf");
-    expect(rows[1]?.language).toBeNull();
+    expect(rows[0]).toEqual({
+      sourceS3Key: "mediateca/TEST-LOOSE-EVENT/talk.mp3",
+      zipEntryName: null,
+      filename: "talk.mp3",
+      extension: ".mp3",
+      sizeBytes: 1200,
+      category: "audio1",
+      language: null,
+    });
+    expect(rows[1]).toEqual({
+      sourceS3Key: "mediateca/TEST-LOOSE-EVENT/transcript.pdf",
+      zipEntryName: null,
+      filename: "transcript.pdf",
+      extension: ".pdf",
+      sizeBytes: 800,
+      category: "transcript",
+      language: null,
+    });
   });
 
   it("returns an empty array for an event with no files", () => {
