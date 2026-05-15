@@ -4,6 +4,68 @@ import { authFetch } from "./authFetch";
 
 const API_URL = "/api/admin";
 
+// ---------------------------------------------------------------------------
+// Transcript upload helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Request a presigned S3 upload URL for a single PDF transcript file.
+ */
+async function presignTranscript(
+  eventCode: string,
+  filename: string,
+  contentType: string,
+): Promise<{ s3Key: string; uploadUrl: string }> {
+  const res = await authFetch(`${API_URL}/upload/presign-transcript`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventCode, filename, contentType }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Presign failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+/**
+ * Upload a transcript PDF: presign → PUT to S3 → return s3Key.
+ *
+ * Calls `onProgress` with a 0-1 fraction during the XHR upload.
+ */
+export async function uploadTranscript(
+  eventCode: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<{ s3Key: string }> {
+  const contentType = file.type || "application/pdf";
+  const { s3Key, uploadUrl } = await presignTranscript(
+    eventCode,
+    file.name,
+    contentType,
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", contentType);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`S3 upload failed: ${xhr.status} ${xhr.statusText}`));
+    };
+
+    xhr.onerror = () => reject(new Error("Network error during transcript upload"));
+    xhr.send(file);
+  });
+
+  return { s3Key };
+}
+
 /**
  * An audio upload item — one file becomes one track on a session.
  *
