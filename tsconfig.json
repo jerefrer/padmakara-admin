@@ -23,5 +23,5 @@
     }
   },
   "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist", "admin"]
+  "exclude": ["node_modules", "dist", "admin", "src/scripts"]
 }
