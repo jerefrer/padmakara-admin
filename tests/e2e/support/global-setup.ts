@@ -29,6 +29,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     await startMinio();
     console.log("[e2e global-setup] MinIO ready.");
   } catch (err) {
+    // Best-effort cleanup: if startMinio() threw after the process spawned,
+    // call stopMinio() so neither the child process nor its temp dir is orphaned.
+    await stopMinio().catch(() => {});
+
     // Surface setup failures clearly so the developer sees infrastructure
     // problems rather than a wall of test-level errors.
     const message = err instanceof Error ? err.message : String(err);

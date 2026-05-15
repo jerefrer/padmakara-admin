@@ -24,13 +24,30 @@ import { join } from "node:path";
 
 // ─── Public constants (single source of truth) ───────────────────────────────
 
-/** Connection URL for the test database used across all e2e tests. */
-export const TEST_DATABASE_URL = "postgresql://localhost:5432/padmakara_test";
+/**
+ * Connection URL for the test database used across all e2e tests.
+ *
+ * Override via the TEST_DATABASE_URL environment variable to point at a
+ * non-default host/port or use different credentials (e.g. in CI).
+ */
+export const TEST_DATABASE_URL =
+  process.env.TEST_DATABASE_URL ?? "postgresql://localhost:5432/padmakara_test";
 
 // ─── Internal constants ───────────────────────────────────────────────────────
 
-/** Maintenance database used to issue DROP/CREATE DATABASE statements. */
-const MAINTENANCE_DATABASE_URL = "postgresql://localhost:5432/postgres";
+/**
+ * Maintenance database URL, derived from TEST_DATABASE_URL so that the
+ * host, port, and credentials always match the test database.
+ *
+ * We switch only the database name to the built-in `postgres` maintenance DB,
+ * which is required for DROP DATABASE / CREATE DATABASE statements (you cannot
+ * drop a database you are currently connected to).
+ */
+const MAINTENANCE_DATABASE_URL = (() => {
+  const url = new URL(TEST_DATABASE_URL);
+  url.pathname = "/postgres";
+  return url.toString();
+})();
 
 /** Absolute path to the repo root — required as cwd for drizzle-kit. */
 const REPO_ROOT = join(

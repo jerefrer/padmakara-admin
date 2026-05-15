@@ -133,13 +133,19 @@ export async function startMinio(): Promise<void> {
     },
   );
 
-  // Surface unexpected crashes immediately.
-  minioProcess.on("error", (err) => {
-    throw new Error(`MinIO process error: ${err.message}`);
+  // Race the readiness wait against a spawn-error rejection so that failures
+  // (binary missing, port in use, etc.) propagate cleanly to the caller rather
+  // than becoming uncaught exceptions thrown inside an EventEmitter handler.
+  const spawnError = new Promise<never>((_, reject) => {
+    minioProcess!.on("error", async (err) => {
+      // Kill the process (best-effort) so it is not orphaned, then reject.
+      await stopMinio().catch(() => {});
+      reject(new Error(`MinIO process error: ${err.message}`));
+    });
   });
 
-  // 3. Wait for the health endpoint.
-  await waitForReady();
+  // 3. Wait for the health endpoint (or a spawn failure, whichever comes first).
+  await Promise.race([waitForReady(), spawnError]);
 
   // 4. Create the test bucket.
   await createBucket();
