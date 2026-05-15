@@ -36,13 +36,16 @@ export async function authMiddleware(c: Context, next: Next) {
 /**
  * Optional auth middleware: extracts user if token present, continues without error otherwise.
  * Use for routes that work for both authenticated and unauthenticated users.
+ *
+ * Auth tokens are accepted ONLY from the Authorization: Bearer header.
+ * The former ?token= query-parameter fallback has been removed: tokens in URLs
+ * leak into access logs, browser history, and Referer headers. The MAT system
+ * (media-access.ts) already covers the legitimate HLS use case with a purpose-
+ * built, scoped short-lived token passed via ?mat=.
  */
 export async function optionalAuthMiddleware(c: Context, next: Next) {
   const authHeader = c.req.header("Authorization");
-  // Support token from Authorization header or ?token= query param (for iframe/direct URLs)
-  const rawToken = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : c.req.query("token") || null;
+  const rawToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
   if (rawToken) {
     try {
