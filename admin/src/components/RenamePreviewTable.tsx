@@ -11,7 +11,7 @@
  *      are applied into the editable table for review.
  */
 
-import { useCallback, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
@@ -306,9 +306,9 @@ export const RenamePreviewTable = ({
             </TableHead>
             <TableBody>
               {sessions.map((session, si) => (
-                <>
+                <Fragment key={`session-${si}`}>
                   {/* Session divider */}
-                  <TableRow key={`session-${si}`}>
+                  <TableRow>
                     <TableCell
                       colSpan={6}
                       sx={{
@@ -336,7 +336,7 @@ export const RenamePreviewTable = ({
                         onUpdate={(patch) => updateRow(row.rowKey, patch)}
                       />
                     ))}
-                </>
+                </Fragment>
               ))}
             </TableBody>
           </Table>

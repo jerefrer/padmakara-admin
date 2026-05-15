@@ -1773,8 +1773,9 @@ export const EventEdit = () => {
           notify("Sessions added (no audio to upload)", { type: "success" });
           refresh();
         }
-      } catch (error: any) {
-        notify(`Error adding sessions: ${error.message}`, { type: "error" });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        notify(`Error adding sessions: ${msg}`, { type: "error" });
       } finally {
         setAddTracksUploading(false);
       }
