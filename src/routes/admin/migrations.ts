@@ -25,6 +25,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { streamSSE } from "hono/streaming";
+import { getUser } from "../../middleware/auth.ts";
 import type { EventSummary } from "../../scripts/html-report-generator.ts";
 
 const app = new Hono();
@@ -136,7 +137,7 @@ app.post("/upload", async (c) => {
         status: "uploaded",
         targetBucket: "padmakara-pt-app",
         notes: notes || null,
-        createdBy: c.get("userId"),
+        createdBy: getUser(c).id,
       })
       .returning();
 
@@ -267,7 +268,8 @@ app.get("/:id", async (c) => {
         files: [],
       };
     }
-    acc[file.eventCode].files.push(file);
+    // acc[file.eventCode] was just initialized above; non-null by construction
+    acc[file.eventCode]!.files.push(file);
     return acc;
   }, {} as Record<string, { eventCode: string; s3Directory: string; files: any[] }>);
 
@@ -284,7 +286,7 @@ app.get("/:id", async (c) => {
  */
 app.post("/:id/decisions", async (c) => {
   const migrationId = parseInt(c.req.param("id"));
-  const userId = c.get("userId");
+  const userId = getUser(c).id;
 
   try {
     const body = await c.req.json();
@@ -394,7 +396,7 @@ app.get("/:id/decisions", async (c) => {
  */
 app.post("/:id/approve", async (c) => {
   const migrationId = parseInt(c.req.param("id"));
-  const userId = c.get("userId");
+  const userId = getUser(c).id;
 
   const [migration] = await db
     .select()

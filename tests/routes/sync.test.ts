@@ -77,6 +77,7 @@ describe("GET /sync/versions", () => {
 
     const app = buildApp();
     const res = await app.request("/sync/versions");
+    // res.json() returns unknown; the sync/versions endpoint always returns a plain object
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.events).toEqual({ global: 10, user: 0 });

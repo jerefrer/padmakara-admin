@@ -64,7 +64,8 @@ async function getPdfPageCount(pdfBuffer: Uint8Array): Promise<number> {
   if (!match) {
     throw new Error(`pdfinfo did not return a page count: ${stdout.substring(0, 200)}`);
   }
-  return parseInt(match[1], 10);
+  // match[1] is always defined when the regex matched (capturing group 1 is required)
+  return parseInt(match[1]!, 10);
 }
 
 /**

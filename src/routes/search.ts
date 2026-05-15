@@ -68,8 +68,9 @@ function extractSnippet(
   // For single match, just center on it
   // For multiple matches, center between the first and last match
   matchPositions.sort((a, b) => a - b);
+  // matchPositions is non-empty (guarded above); first/last elements are always present
   const center = Math.floor(
-    (matchPositions[0] + matchPositions[matchPositions.length - 1]) / 2,
+    (matchPositions[0]! + matchPositions[matchPositions.length - 1]!) / 2,
   );
 
   const start = Math.max(0, center - SNIPPET_HALF);

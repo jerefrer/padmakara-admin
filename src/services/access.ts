@@ -180,11 +180,12 @@ export async function filterAccessibleEvents<T extends EventForAccess>(
   user: UserForAccess | null,
   eventList: T[],
 ): Promise<T[]> {
-  const results = await Promise.all(
+  const results: (T | null)[] = await Promise.all(
     eventList.map(async (event) => {
       const result = await checkEventAccess(user, event);
       return result.allowed ? event : null;
     }),
   );
+  // Explicit (T | null)[] annotation prevents TypeScript from widening T to Awaited<T>
   return results.filter((e): e is T => e !== null);
 }

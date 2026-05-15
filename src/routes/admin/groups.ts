@@ -179,7 +179,8 @@ groupRoutes.post("/:id/hero", async (c) => {
   return c.json({ ...group, ...resolved });
 });
 
-function clampPercent(raw: FormDataEntryValue | null): number {
+// FormDataEntryValue = File | string per Web API spec; avoid DOM lib dependency
+function clampPercent(raw: File | string | null): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return 50;
   return Math.max(0, Math.min(100, Math.round(n)));

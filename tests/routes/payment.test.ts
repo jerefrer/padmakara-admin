@@ -137,6 +137,7 @@ describe("Payment routes (mock mode)", () => {
       const headers = await authHeader();
       await testJson("/api/payment/subscribe", { method: "POST", headers });
 
+      // calls[0] is non-null: the subscribe endpoint must have called db.update().set() at least once
       const setArg = updateChain.set.mock.calls[0]![0];
       const expiresAt = new Date(setArg.subscriptionExpiresAt);
       const now = new Date();

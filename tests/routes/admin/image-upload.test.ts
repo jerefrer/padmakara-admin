@@ -108,6 +108,7 @@ async function postMultipart(
   const res = await app.fetch(
     new Request(url.toString(), { method: "POST", headers, body: form }),
   );
+  // res.json() returns unknown; we know the API always returns a plain JSON object for non-204 responses
   const body = res.status === 204 ? null : (await res.json()) as Record<string, unknown>;
   return { status: res.status, body };
 }
@@ -196,7 +197,7 @@ describe("POST /api/admin/teachers/:id/avatar", () => {
     );
 
     expect(status).toBe(400);
-    expect(body!.error).toMatch(/missing file/i);
+    expect(body!.error).toMatch(/missing file/i); // body is non-null: status is 400, not 204
     expect(mockProcessAvatar).not.toHaveBeenCalled();
     expect(mockPutObject).not.toHaveBeenCalled();
   });
@@ -334,8 +335,8 @@ describe("POST /api/admin/teachers/:id/hero", () => {
     );
 
     expect(status).toBe(200);
-    expect(body!.heroFocalX).toBe(100);
-    expect(body!.heroFocalY).toBe(0);
+    expect(body!.heroFocalX).toBe(100); // body is non-null: status is 200, not 204
+    expect(body!.heroFocalY).toBe(0);   // body is non-null: status is 200, not 204
   });
 
   it("defaults focal to 50/50 when fields are missing", async () => {
@@ -353,8 +354,8 @@ describe("POST /api/admin/teachers/:id/hero", () => {
     );
 
     expect(status).toBe(200);
-    expect(body!.heroFocalX).toBe(50);
-    expect(body!.heroFocalY).toBe(50);
+    expect(body!.heroFocalX).toBe(50); // body is non-null: status is 200, not 204
+    expect(body!.heroFocalY).toBe(50); // body is non-null: status is 200, not 204
   });
 });
 

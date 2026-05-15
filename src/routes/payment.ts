@@ -20,9 +20,25 @@ if (isMockMode) {
   );
 }
 
+// ─── Easypay API response shapes ───
+
+/** Shape of the Easypay POST /checkout response we use. */
+interface EasypayCheckoutResponse {
+  id: string;
+  session: string;
+  [key: string]: unknown;
+}
+
+/** Shape of the Easypay GET /subscription/:id response we use. */
+interface EasypaySubscriptionResponse {
+  status: string;
+  order?: { key?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
 // ─── Easypay API helpers ───
 
-async function easypayFetch(path: string, options: RequestInit = {}) {
+async function easypayFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${EASYPAY_API_BASE}${path}`, {
     ...options,
     headers: {
@@ -37,7 +53,7 @@ async function easypayFetch(path: string, options: RequestInit = {}) {
     console.error(`Easypay API error ${res.status}: ${body}`);
     throw AppError.internal(`Easypay API error: ${res.status}`);
   }
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 // ─── Mock mode helpers ───
@@ -102,7 +118,7 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
   now.setMinutes(now.getMinutes() + 5); // Start 5 min from now
   const startTime = now.toISOString().replace("T", " ").slice(0, 16);
 
-  const checkoutData = await easypayFetch("/checkout", {
+  const checkoutData = await easypayFetch<EasypayCheckoutResponse>("/checkout", {
     method: "POST",
     body: JSON.stringify({
       type: ["subscription"],
@@ -239,7 +255,7 @@ paymentRoutes.post("/webhook", async (c) => {
 
   // Verify the notification by querying Easypay for subscription details
   try {
-    const subscription = await easypayFetch(`/subscription/${id}`);
+    const subscription = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${id}`);
 
     // Extract userId from the order key (format: "user-{id}-{timestamp}")
     const orderKey = subscription.order?.key || key || "";
@@ -249,7 +265,8 @@ paymentRoutes.post("/webhook", async (c) => {
       return c.json({ received: true, ignored: true });
     }
 
-    const userId = parseInt(userIdMatch[1], 10);
+    // userIdMatch[1] is defined — the regex has a required capturing group and we checked !userIdMatch above
+    const userId = parseInt(userIdMatch[1]!, 10);
     const subStatus = subscription.status;
 
     if (subStatus === "active") {

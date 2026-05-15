@@ -118,6 +118,8 @@ describe("resolveEventGroupUrls", () => {
     await resolveEventGroupUrls(event);
     const erg = event.eventRetreatGroups[0];
     expect(erg).toBeDefined();
+    // erg is defined (asserted above); retreatGroup is mutated in-place by resolveEventGroupUrls
+    // to add heroUrl/avatarUrl fields — the static type doesn't reflect those additions
     const resolved = (erg!.retreatGroup as unknown) as RetreatGroupResponse;
     expect(resolved.heroUrl).toBe(
       "https://s3.example.com/presigned/groups/heroes/7-1.webp",

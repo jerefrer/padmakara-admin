@@ -122,7 +122,8 @@ approvalRoutes.post("/:id/approve", async (c) => {
         preferredLanguage: request.language ?? "en",
       })
       .returning({ id: users.id });
-    userId = newUser.id;
+    // db.insert().returning() always returns the inserted row; the array is non-empty by contract
+    userId = newUser!.id;
   }
 
   // Generate magic link so the user can activate their device

@@ -130,7 +130,7 @@ export function buildPlaybackUrls(videoId: string, ttlSeconds?: number): Playbac
  */
 export function buildMp4DownloadUrl(
   videoId: string,
-  quality: '240p' | '360p' | '480p' | '720p' | '1080p' = '720p',
+  quality: BunnyResolution = '720p',
   ttlSeconds = 3 * 60 * 60, // 3h — leaves headroom for slow connections
 ): { url: string; expiresAt: number } {
   if (!config.bunny.cdnHostname) {

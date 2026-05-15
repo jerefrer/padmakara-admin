@@ -81,6 +81,11 @@ async function log(
 // Progress Helper
 // ============================================================================
 
+type MigrationStatus =
+  | "uploaded" | "analyzing" | "analyzed" | "decisions_pending"
+  | "decisions_complete" | "approved" | "executing" | "completed"
+  | "failed" | "cancelled";
+
 async function updateProgress(
   migrationId: number,
   updates: {
@@ -89,7 +94,7 @@ async function updateProgress(
     successfulEvents?: number;
     failedEvents?: number;
     skippedEvents?: number;
-    status?: string;
+    status?: MigrationStatus;
     executionCompletedAt?: Date;
   },
 ) {

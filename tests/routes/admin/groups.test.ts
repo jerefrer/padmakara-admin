@@ -234,6 +234,7 @@ describe("DELETE /admin/groups/:id", () => {
     const res = await buildApp().request("/admin/groups/5?reassignTo=7", { method: "DELETE" });
 
     expect(res.status).toBe(200);
+    // res.json() returns unknown; the DELETE endpoint always returns a plain object
     const body = await res.json() as Record<string, unknown>;
     expect(body.reassignedEventCount).toBe(0);
     expect(body.reassignedMembershipCount).toBe(0);

@@ -7,7 +7,6 @@ import {
   eventTeachers,
   eventRetreatGroups,
   eventPlaces,
-  eventAudiences,
 } from "../../db/schema/retreats.ts";
 import { eventPublications } from "../../db/schema/publications.ts";
 import { createEventSchema, updateEventSchema } from "../../lib/schemas.ts";
@@ -111,7 +110,8 @@ eventRoutes.get("/", async (c) => {
     const includeNull = parts.includes("none");
     const ids = parts.filter((p) => p !== "none").map((id) => parseInt(id, 10));
     filteredData = filteredData.filter((event) =>
-      ids.includes(event.audienceId) || (includeNull && event.audienceId == null)
+      (event.audienceId !== null && ids.includes(event.audienceId)) ||
+      (includeNull && event.audienceId == null)
     );
   }
 
