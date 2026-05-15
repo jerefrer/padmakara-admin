@@ -59,10 +59,10 @@ describe("flattenInventoryEvent", () => {
     const rows = flattenInventoryEvent(event);
 
     expect(rows).toHaveLength(2);
-    expect(rows[0].zipEntryName).toBeNull();
-    expect(rows[0].filename).toBe("talk.mp3");
-    expect(rows[1].filename).toBe("transcript.pdf");
-    expect(rows[1].language).toBeNull();
+    expect(rows[0]?.zipEntryName).toBeNull();
+    expect(rows[0]?.filename).toBe("talk.mp3");
+    expect(rows[1]?.filename).toBe("transcript.pdf");
+    expect(rows[1]?.language).toBeNull();
   });
 
   it("returns an empty array for an event with no files", () => {
