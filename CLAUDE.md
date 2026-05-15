@@ -323,7 +323,7 @@ AppError.conflict(message)
 - Use `getObjectStream()` for downloading from S3
 - Use `uploadStream()` for streaming uploads (multipart for large files)
 - Generate presigned URLs for client-side downloads/uploads
-- Organize files by event: `eventCode/sessionTitle/trackNumber.mp3`
+- Organize files by event: `events/{eventCode}/{filename}` for tracks and `events/{eventCode}/transcripts/{filename}` for transcripts — a flat per-event prefix, no per-session subfolder (see the key builders in `src/services/s3.ts`)
 
 **ZIP Generation:**
 - Stream-based to minimize memory usage
