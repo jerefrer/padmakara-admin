@@ -16,3 +16,7 @@ process.env.BUNNY_STREAM_CDN_HOSTNAME = "vz-test.b-cdn.net";
 process.env.BUNNY_STREAM_TOKEN_AUTH_KEY = "test-token-auth-key";
 process.env.BUNNY_STREAM_PLAYBACK_TTL = "3600";
 process.env.BUNNY_WEBHOOK_SECRET = "test-webhook-secret";
+
+// Keep each parallel Vitest worker's DB pool small so they don't collectively
+// exhaust the shared padmakara_test connection limit.
+process.env.DB_POOL_MAX = "3";

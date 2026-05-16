@@ -4,7 +4,7 @@ import { config } from "../config.ts";
 import * as schema from "./schema/index.ts";
 
 const queryClient = postgres(config.database.url, {
-  max: 10,
+  max: config.database.poolMax,
   idle_timeout: 20,
   connect_timeout: 10,
 });

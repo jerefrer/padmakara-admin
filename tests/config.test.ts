@@ -19,6 +19,12 @@ function makeConfig(overrides: {
   };
 }
 
+describe("config.database defaults", () => {
+  it("reads DB_POOL_MAX=3 from the test env (set by tests/setup.ts)", () => {
+    expect(config.database.poolMax).toBe(3);
+  });
+});
+
 describe("config.anthropic defaults", () => {
   it("defaults model to claude-sonnet-4-6 when ANTHROPIC_MODEL is not set", () => {
     expect(config.anthropic.model).toBe("claude-sonnet-4-6");

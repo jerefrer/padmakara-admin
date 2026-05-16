@@ -17,6 +17,9 @@ export const config = {
 
   database: {
     url: env("DATABASE_URL", "postgresql://localhost:5432/padmakara"),
+    // Connections per process. Lowered for the test env (many parallel
+    // Vitest workers share one Postgres) — see tests/setup.ts.
+    poolMax: parseInt(env("DB_POOL_MAX", "10"), 10),
   },
 
   jwt: {
