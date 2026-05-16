@@ -9,6 +9,7 @@ import { loadInventory, flattenInventoryEvent } from "../../services/import-inve
 import {
   proposeStructure,
   confirmStructure,
+  refineStructure,
   proposedStructureSchema,
 } from "../../services/import-inference.ts";
 import { executeImport } from "../../services/import-executor.ts";
@@ -17,6 +18,11 @@ import { AppError } from "../../lib/errors.ts";
 const app = new Hono();
 
 const catalogSchema = z.object({ eventCode: z.string().min(1) });
+
+const refineRequestSchema = z.object({
+  structure: proposedStructureSchema,
+  instruction: z.string().min(1),
+});
 
 const importColumns: Record<string, Column> = {
   id: importJobs.id,
@@ -62,6 +68,22 @@ app.post("/catalog", async (c) => {
   return c.json(job, 201);
 });
 
+/** DELETE /admin/imports/:id — remove an import job (cascades to import_files). */
+app.delete("/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (Number.isNaN(id)) {
+    throw AppError.badRequest("Invalid import job ID", "VALIDATION_ERROR");
+  }
+  const [deleted] = await db
+    .delete(importJobs)
+    .where(eq(importJobs.id, id))
+    .returning();
+  if (!deleted) {
+    throw AppError.notFound(`Import job ${id} not found`);
+  }
+  return c.json(deleted);
+});
+
 /**
  * POST /admin/imports/:id/propose — run AI session inference for a cataloged
  * job and store the proposed structure. Errors propagate to the global
@@ -88,6 +110,22 @@ app.post("/:id/confirm", async (c) => {
   }
   const structure = proposedStructureSchema.parse(await c.req.json());
   const job = await confirmStructure(id, structure);
+  return c.json(job);
+});
+
+/**
+ * POST /admin/imports/:id/refine — ask the AI to adjust the structure per a
+ * plain-language instruction. Body: { structure: ProposedStructure, instruction }.
+ */
+app.post("/:id/refine", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (Number.isNaN(id)) {
+    throw AppError.badRequest("Invalid import job ID", "VALIDATION_ERROR");
+  }
+  const { structure, instruction } = refineRequestSchema.parse(
+    await c.req.json(),
+  );
+  const job = await refineStructure(id, structure, instruction);
   return c.json(job);
 });
 

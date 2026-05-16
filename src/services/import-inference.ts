@@ -319,6 +319,176 @@ export async function proposeStructure(importJobId: number) {
 }
 
 // ---------------------------------------------------------------------------
+// refineStructure — AI conversational adjustment of a proposed structure
+// ---------------------------------------------------------------------------
+
+const REFINABLE_STATUSES = new Set(["proposed", "reviewed"]);
+
+/**
+ * Schema for the AI's refinement output. Tracks omit `originalFilename` — the
+ * backend re-anchors it from import_files (the AI must not touch it).
+ */
+const refineOutputSchema = z.object({
+  sessions: z
+    .array(
+      z.object({
+        sessionNumber: z.number().int(),
+        titleEn: z.string().min(1),
+        sessionDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .nullable(),
+        timePeriod: z.string().min(1),
+        tracks: z
+          .array(
+            z.object({
+              importFileId: z.number().int(),
+              trackNumber: z.number().int(),
+              title: z.string(),
+              speaker: z.string().nullable(),
+              languages: z.array(z.string()),
+              originalLanguage: z.string(),
+              isTranslation: z.boolean(),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .min(1),
+});
+
+const REFINE_SYSTEM_PROMPT = `You help a human curate the imported session structure for a Buddhist retreat.
+You receive the current structure as JSON and a plain-language instruction. Apply the instruction and return the adjusted structure.
+Return a JSON object of exactly this shape:
+{"sessions":[{"sessionNumber":1,"titleEn":"...","sessionDate":"YYYY-MM-DD" or null,"timePeriod":"morning"|"afternoon"|"evening","tracks":[{"importFileId":123,"trackNumber":1,"title":"...","speaker":"..." or null,"languages":["en"],"originalLanguage":"en","isTranslation":false}]}]}
+CRITICAL: keep exactly the same set of importFileId values as the input — every track's importFileId must appear exactly once in your output. Never add, drop, invent, or duplicate a track.
+You MAY move tracks between sessions, rename sessions and tracks, change session dates and timePeriods, change track numbers, speakers and languages — whatever the instruction asks for.
+Respond with only the JSON object: no prose, no markdown code fences.`;
+
+/**
+ * Adjust an existing proposed structure per a human instruction, via the AI.
+ * The input structure comes from the request (it reflects the human's
+ * in-progress edits). The AI may reorganise and re-title freely, but the set
+ * of importFileIds is verified unchanged and originalFilename is re-anchored
+ * from import_files. The result is stored as the job's proposed_structure.
+ */
+export async function refineStructure(
+  importJobId: number,
+  currentStructure: ProposedStructure,
+  instruction: string,
+) {
+  const [job] = await db
+    .select()
+    .from(importJobs)
+    .where(eq(importJobs.id, importJobId));
+  if (!job) {
+    throw AppError.notFound(`Import job ${importJobId} not found`);
+  }
+  if (!REFINABLE_STATUSES.has(job.status)) {
+    throw AppError.badRequest(
+      `Import job ${importJobId} is in status "${job.status}" and cannot be refined`,
+      "INVALID_JOB_STATUS",
+    );
+  }
+
+  const files = await db
+    .select()
+    .from(importFiles)
+    .where(eq(importFiles.importJobId, importJobId));
+  const fileById = new Map(files.map((f) => [f.id, f]));
+
+  const userPrompt = `Current structure:\n${JSON.stringify(
+    currentStructure,
+  )}\n\nInstruction:\n${instruction}`;
+
+  const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
+  const message = await anthropic.messages.create({
+    model: config.anthropic.model,
+    max_tokens: 16384,
+    system: REFINE_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  const textBlock = message.content.find((b) => b.type === "text");
+  if (!textBlock || textBlock.type !== "text") {
+    throw AppError.internal("AI returned no text response for the refinement");
+  }
+  let responseText = textBlock.text.trim();
+  if (responseText.startsWith("```")) {
+    responseText = responseText
+      .replace(/^```(?:json)?\n?/, "")
+      .replace(/\n?```$/, "")
+      .trim();
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(responseText);
+  } catch {
+    throw AppError.internal("AI returned invalid JSON for the refinement");
+  }
+
+  const refined = refineOutputSchema.safeParse(parsedJson);
+  if (!refined.success) {
+    throw AppError.internal("AI refinement did not match the expected shape");
+  }
+
+  // The refinement must preserve the exact set of source files.
+  const expected = new Set(fileById.keys());
+  const seen = new Set<number>();
+  for (const session of refined.data.sessions) {
+    for (const track of session.tracks) {
+      if (!expected.has(track.importFileId)) {
+        throw AppError.internal(
+          `AI refinement introduced unknown import file id ${track.importFileId}`,
+        );
+      }
+      if (seen.has(track.importFileId)) {
+        throw AppError.internal(
+          `AI refinement duplicated import file id ${track.importFileId}`,
+        );
+      }
+      seen.add(track.importFileId);
+    }
+  }
+  for (const id of expected) {
+    if (!seen.has(id)) {
+      throw AppError.internal(`AI refinement dropped import file id ${id}`);
+    }
+  }
+
+  // Re-anchor originalFilename from import_files; renumber sessions 1..N.
+  const structure: ProposedStructure = {
+    sessions: refined.data.sessions.map((session, index) => ({
+      sessionNumber: index + 1,
+      titleEn: session.titleEn,
+      sessionDate: session.sessionDate,
+      timePeriod: session.timePeriod,
+      tracks: session.tracks.map((track) => {
+        const file = fileById.get(track.importFileId);
+        if (!file) {
+          throw AppError.internal(
+            `import file ${track.importFileId} missing during refinement`,
+          );
+        }
+        return { ...track, originalFilename: file.filename };
+      }),
+    })),
+  };
+
+  const [updated] = await db
+    .update(importJobs)
+    .set({
+      proposedStructure: structure,
+      status: "proposed",
+      updatedAt: new Date(),
+    })
+    .where(eq(importJobs.id, importJobId))
+    .returning();
+  return updated!;
+}
+
+// ---------------------------------------------------------------------------
 // confirmStructure — store a human-reviewed session structure
 // ---------------------------------------------------------------------------
 
