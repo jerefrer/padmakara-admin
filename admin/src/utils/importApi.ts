@@ -1,4 +1,4 @@
-import { authFetch } from "./authFetch.ts";
+import { authFetch } from "./authFetch";
 
 // --- Types (mirror the backend ProposedStructure / import_jobs shapes) ---
 

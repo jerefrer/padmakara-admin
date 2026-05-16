@@ -7,7 +7,7 @@ import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
-import type { ProposedStructure } from "../utils/importApi.ts";
+import type { ProposedStructure } from "../utils/importApi";
 
 interface ImportStructureReviewProps {
   value: ProposedStructure;
@@ -168,6 +168,7 @@ export function ImportStructureReview({
                 onChange={(e) =>
                   moveTrack(sIdx, tIdx, Number(e.target.value))
                 }
+                inputProps={{ "aria-label": "Move track to a session" }}
                 sx={{ width: 170 }}
               >
                 {value.sessions.map((_, i) => (

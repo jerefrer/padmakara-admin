@@ -24,16 +24,14 @@ import Alert from "@mui/material/Alert";
 import {
   listAvailableEvents,
   catalogEvent,
-  type AvailableEvent,
-} from "../utils/importApi.ts";
-import { ImportStructureReview } from "../components/ImportStructureReview.tsx";
-import {
   proposeStructure,
   confirmStructure,
   executeImport,
+  type AvailableEvent,
   type ImportJob,
   type ProposedStructure,
-} from "../utils/importApi.ts";
+} from "../utils/importApi";
+import { ImportStructureReview } from "../components/ImportStructureReview";
 
 const STATUS_COLOR: Record<
   string,
