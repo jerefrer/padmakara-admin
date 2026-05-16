@@ -6,7 +6,11 @@ import { importJobs, importFiles } from "../../db/schema/index.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { catalogEvent } from "../../services/event-import.ts";
 import { loadInventory, flattenInventoryEvent } from "../../services/import-inventory.ts";
-import { proposeStructure } from "../../services/import-inference.ts";
+import {
+  proposeStructure,
+  confirmStructure,
+  proposedStructureSchema,
+} from "../../services/import-inference.ts";
 import { AppError } from "../../lib/errors.ts";
 
 const app = new Hono();
@@ -68,6 +72,21 @@ app.post("/:id/propose", async (c) => {
     throw AppError.badRequest("Invalid import job ID", "VALIDATION_ERROR");
   }
   const job = await proposeStructure(id);
+  return c.json(job);
+});
+
+/**
+ * POST /admin/imports/:id/confirm — store a human-reviewed structure.
+ * Body: a ProposedStructure. A ZodError (bad body) or AppError propagates
+ * to the global errorHandler.
+ */
+app.post("/:id/confirm", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (Number.isNaN(id)) {
+    throw AppError.badRequest("Invalid import job ID", "VALIDATION_ERROR");
+  }
+  const structure = proposedStructureSchema.parse(await c.req.json());
+  const job = await confirmStructure(id, structure);
   return c.json(job);
 });
 

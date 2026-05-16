@@ -61,6 +61,36 @@ export const aiGroupingSchema = z.object({
 
 export type AiGrouping = z.infer<typeof aiGroupingSchema>;
 
+/** Schema for a full ProposedStructure — used to validate a human-confirmed structure. */
+export const proposedStructureSchema = z.object({
+  sessions: z
+    .array(
+      z.object({
+        sessionNumber: z.number().int(),
+        titleEn: z.string().min(1),
+        sessionDate: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .nullable(),
+        timePeriod: z.string().min(1),
+        tracks: z
+          .array(
+            z.object({
+              importFileId: z.number().int(),
+              trackNumber: z.number().int(),
+              title: z.string(),
+              speaker: z.string().nullable(),
+              languages: z.array(z.string()),
+              originalLanguage: z.string(),
+              isTranslation: z.boolean(),
+            }),
+          )
+          .min(1),
+      }),
+    )
+    .min(1),
+});
+
 /**
  * Combine the AI's session grouping with deterministic per-track metadata
  * into a full proposed structure. Guarantees referential integrity: throws
@@ -271,5 +301,45 @@ export async function proposeStructure(importJobId: number) {
     .where(eq(importJobs.id, importJobId))
     .returning();
 
+  return updated!;
+}
+
+// ---------------------------------------------------------------------------
+// confirmStructure — store a human-reviewed session structure
+// ---------------------------------------------------------------------------
+
+const CONFIRMABLE_STATUSES = new Set(["proposed", "reviewed"]);
+
+/**
+ * Store a human-confirmed session structure on an import job and move it to
+ * `reviewed`. The structure shape is validated by `proposedStructureSchema`
+ * at the route boundary; this function only enforces the status transition.
+ */
+export async function confirmStructure(
+  importJobId: number,
+  structure: ProposedStructure,
+) {
+  const [job] = await db
+    .select()
+    .from(importJobs)
+    .where(eq(importJobs.id, importJobId));
+  if (!job) {
+    throw AppError.notFound(`Import job ${importJobId} not found`);
+  }
+  if (!CONFIRMABLE_STATUSES.has(job.status)) {
+    throw AppError.badRequest(
+      `Import job ${importJobId} is in status "${job.status}" and cannot be confirmed`,
+      "INVALID_JOB_STATUS",
+    );
+  }
+  const [updated] = await db
+    .update(importJobs)
+    .set({
+      confirmedStructure: structure,
+      status: "reviewed",
+      updatedAt: new Date(),
+    })
+    .where(eq(importJobs.id, importJobId))
+    .returning();
   return updated!;
 }
