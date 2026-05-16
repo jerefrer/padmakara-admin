@@ -69,6 +69,13 @@ export const config = {
      */
     webhookSecret: env("BUNNY_WEBHOOK_SECRET", ""),
   },
+
+  anthropic: {
+    apiKey: env("ANTHROPIC_API_KEY", ""),
+    // Session-grouping is a reasoning task; default to Sonnet rather than the
+    // Haiku model used elsewhere for simple text rewrites.
+    model: env("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+  },
 } as const;
 
 type ProductionConfigInput = {

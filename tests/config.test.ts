@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateProductionConfig } from "../src/config.ts";
+import { config, validateProductionConfig } from "../src/config.ts";
 
 // Minimal config shape accepted by validateProductionConfig.
 function makeConfig(overrides: {
@@ -18,6 +18,16 @@ function makeConfig(overrides: {
     },
   };
 }
+
+describe("config.anthropic defaults", () => {
+  it("defaults model to claude-sonnet-4-6 when ANTHROPIC_MODEL is not set", () => {
+    expect(config.anthropic.model).toBe("claude-sonnet-4-6");
+  });
+
+  it("exposes apiKey as a string", () => {
+    expect(typeof config.anthropic.apiKey).toBe("string");
+  });
+});
 
 describe("validateProductionConfig", () => {
   it("throws when JWT_SECRET equals the publicly-known dev default", () => {
