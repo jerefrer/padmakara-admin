@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import { db } from "../../src/db/index.ts";
 import { importJobs } from "../../src/db/schema/index.ts";
 import type { Inventory } from "../../src/services/import-inventory.ts";
@@ -33,7 +34,9 @@ import app from "../../src/routes/admin/imports.ts";
 
 describe("admin imports routes", () => {
   beforeEach(async () => {
-    await db.delete(importJobs);
+    // Scope cleanup to this file's event code so it can run in parallel with
+    // other integration tests that share the import_jobs table.
+    await db.delete(importJobs).where(eq(importJobs.eventCode, "EV-A"));
   });
 
   it("GET /available lists inventory events with no import job yet", async () => {

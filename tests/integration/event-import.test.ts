@@ -40,7 +40,11 @@ import { catalogEvent } from "../../src/services/event-import.ts";
 
 describe("catalogEvent", () => {
   beforeEach(async () => {
-    await db.delete(importJobs); // ON DELETE CASCADE clears import_files
+    // Scope cleanup to this file's event code so it can run in parallel with
+    // other integration tests that share the import_jobs table.
+    await db
+      .delete(importJobs)
+      .where(eq(importJobs.eventCode, "TEST-EVENT")); // ON DELETE CASCADE clears import_files
   });
 
   it("throws when the event is absent from the inventory", async () => {
