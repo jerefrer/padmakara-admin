@@ -38,11 +38,11 @@ vi.mock("../../src/services/import-inventory.ts", async (importOriginal) => {
 
 import { catalogEvent } from "../../src/services/event-import.ts";
 
-beforeEach(async () => {
-  await db.delete(importJobs); // ON DELETE CASCADE clears import_files
-});
-
 describe("catalogEvent", () => {
+  beforeEach(async () => {
+    await db.delete(importJobs); // ON DELETE CASCADE clears import_files
+  });
+
   it("throws when the event is absent from the inventory", async () => {
     await expect(catalogEvent("NO-SUCH-EVENT")).rejects.toThrow(/not found/i);
   });
@@ -72,5 +72,14 @@ describe("catalogEvent", () => {
       .from(importFiles)
       .where(eq(importFiles.importJobId, second.id));
     expect(files).toHaveLength(3);
+  });
+
+  it("throws conflict when the event has already been imported", async () => {
+    await db
+      .insert(importJobs)
+      .values({ eventCode: "TEST-EVENT", status: "completed" });
+    await expect(catalogEvent("TEST-EVENT")).rejects.toThrow(
+      /already been imported/i,
+    );
   });
 });
