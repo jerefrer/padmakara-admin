@@ -205,6 +205,8 @@ export const en = {
       session: "Session %{number}",
       tracks: "%{count} tracks",
       translation: "Translation",
+      trackPlay: "Play",
+      videoPlay: "Play",
       video: "Video",
       videoAttached: "Video recording attached",
       videoNone: "No video recording",
