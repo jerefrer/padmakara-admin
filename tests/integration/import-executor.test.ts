@@ -117,15 +117,22 @@ describe("executeImport", () => {
     const sessionRows = await db
       .select()
       .from(sessions)
-      .where(eq(sessions.eventId, retreat!.id));
+      .where(eq(sessions.eventId, retreat!.id))
+      .orderBy(sessions.sessionNumber);
     expect(sessionRows).toHaveLength(2);
+    expect(sessionRows[0]?.sessionNumber).toBe(1);
 
-    const trackRows = await db
+    const s1Tracks = await db
       .select()
       .from(tracks)
       .where(eq(tracks.sessionId, sessionRows[0]!.id));
-    expect(trackRows.length).toBeGreaterThan(0);
-    expect(trackRows[0]?.s3Key).toContain(`events/${EVENT_CODE}/`);
+    const s2Tracks = await db
+      .select()
+      .from(tracks)
+      .where(eq(tracks.sessionId, sessionRows[1]!.id));
+    expect(s1Tracks).toHaveLength(2);
+    expect(s2Tracks).toHaveLength(1);
+    expect(s1Tracks[0]?.s3Key).toContain(`events/${EVENT_CODE}/`);
   });
 
   it("marks the job failed and rethrows when a copy fails", async () => {
@@ -147,5 +154,12 @@ describe("executeImport", () => {
       .insert(events)
       .values({ eventCode: EVENT_CODE, titleEn: "Existing" });
     await expect(executeImport(jobId)).rejects.toThrow(/already exists/i);
+
+    // pre-validation failure must leave the job reviewable, not failed
+    const [job] = await db
+      .select()
+      .from(importJobs)
+      .where(eq(importJobs.id, jobId));
+    expect(job?.status).toBe("reviewed");
   });
 });

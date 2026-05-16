@@ -86,6 +86,9 @@ export async function executeImport(importJobId: number) {
     seenKeys.add(r.targetKey);
   }
 
+  // NOTE: a crash between this update and the try block below would leave the
+  // job stuck in "importing" — the status guard then blocks re-execution until
+  // an operator resets it to "reviewed". Accepted for this first cut.
   await db
     .update(importJobs)
     .set({ status: "importing", errorMessage: null, updatedAt: new Date() })
@@ -98,6 +101,9 @@ export async function executeImport(importJobId: number) {
     for (const r of resolved) {
       if (r.file.zipEntryName) zipKeys.add(r.file.sourceS3Key);
     }
+    // TODO: extractZip extracts the WHOLE source ZIP into events/{eventCode}/,
+    // so entries not in the confirmed structure become orphan objects. Acceptable
+    // for now; a future refinement could pass skipFiles or extract selectively.
     for (const zipKey of zipKeys) {
       await extractZip({
         sourceBucket: job.sourceBucket,
@@ -121,6 +127,7 @@ export async function executeImport(importJobId: number) {
         .insert(events)
         .values({
           eventCode: job.eventCode,
+          // TODO(phase-4): use a real event title once the confirm payload carries one.
           titleEn: job.eventCode,
           status: "draft",
         })
