@@ -96,6 +96,16 @@ describe("proposeStructure", () => {
         { sessionNumber: 1, titleEn: "Morning", sessionDate: null, timePeriod: "morning", importFileIds: fileIds.slice(0, 2) },
       ],
     });
-    await expect(proposeStructure(jobId)).rejects.toThrow();
+    await expect(proposeStructure(jobId)).rejects.toThrow(
+      /omits|failed validation/i,
+    );
+  });
+
+  it("rejects a job that is not cataloged or proposed", async () => {
+    const [job] = await db
+      .insert(importJobs)
+      .values({ eventCode: EVENT_CODE, status: "completed" })
+      .returning();
+    await expect(proposeStructure(job!.id)).rejects.toThrow(/cannot be/i);
   });
 });

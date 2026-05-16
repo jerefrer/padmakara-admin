@@ -113,11 +113,14 @@ export function assembleProposedStructure(
 // ---------------------------------------------------------------------------
 
 const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a", ".flac", ".ogg"]);
+const PROPOSABLE_STATUSES = new Set(["cataloged", "proposed"]);
 
 function parsedToProposedTrack(
   parsed: ParsedTrack,
   importFileId: number,
 ): ProposedTrack {
+  // ParsedTrack.speakers (the multi-speaker array) is intentionally not
+  // carried — the tracks table stores only a singular `speaker`.
   return {
     importFileId,
     trackNumber: parsed.trackNumber,
@@ -178,6 +181,12 @@ export async function proposeStructure(importJobId: number) {
     .where(eq(importJobs.id, importJobId));
   if (!job) {
     throw AppError.notFound(`Import job ${importJobId} not found`);
+  }
+  if (!PROPOSABLE_STATUSES.has(job.status)) {
+    throw AppError.badRequest(
+      `Import job ${importJobId} is in status "${job.status}" and cannot be (re-)proposed`,
+      "INVALID_JOB_STATUS",
+    );
   }
 
   const files = await db
