@@ -21,8 +21,44 @@ export interface ProposedSession {
   tracks: ProposedTrack[];
 }
 
+/** Event-level metadata for an import — mirrors the backend ProposedEvent. */
+export interface ProposedEvent {
+  titleEn: string;
+  titlePt: string;
+  mainThemesEn: string;
+  mainThemesPt: string;
+  sessionThemesEn: string;
+  sessionThemesPt: string;
+  startDate: string | null;
+  endDate: string | null;
+  status: string;
+  featuredAt: string | null;
+  eventTypeId: number | null;
+  audienceId: number | null;
+  teacherIds: number[];
+  placeIds: number[];
+  groupIds: number[];
+}
+
+/** A transcript PDF to import, with the language the admin assigned it. */
+export interface ProposedTranscript {
+  importFileId: number;
+  language: string;
+  originalFilename: string;
+}
+
 export interface ProposedStructure {
+  /** Event metadata. Optional on the admin side for tolerance to older payloads. */
+  event?: ProposedEvent;
   sessions: ProposedSession[];
+  /**
+   * Tracks the human has set aside — excluded from the import but kept so they
+   * can be restored. Optional: structures stored before the ignore feature
+   * existed have no `ignored` key.
+   */
+  ignored?: ProposedTrack[];
+  /** Transcript PDFs to import. Optional for tolerance to older payloads. */
+  transcripts?: ProposedTranscript[];
 }
 
 export type ImportStatus =
@@ -87,12 +123,12 @@ export async function listAvailableEvents(): Promise<{
   events: AvailableEvent[];
   total: number;
 }> {
-  return jsonOrThrow(await authFetch("/api/admin/imports/available"));
+  return jsonOrThrow(await authFetch("/api/admin/migrations/available"));
 }
 
 export async function catalogEvent(eventCode: string): Promise<ImportJob> {
   return jsonOrThrow(
-    await authFetch("/api/admin/imports/catalog", {
+    await authFetch("/api/admin/migrations/catalog", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ eventCode }),
@@ -103,12 +139,12 @@ export async function catalogEvent(eventCode: string): Promise<ImportJob> {
 export async function getImportJob(
   id: number,
 ): Promise<ImportJob & { files: ImportFile[] }> {
-  return jsonOrThrow(await authFetch(`/api/admin/imports/${id}`));
+  return jsonOrThrow(await authFetch(`/api/admin/migrations/${id}`));
 }
 
 export async function proposeStructure(id: number): Promise<ImportJob> {
   return jsonOrThrow(
-    await authFetch(`/api/admin/imports/${id}/propose`, { method: "POST" }),
+    await authFetch(`/api/admin/migrations/${id}/propose`, { method: "POST" }),
   );
 }
 
@@ -117,7 +153,7 @@ export async function confirmStructure(
   structure: ProposedStructure,
 ): Promise<ImportJob> {
   return jsonOrThrow(
-    await authFetch(`/api/admin/imports/${id}/confirm`, {
+    await authFetch(`/api/admin/migrations/${id}/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(structure),
@@ -127,7 +163,7 @@ export async function confirmStructure(
 
 export async function executeImport(id: number): Promise<ImportJob> {
   return jsonOrThrow(
-    await authFetch(`/api/admin/imports/${id}/execute`, { method: "POST" }),
+    await authFetch(`/api/admin/migrations/${id}/execute`, { method: "POST" }),
   );
 }
 
@@ -137,7 +173,7 @@ export async function refineStructure(
   instruction: string,
 ): Promise<ImportJob> {
   return jsonOrThrow(
-    await authFetch(`/api/admin/imports/${id}/refine`, {
+    await authFetch(`/api/admin/migrations/${id}/refine`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ structure, instruction }),

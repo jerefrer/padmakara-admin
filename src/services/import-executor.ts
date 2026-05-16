@@ -6,9 +6,17 @@ import {
   events,
   sessions,
   tracks,
+  eventTeachers,
+  eventRetreatGroups,
+  eventPlaces,
+  transcripts,
 } from "../db/schema/index.ts";
 import { AppError } from "../lib/errors.ts";
-import { buildTrackS3Key, copyObjectIntoAppBucket } from "./s3.ts";
+import {
+  buildTrackS3Key,
+  buildTranscriptS3Key,
+  copyObjectIntoAppBucket,
+} from "./s3.ts";
 import { extractZip } from "./zip-extractor.ts";
 import { proposedStructureSchema } from "./import-inference.ts";
 
@@ -86,6 +94,19 @@ export async function executeImport(importJobId: number) {
     seenKeys.add(r.targetKey);
   }
 
+  // Resolve each confirmed transcript to its source file. A loose transcript
+  // is copied to events/{code}/transcripts/{filename}; one inside a ZIP is
+  // extracted with the audio ZIPs and ends up flat at events/{code}/{filename}.
+  const resolvedTranscripts = structure.transcripts.map((t) => {
+    const file = fileById.get(t.importFileId);
+    if (!file) {
+      throw AppError.badRequest(
+        `Confirmed structure references transcript import file ${t.importFileId}, which does not belong to job ${importJobId}`,
+      );
+    }
+    return { file, language: t.language };
+  });
+
   // NOTE: a crash between this update and the try block below would leave the
   // job stuck in "importing" — the status guard then blocks re-execution until
   // an operator resets it to "reviewed". Accepted for this first cut.
@@ -100,6 +121,9 @@ export async function executeImport(importJobId: number) {
     const zipKeys = new Set<string>();
     for (const r of resolved) {
       if (r.file.zipEntryName) zipKeys.add(r.file.sourceS3Key);
+    }
+    for (const rt of resolvedTranscripts) {
+      if (rt.file.zipEntryName) zipKeys.add(rt.file.sourceS3Key);
     }
     // TODO: extractZip extracts the WHOLE source ZIP into events/{eventCode}/,
     // so entries not in the confirmed structure become orphan objects. Acceptable
@@ -120,19 +144,62 @@ export async function executeImport(importJobId: number) {
         );
       }
     }
+    for (const rt of resolvedTranscripts) {
+      if (!rt.file.zipEntryName) {
+        await copyObjectIntoAppBucket(
+          job.sourceBucket,
+          rt.file.sourceS3Key,
+          buildTranscriptS3Key(job.eventCode, rt.file.filename),
+        );
+      }
+    }
 
     // --- DB phase (transactional) ---
     const retreatId = await db.transaction(async (tx) => {
+      const ev = structure.event;
       const [retreat] = await tx
         .insert(events)
         .values({
           eventCode: job.eventCode,
-          // TODO(phase-4): use a real event title once the confirm payload carries one.
-          titleEn: job.eventCode,
-          status: "draft",
+          titleEn: ev.titleEn || job.eventCode,
+          titlePt: ev.titlePt || null,
+          mainThemesEn: ev.mainThemesEn || null,
+          mainThemesPt: ev.mainThemesPt || null,
+          sessionThemesEn: ev.sessionThemesEn || null,
+          sessionThemesPt: ev.sessionThemesPt || null,
+          startDate: ev.startDate,
+          endDate: ev.endDate,
+          eventTypeId: ev.eventTypeId,
+          audienceId: ev.audienceId,
+          status: ev.status || "draft",
+          featuredAt: ev.featuredAt ? new Date(ev.featuredAt) : null,
         })
         .returning();
       if (!retreat) throw new Error("failed to create retreat row");
+
+      // Junction rows for the event's teachers / retreat groups / places.
+      if (ev.teacherIds.length > 0) {
+        await tx.insert(eventTeachers).values(
+          ev.teacherIds.map((teacherId) => ({
+            eventId: retreat.id,
+            teacherId,
+            role: "teacher",
+          })),
+        );
+      }
+      if (ev.groupIds.length > 0) {
+        await tx.insert(eventRetreatGroups).values(
+          ev.groupIds.map((retreatGroupId) => ({
+            eventId: retreat.id,
+            retreatGroupId,
+          })),
+        );
+      }
+      if (ev.placeIds.length > 0) {
+        await tx.insert(eventPlaces).values(
+          ev.placeIds.map((placeId) => ({ eventId: retreat.id, placeId })),
+        );
+      }
 
       for (const session of structure.sessions) {
         const [sessionRow] = await tx
@@ -168,6 +235,24 @@ export async function executeImport(importJobId: number) {
           });
         }
       }
+
+      // Transcript rows — one per confirmed PDF. The S3 key is the real
+      // location: a loose transcript was copied under .../transcripts/, one
+      // from a ZIP was extracted flat to events/{code}/.
+      for (const rt of resolvedTranscripts) {
+        const s3Key = rt.file.zipEntryName
+          ? `events/${job.eventCode}/${rt.file.filename}`
+          : buildTranscriptS3Key(job.eventCode, rt.file.filename);
+        await tx.insert(transcripts).values({
+          eventId: retreat.id,
+          language: rt.language,
+          s3Key,
+          status: ev.status || "draft",
+          originalFilename: rt.file.filename,
+          fileSizeBytes: rt.file.sizeBytes,
+        });
+      }
+
       return retreat.id;
     });
 

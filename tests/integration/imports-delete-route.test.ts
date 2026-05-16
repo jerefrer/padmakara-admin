@@ -5,7 +5,7 @@ import { db } from "../../src/db/index.ts";
 import { importJobs, importFiles } from "../../src/db/schema/index.ts";
 import { errorHandler } from "../../src/lib/errors.ts";
 
-import importRoutes from "../../src/routes/admin/imports.ts";
+import importRoutes from "../../src/routes/admin/migrations.ts";
 
 const app = new Hono();
 app.route("/", importRoutes);

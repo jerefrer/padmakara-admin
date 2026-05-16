@@ -13,7 +13,7 @@ vi.mock("../../src/services/zip-extractor.ts", () => ({
   extractZip: vi.fn(async () => ({ extractedFiles: 0, skippedFiles: 0 })),
 }));
 
-import importRoutes from "../../src/routes/admin/imports.ts";
+import importRoutes from "../../src/routes/admin/migrations.ts";
 
 const app = new Hono();
 app.route("/", importRoutes);
@@ -52,6 +52,24 @@ describe("POST /admin/imports/:id/execute", () => {
       .update(importJobs)
       .set({
         confirmedStructure: {
+          event: {
+            titleEn: "Execute Route Retreat",
+            titlePt: "",
+            mainThemesEn: "",
+            mainThemesPt: "",
+            sessionThemesEn: "",
+            sessionThemesPt: "",
+            startDate: null,
+            endDate: null,
+            status: "draft",
+            featuredAt: null,
+            eventTypeId: null,
+            audienceId: null,
+            teacherIds: [],
+            placeIds: [],
+            groupIds: [],
+          },
+          transcripts: [],
           sessions: [
             {
               sessionNumber: 1,

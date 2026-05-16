@@ -14,7 +14,6 @@ import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audience
 import { UserList, UserEdit } from "./resources/users";
 import { ApprovalList } from "./resources/approvals";
 import { MigrationList, MigrationCreate, MigrationShow } from "./resources/migrations";
-import { ImportsList, ImportsCreate, ImportsShow } from "./resources/imports";
 import { PublicationList, PublicationEdit, PublicationCreate } from "./resources/publications";
 
 const App = () => (
@@ -88,17 +87,10 @@ const App = () => (
     />
     <Resource
       name="migrations"
-      options={{ label: "Migrations" }}
+      options={{ label: "Migration" }}
       list={MigrationList}
       create={MigrationCreate}
       show={MigrationShow}
-    />
-    <Resource
-      name="imports"
-      options={{ label: "Legacy Imports" }}
-      list={ImportsList}
-      create={ImportsCreate}
-      show={ImportsShow}
     />
   </Admin>
 );

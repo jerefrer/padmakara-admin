@@ -28,6 +28,18 @@ import {
 
 const EVENT_CODE = "TEST-PROPOSE";
 
+/** The event block the mocked AI returns alongside the session grouping. */
+const aiEvent = {
+  titleEn: "Test Propose Retreat",
+  titlePt: "",
+  mainThemesEn: "",
+  mainThemesPt: "",
+  sessionThemesEn: "",
+  sessionThemesPt: "",
+  startDate: null,
+  endDate: null,
+};
+
 async function seedJob(): Promise<{ jobId: number; fileIds: number[] }> {
   const [job] = await db
     .insert(importJobs)
@@ -72,6 +84,7 @@ describe("proposeStructure", () => {
   it("stores the AI-proposed structure and marks the job proposed", async () => {
     const { jobId, fileIds } = await seedJob();
     mockClaude.text = JSON.stringify({
+      event: aiEvent,
       sessions: [
         {
           sessionNumber: 1,
@@ -99,11 +112,16 @@ describe("proposeStructure", () => {
     expect(structure.sessions[0]?.tracks).toHaveLength(2);
     expect(structure.sessions[1]?.tracks).toHaveLength(1);
     expect(structure.sessions[0]?.tracks[0]?.importFileId).toBe(fileIds[0]);
+    // the AI-supplied event block is carried onto the stored structure
+    expect(structure.event.titleEn).toBe("Test Propose Retreat");
+    // this seed job has no PDF files, so no transcripts
+    expect(structure.transcripts).toEqual([]);
   });
 
   it("rejects an AI grouping that omits a file", async () => {
     const { jobId, fileIds } = await seedJob();
     mockClaude.text = JSON.stringify({
+      event: aiEvent,
       sessions: [
         {
           sessionNumber: 1,

@@ -22,7 +22,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
-import importRoutes from "../../src/routes/admin/imports.ts";
+import importRoutes from "../../src/routes/admin/migrations.ts";
 
 const app = new Hono();
 app.route("/", importRoutes);
@@ -98,6 +98,24 @@ describe("POST /admin/imports/:id/refine", () => {
 
     // Current structure the client sends
     const currentStructure = {
+      event: {
+        titleEn: "Refine Route Retreat",
+        titlePt: "",
+        mainThemesEn: "",
+        mainThemesPt: "",
+        sessionThemesEn: "",
+        sessionThemesPt: "",
+        startDate: null,
+        endDate: null,
+        status: "draft",
+        featuredAt: null,
+        eventTypeId: null,
+        audienceId: null,
+        teacherIds: [],
+        placeIds: [],
+        groupIds: [],
+      },
+      transcripts: [],
       sessions: [
         {
           sessionNumber: 1,

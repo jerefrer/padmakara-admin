@@ -32,7 +32,7 @@ vi.mock("../../src/services/import-inventory.ts", async (importOriginal) => {
 
 import { Hono } from "hono";
 import { errorHandler } from "../../src/lib/errors.ts";
-import importRoutes from "../../src/routes/admin/imports.ts";
+import importRoutes from "../../src/routes/admin/migrations.ts";
 
 const app = new Hono();
 app.route("/", importRoutes);

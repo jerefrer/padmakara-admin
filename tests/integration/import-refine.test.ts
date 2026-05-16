@@ -24,9 +24,29 @@ vi.mock("@anthropic-ai/sdk", () => {
 import {
   refineStructure,
   type ProposedStructure,
+  type ProposedEvent,
 } from "../../src/services/import-inference.ts";
 
 const EVENT_CODE = "EV-REFINE";
+
+/** A minimal event block — refinement passes it through untouched. */
+const STUB_EVENT: ProposedEvent = {
+  titleEn: "Refine Retreat",
+  titlePt: "",
+  mainThemesEn: "",
+  mainThemesPt: "",
+  sessionThemesEn: "",
+  sessionThemesPt: "",
+  startDate: null,
+  endDate: null,
+  status: "draft",
+  featuredAt: null,
+  eventTypeId: null,
+  audienceId: null,
+  teacherIds: [],
+  placeIds: [],
+  groupIds: [],
+};
 
 async function seedProposedJob(): Promise<{
   jobId: number;
@@ -59,6 +79,7 @@ async function seedProposedJob(): Promise<{
 
   // A plausible current structure the human might send
   const currentStructure: ProposedStructure = {
+    event: STUB_EVENT,
     sessions: [
       {
         sessionNumber: 1,
@@ -107,6 +128,8 @@ async function seedProposedJob(): Promise<{
         ],
       },
     ],
+    ignored: [],
+    transcripts: [],
   };
 
   return { jobId: job!.id, fileIds, filenames, currentStructure };
@@ -119,7 +142,12 @@ describe("refineStructure", () => {
   });
 
   it("throws not found for an unknown import job", async () => {
-    const stub: ProposedStructure = { sessions: [] as ProposedStructure["sessions"] };
+    const stub: ProposedStructure = {
+      event: STUB_EVENT,
+      sessions: [],
+      ignored: [],
+      transcripts: [],
+    };
     await expect(refineStructure(999999, stub, "merge")).rejects.toThrow(
       /not found/i,
     );
@@ -130,7 +158,12 @@ describe("refineStructure", () => {
       .insert(importJobs)
       .values({ eventCode: EVENT_CODE, status: "cataloged" })
       .returning();
-    const stub: ProposedStructure = { sessions: [] as ProposedStructure["sessions"] };
+    const stub: ProposedStructure = {
+      event: STUB_EVENT,
+      sessions: [],
+      ignored: [],
+      transcripts: [],
+    };
     await expect(refineStructure(job!.id, stub, "merge")).rejects.toThrow(
       /cannot be refined/i,
     );
@@ -210,5 +243,130 @@ describe("refineStructure", () => {
     await expect(
       refineStructure(jobId, currentStructure, "drop the last track"),
     ).rejects.toThrow(/dropped/i);
+  });
+
+  it("preserves an ignored track across a refinement and re-anchors it", async () => {
+    const { jobId, fileIds, filenames } = await seedProposedJob();
+
+    // The human has set the third file aside in `ignored`.
+    const withIgnored: ProposedStructure = {
+      event: STUB_EVENT,
+      sessions: [
+        {
+          sessionNumber: 1,
+          titleEn: "Session 1",
+          sessionDate: null,
+          timePeriod: "morning",
+          tracks: [0, 1].map((i) => ({
+            importFileId: fileIds[i]!,
+            trackNumber: i + 1,
+            title: `Track ${i + 1}`,
+            speaker: "JKR",
+            languages: ["en"],
+            originalLanguage: "en",
+            isTranslation: false,
+            originalFilename: filenames[i]!,
+          })),
+        },
+      ],
+      ignored: [
+        {
+          importFileId: fileIds[2]!,
+          trackNumber: 1,
+          title: "Afternoon teaching",
+          speaker: "JKR",
+          languages: ["en"],
+          originalLanguage: "en",
+          isTranslation: false,
+          originalFilename: filenames[2]!,
+        },
+      ],
+      transcripts: [],
+    };
+
+    // AI keeps the same split — sessions plus a one-track ignored list.
+    mockClaude.text = JSON.stringify({
+      sessions: [
+        {
+          sessionNumber: 1,
+          titleEn: "Session 1",
+          sessionDate: null,
+          timePeriod: "morning",
+          tracks: [fileIds[0]!, fileIds[1]!].map((id, i) => ({
+            importFileId: id,
+            trackNumber: i + 1,
+            title: `Track ${i + 1}`,
+            speaker: "JKR",
+            languages: ["en"],
+            originalLanguage: "en",
+            isTranslation: false,
+          })),
+        },
+      ],
+      ignored: [
+        {
+          importFileId: fileIds[2]!,
+          trackNumber: 1,
+          title: "Afternoon teaching",
+          speaker: "JKR",
+          languages: ["en"],
+          originalLanguage: "en",
+          isTranslation: false,
+        },
+      ],
+    });
+
+    const updatedJob = await refineStructure(
+      jobId,
+      withIgnored,
+      "leave the ignored file as it is",
+    );
+
+    const structure = updatedJob.proposedStructure as ProposedStructure;
+    expect(structure.sessions).toHaveLength(1);
+    expect(structure.sessions[0]?.tracks).toHaveLength(2);
+    expect(structure.ignored).toHaveLength(1);
+    expect(structure.ignored[0]?.importFileId).toBe(fileIds[2]);
+    // originalFilename is re-anchored from import_files, not the AI output.
+    expect(structure.ignored[0]?.originalFilename).toBe(filenames[2]);
+  });
+
+  it("passes the event block through a refinement unchanged", async () => {
+    const { jobId, fileIds, currentStructure } = await seedProposedJob();
+    const customEvent: ProposedEvent = {
+      ...STUB_EVENT,
+      titleEn: "My Retreat",
+      startDate: "2024-04-25",
+      teacherIds: [7],
+    };
+
+    mockClaude.text = JSON.stringify({
+      sessions: [
+        {
+          sessionNumber: 1,
+          titleEn: "Merged",
+          sessionDate: null,
+          timePeriod: "morning",
+          tracks: fileIds.map((id, i) => ({
+            importFileId: id,
+            trackNumber: i + 1,
+            title: `Track ${i + 1}`,
+            speaker: null,
+            languages: ["en"],
+            originalLanguage: "en",
+            isTranslation: false,
+          })),
+        },
+      ],
+    });
+
+    const updated = await refineStructure(
+      jobId,
+      { ...currentStructure, event: customEvent },
+      "merge everything",
+    );
+
+    const structure = updated.proposedStructure as ProposedStructure;
+    expect(structure.event).toEqual(customEvent);
   });
 });

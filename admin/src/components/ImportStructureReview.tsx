@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
@@ -7,29 +7,45 @@ import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
-import type { ProposedStructure } from "../utils/importApi";
+import Collapse from "@mui/material/Collapse";
+import Autocomplete from "@mui/material/Autocomplete";
+import type { ProposedStructure, ProposedTrack } from "../utils/migrationApi";
 
 interface ImportStructureReviewProps {
   value: ProposedStructure;
   onChange: (next: ProposedStructure) => void;
+  /** DB teachers, used to populate the per-track speaker combobox. */
+  teachers: { id: number; name: string; abbreviation: string }[];
 }
 
-const TIME_PERIODS = ["morning", "afternoon", "evening"];
+const TIME_PERIODS = ["morning", "afternoon"];
+
+/** A draft always carries `ignored` — `update()` normalises it before mutating. */
+type DraftStructure = ProposedStructure & { ignored: ProposedTrack[] };
 
 /**
  * Controlled editor for an AI-proposed import structure. The human can fix
- * session metadata, track titles/speakers, and — most importantly — move
- * tracks between sessions to correct the AI's grouping. Empty sessions are
- * left visible (so tracks can be moved into a freshly added one); the parent
- * drops empties and renumbers when the structure is confirmed.
+ * session metadata, track titles/speakers, move tracks between sessions to
+ * correct the AI's grouping, and set tracks aside as "ignored" (excluded from
+ * the import — e.g. a duplicate). Ignored tracks live in a collapsible section
+ * and can be restored into any session. Empty sessions are left visible (so
+ * tracks can be moved into a freshly added one); the parent drops empties and
+ * renumbers when the structure is confirmed.
  */
 export function ImportStructureReview({
   value,
   onChange,
+  teachers,
 }: ImportStructureReviewProps) {
+  const [ignoredOpen, setIgnoredOpen] = useState(false);
+
   const update = useCallback(
-    (mutate: (draft: ProposedStructure) => void) => {
-      const draft = structuredClone(value);
+    (mutate: (draft: DraftStructure) => void) => {
+      // structuredClone keeps an existing `ignored`; we then normalise a
+      // missing one (pre-ignore-feature data) to [] so every mutate handler
+      // can rely on it — which is what the DraftStructure cast asserts.
+      const draft = structuredClone(value) as DraftStructure;
+      if (!Array.isArray(draft.ignored)) draft.ignored = [];
       mutate(draft);
       onChange(draft);
     },
@@ -61,6 +77,32 @@ export function ImportStructureReview({
       });
     });
   }, [update]);
+
+  const ignoreTrack = useCallback(
+    (sIdx: number, trackIdx: number) => {
+      update((draft) => {
+        const session = draft.sessions[sIdx];
+        if (!session) return;
+        const [track] = session.tracks.splice(trackIdx, 1);
+        if (track) draft.ignored.push(track);
+      });
+    },
+    [update],
+  );
+
+  const restoreTrack = useCallback(
+    (ignoredIdx: number, toSessionIdx: number) => {
+      update((draft) => {
+        const target = draft.sessions[toSessionIdx];
+        if (!target) return;
+        const [track] = draft.ignored.splice(ignoredIdx, 1);
+        if (track) target.tracks.push(track);
+      });
+    },
+    [update],
+  );
+
+  const ignored = value.ignored ?? [];
 
   return (
     <Box>
@@ -150,17 +192,27 @@ export function ImportStructureReview({
                   }
                   sx={{ flex: 1 }}
                 />
-                <TextField
+                <Autocomplete
+                  freeSolo
                   size="small"
-                  label="Speaker"
+                  options={teachers.map((t) => t.abbreviation)}
                   value={track.speaker ?? ""}
-                  onChange={(e) =>
+                  onChange={(_, v) =>
                     update((d) => {
                       const t = d.sessions[sIdx]?.tracks[tIdx];
-                      if (t) t.speaker = e.target.value || null;
+                      if (t) t.speaker = v || null;
                     })
                   }
-                  sx={{ width: 120 }}
+                  onInputChange={(_, v) =>
+                    update((d) => {
+                      const t = d.sessions[sIdx]?.tracks[tIdx];
+                      if (t) t.speaker = v || null;
+                    })
+                  }
+                  renderInput={(params) => (
+                    <TextField {...params} label="Speaker" />
+                  )}
+                  sx={{ width: 150 }}
                 />
                 {track.isTranslation && (
                   <Chip label="translation" size="small" variant="outlined" />
@@ -182,6 +234,13 @@ export function ImportStructureReview({
                     </MenuItem>
                   ))}
                 </Select>
+                <Button
+                  size="small"
+                  color="warning"
+                  onClick={() => ignoreTrack(sIdx, tIdx)}
+                >
+                  Ignore
+                </Button>
               </Box>
               <Typography
                 variant="caption"
@@ -197,6 +256,83 @@ export function ImportStructureReview({
       <Button onClick={addSession} variant="outlined" size="small">
         + Add session
       </Button>
+
+      {ignored.length > 0 && (
+        <Box sx={{ mt: 2 }}>
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => setIgnoredOpen((open) => !open)}
+          >
+            {ignoredOpen ? "▾" : "▸"} Ignored files ({ignored.length})
+          </Button>
+          <Collapse in={ignoredOpen}>
+            <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", mb: 1 }}
+              >
+                These tracks are excluded from the import. Restore one to put it
+                back into a session.
+              </Typography>
+              {ignored.map((track, iIdx) => (
+                <Box
+                  key={track.importFileId}
+                  sx={{
+                    display: "flex",
+                    gap: 1,
+                    alignItems: "center",
+                    mb: 1,
+                    pl: 1,
+                    borderLeft: "2px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="body2">
+                      {track.title || track.originalFilename}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      original file: {track.originalFilename}
+                    </Typography>
+                  </Box>
+                  {track.isTranslation && (
+                    <Chip label="translation" size="small" variant="outlined" />
+                  )}
+                  {value.sessions.length > 0 ? (
+                    <Select
+                      size="small"
+                      displayEmpty
+                      value=""
+                      onChange={(e) =>
+                        restoreTrack(iIdx, Number(e.target.value))
+                      }
+                      inputProps={{
+                        "aria-label": "Restore track to a session",
+                      }}
+                      sx={{ width: 190 }}
+                    >
+                      <MenuItem value="" disabled>
+                        Restore to…
+                      </MenuItem>
+                      {value.sessions.map((_, i) => (
+                        <MenuItem key={i} value={i}>
+                          Restore to session {i + 1}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      Add a session to restore
+                    </Typography>
+                  )}
+                </Box>
+              ))}
+            </Paper>
+          </Collapse>
+        </Box>
+      )}
     </Box>
   );
 }

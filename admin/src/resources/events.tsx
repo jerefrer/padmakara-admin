@@ -439,7 +439,7 @@ export const EventList = () => {
 
 /* ───────────── Shared types & constants ───────────── */
 
-interface EventFormData {
+export interface EventFormData {
   eventCode: string;
   titleEn: string;
   titlePt: string;
@@ -453,13 +453,13 @@ interface EventFormData {
   featuredAt: string | null;
 }
 
-interface TeacherOption { id: number; name: string; abbreviation: string }
-interface PlaceOption { id: number; name: string; abbreviation: string | null }
-interface GroupOption { id: number; nameEn: string; namePt: string | null; abbreviation: string | null; slug: string }
-interface EventTypeOption { id: number; nameEn: string; namePt: string | null; abbreviation: string; slug: string }
-interface AudienceOption { id: number; nameEn: string; namePt: string | null; slug: string }
+export interface TeacherOption { id: number; name: string; abbreviation: string }
+export interface PlaceOption { id: number; name: string; abbreviation: string | null }
+export interface GroupOption { id: number; nameEn: string; namePt: string | null; abbreviation: string | null; slug: string }
+export interface EventTypeOption { id: number; nameEn: string; namePt: string | null; abbreviation: string; slug: string }
+export interface AudienceOption { id: number; nameEn: string; namePt: string | null; slug: string }
 
-const EMPTY_FORM: EventFormData = {
+export const EMPTY_FORM: EventFormData = {
   eventCode: "", titleEn: "", titlePt: "",
   mainThemesPt: "", mainThemesEn: "",
   sessionThemesEn: "", sessionThemesPt: "",
@@ -499,6 +499,9 @@ interface EventFormProps {
   onStatusChange?: (newStatus: string) => void;
   trackCount: number;
   transcriptCount: number;
+  /** When true the event-code field is read-only (the legacy-import screen,
+   *  where the code is the job identity and must not change). */
+  readOnlyEventCode?: boolean;
 }
 
 const syncedRows = (a: string, b: string, min = 3) =>
@@ -536,7 +539,7 @@ const ColorDot = ({ color, size = 12 }: { color: string; size?: number }) => (
 const isParallelRetreats = (et: EventTypeOption | null) =>
   et?.abbreviation === "RET";
 
-const EventFormFields = ({
+export const EventFormFields = ({
   form, setForm,
   selectedTeachers, setSelectedTeachers,
   selectedPlaces, setSelectedPlaces,
@@ -547,6 +550,7 @@ const EventFormFields = ({
   sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onSessionVideoUpload, onSessionVideoDelete,
   onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
+  readOnlyEventCode,
 }: EventFormProps) => {
   const translate = useTranslate();
   const [locale] = useLocaleState();
@@ -878,7 +882,10 @@ const EventFormFields = ({
           required
           fullWidth
           helperText={translate("padmakara.events.eventCodeHelper")}
-          slotProps={{ inputLabel: { shrink: true } }}
+          slotProps={{
+            inputLabel: { shrink: true },
+            htmlInput: { readOnly: readOnlyEventCode },
+          }}
           sx={{ "& input": { fontFamily: "monospace", fontWeight: 600, letterSpacing: "0.02em" } }}
         />
       </Paper>
@@ -932,7 +939,7 @@ const EventFormFields = ({
 
 /* ───────────── Shared hooks ───────────── */
 
-function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
+export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
   const [allTeachers, setAllTeachers] = useState<TeacherOption[]>([]);
   const [allPlaces, setAllPlaces] = useState<PlaceOption[]>([]);
   const [allGroups, setAllGroups] = useState<GroupOption[]>([]);

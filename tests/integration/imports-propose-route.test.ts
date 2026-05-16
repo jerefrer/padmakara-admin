@@ -22,7 +22,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
-import importRoutes from "../../src/routes/admin/imports.ts";
+import importRoutes from "../../src/routes/admin/migrations.ts";
 
 const app = new Hono();
 app.route("/", importRoutes);
@@ -59,6 +59,16 @@ describe("POST /admin/imports/:id/propose", () => {
       ])
       .returning();
     mockClaude.text = JSON.stringify({
+      event: {
+        titleEn: "Propose Route Retreat",
+        titlePt: "",
+        mainThemesEn: "",
+        mainThemesPt: "",
+        sessionThemesEn: "",
+        sessionThemesPt: "",
+        startDate: null,
+        endDate: null,
+      },
       sessions: [
         {
           sessionNumber: 1,
