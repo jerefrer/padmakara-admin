@@ -30,7 +30,13 @@ vi.mock("../../src/services/import-inventory.ts", async (importOriginal) => {
   return { ...actual, loadInventory: () => mockSampleInventory };
 });
 
-import app from "../../src/routes/admin/imports.ts";
+import { Hono } from "hono";
+import { errorHandler } from "../../src/lib/errors.ts";
+import importRoutes from "../../src/routes/admin/imports.ts";
+
+const app = new Hono();
+app.route("/", importRoutes);
+app.onError(errorHandler);
 
 describe("admin imports routes", () => {
   beforeEach(async () => {

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, type Column } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { importJobs, importFiles } from "../../db/schema/index.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
@@ -12,7 +12,7 @@ const app = new Hono();
 
 const catalogSchema = z.object({ eventCode: z.string().min(1) });
 
-const importColumns: Record<string, any> = {
+const importColumns: Record<string, Column> = {
   id: importJobs.id,
   eventCode: importJobs.eventCode,
   status: importJobs.status,
@@ -45,39 +45,31 @@ app.get("/available", async (c) => {
   return c.json({ events, total: events.length });
 });
 
-/** POST /admin/imports/catalog — catalog one event's source files. */
+/**
+ * POST /admin/imports/catalog — catalog one event's source files.
+ * A ZodError (bad body) or AppError (unknown / already-imported event)
+ * propagates to the global errorHandler.
+ */
 app.post("/catalog", async (c) => {
-  try {
-    const { eventCode } = catalogSchema.parse(await c.req.json());
-    const job = await catalogEvent(eventCode);
-    return c.json(job, 201);
-  } catch (err) {
-    if (err instanceof AppError) {
-      // AppError.statusCode is a valid HTTP status; Hono's typed status arg needs the assertion
-      return c.json({ error: err.message, code: err.code }, err.statusCode as any);
-    }
-    if (err instanceof z.ZodError) {
-      return c.json({ error: "Validation error", code: "VALIDATION_ERROR" }, 400);
-    }
-    console.error("Catalog error:", err);
-    return c.json({ error: "Catalog failed", code: "INTERNAL_ERROR" }, 500);
-  }
+  const { eventCode } = catalogSchema.parse(await c.req.json());
+  const job = await catalogEvent(eventCode);
+  return c.json(job, 201);
 });
 
 /** GET /admin/imports/:id — an import job with its cataloged files. */
 app.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   if (Number.isNaN(id)) {
-    return c.json(
-      { error: "Invalid import job ID", code: "VALIDATION_ERROR" },
-      400,
-    );
+    throw AppError.badRequest("Invalid import job ID", "VALIDATION_ERROR");
   }
   const [job] = await db.select().from(importJobs).where(eq(importJobs.id, id));
   if (!job) {
-    return c.json({ error: "Import job not found", code: "NOT_FOUND" }, 404);
+    throw AppError.notFound("Import job not found");
   }
-  const files = await db.select().from(importFiles).where(eq(importFiles.importJobId, id));
+  const files = await db
+    .select()
+    .from(importFiles)
+    .where(eq(importFiles.importJobId, id));
   return c.json({ ...job, files });
 });
 
