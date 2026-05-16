@@ -10,6 +10,7 @@ export interface ProposedTrack {
   languages: string[];
   originalLanguage: string;
   isTranslation: boolean;
+  originalFilename: string;
 }
 
 export interface ProposedSession {

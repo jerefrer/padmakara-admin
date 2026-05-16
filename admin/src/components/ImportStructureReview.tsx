@@ -123,62 +123,66 @@ export function ImportStructureReview({
           {session.tracks.map((track, tIdx) => (
             <Box
               key={track.importFileId}
-              sx={{
-                display: "flex",
-                gap: 1,
-                alignItems: "center",
-                mb: 0.5,
-              }}
+              sx={{ mb: 1, pl: 1, borderLeft: "2px solid", borderColor: "divider" }}
             >
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                <Typography
+                  variant="caption"
+                  sx={{ width: 28, textAlign: "right" }}
+                >
+                  {track.trackNumber}
+                </Typography>
+                <TextField
+                  size="small"
+                  value={track.title}
+                  onChange={(e) =>
+                    update((d) => {
+                      const t = d.sessions[sIdx]?.tracks[tIdx];
+                      if (t) t.title = e.target.value;
+                    })
+                  }
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  size="small"
+                  label="Speaker"
+                  value={track.speaker ?? ""}
+                  onChange={(e) =>
+                    update((d) => {
+                      const t = d.sessions[sIdx]?.tracks[tIdx];
+                      if (t) t.speaker = e.target.value || null;
+                    })
+                  }
+                  sx={{ width: 120 }}
+                />
+                {track.isTranslation && (
+                  <Chip label="translation" size="small" variant="outlined" />
+                )}
+                <Select
+                  size="small"
+                  value={sIdx}
+                  onChange={(e) =>
+                    moveTrack(sIdx, tIdx, Number(e.target.value))
+                  }
+                  inputProps={{ "aria-label": "Move track to a session" }}
+                  sx={{ width: 170 }}
+                >
+                  {value.sessions.map((_, i) => (
+                    <MenuItem key={i} value={i}>
+                      {i === sIdx
+                        ? "— this session —"
+                        : `Move to session ${i + 1}`}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </Box>
               <Typography
                 variant="caption"
-                sx={{ width: 28, textAlign: "right" }}
+                color="text.secondary"
+                sx={{ display: "block", pl: "36px", mt: 0.25 }}
               >
-                {track.trackNumber}
+                original file: {track.originalFilename}
               </Typography>
-              <TextField
-                size="small"
-                value={track.title}
-                onChange={(e) =>
-                  update((d) => {
-                    const t = d.sessions[sIdx]?.tracks[tIdx];
-                    if (t) t.title = e.target.value;
-                  })
-                }
-                sx={{ flex: 1 }}
-              />
-              <TextField
-                size="small"
-                label="Speaker"
-                value={track.speaker ?? ""}
-                onChange={(e) =>
-                  update((d) => {
-                    const t = d.sessions[sIdx]?.tracks[tIdx];
-                    if (t) t.speaker = e.target.value || null;
-                  })
-                }
-                sx={{ width: 120 }}
-              />
-              {track.isTranslation && (
-                <Chip label="translation" size="small" variant="outlined" />
-              )}
-              <Select
-                size="small"
-                value={sIdx}
-                onChange={(e) =>
-                  moveTrack(sIdx, tIdx, Number(e.target.value))
-                }
-                inputProps={{ "aria-label": "Move track to a session" }}
-                sx={{ width: 170 }}
-              >
-                {value.sessions.map((_, i) => (
-                  <MenuItem key={i} value={i}>
-                    {i === sIdx
-                      ? "— this session —"
-                      : `Move to session ${i + 1}`}
-                  </MenuItem>
-                ))}
-              </Select>
             </Box>
           ))}
         </Paper>

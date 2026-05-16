@@ -177,7 +177,7 @@ function ImportWorkspace() {
   const job = useRecordContext<ImportJob>();
   const notify = useNotify();
   const refresh = useRefresh();
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
   const [structure, setStructure] = useState<ProposedStructure>({
     sessions: [],
   });
@@ -193,8 +193,12 @@ function ImportWorkspace() {
 
   if (!job) return null;
 
-  const run = async (action: () => Promise<unknown>, okMsg: string) => {
-    setBusy(true);
+  const run = async (
+    label: string,
+    action: () => Promise<unknown>,
+    okMsg: string,
+  ) => {
+    setBusyAction(label);
     try {
       await action();
       notify(okMsg, { type: "success" });
@@ -202,7 +206,7 @@ function ImportWorkspace() {
     } catch (e) {
       notify((e as Error).message, { type: "error" });
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   };
 
@@ -219,10 +223,7 @@ function ImportWorkspace() {
       });
       return;
     }
-    void run(
-      () => confirmStructure(job.id, normalized),
-      "Structure confirmed",
-    );
+    void run("confirm", () => confirmStructure(job.id, normalized), "Structure confirmed");
   };
 
   const isProposable = job.status === "pending" || job.status === "cataloged";
@@ -248,9 +249,15 @@ function ImportWorkspace() {
       {isProposable && (
         <Button
           variant="contained"
-          disabled={busy}
+          disabled={busyAction !== null}
+          startIcon={
+            busyAction === "propose" ? (
+              <CircularProgress size={16} color="inherit" />
+            ) : undefined
+          }
           onClick={() =>
             void run(
+              "propose",
               () => proposeStructure(job.id),
               "AI proposed a session structure",
             )
@@ -264,16 +271,30 @@ function ImportWorkspace() {
         <>
           <ImportStructureReview value={structure} onChange={setStructure} />
           <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
-            <Button variant="contained" disabled={busy} onClick={onConfirm}>
+            <Button
+              variant="contained"
+              disabled={busyAction !== null}
+              startIcon={
+                busyAction === "confirm" ? (
+                  <CircularProgress size={16} color="inherit" />
+                ) : undefined
+              }
+              onClick={onConfirm}
+            >
               Confirm structure
             </Button>
             {job.status === "reviewed" && (
               <Button
                 variant="contained"
                 color="secondary"
-                disabled={busy}
+                disabled={busyAction !== null}
+                startIcon={
+                  busyAction === "execute" ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : undefined
+                }
                 onClick={() =>
-                  void run(() => executeImport(job.id), "Import executed")
+                  void run("execute", () => executeImport(job.id), "Import executed")
                 }
               >
                 Run import
