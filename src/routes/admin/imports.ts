@@ -11,6 +11,7 @@ import {
   confirmStructure,
   proposedStructureSchema,
 } from "../../services/import-inference.ts";
+import { executeImport } from "../../services/import-executor.ts";
 import { AppError } from "../../lib/errors.ts";
 
 const app = new Hono();
@@ -87,6 +88,20 @@ app.post("/:id/confirm", async (c) => {
   }
   const structure = proposedStructureSchema.parse(await c.req.json());
   const job = await confirmStructure(id, structure);
+  return c.json(job);
+});
+
+/**
+ * POST /admin/imports/:id/execute — run the server-side import for a reviewed
+ * job: copy/extract its audio and create the real event. Errors propagate to
+ * the global errorHandler.
+ */
+app.post("/:id/execute", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (Number.isNaN(id)) {
+    throw AppError.badRequest("Invalid import job ID", "VALIDATION_ERROR");
+  }
+  const job = await executeImport(id);
   return c.json(job);
 });
 
