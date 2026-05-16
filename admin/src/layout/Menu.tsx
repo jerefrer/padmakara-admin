@@ -9,6 +9,7 @@ import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
@@ -67,6 +68,7 @@ export const Menu = () => {
       <RaMenu.Item to="/users" primaryText={translate("resources.users.name", { smart_count: 2 })} leftIcon={<PeopleIcon />} />
       <RaMenu.Item to="/approvals" primaryText={translate("resources.approvals.name", { smart_count: 2 })} leftIcon={<HowToRegIcon />} />
       <RaMenu.Item to="/migrations" primaryText="Migrations" leftIcon={<SyncAltIcon />} />
+      <RaMenu.Item to="/imports" primaryText="Legacy Imports" leftIcon={<UploadFileIcon />} />
     </Box>
   );
 };
