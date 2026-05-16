@@ -126,12 +126,19 @@ export function ImportStructureReview({
               sx={{ mb: 1, pl: 1, borderLeft: "2px solid", borderColor: "divider" }}
             >
               <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                <Typography
-                  variant="caption"
-                  sx={{ width: 28, textAlign: "right" }}
-                >
-                  {track.trackNumber}
-                </Typography>
+                <TextField
+                  size="small"
+                  type="number"
+                  label="#"
+                  value={track.trackNumber}
+                  onChange={(e) =>
+                    update((d) => {
+                      const t = d.sessions[sIdx]?.tracks[tIdx];
+                      if (t) t.trackNumber = Number.parseInt(e.target.value, 10) || 0;
+                    })
+                  }
+                  sx={{ width: 72 }}
+                />
                 <TextField
                   size="small"
                   value={track.title}

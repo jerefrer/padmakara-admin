@@ -130,3 +130,17 @@ export async function executeImport(id: number): Promise<ImportJob> {
     await authFetch(`/api/admin/imports/${id}/execute`, { method: "POST" }),
   );
 }
+
+export async function refineStructure(
+  id: number,
+  structure: ProposedStructure,
+  instruction: string,
+): Promise<ImportJob> {
+  return jsonOrThrow(
+    await authFetch(`/api/admin/imports/${id}/refine`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ structure, instruction }),
+    }),
+  );
+}

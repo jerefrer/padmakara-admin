@@ -6,6 +6,7 @@ import {
   NumberField,
   DateField,
   FunctionField,
+  DeleteButton,
   useNotify,
   useRedirect,
   Title,
@@ -27,6 +28,7 @@ import {
   proposeStructure,
   confirmStructure,
   executeImport,
+  refineStructure,
   type AvailableEvent,
   type ImportJob,
   type ProposedStructure,
@@ -71,6 +73,7 @@ export const ImportsList = () => (
       />
       <NumberField source="fileCount" label="Files" />
       <DateField source="createdAt" showTime />
+      <DeleteButton />
     </Datagrid>
   </List>
 );
@@ -181,6 +184,7 @@ function ImportWorkspace() {
   const [structure, setStructure] = useState<ProposedStructure>({
     sessions: [],
   });
+  const [instruction, setInstruction] = useState("");
 
   // Re-seed the editable structure whenever the job (re)loads or its status
   // changes — e.g. after "Propose" populates proposedStructure.
@@ -202,6 +206,25 @@ function ImportWorkspace() {
     try {
       await action();
       notify(okMsg, { type: "success" });
+      refresh();
+    } catch (e) {
+      notify((e as Error).message, { type: "error" });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const onRefine = async () => {
+    const text = instruction.trim();
+    if (text === "") return;
+    setBusyAction("refine");
+    try {
+      const updated = await refineStructure(job.id, structure, text);
+      if (updated.proposedStructure) {
+        setStructure(updated.proposedStructure);
+      }
+      setInstruction("");
+      notify("The AI adjusted the structure", { type: "success" });
       refresh();
     } catch (e) {
       notify((e as Error).message, { type: "error" });
@@ -270,6 +293,34 @@ function ImportWorkspace() {
       {isReviewable && (
         <>
           <ImportStructureReview value={structure} onChange={setStructure} />
+          <Box sx={{ mt: 2, p: 1.5, bgcolor: "action.hover", borderRadius: 1 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              Ask the AI to adjust the structure
+            </Typography>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
+              <MuiTextField
+                size="small"
+                fullWidth
+                multiline
+                placeholder="e.g. Split day 2 into a morning and an afternoon session"
+                value={instruction}
+                onChange={(e) => setInstruction(e.target.value)}
+                disabled={busyAction !== null}
+              />
+              <Button
+                variant="outlined"
+                disabled={busyAction !== null || instruction.trim() === ""}
+                startIcon={
+                  busyAction === "refine" ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : undefined
+                }
+                onClick={() => void onRefine()}
+              >
+                Adjust
+              </Button>
+            </Box>
+          </Box>
           <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
             <Button
               variant="contained"
