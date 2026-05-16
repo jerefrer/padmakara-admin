@@ -79,6 +79,10 @@ export const config = {
     // Haiku model used elsewhere for simple text rewrites.
     model: env("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
   },
+
+  importer: {
+    zipExtractorFn: env("IMPORT_ZIP_EXTRACTOR_FN", "padmakara-zip-extractor"),
+  },
 } as const;
 
 type ProductionConfigInput = {

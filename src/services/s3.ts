@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   ListObjectsV2Command,
+  CopyObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
@@ -176,6 +177,23 @@ export async function listObjects(
   } while (continuationToken);
 
   return results;
+}
+
+/**
+ * Server-side copy of an object from another bucket into the app bucket.
+ * Both buckets must be in the same region — no bytes leave AWS, no egress.
+ */
+export async function copyObjectIntoAppBucket(
+  sourceBucket: string,
+  sourceKey: string,
+  destKey: string,
+): Promise<void> {
+  const command = new CopyObjectCommand({
+    Bucket: BUCKET,
+    Key: destKey,
+    CopySource: encodeURIComponent(`${sourceBucket}/${sourceKey}`),
+  });
+  await s3Client.send(command);
 }
 
 /**
