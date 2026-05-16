@@ -14,6 +14,7 @@ import { approvalRoutes } from "./approvals.ts";
 import { uploadRoutes } from "./upload.ts";
 import { publicationRoutes } from "./publications.ts";
 import migrationRoutes from "./migrations.ts";
+import importRoutes from "./imports.ts";
 
 const admin = new Hono();
 
@@ -33,5 +34,6 @@ admin.route("/approvals", approvalRoutes);
 admin.route("/upload", uploadRoutes);
 admin.route("/publications", publicationRoutes);
 admin.route("/migrations", migrationRoutes);
+admin.route("/imports", importRoutes);
 
 export { admin };
