@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
-import { loadInventory, findInventoryEvent, flattenInventoryEvent } from "../../src/services/import-inventory.ts";
+import {
+  loadInventory,
+  findInventoryEvent,
+  flattenInventoryEvent,
+  type InventoryEvent,
+} from "../../src/services/import-inventory.ts";
 
 const FIXTURE = join(import.meta.dirname, "../fixtures/import/sample-inventory.json");
 
@@ -87,5 +92,107 @@ describe("flattenInventoryEvent", () => {
       files: [],
     });
     expect(rows).toEqual([]);
+  });
+
+  it("deduplicates a file that appears identically in two ZIPs", () => {
+    // An event often ships the same audio in an English-only ZIP and an
+    // English+Portuguese ZIP — the English files appear in both.
+    const event: InventoryEvent = {
+      canonicalCode: "DUP",
+      s3Path: "x/",
+      matchStatus: "matched",
+      files: [
+        {
+          relativePath: "en.zip",
+          s3Key: "x/en.zip",
+          type: ".zip",
+          size: 100,
+          category: "audio1",
+          language: "Inglês",
+          zipContents: [
+            {
+              name: "01-talk.mp3",
+              uncompressedSize: 3000,
+              compressedSize: 2900,
+              type: ".mp3",
+            },
+          ],
+        },
+        {
+          relativePath: "en-pt.zip",
+          s3Key: "x/en-pt.zip",
+          type: ".zip",
+          size: 200,
+          category: "audio1",
+          language: "Inglês | Português",
+          zipContents: [
+            {
+              name: "01-talk.mp3",
+              uncompressedSize: 3000,
+              compressedSize: 2900,
+              type: ".mp3",
+            },
+            {
+              name: "01-palestra.mp3",
+              uncompressedSize: 4000,
+              compressedSize: 3900,
+              type: ".mp3",
+            },
+          ],
+        },
+      ],
+    };
+    const rows = flattenInventoryEvent(event);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.filename)).toEqual([
+      "01-talk.mp3",
+      "01-palestra.mp3",
+    ]);
+    // The first occurrence wins — the English-only ZIP.
+    expect(rows[0]?.sourceS3Key).toBe("x/en.zip");
+  });
+
+  it("keeps same-named files that differ in byte size", () => {
+    const event: InventoryEvent = {
+      canonicalCode: "DIFF",
+      s3Path: "x/",
+      matchStatus: "matched",
+      files: [
+        {
+          relativePath: "a.zip",
+          s3Key: "x/a.zip",
+          type: ".zip",
+          size: 1,
+          category: "audio1",
+          language: null,
+          zipContents: [
+            {
+              name: "talk.mp3",
+              uncompressedSize: 3000,
+              compressedSize: 2900,
+              type: ".mp3",
+            },
+          ],
+        },
+        {
+          relativePath: "b.zip",
+          s3Key: "x/b.zip",
+          type: ".zip",
+          size: 1,
+          category: "audio1",
+          language: null,
+          zipContents: [
+            {
+              name: "talk.mp3",
+              uncompressedSize: 9999,
+              compressedSize: 9000,
+              type: ".mp3",
+            },
+          ],
+        },
+      ],
+    };
+    const rows = flattenInventoryEvent(event);
+    expect(rows).toHaveLength(2);
   });
 });
