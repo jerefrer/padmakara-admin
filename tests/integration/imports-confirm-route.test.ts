@@ -29,6 +29,7 @@ function validStructure(importFileId: number) {
             languages: ["en"],
             originalLanguage: "en",
             isTranslation: false,
+            originalFilename: "001 JKR - Opening.mp3",
           },
         ],
       },

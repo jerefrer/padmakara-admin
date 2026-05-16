@@ -73,8 +73,20 @@ describe("proposeStructure", () => {
     const { jobId, fileIds } = await seedJob();
     mockClaude.text = JSON.stringify({
       sessions: [
-        { sessionNumber: 1, titleEn: "Morning", sessionDate: null, timePeriod: "morning", importFileIds: fileIds.slice(0, 2) },
-        { sessionNumber: 2, titleEn: "Afternoon", sessionDate: null, timePeriod: "afternoon", importFileIds: fileIds.slice(2) },
+        {
+          sessionNumber: 1,
+          titleEn: "Morning",
+          sessionDate: null,
+          timePeriod: "morning",
+          tracks: fileIds.slice(0, 2).map((id) => ({ importFileId: id, title: `Track ${id}` })),
+        },
+        {
+          sessionNumber: 2,
+          titleEn: "Afternoon",
+          sessionDate: null,
+          timePeriod: "afternoon",
+          tracks: fileIds.slice(2).map((id) => ({ importFileId: id, title: `Track ${id}` })),
+        },
       ],
     });
 
@@ -93,7 +105,13 @@ describe("proposeStructure", () => {
     const { jobId, fileIds } = await seedJob();
     mockClaude.text = JSON.stringify({
       sessions: [
-        { sessionNumber: 1, titleEn: "Morning", sessionDate: null, timePeriod: "morning", importFileIds: fileIds.slice(0, 2) },
+        {
+          sessionNumber: 1,
+          titleEn: "Morning",
+          sessionDate: null,
+          timePeriod: "morning",
+          tracks: fileIds.slice(0, 2).map((id) => ({ importFileId: id, title: `Track ${id}` })),
+        },
       ],
     });
     await expect(proposeStructure(jobId)).rejects.toThrow(

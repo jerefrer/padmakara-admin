@@ -21,6 +21,7 @@ export interface ProposedTrack {
   languages: string[];
   originalLanguage: string;
   isTranslation: boolean;
+  originalFilename: string;
 }
 
 /** A session within a proposed structure. */
@@ -38,9 +39,9 @@ export interface ProposedStructure {
 }
 
 /**
- * Schema for the grouping the AI returns. The AI decides only which audio
- * files go in which session, plus the session metadata — per-track metadata
- * is derived deterministically by the caller, never by the AI.
+ * Schema for the grouping the AI returns. The AI decides which audio files go
+ * in which session and supplies a cleaned title for each track — all other
+ * per-track metadata is derived deterministically by the caller.
  */
 export const aiGroupingSchema = z.object({
   sessions: z
@@ -53,7 +54,14 @@ export const aiGroupingSchema = z.object({
           .regex(/^\d{4}-\d{2}-\d{2}$/)
           .nullable(),
         timePeriod: z.enum(["morning", "afternoon", "evening"]).nullable(),
-        importFileIds: z.array(z.number().int()).min(1),
+        tracks: z
+          .array(
+            z.object({
+              importFileId: z.number().int(),
+              title: z.string().min(1),
+            }),
+          )
+          .min(1),
       }),
     )
     .min(1),
@@ -83,6 +91,7 @@ export const proposedStructureSchema = z.object({
               languages: z.array(z.string()),
               originalLanguage: z.string(),
               isTranslation: z.boolean(),
+              originalFilename: z.string(),
             }),
           )
           .min(1),
@@ -92,11 +101,12 @@ export const proposedStructureSchema = z.object({
 });
 
 /**
- * Combine the AI's session grouping with deterministic per-track metadata
- * into a full proposed structure. Guarantees referential integrity: throws
- * if the grouping references an unknown file, places a file in more than one
- * session, or omits any file. Sessions are renumbered 1..N in the order the
- * AI returned them; a null session timePeriod defaults to "morning".
+ * Combine the AI's session grouping (which now also carries per-track cleaned
+ * titles) with deterministic per-track metadata into a full proposed structure.
+ * Guarantees referential integrity: throws if the grouping references an
+ * unknown file, places a file in more than one session, or omits any file.
+ * Sessions are renumbered 1..N in the order the AI returned them; a null
+ * session timePeriod defaults to "morning".
  */
 export function assembleProposedStructure(
   grouping: AiGrouping,
@@ -105,20 +115,22 @@ export function assembleProposedStructure(
   const seen = new Set<number>();
 
   const sessions: ProposedSession[] = grouping.sessions.map((group, index) => {
-    const tracks: ProposedTrack[] = group.importFileIds.map((fileId) => {
-      const track = tracksByFileId.get(fileId);
-      if (!track) {
+    const tracks: ProposedTrack[] = group.tracks.map((aiTrack) => {
+      const base = tracksByFileId.get(aiTrack.importFileId);
+      if (!base) {
         throw new Error(
-          `AI grouping references unknown import file id ${fileId}`,
+          `AI grouping references unknown import file id ${aiTrack.importFileId}`,
         );
       }
-      if (seen.has(fileId)) {
+      if (seen.has(aiTrack.importFileId)) {
         throw new Error(
-          `AI grouping places import file id ${fileId} in more than one session`,
+          `AI grouping places import file id ${aiTrack.importFileId} in more than one session`,
         );
       }
-      seen.add(fileId);
-      return track;
+      seen.add(aiTrack.importFileId);
+      // The AI supplies a cleaned title; all other per-track metadata stays
+      // deterministic (from parseTrackFilename).
+      return { ...base, title: aiTrack.title };
     });
     return {
       sessionNumber: index + 1,
@@ -159,18 +171,20 @@ function parsedToProposedTrack(
     languages: parsed.languages,
     originalLanguage: parsed.originalLanguage,
     isTranslation: parsed.isTranslation,
+    originalFilename: parsed.originalFilename,
   };
 }
 
-const GROUPING_SYSTEM_PROMPT = `You organize Buddhist retreat audio recordings into sessions.
+const GROUPING_SYSTEM_PROMPT = `You organize Buddhist retreat audio recordings into sessions and clean up each track's title.
 A retreat spans one or more days; each day typically has a morning and an afternoon session, sometimes an evening session.
 You receive the event code (its leading digits encode the date range, e.g. 20240425_30 means 25-30 April 2024), the list of audio files, and a rule-based first-pass grouping that is often wrong — it frequently dumps every file into a single session.
 Return a corrected grouping as a JSON object of exactly this shape:
-{"sessions":[{"sessionNumber":1,"titleEn":"...","sessionDate":"YYYY-MM-DD" or null,"timePeriod":"morning"|"afternoon"|"evening" or null,"importFileIds":[...]}]}
+{"sessions":[{"sessionNumber":1,"titleEn":"...","sessionDate":"YYYY-MM-DD" or null,"timePeriod":"morning"|"afternoon"|"evening" or null,"tracks":[{"importFileId":123,"title":"..."}]}]}
 Rules:
 - Every audio file id must appear exactly once across all sessions — never drop or duplicate an id.
-- Within a session, order importFileIds by the leading track number of the filename.
-- titleEn is a short human label, e.g. "25 April - Morning".
+- Within a session, order the tracks by the leading track number of the filename.
+- For each track, provide a cleaned "title": fix obvious typos, capitalisation and spacing in the title carried by the filename. Keep it faithful — do not invent content, do not translate, do not add the speaker or date. If the filename's title is already fine, return it unchanged.
+- titleEn (the session title) is a short human label, e.g. "25 April - Morning".
 - Respond with only the JSON object: no prose, no markdown code fences.`;
 
 function buildGroupingPrompt(

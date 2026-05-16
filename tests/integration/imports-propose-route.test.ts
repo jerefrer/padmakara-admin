@@ -65,7 +65,7 @@ describe("POST /admin/imports/:id/propose", () => {
           titleEn: "S1",
           sessionDate: null,
           timePeriod: "morning",
-          importFileIds: files.map((f) => f.id),
+          tracks: files.map((f) => ({ importFileId: f.id, title: f.filename })),
         },
       ],
     });

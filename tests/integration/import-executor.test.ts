@@ -56,8 +56,8 @@ async function seedReviewedJob(): Promise<number> {
         sessionDate: "2024-04-25",
         timePeriod: "morning",
         tracks: [
-          { importFileId: files[0]!.id, trackNumber: 1, title: "A", speaker: "JKR", languages: ["en"], originalLanguage: "en", isTranslation: false },
-          { importFileId: files[1]!.id, trackNumber: 2, title: "B", speaker: "JKR", languages: ["en"], originalLanguage: "en", isTranslation: false },
+          { importFileId: files[0]!.id, trackNumber: 1, title: "A", speaker: "JKR", languages: ["en"], originalLanguage: "en", isTranslation: false, originalFilename: "001 JKR - A.mp3" },
+          { importFileId: files[1]!.id, trackNumber: 2, title: "B", speaker: "JKR", languages: ["en"], originalLanguage: "en", isTranslation: false, originalFilename: "002 JKR - B.mp3" },
         ],
       },
       {
@@ -66,7 +66,7 @@ async function seedReviewedJob(): Promise<number> {
         sessionDate: "2024-04-25",
         timePeriod: "afternoon",
         tracks: [
-          { importFileId: files[2]!.id, trackNumber: 3, title: "C", speaker: "JKR", languages: ["en"], originalLanguage: "en", isTranslation: false },
+          { importFileId: files[2]!.id, trackNumber: 3, title: "C", speaker: "JKR", languages: ["en"], originalLanguage: "en", isTranslation: false, originalFilename: "003 JKR - C.mp3" },
         ],
       },
     ],

@@ -14,6 +14,7 @@ function track(importFileId: number, trackNumber: number): ProposedTrack {
     languages: ["en"],
     originalLanguage: "en",
     isTranslation: false,
+    originalFilename: `f${importFileId}.mp3`,
   };
 }
 
@@ -26,7 +27,10 @@ describe("aiGroupingSchema", () => {
           titleEn: "Morning",
           sessionDate: "2024-04-25",
           timePeriod: "morning",
-          importFileIds: [1, 2],
+          tracks: [
+            { importFileId: 1, title: "Opening prayers" },
+            { importFileId: 2, title: "Morning teaching" },
+          ],
         },
       ],
     });
@@ -42,14 +46,14 @@ describe("aiGroupingSchema", () => {
             titleEn: "X",
             sessionDate: null,
             timePeriod: "all-day",
-            importFileIds: [1],
+            tracks: [{ importFileId: 1, title: "A" }],
           },
         ],
       }),
     ).toThrow();
   });
 
-  it("rejects a session with no files", () => {
+  it("rejects a session with no tracks", () => {
     expect(() =>
       aiGroupingSchema.parse({
         sessions: [
@@ -58,7 +62,23 @@ describe("aiGroupingSchema", () => {
             titleEn: "X",
             sessionDate: null,
             timePeriod: "morning",
-            importFileIds: [],
+            tracks: [],
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a track with an empty title", () => {
+    expect(() =>
+      aiGroupingSchema.parse({
+        sessions: [
+          {
+            sessionNumber: 1,
+            titleEn: "X",
+            sessionDate: null,
+            timePeriod: "morning",
+            tracks: [{ importFileId: 1, title: "" }],
           },
         ],
       }),
@@ -81,14 +101,17 @@ describe("assembleProposedStructure", () => {
             titleEn: "Afternoon",
             sessionDate: "2024-04-25",
             timePeriod: "afternoon",
-            importFileIds: [12],
+            tracks: [{ importFileId: 12, title: "Track 3" }],
           },
           {
             sessionNumber: 9,
             titleEn: "Morning",
             sessionDate: "2024-04-25",
             timePeriod: "morning",
-            importFileIds: [10, 11],
+            tracks: [
+              { importFileId: 10, title: "Track 1" },
+              { importFileId: 11, title: "Track 2" },
+            ],
           },
         ],
       },
@@ -102,6 +125,46 @@ describe("assembleProposedStructure", () => {
     ]);
   });
 
+  it("uses the AI-supplied title on the assembled track", () => {
+    const map = new Map<number, ProposedTrack>([[7, track(7, 1)]]);
+    const structure = assembleProposedStructure(
+      {
+        sessions: [
+          {
+            sessionNumber: 1,
+            titleEn: "Morning",
+            sessionDate: null,
+            timePeriod: "morning",
+            tracks: [{ importFileId: 7, title: "Cleaned Title From AI" }],
+          },
+        ],
+      },
+      map,
+    );
+    expect(structure.sessions[0]?.tracks[0]?.title).toBe(
+      "Cleaned Title From AI",
+    );
+  });
+
+  it("preserves originalFilename from the base track", () => {
+    const map = new Map<number, ProposedTrack>([[5, track(5, 1)]]);
+    const structure = assembleProposedStructure(
+      {
+        sessions: [
+          {
+            sessionNumber: 1,
+            titleEn: "X",
+            sessionDate: null,
+            timePeriod: "morning",
+            tracks: [{ importFileId: 5, title: "Any title" }],
+          },
+        ],
+      },
+      map,
+    );
+    expect(structure.sessions[0]?.tracks[0]?.originalFilename).toBe("f5.mp3");
+  });
+
   it("defaults a null timePeriod to morning", () => {
     const map = new Map<number, ProposedTrack>([[1, track(1, 1)]]);
     const structure = assembleProposedStructure(
@@ -112,7 +175,7 @@ describe("assembleProposedStructure", () => {
             titleEn: "X",
             sessionDate: null,
             timePeriod: null,
-            importFileIds: [1],
+            tracks: [{ importFileId: 1, title: "Track 1" }],
           },
         ],
       },
@@ -132,7 +195,10 @@ describe("assembleProposedStructure", () => {
               titleEn: "X",
               sessionDate: null,
               timePeriod: "morning",
-              importFileIds: [1, 99],
+              tracks: [
+                { importFileId: 1, title: "Track 1" },
+                { importFileId: 99, title: "Unknown" },
+              ],
             },
           ],
         },
@@ -155,14 +221,17 @@ describe("assembleProposedStructure", () => {
               titleEn: "A",
               sessionDate: null,
               timePeriod: "morning",
-              importFileIds: [1],
+              tracks: [{ importFileId: 1, title: "Track 1" }],
             },
             {
               sessionNumber: 2,
               titleEn: "B",
               sessionDate: null,
               timePeriod: "morning",
-              importFileIds: [1, 2],
+              tracks: [
+                { importFileId: 1, title: "Track 1" },
+                { importFileId: 2, title: "Track 2" },
+              ],
             },
           ],
         },
@@ -185,7 +254,7 @@ describe("assembleProposedStructure", () => {
               titleEn: "X",
               sessionDate: null,
               timePeriod: "morning",
-              importFileIds: [1],
+              tracks: [{ importFileId: 1, title: "Track 1" }],
             },
           ],
         },

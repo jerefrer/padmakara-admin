@@ -59,7 +59,7 @@ describe("POST /admin/imports/:id/execute", () => {
               sessionDate: null,
               timePeriod: "morning",
               tracks: [
-                { importFileId: files[0]!.id, trackNumber: 1, title: "A", speaker: "JKR", languages: ["en"], originalLanguage: "en", isTranslation: false },
+                { importFileId: files[0]!.id, trackNumber: 1, title: "A", speaker: "JKR", languages: ["en"], originalLanguage: "en", isTranslation: false, originalFilename: "001 JKR - A.mp3" },
               ],
             },
           ],
