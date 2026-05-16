@@ -39,7 +39,11 @@ describe("admin imports routes", () => {
   it("GET /available lists inventory events with no import job yet", async () => {
     const res = await app.request("/available");
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    // /available responds with { events, total }
+    const body = (await res.json()) as {
+      total: number;
+      events: { eventCode: string; matchStatus: string; fileCount: number }[];
+    };
     expect(body.total).toBe(1);
     expect(body.events[0]).toMatchObject({ eventCode: "EV-A", fileCount: 1 });
   });
@@ -51,7 +55,8 @@ describe("admin imports routes", () => {
       body: JSON.stringify({ eventCode: "EV-A" }),
     });
     expect(res.status).toBe(201);
-    const job = await res.json() as any;
+    // /catalog responds with the cataloged importJobs row
+    const job = (await res.json()) as { status: string; fileCount: number };
     expect(job.status).toBe("cataloged");
     expect(job.fileCount).toBe(1);
   });
@@ -72,7 +77,8 @@ describe("admin imports routes", () => {
       body: JSON.stringify({ eventCode: "EV-A" }),
     });
     const res = await app.request("/available");
-    const body = await res.json() as any;
+    // /available responds with { events, total }
+    const body = (await res.json()) as { total: number };
     expect(body.total).toBe(0);
   });
 });

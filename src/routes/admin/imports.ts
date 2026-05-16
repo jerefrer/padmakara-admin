@@ -53,6 +53,7 @@ app.post("/catalog", async (c) => {
     return c.json(job, 201);
   } catch (err) {
     if (err instanceof AppError) {
+      // AppError.statusCode is a valid HTTP status; Hono's typed status arg needs the assertion
       return c.json({ error: err.message, code: err.code }, err.statusCode as any);
     }
     if (err instanceof z.ZodError) {
@@ -66,6 +67,12 @@ app.post("/catalog", async (c) => {
 /** GET /admin/imports/:id — an import job with its cataloged files. */
 app.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
+  if (Number.isNaN(id)) {
+    return c.json(
+      { error: "Invalid import job ID", code: "VALIDATION_ERROR" },
+      400,
+    );
+  }
   const [job] = await db.select().from(importJobs).where(eq(importJobs.id, id));
   if (!job) {
     return c.json({ error: "Import job not found", code: "NOT_FOUND" }, 404);
