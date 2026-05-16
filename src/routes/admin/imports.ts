@@ -6,6 +6,7 @@ import { importJobs, importFiles } from "../../db/schema/index.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { catalogEvent } from "../../services/event-import.ts";
 import { loadInventory, flattenInventoryEvent } from "../../services/import-inventory.ts";
+import { proposeStructure } from "../../services/import-inference.ts";
 import { AppError } from "../../lib/errors.ts";
 
 const app = new Hono();
@@ -54,6 +55,20 @@ app.post("/catalog", async (c) => {
   const { eventCode } = catalogSchema.parse(await c.req.json());
   const job = await catalogEvent(eventCode);
   return c.json(job, 201);
+});
+
+/**
+ * POST /admin/imports/:id/propose — run AI session inference for a cataloged
+ * job and store the proposed structure. Errors propagate to the global
+ * errorHandler (unknown job → 404, wrong status → 400, AI failure → 500).
+ */
+app.post("/:id/propose", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (Number.isNaN(id)) {
+    throw AppError.badRequest("Invalid import job ID", "VALIDATION_ERROR");
+  }
+  const job = await proposeStructure(id);
+  return c.json(job);
 });
 
 /** GET /admin/imports/:id — an import job with its cataloged files. */
