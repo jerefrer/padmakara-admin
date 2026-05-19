@@ -118,6 +118,11 @@ mediaRoutes.get("/audio/:trackId", async (c) => {
       if (accessResult.reason === "AUTH_REQUIRED") {
         throw AppError.unauthorized("Authentication required");
       }
+      // A hidden-status event (draft/archived) must be indistinguishable from
+      // a non-existent one for callers who cannot see that status.
+      if (accessResult.reason === "STATUS_HIDDEN") {
+        throw AppError.notFound("Not found");
+      }
       throw AppError.forbidden("Access denied");
     }
   }
@@ -152,6 +157,11 @@ mediaRoutes.get("/video/session/:sessionId", async (c) => {
     if (!accessResult.allowed) {
       if (accessResult.reason === "AUTH_REQUIRED") {
         throw AppError.unauthorized("Authentication required");
+      }
+      // A hidden-status event (draft/archived) must be indistinguishable from
+      // a non-existent one for callers who cannot see that status.
+      if (accessResult.reason === "STATUS_HIDDEN") {
+        throw AppError.notFound("Not found");
       }
       throw AppError.forbidden("Access denied");
     }
@@ -366,6 +376,11 @@ mediaRoutes.get("/video/session/:sessionId/download", async (c) => {
       if (accessResult.reason === "AUTH_REQUIRED") {
         throw AppError.unauthorized("Authentication required");
       }
+      // A hidden-status event (draft/archived) must be indistinguishable from
+      // a non-existent one for callers who cannot see that status.
+      if (accessResult.reason === "STATUS_HIDDEN") {
+        throw AppError.notFound("Not found");
+      }
       throw AppError.forbidden("Access denied");
     }
   }
@@ -406,6 +421,11 @@ mediaRoutes.get("/readalong/:trackId", async (c) => {
       if (accessResult.reason === "AUTH_REQUIRED") {
         throw AppError.unauthorized("Authentication required");
       }
+      // A hidden-status event (draft/archived) must be indistinguishable from
+      // a non-existent one for callers who cannot see that status.
+      if (accessResult.reason === "STATUS_HIDDEN") {
+        throw AppError.notFound("Not found");
+      }
       throw AppError.forbidden("Access denied");
     }
   }
@@ -440,6 +460,11 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) {
+      // A hidden-status event (draft/archived) must be indistinguishable from
+      // a non-existent one for callers who cannot see that status.
+      if (accessResult.reason === "STATUS_HIDDEN") {
+        throw AppError.notFound("Not found");
+      }
       throw AppError.forbidden("Access denied");
     }
   }

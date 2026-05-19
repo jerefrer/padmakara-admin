@@ -27,11 +27,38 @@ vi.mock("../../src/services/bunny.ts", async (orig) => {
 import { db } from "../../src/db/index.ts";
 import { testJson } from "../helpers.ts";
 import { getVideoMeta } from "../../src/services/bunny.ts";
+import { createAccessToken } from "../../src/services/auth.ts";
 
 const mockDb = db as any;
 const mockGetVideoMeta = getVideoMeta as ReturnType<typeof vi.fn>;
 
 const VIDEO_GUID = "11111111-2222-3333-4444-555555555555";
+
+/** Build a token auth header for a regular (non-admin) user. */
+async function userAuthHeader() {
+  const token = await createAccessToken({ sub: 42, email: "user@test.com", role: "user" });
+  return { Authorization: `Bearer ${token}` };
+}
+
+function makeTrackWithEvent(overrides: Record<string, any> = {}) {
+  return {
+    id: 10,
+    sessionId: 7,
+    s3Key: "events/2025-spring/track1.mp3",
+    session: {
+      id: 7,
+      eventId: 1,
+      event: {
+        id: 1,
+        status: "published",
+        audience: { slug: "free-anyone" },
+        audienceId: 1,
+        ...overrides.event,
+      },
+    },
+    ...overrides,
+  };
+}
 
 function makeSessionWithVideo(overrides: Record<string, any> = {}) {
   return {
@@ -211,5 +238,32 @@ describe("GET /api/media/video/session/:sessionId/download", () => {
     const { status } = await testJson(`/api/media/video/session/7/download`);
     expect(status).toBe(401);
     expect(mockGetVideoMeta).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/media/audio/:trackId — STATUS_HIDDEN", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 404 for a regular user requesting audio of a draft event's track", async () => {
+    // The event is draft — checkEventAccess will return STATUS_HIDDEN for a non-admin user.
+    mockDb.query.tracks.findFirst.mockResolvedValueOnce(
+      makeTrackWithEvent({ event: { id: 1, status: "draft", audience: { slug: "free-anyone" }, audienceId: 1 } }),
+    );
+    // getUserForAccess fetches the full user record for non-admin roles.
+    mockDb.query.users.findFirst.mockResolvedValueOnce({
+      id: 42,
+      role: "user",
+      subscriptionStatus: "inactive",
+      subscriptionExpiresAt: null,
+    });
+
+    const { status } = await testJson(`/api/media/audio/10`, {
+      headers: await userAuthHeader(),
+    });
+
+    // A draft event must be indistinguishable from non-existent — expect 404, not 403.
+    expect(status).toBe(404);
   });
 });
