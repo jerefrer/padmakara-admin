@@ -475,6 +475,11 @@ eventRoutes.post("/:id/request-download", async (c) => {
   );
 
   if (!accessResult.allowed) {
+    // A draft event must be indistinguishable from a non-existent one to
+    // non-admin callers: return 404 instead of the generic 403.
+    if (accessResult.reason === "STATUS_HIDDEN") {
+      throw AppError.notFound("Event not found");
+    }
     throw AppError.forbidden("Access denied to this event");
   }
 

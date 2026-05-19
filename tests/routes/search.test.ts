@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { testJson } from "../helpers.ts";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 
 // ─── Mock setup (BEFORE imports) ─────────────────────────────────────────
 
@@ -776,5 +778,168 @@ describe("GET /api/search", () => {
 
       expect(body.results).toHaveLength(1);
     });
+  });
+});
+
+// ─── Draft event visibility in search ────────────────────────────────────────
+
+const draftSearchEvent = makeEvent({
+  id: 55,
+  status: "draft",
+  titleEn: "Draft Retreat 2025",
+  titlePt: null,
+  sessionThemesEn: "Draft retreat content",
+  sessionThemesPt: null,
+  mainThemesEn: null,
+  mainThemesPt: null,
+  sessions: [],
+  eventTeachers: [],
+});
+
+const publishedSearchEvent = makeEvent({
+  id: 56,
+  status: "published",
+  titleEn: "Published Retreat 2025",
+  titlePt: null,
+  sessionThemesEn: "Published retreat content",
+  sessionThemesPt: null,
+  mainThemesEn: null,
+  mainThemesPt: null,
+  sessions: [],
+  eventTeachers: [],
+});
+
+describe("GET /api/search — draft event visibility", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("admin search: SQL filter uses inArray with both 'published' and 'draft'", async () => {
+    // Arrange: DB returns both the draft and published events
+    (db.query.events.findMany as any).mockResolvedValue([
+      draftSearchEvent,
+      publishedSearchEvent,
+    ]);
+
+    const token = await createAccessToken({
+      sub: 1,
+      email: "admin@test.com",
+      role: "admin",
+    });
+
+    // Act
+    const { status } = await testJson("/api/search?q=retreat", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Assert: request succeeded
+    expect(status).toBe(200);
+
+    // Assert: the DB was called exactly once (no per-user secondary query for admins)
+    expect(db.query.events.findMany).toHaveBeenCalledTimes(1);
+
+    // Inspect the Drizzle SQL node passed to findMany to verify the status filter
+    // includes "draft". Safe: toHaveBeenCalledTimes(1) above guarantees calls[0] exists.
+    // Cast to { where?: unknown } because mock.calls is untyped at the call-arg level.
+    const callArg = (db.query.events.findMany as any).mock.calls[0]![0] as {
+      where?: unknown;
+    };
+    const dialect = new PgDialect();
+    // Render to SQL so we can reliably inspect the Drizzle SQL node.
+    const rendered = dialect.sqlToQuery(callArg?.where as SQL);
+    expect(rendered.sql).toMatch(/\bin\b/i);
+    expect(rendered.params).toContain("draft");
+    expect(rendered.params).toContain("published");
+  });
+
+  it("admin search: draft event appears in results", async () => {
+    // Arrange: DB returns both events (mock doesn't filter by status)
+    (db.query.events.findMany as any).mockResolvedValue([
+      draftSearchEvent,
+      publishedSearchEvent,
+    ]);
+
+    const token = await createAccessToken({
+      sub: 1,
+      email: "admin@test.com",
+      role: "admin",
+    });
+
+    // Act
+    const { status, body } = await testJson("/api/search?q=retreat", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Assert: both events appear in results
+    expect(status).toBe(200);
+    const ids = (body.results as Array<{ event: { id: number } }>).map(
+      (r) => r.event.id,
+    );
+    expect(ids).toContain(draftSearchEvent.id);
+    expect(ids).toContain(publishedSearchEvent.id);
+  });
+
+  it("guest search: SQL filter uses only 'published' (no 'draft')", async () => {
+    // Arrange: DB returns only the published event
+    (db.query.events.findMany as any).mockResolvedValue([publishedSearchEvent]);
+
+    // Act: no Authorization header
+    const { status } = await testJson("/api/search?q=retreat");
+
+    // Assert: request succeeded
+    expect(status).toBe(200);
+
+    // Assert: the DB where clause does NOT include "draft"
+    expect(db.query.events.findMany).toHaveBeenCalledTimes(1);
+
+    // Safe: toHaveBeenCalledTimes(1) guarantees calls[0] exists.
+    // Cast to { where?: unknown } because mock.calls is untyped.
+    const callArg = (db.query.events.findMany as any).mock.calls[0]![0] as {
+      where?: unknown;
+    };
+    const dialect = new PgDialect();
+    // Render to SQL for reliable inspection.
+    const rendered = dialect.sqlToQuery(callArg?.where as SQL);
+    expect(rendered.params).toContain("published");
+    expect(rendered.params).not.toContain("draft");
+  });
+
+  it("regular-user search: SQL filter uses only 'published' (no 'draft')", async () => {
+    // Arrange: DB returns only the published event; user lookup for access control
+    (db.query.events.findMany as any).mockResolvedValue([publishedSearchEvent]);
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 1,
+      role: "user",
+      subscriptionStatus: "none",
+      subscriptionExpiresAt: null,
+    });
+
+    const token = await createAccessToken({
+      sub: 1,
+      email: "user@test.com",
+      role: "user",
+    });
+
+    // Act
+    const { status } = await testJson("/api/search?q=retreat", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    // Assert: request succeeded
+    expect(status).toBe(200);
+
+    // Assert: the DB where clause does NOT include "draft"
+    expect(db.query.events.findMany).toHaveBeenCalledTimes(1);
+
+    // Safe: toHaveBeenCalledTimes(1) guarantees calls[0] exists.
+    // Cast to { where?: unknown } because mock.calls is untyped.
+    const callArg = (db.query.events.findMany as any).mock.calls[0]![0] as {
+      where?: unknown;
+    };
+    const dialect = new PgDialect();
+    // Render to SQL for reliable inspection.
+    const rendered = dialect.sqlToQuery(callArg?.where as SQL);
+    expect(rendered.params).toContain("published");
+    expect(rendered.params).not.toContain("draft");
   });
 });

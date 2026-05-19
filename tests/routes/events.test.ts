@@ -404,6 +404,58 @@ describe("GET /api/events — admin draft list", () => {
   });
 });
 
+// ─── POST /api/events/:id/request-download — status-hidden returns 404 ───────
+
+describe("POST /api/events/:id/request-download — STATUS_HIDDEN returns 404", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 404 (not 403) when a regular user requests download for a draft event", async () => {
+    // Arrange: the event exists but is a draft
+    const draftEvent = {
+      id: 77,
+      status: "draft",
+      audience: { slug: "free-anyone" },
+      eventRetreatGroups: [],
+    };
+    // findFirst called twice: once for the event, once for the full user row
+    mockDb.query.events.findFirst.mockResolvedValueOnce(draftEvent);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
+
+    // Act
+    const { status } = await testJson("/api/events/77/request-download", {
+      method: "POST",
+      headers: await bearerToken("user"),
+    });
+
+    // Assert: must be 404, not 403 — a draft must be indistinguishable from non-existent
+    expect(status).toBe(404);
+  });
+
+  it("returns 200 when an admin requests download for a draft event", async () => {
+    // Arrange: draft event; admin user; no existing download request
+    const draftEvent = {
+      id: 77,
+      status: "draft",
+      audience: { slug: "free-anyone" },
+      eventRetreatGroups: [],
+    };
+    mockDb.query.events.findFirst.mockResolvedValueOnce(draftEvent);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("admin"));
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(null);
+
+    // Act
+    const { status } = await testJson("/api/events/77/request-download", {
+      method: "POST",
+      headers: await bearerToken("admin"),
+    });
+
+    // Assert: admin access to draft event succeeds
+    expect(status).toBe(200);
+  });
+});
+
 // ─── Optional auth on public event endpoints ─────────────────────────────────
 
 // Minimal mock events for the public endpoint tests

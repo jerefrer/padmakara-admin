@@ -1,11 +1,11 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
 import { users } from "../db/schema/users.ts";
 import { optionalAuthMiddleware, getOptionalUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
-import { filterAccessibleEvents, AUDIENCE_SLUGS } from "../services/access.ts";
+import { filterAccessibleEvents, AUDIENCE_SLUGS, eventStatusVisibleTo } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 
 const searchRoutes = new Hono();
@@ -149,14 +149,19 @@ searchRoutes.get("/", async (c) => {
 
   const totalWords = queryWords.length;
 
-  // Fetch all published events with relations
+  // Resolve the caller's role (if any) to determine which statuses to fetch.
+  // Admins/superadmins see drafts in addition to published; everyone else sees published only.
+  const authUser = getOptionalUser(c);
+
+  // Fetch events with the status set visible to this caller.
+  // Using inArray here (instead of a bare eq) matches the pattern used in
+  // /events/public, /events/featured, etc., so draft visibility is consistent.
   const allEvents = await db.query.events.findMany({
-    where: eq(events.status, "published"),
+    where: inArray(events.status, eventStatusVisibleTo(authUser?.role)),
     with: searchEventWith,
   });
 
   // Apply access control
-  const authUser = getOptionalUser(c);
   let accessibleEvents: typeof allEvents;
 
   if (authUser && (authUser.role === "admin" || authUser.role === "superadmin")) {
