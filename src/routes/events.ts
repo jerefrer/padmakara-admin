@@ -226,7 +226,6 @@ eventRoutes.use("/*", authMiddleware);
  */
 async function requireEventAccess(
   userId: number,
-  role: string,
   event: { id: number; status: string; audience?: { slug: string } | null },
 ) {
   const fullUser = await db.query.users.findFirst({
@@ -287,7 +286,7 @@ eventRoutes.get("/sessions/:sessionId", async (c) => {
     throw AppError.notFound("Session not found");
   }
 
-  await requireEventAccess(user.id, user.role, session.event);
+  await requireEventAccess(user.id, session.event);
   await enrichTracksWithSpeakerNames(session.tracks);
 
   return c.json(session);
@@ -323,7 +322,7 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
     throw AppError.notFound("Track's event not found");
   }
 
-  await requireEventAccess(user.id, user.role, event);
+  await requireEventAccess(user.id, event);
   await enrichTracksWithSpeakerNames([track]);
 
   return c.json(track);
@@ -397,7 +396,7 @@ eventRoutes.get("/:id", async (c) => {
     throw AppError.notFound("Event not found");
   }
 
-  await requireEventAccess(user.id, user.role, event);
+  await requireEventAccess(user.id, event);
 
   // Enrich all tracks with speaker names
   for (const session of (event as any).sessions ?? []) {
