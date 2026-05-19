@@ -5,6 +5,7 @@ import { userProgress, bookmarks, eventBookmarks, trackBookmarks } from "../db/s
 import { videoProgress } from "../db/schema/video-progress.ts";
 import { sessions } from "../db/schema/sessions.ts";
 import { tracks } from "../db/schema/tracks.ts";
+import { events } from "../db/schema/retreats.ts";
 import {
   updateProgressSchema,
   createBookmarkSchema,
@@ -13,7 +14,7 @@ import {
 } from "../lib/schemas.ts";
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
-import { checkEventAccess } from "../services/access.ts";
+import { checkEventAccess, eventStatusVisibleTo } from "../services/access.ts";
 import { users } from "../db/schema/users.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
@@ -55,12 +56,24 @@ contentRoutes.post("/progress", async (c) => {
   // (not 404) so browsers don't log a red error in DevTools every time a
   // legacy orphan tries to sync; the client still sees the marker and
   // cleans up its local entry so it stops retrying.
+  //
+  // We also load session→event here so we can check the event's status
+  // below — draft events must be invisible to non-admin users.
   const trackExists = await db.query.tracks.findFirst({
     where: eq(tracks.id, data.trackId),
-    columns: { id: true },
+    with: { session: { with: { event: true } } },
   });
   if (!trackExists) {
     return c.json({ skipped: true, reason: "unknown_track", trackId: data.trackId });
+  }
+
+  // Draft-event status guard: non-admin callers must not be able to record
+  // progress on tracks that belong to a draft event (that would leak that
+  // the event exists). Treat it the same as a missing track (`skipped` would
+  // be confusing for a draft — 404 is cleaner and matches the GET behaviour).
+  const eventStatus = trackExists.session?.event?.status;
+  if (!eventStatus || !eventStatusVisibleTo(user.role).includes(eventStatus)) {
+    throw AppError.notFound("Track not found");
   }
 
   const completionPct = data.durationSeconds
@@ -372,6 +385,16 @@ contentRoutes.post("/event-bookmarks", async (c) => {
   const body = await c.req.json();
   const data = createEventBookmarkSchema.parse(body);
 
+  // Draft-event status guard: verify the event exists and is visible to the
+  // caller before inserting. A non-admin must not be able to bookmark a draft
+  // event — doing so would confirm the event's existence to the client.
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, data.eventId),
+  });
+  if (!event || !eventStatusVisibleTo(user.role).includes(event.status)) {
+    throw AppError.notFound("Event not found");
+  }
+
   // Idempotent: re-bookmarking the same event returns the existing row.
   const [row] = await db
     .insert(eventBookmarks)
@@ -463,6 +486,20 @@ contentRoutes.post("/track-bookmarks", async (c) => {
   const user = getUser(c);
   const body = await c.req.json();
   const data = createTrackBookmarkSchema.parse(body);
+
+  // Draft-event status guard: load the track's parent event status before
+  // inserting. The `trackBookmarkWith` join already loads session→event on
+  // the read-back path, but we need the status check to happen BEFORE the
+  // insert so a non-admin cannot confirm a draft event's existence via FK
+  // success/failure. A missing track or a draft-event track both return 404.
+  const trackForGuard = await db.query.tracks.findFirst({
+    where: eq(tracks.id, data.trackId),
+    with: { session: { with: { event: true } } },
+  });
+  const guardStatus = trackForGuard?.session?.event?.status;
+  if (!guardStatus || !eventStatusVisibleTo(user.role).includes(guardStatus)) {
+    throw AppError.notFound("Track not found");
+  }
 
   const [row] = await db
     .insert(trackBookmarks)

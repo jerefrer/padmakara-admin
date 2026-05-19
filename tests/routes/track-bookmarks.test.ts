@@ -5,12 +5,20 @@ import { testJson } from "../helpers.ts";
 
 const mockFindMany = vi.fn();
 const mockFindFirst = vi.fn();
+// mockTrackFindFirst is the preliminary lookup used by the draft-status guard
+// in POST /track-bookmarks. It must be separate from mockFindFirst so each test
+// can stage the two queries the handler calls in the right order.
+const mockTrackFindFirst = vi.fn();
 const mockInsertReturning = vi.fn();
 const mockDeleteReturning = vi.fn();
 
 vi.mock("../../src/db/index.ts", () => ({
   db: {
     query: {
+      tracks: {
+        // Used by the draft-status guard in POST /track-bookmarks.
+        findFirst: (...args: any[]) => mockTrackFindFirst(...args),
+      },
       trackBookmarks: {
         findMany: (...args: any[]) => mockFindMany(...args),
         findFirst: (...args: any[]) => mockFindFirst(...args),
@@ -144,6 +152,12 @@ describe("Track bookmarks routes", () => {
     });
 
     it("creates a bookmark and returns 201", async () => {
+      // The draft-status guard calls db.query.tracks.findFirst (with session→event)
+      // first — return a track whose event is published so the guard passes.
+      mockTrackFindFirst.mockResolvedValueOnce({
+        id: 7,
+        session: { event: { status: "published" } },
+      });
       mockInsertReturning.mockResolvedValueOnce([
         { id: 1, userId: 1, trackId: 7, createdAt: new Date() },
       ]);
@@ -159,6 +173,11 @@ describe("Track bookmarks routes", () => {
     });
 
     it("is idempotent: returns 200 with existing row when already bookmarked", async () => {
+      // Guard passes (published event), then onConflictDoNothing → no row from insert.
+      mockTrackFindFirst.mockResolvedValueOnce({
+        id: 7,
+        session: { event: { status: "published" } },
+      });
       mockInsertReturning.mockResolvedValueOnce([]);
       mockFindFirst.mockResolvedValueOnce(makeBookmark());
 
@@ -172,8 +191,8 @@ describe("Track bookmarks routes", () => {
     });
 
     it("returns 404 when track does not exist", async () => {
-      mockInsertReturning.mockResolvedValueOnce([]);
-      mockFindFirst.mockResolvedValueOnce(null);
+      // Guard fires first: null from tracks.findFirst → 404 immediately.
+      mockTrackFindFirst.mockResolvedValueOnce(null);
       const { status } = await testJson("/api/content/track-bookmarks", {
         method: "POST",
         headers: await authHeader(),

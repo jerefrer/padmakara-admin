@@ -5,12 +5,20 @@ import { testJson } from "../helpers.ts";
 
 const mockFindMany = vi.fn();
 const mockFindFirst = vi.fn();
+// mockEventFindFirst is the lookup used by the draft-status guard in
+// POST /event-bookmarks. It must be separate from mockFindFirst so each
+// test can stage exactly the mocks the handler will consume in order.
+const mockEventFindFirst = vi.fn();
 const mockInsertReturning = vi.fn();
 const mockDeleteReturning = vi.fn();
 
 vi.mock("../../src/db/index.ts", () => ({
   db: {
     query: {
+      events: {
+        // Used by the draft-status guard in POST /event-bookmarks.
+        findFirst: (...args: any[]) => mockEventFindFirst(...args),
+      },
       eventBookmarks: {
         findMany: (...args: any[]) => mockFindMany(...args),
         findFirst: (...args: any[]) => mockFindFirst(...args),
@@ -136,6 +144,9 @@ describe("Event bookmarks routes", () => {
     });
 
     it("creates a new bookmark and returns 201", async () => {
+      // The draft-status guard calls db.query.events.findFirst first — return
+      // a published event so the guard passes, then the insert + read-back fires.
+      mockEventFindFirst.mockResolvedValueOnce({ id: 42, status: "published" });
       mockInsertReturning.mockResolvedValueOnce([{ id: 1, userId: 1, eventId: 42, createdAt: new Date() }]);
       mockFindFirst.mockResolvedValueOnce(makeBookmark());
 
@@ -151,6 +162,8 @@ describe("Event bookmarks routes", () => {
     });
 
     it("is idempotent: returns existing bookmark with 200 when already bookmarked", async () => {
+      // Guard passes (published event), then onConflictDoNothing → no row from insert.
+      mockEventFindFirst.mockResolvedValueOnce({ id: 42, status: "published" });
       // onConflictDoNothing → no row returned from insert
       mockInsertReturning.mockResolvedValueOnce([]);
       mockFindFirst.mockResolvedValueOnce(makeBookmark());
@@ -166,8 +179,8 @@ describe("Event bookmarks routes", () => {
     });
 
     it("returns 404 when event does not exist", async () => {
-      mockInsertReturning.mockResolvedValueOnce([]);
-      mockFindFirst.mockResolvedValueOnce(null);
+      // Guard fires first: null from events.findFirst → 404 immediately.
+      mockEventFindFirst.mockResolvedValueOnce(null);
 
       const { status } = await testJson("/api/content/event-bookmarks", {
         method: "POST",
