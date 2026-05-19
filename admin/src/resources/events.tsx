@@ -56,7 +56,8 @@ import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
-import { RenamePreviewTable } from "../components/RenamePreviewTable";
+import { SessionTrackTable, type TableValue } from "../components/SessionTrackTable";
+import { validateImportEvent } from "../utils/eventValidation";
 import {
   uploadTracks,
   uploadTranscript,
@@ -996,6 +997,63 @@ export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
 
 /* ───────────── Event Create ───────────── */
 
+/** Bridge EventCreate's InferredSession[] to the shared table's neutral model. */
+function sessionsToTableValue(sessions: InferredSession[]): TableValue {
+  return {
+    sessions: sessions.map((s) => ({
+      titleEn: s.titleEn,
+      sessionDate: s.date,
+      timePeriod: s.timePeriod,
+      tracks: s.tracks.map((t) => ({
+        key: t.originalFilename,
+        originalFilename: t.originalFilename,
+        trackNumber: t.trackNumber,
+        title: t.title,
+        speaker: t.speaker,
+        languages: t.languages,
+        originalLanguage: t.originalLanguage,
+        isTranslation: t.isTranslation,
+        isPractice: t.isPractice ?? false,
+      })),
+    })),
+    ignored: [],
+  };
+}
+
+/**
+ * Merge table edits back into InferredSession[], preserving each ParsedTrack's
+ * non-editable fields (File, mediaType, date, …) by key (the originalFilename).
+ */
+function tableValueToSessions(
+  tv: TableValue,
+  original: InferredSession[],
+): InferredSession[] {
+  const baseByKey = new Map<string, ParsedTrack>();
+  for (const s of original) {
+    for (const t of s.tracks) baseByKey.set(t.originalFilename, t);
+  }
+  return tv.sessions.map((s, i) => ({
+    sessionNumber: i + 1,
+    date: s.sessionDate,
+    timePeriod: s.timePeriod,
+    titleEn: s.titleEn,
+    tracks: s.tracks.map((t) => {
+      const base = baseByKey.get(t.key);
+      if (!base) throw new Error(`unknown track key ${t.key}`);
+      return {
+        ...base,
+        trackNumber: t.trackNumber,
+        title: t.title,
+        speaker: t.speaker,
+        languages: t.languages,
+        originalLanguage: t.originalLanguage,
+        isTranslation: t.isTranslation,
+        isPractice: t.isPractice,
+      } satisfies ParsedTrack;
+    }),
+  }));
+}
+
 export const EventCreate = () => {
   const dataProvider = useDataProvider();
   const notify = useNotify();
@@ -1091,13 +1149,6 @@ export const EventCreate = () => {
     [allTeachers, allGroups, allEventTypes, allAudiences],
   );
 
-  const handleSessionTitleChange = useCallback(
-    (idx: number, title: string) => {
-      setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, titleEn: title } : s)));
-    },
-    [],
-  );
-
   /** Upload transcript PDFs after the event has been created (so we have eventCode). */
   const handleTranscriptFilesDropped = useCallback(
     async (files: File[]) => {
@@ -1141,8 +1192,22 @@ export const EventCreate = () => {
   );
 
   const handleSave = async () => {
-    if (!form.eventCode || !form.titleEn) {
-      notify(translate("padmakara.events.codeAndTitleRequired"), { type: "warning" });
+    const problems = validateImportEvent({
+      eventCode: form.eventCode,
+      titleEn: form.titleEn,
+      startDate: form.startDate,
+      endDate: form.endDate,
+      eventTypeSelected: selectedEventType !== null,
+      audienceSelected: selectedAudience !== null,
+      teacherCount: selectedTeachers.length,
+      placeCount: selectedPlaces.length,
+      sessions,
+    });
+    if (problems.length > 0) {
+      notify(["Cannot create the event — please fix:", ...problems].join("\n"), {
+        type: "warning",
+        multiLine: true,
+      });
       return;
     }
     setSaving(true);
@@ -1244,7 +1309,7 @@ export const EventCreate = () => {
   const hasFolder = parsedTracks.length > 0;
 
   return (
-    <Box sx={{ maxWidth: 900, mx: "auto", pb: 6 }}>
+    <Box sx={{ px: 3, pb: 6 }}>
       <Title title={translate("padmakara.events.newEvent")} />
       <PageHeader title={translate("padmakara.events.newEvent")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
 
@@ -1256,12 +1321,8 @@ export const EventCreate = () => {
 
       {hasFolder && !uploadProgress && (
         <>
-          {/* 6.3 — Rename-preview table (editable before commit) */}
-          <RenamePreviewTable
-            sessions={sessions}
-            onSessionsChange={(updated) => setSessions(updated)}
-          />
-
+          {/* Event details first — the track table replaces the old
+              section-2 sessions list, so pass empty arrays here. */}
           <EventFormFields
             form={form} setForm={setForm}
             selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
@@ -1271,9 +1332,18 @@ export const EventCreate = () => {
             selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
             allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
             allEventTypes={allEventTypes} allAudiences={allAudiences}
-            sessions={sessions} transcripts={[]} eventFiles={[]} onSessionTitleChange={handleSessionTitleChange}
-            trackCount={parsedTracks.length}
+            sessions={[]} transcripts={[]} eventFiles={[]} onSessionTitleChange={() => {}}
+            trackCount={0}
             transcriptCount={0}
+          />
+
+          {/* Review & edit the parsed tracks/sessions before saving */}
+          <SessionTrackTable
+            value={sessionsToTableValue(sessions)}
+            onChange={(tv) => setSessions(tableValueToSessions(tv, sessions))}
+            teachers={allTeachers}
+            enablePractice
+            enableAiRename
           />
 
           {/* 6.1 — Transcript upload (allowed before or after save; eventCode needed) */}

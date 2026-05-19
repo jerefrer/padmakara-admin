@@ -39,9 +39,15 @@ import {
   type ImportJob,
   type ProposedStructure,
   type ProposedEvent,
+  type ProposedTrack,
 } from "../utils/migrationApi";
-import { ImportStructureReview } from "../components/ImportStructureReview";
+import {
+  SessionTrackTable,
+  type TableValue,
+  type TableTrack,
+} from "../components/SessionTrackTable";
 import { ImportTranscriptsPanel } from "../components/ImportTranscriptsPanel";
+import { validateImportEvent } from "../utils/eventValidation";
 import {
   EventFormFields,
   useLookups,
@@ -209,6 +215,72 @@ export const MigrationShow = () => (
     <ImportWorkspace />
   </Show>
 );
+
+/** Bridge a ProposedStructure to the shared table's neutral model. */
+function structureToTableValue(s: ProposedStructure): TableValue {
+  const toTrack = (t: ProposedTrack): TableTrack => ({
+    key: String(t.importFileId),
+    originalFilename: t.originalFilename,
+    trackNumber: t.trackNumber,
+    title: t.title,
+    speaker: t.speaker,
+    languages: t.languages,
+    originalLanguage: t.originalLanguage,
+    isTranslation: t.isTranslation,
+    isPractice: false,
+  });
+  return {
+    sessions: s.sessions.map((sess) => ({
+      titleEn: sess.titleEn,
+      sessionDate: sess.sessionDate,
+      timePeriod: sess.timePeriod,
+      tracks: sess.tracks.map(toTrack),
+    })),
+    ignored: (s.ignored ?? []).map(toTrack),
+  };
+}
+
+/**
+ * Merge table edits back into a ProposedStructure, preserving event +
+ * transcripts and each ProposedTrack's importFileId by key.
+ */
+function tableValueToStructure(
+  tv: TableValue,
+  original: ProposedStructure,
+): ProposedStructure {
+  const baseByKey = new Map<string, ProposedTrack>();
+  for (const s of original.sessions) {
+    for (const t of s.tracks) baseByKey.set(String(t.importFileId), t);
+  }
+  for (const t of original.ignored ?? []) {
+    baseByKey.set(String(t.importFileId), t);
+  }
+  const toProposed = (t: TableTrack): ProposedTrack => {
+    const base = baseByKey.get(t.key);
+    if (!base) throw new Error(`unknown track key ${t.key}`);
+    return {
+      ...base,
+      trackNumber: t.trackNumber,
+      title: t.title,
+      speaker: t.speaker,
+      languages: t.languages,
+      originalLanguage: t.originalLanguage,
+      isTranslation: t.isTranslation,
+    };
+  };
+  return {
+    event: original.event,
+    sessions: tv.sessions.map((s, i) => ({
+      sessionNumber: i + 1,
+      titleEn: s.titleEn,
+      sessionDate: s.sessionDate,
+      timePeriod: s.timePeriod ?? "morning",
+      tracks: s.tracks.map(toProposed),
+    })),
+    ignored: tv.ignored.map(toProposed),
+    transcripts: original.transcripts,
+  };
+}
 
 function ImportWorkspace() {
   const job = useRecordContext<ImportJob>();
@@ -463,10 +535,11 @@ function ImportWorkspace() {
             transcriptCount={0}
             readOnlyEventCode
           />
-          <ImportStructureReview
-            value={structure}
-            onChange={setStructure}
+          <SessionTrackTable
+            value={structureToTableValue(structure)}
+            onChange={(tv) => setStructure(tableValueToStructure(tv, structure))}
             teachers={allTeachers}
+            enableIgnore
           />
           <ImportTranscriptsPanel
             value={structure.transcripts ?? []}
@@ -525,6 +598,24 @@ function ImportWorkspace() {
                 ) : undefined
               }
               onClick={() => {
+                const problems = validateImportEvent({
+                  eventCode: job.eventCode,
+                  titleEn: form.titleEn,
+                  startDate: form.startDate,
+                  endDate: form.endDate,
+                  eventTypeSelected: selectedEventType !== null,
+                  audienceSelected: selectedAudience !== null,
+                  teacherCount: selectedTeachers.length,
+                  placeCount: selectedPlaces.length,
+                  sessions: structure.sessions,
+                });
+                if (problems.length > 0) {
+                  notify(
+                    ["Cannot import — please fix:", ...problems].join("\n"),
+                    { type: "warning", multiLine: true },
+                  );
+                  return;
+                }
                 if (buildNormalizedStructure() !== null) setConfirmOpen(true);
               }}
             >
