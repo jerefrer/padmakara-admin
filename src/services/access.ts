@@ -2,6 +2,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users, userGroupMemberships, userEventAttendance } from "../db/schema/users.ts";
 import { eventRetreatGroups } from "../db/schema/retreats.ts";
+import { AppError } from "../lib/errors.ts";
 
 // Audience slugs from seed-from-csv.ts (slugify of English names)
 export const AUDIENCE_SLUGS = {
@@ -24,6 +25,33 @@ export type AccessDeniedReason =
 export type AccessResult =
   | { allowed: true }
   | { allowed: false; reason: AccessDeniedReason };
+
+/**
+ * Translate an access-denied reason into the matching HTTP error and throw it.
+ * Shared by every route that gates on `checkEventAccess` so the reason→status
+ * mapping lives in exactly one place.
+ *
+ * - STATUS_HIDDEN → 404: a draft/archived event must be indistinguishable from
+ *   a non-existent one for callers who cannot see that status.
+ * - AUTH_REQUIRED → 401.
+ * - All audience denials → 403, with a reason-specific message.
+ */
+export function denialToHttpError(reason: AccessDeniedReason): never {
+  switch (reason) {
+    case "STATUS_HIDDEN":
+      throw AppError.notFound("Event not found");
+    case "AUTH_REQUIRED":
+      throw AppError.unauthorized("Authentication required");
+    case "SUBSCRIPTION_REQUIRED":
+      throw AppError.forbidden("Active subscription required");
+    case "GROUP_MEMBERSHIP_REQUIRED":
+      throw AppError.forbidden("Group membership required");
+    case "EVENT_ATTENDANCE_REQUIRED":
+      throw AppError.forbidden("Event attendance required");
+    default:
+      throw AppError.forbidden("Access denied");
+  }
+}
 
 interface UserForAccess {
   id: number;

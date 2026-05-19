@@ -11,7 +11,7 @@ import { downloadRequests } from "../db/schema/index.ts";
 import { authMiddleware, optionalAuthMiddleware, getUser, getOptionalUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
-import { checkEventAccess, filterAccessibleEvents, canUserSeeSubscriberContent, eventStatusVisibleTo, AUDIENCE_SLUGS } from "../services/access.ts";
+import { checkEventAccess, filterAccessibleEvents, canUserSeeSubscriberContent, eventStatusVisibleTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
@@ -251,22 +251,7 @@ async function requireEventAccess(
   );
 
   if (result.allowed) return;
-
-  if (result.reason === "STATUS_HIDDEN") {
-    throw AppError.notFound("Event not found");
-  }
-  if (result.reason === "AUTH_REQUIRED") {
-    throw AppError.unauthorized("Authentication required");
-  }
-  throw AppError.forbidden(
-    result.reason === "SUBSCRIPTION_REQUIRED"
-      ? "Active subscription required"
-      : result.reason === "GROUP_MEMBERSHIP_REQUIRED"
-        ? "Group membership required"
-        : result.reason === "EVENT_ATTENDANCE_REQUIRED"
-          ? "Event attendance required"
-          : "Access denied",
-  );
+  denialToHttpError(result.reason);
 }
 
 /**

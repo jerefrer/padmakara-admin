@@ -21,7 +21,7 @@ import { issueMat, verifyMat } from "../services/media-access.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
-import { checkEventAccess } from "../services/access.ts";
+import { checkEventAccess, denialToHttpError } from "../services/access.ts";
 
 const mediaRoutes = new Hono();
 
@@ -114,17 +114,7 @@ mediaRoutes.get("/audio/:trackId", async (c) => {
   if (result.event) {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
-    if (!accessResult.allowed) {
-      if (accessResult.reason === "AUTH_REQUIRED") {
-        throw AppError.unauthorized("Authentication required");
-      }
-      // A hidden-status event (draft/archived) must be indistinguishable from
-      // a non-existent one for callers who cannot see that status.
-      if (accessResult.reason === "STATUS_HIDDEN") {
-        throw AppError.notFound("Not found");
-      }
-      throw AppError.forbidden("Access denied");
-    }
+    if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
   const url = await generatePresignedDownloadUrl(result.track.s3Key);
@@ -154,17 +144,7 @@ mediaRoutes.get("/video/session/:sessionId", async (c) => {
   if (result.event) {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
-    if (!accessResult.allowed) {
-      if (accessResult.reason === "AUTH_REQUIRED") {
-        throw AppError.unauthorized("Authentication required");
-      }
-      // A hidden-status event (draft/archived) must be indistinguishable from
-      // a non-existent one for callers who cannot see that status.
-      if (accessResult.reason === "STATUS_HIDDEN") {
-        throw AppError.notFound("Not found");
-      }
-      throw AppError.forbidden("Access denied");
-    }
+    if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
   const urls = buildPlaybackUrls(result.session.bunnyVideoId);
@@ -372,17 +352,7 @@ mediaRoutes.get("/video/session/:sessionId/download", async (c) => {
   if (result.event) {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
-    if (!accessResult.allowed) {
-      if (accessResult.reason === "AUTH_REQUIRED") {
-        throw AppError.unauthorized("Authentication required");
-      }
-      // A hidden-status event (draft/archived) must be indistinguishable from
-      // a non-existent one for callers who cannot see that status.
-      if (accessResult.reason === "STATUS_HIDDEN") {
-        throw AppError.notFound("Not found");
-      }
-      throw AppError.forbidden("Access denied");
-    }
+    if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
   const meta = await getVideoMeta(result.session.bunnyVideoId);
@@ -417,17 +387,7 @@ mediaRoutes.get("/readalong/:trackId", async (c) => {
   if (result.event) {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
-    if (!accessResult.allowed) {
-      if (accessResult.reason === "AUTH_REQUIRED") {
-        throw AppError.unauthorized("Authentication required");
-      }
-      // A hidden-status event (draft/archived) must be indistinguishable from
-      // a non-existent one for callers who cannot see that status.
-      if (accessResult.reason === "STATUS_HIDDEN") {
-        throw AppError.notFound("Not found");
-      }
-      throw AppError.forbidden("Access denied");
-    }
+    if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
   const jsonContent = await getObjectText(result.track.readAlongS3Key);
@@ -459,14 +419,7 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
   if (result.event) {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
-    if (!accessResult.allowed) {
-      // A hidden-status event (draft/archived) must be indistinguishable from
-      // a non-existent one for callers who cannot see that status.
-      if (accessResult.reason === "STATUS_HIDDEN") {
-        throw AppError.notFound("Not found");
-      }
-      throw AppError.forbidden("Access denied");
-    }
+    if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
   // Get user's full name for watermark

@@ -23,8 +23,11 @@ import {
   checkEventAccess,
   filterAccessibleEvents,
   eventStatusVisibleTo,
+  denialToHttpError,
   AUDIENCE_SLUGS,
+  type AccessDeniedReason,
 } from "../../src/services/access.ts";
+import { AppError } from "../../src/lib/errors.ts";
 
 // Helpers
 function makeUser(overrides: Record<string, any> = {}) {
@@ -384,4 +387,31 @@ describe("checkEventAccess — status gate", () => {
     const r = await checkEventAccess(regular, publicEvent("published"));
     expect(r.allowed).toBe(true);
   });
+});
+
+describe("denialToHttpError", () => {
+  const cases: { reason: AccessDeniedReason; status: number }[] = [
+    { reason: "STATUS_HIDDEN", status: 404 },
+    { reason: "AUTH_REQUIRED", status: 401 },
+    { reason: "SUBSCRIPTION_REQUIRED", status: 403 },
+    { reason: "GROUP_MEMBERSHIP_REQUIRED", status: 403 },
+    { reason: "EVENT_ATTENDANCE_REQUIRED", status: 403 },
+    { reason: "ACCESS_DENIED", status: 403 },
+  ];
+
+  for (const { reason, status } of cases) {
+    it(`throws an AppError with HTTP ${status} for ${reason}`, () => {
+      let thrown: unknown;
+      try {
+        denialToHttpError(reason);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AppError);
+      // instanceof check above narrows; also fails the test if it is not an AppError
+      if (thrown instanceof AppError) {
+        expect(thrown.statusCode).toBe(status);
+      }
+    });
+  }
 });
