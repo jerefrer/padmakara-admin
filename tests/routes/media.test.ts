@@ -44,6 +44,7 @@ function makeSessionWithVideo(overrides: Record<string, any> = {}) {
     videoPosterUrl: null,
     event: {
       id: 1,
+      status: "published",
       audience: { slug: "free-anyone" },
       audienceId: 1,
     },
@@ -103,7 +104,7 @@ describe("GET /api/media/video/session/:sessionId", () => {
   it("returns 401 when accessing a session on a non-public event without auth", async () => {
     mockDb.query.sessions.findFirst.mockResolvedValueOnce(
       makeSessionWithVideo({
-        event: { id: 1, audience: { slug: "free-subscribers" }, audienceId: 2 },
+        event: { id: 1, status: "published", audience: { slug: "free-subscribers" }, audienceId: 2 },
       }),
     );
 
@@ -203,7 +204,7 @@ describe("GET /api/media/video/session/:sessionId/download", () => {
   it("returns 401 for non-public events without auth", async () => {
     mockDb.query.sessions.findFirst.mockResolvedValueOnce(
       makeSessionWithVideo({
-        event: { id: 1, audience: { slug: "free-subscribers" }, audienceId: 2 },
+        event: { id: 1, status: "published", audience: { slug: "free-subscribers" }, audienceId: 2 },
       }),
     );
 
