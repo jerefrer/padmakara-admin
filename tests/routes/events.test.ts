@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { testJson } from "../helpers.ts";
 import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 
 // vi.hoisted ensures these variables are available when vi.mock factories run
 // (vi.mock calls are hoisted to the top of the file before variable declarations)
@@ -385,10 +386,13 @@ describe("GET /api/events — admin draft list", () => {
     // Assert: the handler called findMany with an inArray status filter covering
     // both "published" AND "draft" — NOT a bare eq("published") condition.
     expect(mockDb.query.events.findMany).toHaveBeenCalledTimes(1);
+    // Safe: toHaveBeenCalledTimes(1) above guarantees calls[0] exists.
+    // The cast to { where?: unknown } is required because mock.calls is untyped at the call-arg level.
     const callArg = mockDb.query.events.findMany.mock.calls[0]![0] as { where?: unknown };
     const dialect = new PgDialect();
-    // Render the where clause to SQL so we can inspect it without circular-ref issues
-    const rendered = dialect.sqlToQuery(callArg?.where as any);
+    // Render the where clause to SQL so we can inspect it without circular-ref issues.
+    // callArg.where is `unknown` from mock introspection; it is a drizzle SQL node here.
+    const rendered = dialect.sqlToQuery(callArg?.where as SQL);
     expect(rendered.sql).toMatch(/\bin\b/i);
     expect(rendered.params).toContain("draft");
     expect(rendered.params).toContain("published");
