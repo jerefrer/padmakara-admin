@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { testJson } from "../helpers.ts";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 // vi.hoisted ensures these variables are available when vi.mock factories run
 // (vi.mock calls are hoisted to the top of the file before variable declarations)
@@ -375,10 +376,23 @@ describe("GET /api/events — admin draft list", () => {
       headers: await bearerToken("admin"),
     });
 
-    // Assert
+    // Assert: response contains both events
     expect(status).toBe(200);
     const ids = (body as Array<{ id: number }>).map((e) => e.id);
     expect(ids).toContain(draftEventId);
     expect(ids).toContain(publishedEventId);
+
+    // Assert: the handler called findMany with an inArray status filter covering
+    // both "published" AND "draft" — NOT a bare eq("published") condition.
+    expect(mockDb.query.events.findMany).toHaveBeenCalledTimes(1);
+    const callArg = mockDb.query.events.findMany.mock.calls[0]![0] as { where?: unknown };
+    const dialect = new PgDialect();
+    // Render the where clause to SQL so we can inspect it without circular-ref issues
+    const rendered = dialect.sqlToQuery(callArg?.where as any);
+    expect(rendered.sql).toMatch(/\bin\b/i);
+    expect(rendered.params).toContain("draft");
+    expect(rendered.params).toContain("published");
+    // Must NOT be a simple equality against "published" only
+    expect(rendered.sql).not.toMatch(/^\s*=\s*/);
   });
 });
