@@ -368,17 +368,17 @@ describe("checkEventAccess — status gate", () => {
   it("hides a draft event from a regular user", async () => {
     const r = await checkEventAccess(regular, publicEvent("draft"));
     expect(r.allowed).toBe(false);
-    expect((r as any).reason).toBe("STATUS_HIDDEN");
+    if (!r.allowed) expect(r.reason).toBe("STATUS_HIDDEN");
   });
   it("hides a draft event from an unauthenticated caller", async () => {
     const r = await checkEventAccess(null, publicEvent("draft"));
     expect(r.allowed).toBe(false);
-    expect((r as any).reason).toBe("STATUS_HIDDEN");
+    if (!r.allowed) expect(r.reason).toBe("STATUS_HIDDEN");
   });
   it("hides an archived event even from an admin", async () => {
     const r = await checkEventAccess(admin, publicEvent("archived"));
     expect(r.allowed).toBe(false);
-    expect((r as any).reason).toBe("STATUS_HIDDEN");
+    if (!r.allowed) expect(r.reason).toBe("STATUS_HIDDEN");
   });
   it("still allows a regular user to access a published public event", async () => {
     const r = await checkEventAccess(regular, publicEvent("published"));
