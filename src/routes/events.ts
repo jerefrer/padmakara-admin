@@ -219,15 +219,16 @@ eventRoutes.post("/public/:id/request-download", async (c) => {
 eventRoutes.use("/*", authMiddleware);
 
 /**
- * Helper: check event access for a regular user, throw on denied.
+ * Helper: check event access, throw on denied.
+ * Runs for ALL callers including admins/superadmins so the status gate
+ * (STATUS_HIDDEN) applies universally — archived events return 404 for everyone,
+ * and draft events return 404 for non-admins.
  */
 async function requireEventAccess(
   userId: number,
   role: string,
   event: { id: number; status: string; audience?: { slug: string } | null },
 ) {
-  if (role === "admin" || role === "superadmin") return;
-
   const fullUser = await db.query.users.findFirst({
     where: eq(users.id, userId),
   });
@@ -243,17 +244,23 @@ async function requireEventAccess(
     event,
   );
 
-  if (!result.allowed) {
-    throw AppError.forbidden(
-      result.reason === "SUBSCRIPTION_REQUIRED"
-        ? "Active subscription required"
-        : result.reason === "GROUP_MEMBERSHIP_REQUIRED"
-          ? "Group membership required"
-          : result.reason === "EVENT_ATTENDANCE_REQUIRED"
-            ? "Event attendance required"
-            : "Access denied",
-    );
+  if (result.allowed) return;
+
+  if (result.reason === "STATUS_HIDDEN") {
+    throw AppError.notFound("Event not found");
   }
+  if (result.reason === "AUTH_REQUIRED") {
+    throw AppError.unauthorized("Authentication required");
+  }
+  throw AppError.forbidden(
+    result.reason === "SUBSCRIPTION_REQUIRED"
+      ? "Active subscription required"
+      : result.reason === "GROUP_MEMBERSHIP_REQUIRED"
+        ? "Group membership required"
+        : result.reason === "EVENT_ATTENDANCE_REQUIRED"
+          ? "Event attendance required"
+          : "Access denied",
+  );
 }
 
 /**

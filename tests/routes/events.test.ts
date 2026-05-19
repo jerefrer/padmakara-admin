@@ -1,33 +1,53 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { testJson } from "../helpers.ts";
 
-// Setup mocks BEFORE imports
-const mockDb = {
-  query: {
-    events: {
-      findFirst: vi.fn(),
+// vi.hoisted ensures these variables are available when vi.mock factories run
+// (vi.mock calls are hoisted to the top of the file before variable declarations)
+const { mockDb, mockGenerateRetreatZip } = vi.hoisted(() => {
+  const mockDb = {
+    query: {
+      events: {
+        findFirst: vi.fn(),
+      },
+      downloadRequests: {
+        findFirst: vi.fn(),
+      },
+      users: {
+        findFirst: vi.fn(),
+      },
+      userEventAttendance: {
+        findFirst: vi.fn(),
+      },
+      userGroupMemberships: {
+        findFirst: vi.fn(),
+      },
     },
-    downloadRequests: {
-      findFirst: vi.fn(),
-    },
-  },
-  select: vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn(() => Promise.resolve([])),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => Promise.resolve([])),
+      })),
     })),
-  })),
-  insert: vi.fn((_table: unknown) => ({
-    values: vi.fn((_data: unknown) => ({
-      returning: vi.fn(() => Promise.resolve([{}])),
+    insert: vi.fn((_table: unknown) => ({
+      values: vi.fn((_data: unknown) => ({
+        returning: vi.fn(() => Promise.resolve([{}])),
+      })),
     })),
-  })),
-};
-
-const mockGenerateRetreatZip = vi.fn((_requestId: string, _eventId: number, _userId: number) => Promise.resolve());
+  };
+  const mockGenerateRetreatZip = vi.fn(
+    (_requestId: string, _eventId: number, _userId: number) => Promise.resolve(),
+  );
+  return { mockDb, mockGenerateRetreatZip };
+});
 
 vi.mock("../../src/db/index.ts", () => ({ db: mockDb }));
 vi.mock("../../src/services/zip-generator.ts", () => ({
   generateRetreatZip: mockGenerateRetreatZip,
 }));
+vi.mock("../../src/services/s3.ts", () => ({
+  generatePresignedDownloadUrl: vi.fn(() => Promise.resolve("https://s3.example.com/file")),
+}));
+
+import { createAccessToken } from "../../src/services/auth.ts";
 
 describe("Events Routes - Download Request Logic", () => {
   beforeEach(() => {
@@ -245,5 +265,70 @@ describe("Events Routes - Download Request Logic", () => {
         expect(isDuplicate).toBe(false);
       }
     });
+  });
+});
+
+// ─── Draft event visibility ───────────────────────────────────────────────
+
+/** A minimal draft event with public audience (so access logic only checks status). */
+const draftPublicEvent = {
+  id: 42,
+  status: "draft",
+  audience: { slug: "free-anyone" },
+  sessions: [],
+  eventTeachers: [],
+  eventRetreatGroups: [],
+  eventPlaces: [],
+  eventPublications: [],
+};
+
+/** Full user row returned by db.query.users.findFirst inside requireEventAccess. */
+function makeUserRow(role: string) {
+  return {
+    id: 1,
+    email: "test@test.com",
+    role,
+    subscriptionStatus: "none",
+    subscriptionExpiresAt: null,
+  };
+}
+
+async function bearerToken(role: string) {
+  const token = await createAccessToken({ sub: 1, email: "test@test.com", role });
+  return { Authorization: `Bearer ${token}` };
+}
+
+describe("GET /api/events/:id — draft visibility", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 404 when a regular user requests a draft event", async () => {
+    // Arrange: event row (draft), then full user row for requireEventAccess
+    mockDb.query.events.findFirst.mockResolvedValueOnce(draftPublicEvent);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
+
+    // Act
+    const { status } = await testJson("/api/events/42", {
+      headers: await bearerToken("user"),
+    });
+
+    // Assert
+    expect(status).toBe(404);
+  });
+
+  it("returns 200 when an admin requests a draft event", async () => {
+    // Arrange: same draft event; admin caller
+    mockDb.query.events.findFirst.mockResolvedValueOnce(draftPublicEvent);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("admin"));
+
+    // Act
+    const { status, body } = await testJson("/api/events/42", {
+      headers: await bearerToken("admin"),
+    });
+
+    // Assert
+    expect(status).toBe(200);
+    expect(body.id).toBe(42);
   });
 });
