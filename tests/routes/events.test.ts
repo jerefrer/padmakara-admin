@@ -12,6 +12,9 @@ const { mockDb, mockGenerateRetreatZip } = vi.hoisted(() => {
         findFirst: vi.fn(),
         findMany: vi.fn(),
       },
+      audiences: {
+        findFirst: vi.fn(),
+      },
       downloadRequests: {
         findFirst: vi.fn(),
       },
@@ -398,5 +401,97 @@ describe("GET /api/events — admin draft list", () => {
     expect(rendered.params).toContain("published");
     // Must NOT be a simple equality against "published" only
     expect(rendered.sql).not.toMatch(/^\s*=\s*/);
+  });
+});
+
+// ─── Optional auth on public event endpoints ─────────────────────────────────
+
+// Minimal mock events for the public endpoint tests
+const draftPublicEventForList = {
+  id: 200,
+  status: "draft",
+  audience: { slug: "free-anyone" },
+  sessions: [],
+  eventTeachers: [],
+  eventRetreatGroups: [],
+  eventPlaces: [],
+  eventPublications: [],
+  eventType: null,
+  transcripts: [],
+};
+const publishedPublicEventForList = {
+  id: 201,
+  status: "published",
+  audience: { slug: "free-anyone" },
+  sessions: [],
+  eventTeachers: [],
+  eventRetreatGroups: [],
+  eventPlaces: [],
+  eventPublications: [],
+  eventType: null,
+  transcripts: [],
+};
+const mockPublicAudience = { id: 7, slug: "free-anyone" };
+
+describe("GET /api/events/public — optional auth: admin sees drafts", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("excludes draft events when called without a token", async () => {
+    // Arrange
+    mockDb.query.audiences.findFirst.mockResolvedValueOnce(mockPublicAudience);
+    mockDb.query.events.findMany.mockResolvedValueOnce([publishedPublicEventForList]);
+
+    // Act: no Authorization header
+    const { status, body } = await testJson("/api/events/public");
+
+    // Assert status/ids
+    expect(status).toBe(200);
+    const ids = (body as Array<{ id: number }>).map((e) => e.id);
+    expect(ids).not.toContain(draftPublicEventForList.id);
+
+    // Assert the DB was called with a status filter covering ONLY "published"
+    expect(mockDb.query.events.findMany).toHaveBeenCalledTimes(1);
+    // Safe: toHaveBeenCalledTimes(1) guarantees calls[0] exists.
+    // The cast to { where?: unknown } is required because mock.calls is untyped.
+    const callArg = mockDb.query.events.findMany.mock.calls[0]![0] as { where?: unknown };
+    const dialect = new PgDialect();
+    // Render to SQL for reliable inspection of the Drizzle SQL node.
+    const rendered = dialect.sqlToQuery(callArg?.where as SQL);
+    // Guest path must use inArray(status, ["published"]) — params must NOT include "draft"
+    expect(rendered.params).toContain("published");
+    expect(rendered.params).not.toContain("draft");
+  });
+
+  it("includes draft events when called with an admin token", async () => {
+    // Arrange
+    mockDb.query.audiences.findFirst.mockResolvedValueOnce(mockPublicAudience);
+    mockDb.query.events.findMany.mockResolvedValueOnce([
+      draftPublicEventForList,
+      publishedPublicEventForList,
+    ]);
+
+    // Act: authenticated as admin
+    const { status, body } = await testJson("/api/events/public", {
+      headers: await bearerToken("admin"),
+    });
+
+    // Assert status/ids
+    expect(status).toBe(200);
+    const ids = (body as Array<{ id: number }>).map((e) => e.id);
+    expect(ids).toContain(draftPublicEventForList.id);
+
+    // Assert the DB was called with a status filter covering BOTH "published" AND "draft"
+    expect(mockDb.query.events.findMany).toHaveBeenCalledTimes(1);
+    // Safe: toHaveBeenCalledTimes(1) guarantees calls[0] exists.
+    // The cast to { where?: unknown } is required because mock.calls is untyped.
+    const callArg = mockDb.query.events.findMany.mock.calls[0]![0] as { where?: unknown };
+    const dialect = new PgDialect();
+    // Render to SQL for reliable inspection of the Drizzle SQL node.
+    const rendered = dialect.sqlToQuery(callArg?.where as SQL);
+    expect(rendered.sql).toMatch(/\bin\b/i);
+    expect(rendered.params).toContain("published");
+    expect(rendered.params).toContain("draft");
   });
 });

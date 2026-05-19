@@ -8,10 +8,10 @@ import { teachers } from "../db/schema/teachers.ts";
 import { audiences } from "../db/schema/audiences.ts";
 import { users } from "../db/schema/users.ts";
 import { downloadRequests } from "../db/schema/index.ts";
-import { authMiddleware, getUser } from "../middleware/auth.ts";
+import { authMiddleware, optionalAuthMiddleware, getUser, getOptionalUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
-import { checkEventAccess, filterAccessibleEvents, canUserSeeSubscriberContent, AUDIENCE_SLUGS } from "../services/access.ts";
+import { checkEventAccess, filterAccessibleEvents, canUserSeeSubscriberContent, eventStatusVisibleTo, AUDIENCE_SLUGS } from "../services/access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
@@ -81,10 +81,13 @@ const eventWithSessions = {
 // ─── Public endpoints (no auth) ──────────────────────────────────────────
 
 /**
- * GET /api/events/public - List public events (no auth required)
- * Returns events with audience slug "free-anyone"
+ * GET /api/events/public - List public events (optional auth)
+ * Returns events with audience slug "free-anyone".
+ * Admins/superadmins who send a JWT also see draft events.
  */
-eventRoutes.get("/public", async (c) => {
+eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
+  const user = getOptionalUser(c);
+
   // Find the public audience
   const publicAudience = await db.query.audiences.findFirst({
     where: eq(audiences.slug, AUDIENCE_SLUGS.PUBLIC),
@@ -96,7 +99,7 @@ eventRoutes.get("/public", async (c) => {
 
   const data = await db.query.events.findMany({
     where: and(
-      eq(events.status, "published"),
+      inArray(events.status, eventStatusVisibleTo(user?.role)),
       eq(events.audienceId, publicAudience.id),
     ),
     orderBy: (r, { desc }) => [desc(r.startDate)],
@@ -109,14 +112,16 @@ eventRoutes.get("/public", async (c) => {
 });
 
 /**
- * GET /api/events/public/:id - Public event detail (no auth required)
- * Only returns events with audience slug "free-anyone"
+ * GET /api/events/public/:id - Public event detail (optional auth)
+ * Only returns events with audience slug "free-anyone".
+ * Admins/superadmins who send a JWT also see draft events.
  */
-eventRoutes.get("/public/:id", async (c) => {
+eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
   const id = parseInt(c.req.param("id"), 10);
+  const user = getOptionalUser(c);
 
   const event = await db.query.events.findFirst({
-    where: and(eq(events.id, id), eq(events.status, "published")),
+    where: and(eq(events.id, id), inArray(events.status, eventStatusVisibleTo(user?.role))),
     with: eventWithSessions,
   });
 
@@ -135,14 +140,16 @@ eventRoutes.get("/public/:id", async (c) => {
 });
 
 /**
- * GET /api/events/featured - Get the currently featured event (no auth required)
- * Returns the published event with the most recent featuredAt timestamp.
- * Admins set featuredAt via the admin UI to feature an event on the home screen.
+ * GET /api/events/featured - Get the currently featured event (optional auth)
+ * Returns the event with the most recent featuredAt timestamp.
+ * Admins/superadmins who send a JWT also see draft featured events.
  */
-eventRoutes.get("/featured", async (c) => {
+eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
+  const user = getOptionalUser(c);
+
   const event = await db.query.events.findFirst({
     where: and(
-      eq(events.status, "published"),
+      inArray(events.status, eventStatusVisibleTo(user?.role)),
       isNotNull(events.featuredAt),
     ),
     orderBy: [desc(events.featuredAt)],
