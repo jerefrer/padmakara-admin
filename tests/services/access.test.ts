@@ -22,6 +22,7 @@ const mockDb = db as any;
 import {
   checkEventAccess,
   filterAccessibleEvents,
+  eventStatusVisibleTo,
   AUDIENCE_SLUGS,
 } from "../../src/services/access.ts";
 
@@ -36,9 +37,10 @@ function makeUser(overrides: Record<string, any> = {}) {
   };
 }
 
-function makeEvent(audienceSlug: string | null, id = 1) {
+function makeEvent(audienceSlug: string | null, id = 1, status = "published") {
   return {
     id,
+    status,
     audience: audienceSlug ? { slug: audienceSlug } : null,
     audienceId: audienceSlug ? 1 : null,
   };
@@ -330,5 +332,56 @@ describe("Access Control Service", () => {
       const result = await filterAccessibleEvents(makeUser(), []);
       expect(result).toEqual([]);
     });
+  });
+});
+
+describe("eventStatusVisibleTo", () => {
+  it("returns published + draft for an admin", () => {
+    expect([...eventStatusVisibleTo("admin")].sort()).toEqual(["draft", "published"]);
+  });
+  it("returns published + draft for a superadmin", () => {
+    expect([...eventStatusVisibleTo("superadmin")].sort()).toEqual(["draft", "published"]);
+  });
+  it("returns published only for a regular user", () => {
+    expect(eventStatusVisibleTo("user")).toEqual(["published"]);
+  });
+  it("returns published only for an unauthenticated caller", () => {
+    expect(eventStatusVisibleTo(null)).toEqual(["published"]);
+    expect(eventStatusVisibleTo(undefined)).toEqual(["published"]);
+  });
+});
+
+describe("checkEventAccess — status gate", () => {
+  const publicEvent = (status: string) => ({
+    id: 1,
+    status,
+    audienceId: 1,
+    audience: { slug: "free-anyone" },
+  });
+  const admin = { id: 1, role: "admin", subscriptionStatus: "none", subscriptionExpiresAt: null };
+  const regular = { id: 2, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null };
+
+  it("allows an admin to access a draft event", async () => {
+    const r = await checkEventAccess(admin, publicEvent("draft"));
+    expect(r.allowed).toBe(true);
+  });
+  it("hides a draft event from a regular user", async () => {
+    const r = await checkEventAccess(regular, publicEvent("draft"));
+    expect(r.allowed).toBe(false);
+    expect((r as any).reason).toBe("STATUS_HIDDEN");
+  });
+  it("hides a draft event from an unauthenticated caller", async () => {
+    const r = await checkEventAccess(null, publicEvent("draft"));
+    expect(r.allowed).toBe(false);
+    expect((r as any).reason).toBe("STATUS_HIDDEN");
+  });
+  it("hides an archived event even from an admin", async () => {
+    const r = await checkEventAccess(admin, publicEvent("archived"));
+    expect(r.allowed).toBe(false);
+    expect((r as any).reason).toBe("STATUS_HIDDEN");
+  });
+  it("still allows a regular user to access a published public event", async () => {
+    const r = await checkEventAccess(regular, publicEvent("published"));
+    expect(r.allowed).toBe(true);
   });
 });

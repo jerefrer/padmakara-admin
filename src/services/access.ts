@@ -14,6 +14,7 @@ export const AUDIENCE_SLUGS = {
 } as const;
 
 export type AccessDeniedReason =
+  | "STATUS_HIDDEN"
   | "SUBSCRIPTION_REQUIRED"
   | "GROUP_MEMBERSHIP_REQUIRED"
   | "EVENT_ATTENDANCE_REQUIRED"
@@ -33,6 +34,7 @@ interface UserForAccess {
 
 interface EventForAccess {
   id: number;
+  status: string;
   audience?: { slug: string } | null;
   audienceId?: number | null;
 }
@@ -44,6 +46,17 @@ export function hasActiveSubscription(user: {
   if (user.subscriptionStatus !== "active") return false;
   if (user.subscriptionExpiresAt && user.subscriptionExpiresAt < new Date()) return false;
   return true;
+}
+
+/**
+ * Event statuses a caller of the given role may see in the app.
+ * Admins/superadmins see drafts; everyone else (incl. unauthenticated) sees
+ * only published. `archived` is never visible in the app.
+ */
+export function eventStatusVisibleTo(role: string | null | undefined): string[] {
+  return role === "admin" || role === "superadmin"
+    ? ["published", "draft"]
+    : ["published"];
 }
 
 /**
@@ -81,6 +94,12 @@ export async function checkEventAccess(
   user: UserForAccess | null,
   event: EventForAccess,
 ): Promise<AccessResult> {
+  // Status gate: runs before all other checks, including admin bypass.
+  // archived is hidden from everyone; draft is hidden from non-admins.
+  if (!eventStatusVisibleTo(user?.role).includes(event.status)) {
+    return { allowed: false, reason: "STATUS_HIDDEN" };
+  }
+
   const audienceSlug = event.audience?.slug;
 
   // Public events: anyone can access, no auth needed

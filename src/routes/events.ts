@@ -224,7 +224,7 @@ eventRoutes.use("/*", authMiddleware);
 async function requireEventAccess(
   userId: number,
   role: string,
-  event: { id: number; audience?: { slug: string } | null },
+  event: { id: number; status: string; audience?: { slug: string } | null },
 ) {
   if (role === "admin" || role === "superadmin") return;
 
