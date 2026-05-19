@@ -90,35 +90,6 @@ async function bearerToken(role: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-/**
- * Set up the common mock sequence for GET /api/groups/:id/events:
- *   1. retreatGroups.findFirst   → the group
- *   2. select().from().where()   → event links
- *   3. events.findMany           → event rows
- *   4. users.findFirst           → full user (for getFullUser)
- *
- * filterAccessibleEvents runs checkEventAccess per event. For "free-anyone"
- * audience, it returns { allowed: true } immediately without hitting the DB.
- */
-function setupGroupEventMocks(events: ReturnType<typeof makeMockEvent>[]) {
-  mockDb.query.retreatGroups.findFirst.mockResolvedValueOnce(mockGroup);
-
-  // The route uses db.select().from().where() for the eventRetreatGroups link lookup.
-  // We return one link per event id.
-  // as any: mockReturnValueOnce is typed from the base vi.fn() which infers never[] for
-  // the empty array initial return; the concrete shape { eventId: number }[] is correct.
-  mockDb.select.mockReturnValueOnce({
-    from: vi.fn(() => ({
-      where: vi.fn(() =>
-        Promise.resolve(events.map((e) => ({ eventId: e.id }))),
-      ),
-    })),
-  } as any);
-
-  mockDb.query.events.findMany.mockResolvedValueOnce(events);
-  mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user")); // overridden per test via mockResolvedValueOnce ordering
-}
-
 // ─── Draft visibility on GET /api/groups/:id/events ──────────────────────────
 
 const dialect = new PgDialect();
@@ -136,15 +107,13 @@ describe("GET /api/groups/:id/events — draft visibility", () => {
     ];
 
     mockDb.query.retreatGroups.findFirst.mockResolvedValueOnce(mockGroup);
-    // as any: mockReturnValueOnce is typed from the base vi.fn() which infers never[] for
-    // the empty array initial return; the concrete shape { eventId: number }[] is correct.
     mockDb.select.mockReturnValueOnce({
       from: vi.fn(() => ({
         where: vi.fn(() =>
           Promise.resolve(allEvents.map((e) => ({ eventId: e.id }))),
         ),
       })),
-    } as any);
+    } as any); // mockReturnValueOnce infers never[] for the base vi.fn(); the concrete mock shape is correct.
     mockDb.query.events.findMany.mockResolvedValueOnce(allEvents);
     // getFullUser calls db.query.users.findFirst; return an admin row
     mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("admin"));
@@ -171,6 +140,7 @@ describe("GET /api/groups/:id/events — draft visibility", () => {
       where?: unknown;
     };
     // Render to SQL so we can inspect it as a plain string without circular-ref issues.
+    // callArg.where is `unknown` from mock introspection; it is a drizzle SQL node at runtime.
     const adminRendered = dialect.sqlToQuery(adminCallArg?.where as SQL);
     // Admin path must include "draft" in the status filter
     expect(adminRendered.params).toContain("draft");
@@ -187,15 +157,13 @@ describe("GET /api/groups/:id/events — draft visibility", () => {
     ];
 
     mockDb.query.retreatGroups.findFirst.mockResolvedValueOnce(mockGroup);
-    // as any: mockReturnValueOnce is typed from the base vi.fn() which infers never[] for
-    // the empty array initial return; the concrete shape { eventId: number }[] is correct.
     mockDb.select.mockReturnValueOnce({
       from: vi.fn(() => ({
         where: vi.fn(() =>
           Promise.resolve(allEvents.map((e) => ({ eventId: e.id }))),
         ),
       })),
-    } as any);
+    } as any); // mockReturnValueOnce infers never[] for the base vi.fn(); the concrete mock shape is correct.
     // The DB mock doesn't enforce WHERE — return only the published event to
     // simulate what a real DB would do with a published-only filter.
     mockDb.query.events.findMany.mockResolvedValueOnce([
@@ -224,6 +192,7 @@ describe("GET /api/groups/:id/events — draft visibility", () => {
     const userCallArg = mockDb.query.events.findMany.mock.calls[0]![0] as {
       where?: unknown;
     };
+    // callArg.where is `unknown` from mock introspection; it is a drizzle SQL node at runtime.
     const userRendered = dialect.sqlToQuery(userCallArg?.where as SQL);
     // Regular-user path must NOT include "draft" in the status filter
     expect(userRendered.params).not.toContain("draft");
