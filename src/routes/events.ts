@@ -335,10 +335,10 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
 eventRoutes.get("/", async (c) => {
   const user = getUser(c);
 
-  // Admin users can see all published events
+  // Admin users can see published and draft events
   if (user.role === "admin" || user.role === "superadmin") {
     const data = await db.query.events.findMany({
-      where: eq(events.status, "published"),
+      where: inArray(events.status, ["published", "draft"]),
       orderBy: (r, { desc }) => [desc(r.startDate)],
       with: eventWith,
     });

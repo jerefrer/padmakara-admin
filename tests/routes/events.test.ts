@@ -8,6 +8,7 @@ const { mockDb, mockGenerateRetreatZip } = vi.hoisted(() => {
     query: {
       events: {
         findFirst: vi.fn(),
+        findMany: vi.fn(),
       },
       downloadRequests: {
         findFirst: vi.fn(),
@@ -330,5 +331,54 @@ describe("GET /api/events/:id — draft visibility", () => {
     // Assert
     expect(status).toBe(200);
     expect(body.id).toBe(42);
+  });
+});
+
+// ─── Admin draft list (GET /api/events) ──────────────────────────────────────
+
+describe("GET /api/events — admin draft list", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("includes draft events for an admin", async () => {
+    const draftEventId = 99;
+    const publishedEventId = 100;
+
+    // Arrange: two events returned by the DB — one draft, one published
+    const mockEvents = [
+      {
+        id: draftEventId,
+        status: "draft",
+        audience: { slug: "free-anyone" },
+        eventTeachers: [],
+        eventRetreatGroups: [],
+        eventPlaces: [],
+        eventPublications: [],
+        eventType: null,
+      },
+      {
+        id: publishedEventId,
+        status: "published",
+        audience: { slug: "free-anyone" },
+        eventTeachers: [],
+        eventRetreatGroups: [],
+        eventPlaces: [],
+        eventPublications: [],
+        eventType: null,
+      },
+    ];
+    mockDb.query.events.findMany.mockResolvedValueOnce(mockEvents);
+
+    // Act: authenticated as admin
+    const { status, body } = await testJson("/api/events", {
+      headers: await bearerToken("admin"),
+    });
+
+    // Assert
+    expect(status).toBe(200);
+    const ids = (body as Array<{ id: number }>).map((e) => e.id);
+    expect(ids).toContain(draftEventId);
+    expect(ids).toContain(publishedEventId);
   });
 });
