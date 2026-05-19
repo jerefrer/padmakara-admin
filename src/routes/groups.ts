@@ -6,7 +6,7 @@ import { eventRetreatGroups, events } from "../db/schema/retreats.ts";
 import { users } from "../db/schema/users.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
-import { filterAccessibleEvents } from "../services/access.ts";
+import { filterAccessibleEvents, eventStatusVisibleTo } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 
@@ -113,7 +113,7 @@ groupRoutes.get("/:id/events", async (c) => {
   const data = await db.query.events.findMany({
     where: and(
       inArray(events.id, eventIds),
-      eq(events.status, "published"),
+      inArray(events.status, eventStatusVisibleTo(user.role)),
     ),
     orderBy: (r, { desc }) => [desc(r.startDate)],
     with: {
