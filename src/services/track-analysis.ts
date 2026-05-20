@@ -105,3 +105,71 @@ function buildDeterministicEvent(folderName: string): AnalysisEvent {
     folderConventionOk,
   };
 }
+
+// ─── Chunker ──────────────────────────────────────────────────────────
+
+const SINGLE_PASS_THRESHOLD = 80;
+const CHUNK_TARGET = 60;
+const CHUNK_HARD_MAX = 80;
+
+export interface PartOf {
+  partIndex: number;
+  partTotal: number;
+  sessionRef: number;
+}
+
+export interface PlannedSession extends AnalysisSession {
+  partOf?: PartOf;
+}
+
+export interface Chunk {
+  isFirstChunk: boolean;
+  sessions: PlannedSession[];
+}
+
+export function planChunks(sessions: AnalysisSession[]): Chunk[] {
+  const totalTracks = sessions.reduce((n, s) => n + s.tracks.length, 0);
+  if (totalTracks <= SINGLE_PASS_THRESHOLD) {
+    return [{ isFirstChunk: true, sessions }];
+  }
+
+  const chunks: Chunk[] = [];
+  let current: PlannedSession[] = [];
+  let currentTotal = 0;
+  const flush = () => {
+    if (current.length > 0) {
+      chunks.push({ isFirstChunk: chunks.length === 0, sessions: current });
+      current = [];
+      currentTotal = 0;
+    }
+  };
+
+  for (const session of sessions) {
+    if (session.tracks.length > CHUNK_HARD_MAX) {
+      flush();
+      const partTotal = Math.ceil(session.tracks.length / CHUNK_TARGET);
+      const subSize = Math.ceil(session.tracks.length / partTotal);
+      for (let i = 0; i < partTotal; i++) {
+        const slice = session.tracks.slice(i * subSize, (i + 1) * subSize);
+        chunks.push({
+          isFirstChunk: chunks.length === 0,
+          sessions: [
+            {
+              ...session,
+              tracks: slice,
+              partOf: { partIndex: i, partTotal, sessionRef: session.sessionNumber },
+            },
+          ],
+        });
+      }
+      continue;
+    }
+    if (currentTotal + session.tracks.length > CHUNK_HARD_MAX) {
+      flush();
+    }
+    current.push(session);
+    currentTotal += session.tracks.length;
+  }
+  flush();
+  return chunks;
+}
