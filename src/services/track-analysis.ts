@@ -1,5 +1,14 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { parseTrackFilename, inferSessions, type ParsedTrack } from "./track-parser.ts";
 import type { AnalysisResult, AnalysisSession, AnalysisTrack, AnalysisEvent } from "./track-conventions.ts";
+import {
+  FOLDER_NAME_CONVENTION,
+  FILENAME_CONVENTION,
+  WRITING_RULES,
+  claudeChunkResponseSchema,
+  type ClaudeChunkResponse,
+} from "./track-conventions.ts";
+import { config } from "../config.ts";
 
 // ─── Input shape (shared with the orchestrator) ──────────────────────
 
@@ -172,4 +181,127 @@ export function planChunks(sessions: AnalysisSession[]): Chunk[] {
   }
   flush();
   return chunks;
+}
+
+// ─── Claude single-chunk call ──────────────────────────────────────────────
+
+export type ChunkErrorKind =
+  | "max_tokens"
+  | "invalid_json"
+  | "schema_violation"
+  | "rate_limit"
+  | "network"
+  | "timeout";
+
+export interface CallClaudeOptions {
+  folderName: string;
+  chunk: Chunk;
+  knownGroups: KnownGroup[];
+  knownTeachers: KnownTeacher[];
+  knownPlaces: KnownPlace[];
+  signal: AbortSignal;
+}
+
+export type ChunkResult =
+  | { ok: true; value: ClaudeChunkResponse }
+  | { ok: false; error: { kind: ChunkErrorKind; detail?: string } };
+
+const SYSTEM_PROMPT = `
+You assist an admin ingesting audio files for a Buddhist retreat centre.
+Each event has multiple sessions (one or more per day); each session has
+tracks (individual audio files).
+
+${FOLDER_NAME_CONVENTION}
+
+${FILENAME_CONVENTION}
+
+${WRITING_RULES}
+
+Output: a single JSON object matching the schema given in the user
+message. No prose, no markdown fences, just JSON.
+`.trim();
+
+function buildUserPrompt(opts: CallClaudeOptions): string {
+  const partialNotes = opts.chunk.sessions
+    .filter((s) => s.partOf)
+    .map(
+      (s) =>
+        `Note: this chunk contains part ${s.partOf!.partIndex + 1} of ${s.partOf!.partTotal} of session ${s.partOf!.sessionRef}. Do not infer session-level fields (titleEn, titlePt, sessionDate, timePeriod) — copy them as given. Correct only the tracks listed.`,
+    )
+    .join("\n");
+
+  const eventPart = opts.chunk.isFirstChunk
+    ? `Folder name received: ${opts.folderName}\n`
+    : `(Subsequent chunk — do not return event metadata. Set "event": null.)\n`;
+
+  return [
+    eventPart,
+    partialNotes && `\n${partialNotes}\n`,
+    "Known groups (id, abbreviation, names):",
+    JSON.stringify(opts.knownGroups, null, 2),
+    "Known teachers (id, abbreviation, name):",
+    JSON.stringify(opts.knownTeachers, null, 2),
+    "Known places (id, abbreviation, name):",
+    JSON.stringify(opts.knownPlaces, null, 2),
+    "\nDeterministic pre-pass for the tracks in this chunk:",
+    JSON.stringify(opts.chunk.sessions, null, 2),
+    "\nReturn JSON of shape:",
+    `{
+  "event": { titleEn, titlePt, startDate, endDate, matchedGroupIds, matchedTeacherIds, matchedPlaceIds, folderConventionOk } | null,
+  "sessions": [{ sessionNumber, titleEn, titlePt, sessionDate, timePeriod, tracks: [{ position, originalFilename, correctedFilename, displayTitleEn, displayTitlePt, corrections: [{ field, before, after, reason }] }] }],
+  "notes": [{ severity, message, relatedFilename? }]
+}`,
+    "\nFor every field you change relative to the deterministic pre-pass, add a corrections entry. For anything suspicious (orphan file, missing track number, deviation from the folder convention, ambiguous date), add a notes entry.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+let cachedClient: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!cachedClient) {
+    cachedClient = new Anthropic({ apiKey: config.anthropic.apiKey });
+  }
+  return cachedClient;
+}
+
+export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<ChunkResult> {
+  try {
+    const message = await getClient().messages.create(
+      {
+        model: config.anthropic.model,
+        max_tokens: 16000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: buildUserPrompt(opts) }],
+      },
+      { signal: opts.signal },
+    );
+
+    if (message.stop_reason === "max_tokens") {
+      return { ok: false, error: { kind: "max_tokens" } };
+    }
+
+    const textBlock = message.content.find((b: { type: string }) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    const text = textBlock?.text ?? "";
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      return { ok: false, error: { kind: "invalid_json", detail: (e as Error).message } };
+    }
+
+    const validated = claudeChunkResponseSchema.safeParse(parsed);
+    if (!validated.success) {
+      return { ok: false, error: { kind: "schema_violation", detail: validated.error.message } };
+    }
+    return { ok: true, value: validated.data };
+  } catch (e: unknown) {
+    const err = e as { status?: number; name?: string; message?: string };
+    if (err.status === 429) return { ok: false, error: { kind: "rate_limit" } };
+    if (err.name === "AbortError") return { ok: false, error: { kind: "timeout" } };
+    return { ok: false, error: { kind: "network", detail: err.message } };
+  }
 }

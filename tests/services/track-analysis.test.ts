@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { deterministicPrePass, planChunks, type Chunk } from "../../src/services/track-analysis.ts";
 import type { AnalysisSession } from "../../src/services/track-conventions.ts";
+
+// ─── Mock the Anthropic SDK ───────────────────────────────────────────────────
+
+// vi.hoisted() runs before the vi.mock factory (and before all imports), so
+// `mockCreate` is available in the factory closure.
+const mockCreate = vi.hoisted(() => vi.fn());
+
+vi.mock("@anthropic-ai/sdk", () => {
+  // Use a real class so Reflect.construct / instanceof checks work in Bun.
+  class MockAnthropic {
+    messages = { create: mockCreate };
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    constructor(_opts?: unknown) {}
+  }
+  return { default: MockAnthropic };
+});
 
 describe("deterministicPrePass", () => {
   it("groups tracks into sessions and returns AnalysisResult shape", () => {
@@ -143,5 +159,122 @@ describe("planChunks", () => {
     for (let i = 1; i < chunks.length; i++) {
       expect(chunks[i].isFirstChunk).toBe(false);
     }
+  });
+});
+
+// ─── callClaudeForChunk tests ─────────────────────────────────────────────────
+
+import {
+  callClaudeForChunk,
+  type CallClaudeOptions,
+} from "../../src/services/track-analysis.ts";
+
+function validResponseJSON() {
+  return JSON.stringify({
+    event: {
+      titleEn: "Test",
+      titlePt: "Teste",
+      startDate: "2025-04-12",
+      endDate: "2025-04-13",
+      matchedGroupIds: [],
+      matchedTeacherIds: [],
+      matchedPlaceIds: [],
+      folderConventionOk: true,
+    },
+    sessions: [],
+    notes: [],
+  });
+}
+
+function baseOptions(): CallClaudeOptions {
+  return {
+    folderName: "2025.04.12-13 - PP3",
+    chunk: { isFirstChunk: true, sessions: [] },
+    knownGroups: [],
+    knownTeachers: [],
+    knownPlaces: [],
+    signal: new AbortController().signal,
+  };
+}
+
+describe("callClaudeForChunk", () => {
+  beforeEach(() => mockCreate.mockReset());
+
+  it("returns parsed response on a successful end_turn", async () => {
+    mockCreate.mockResolvedValueOnce({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: validResponseJSON() }],
+    });
+    const r = await callClaudeForChunk(baseOptions());
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.event?.titleEn).toBe("Test");
+  });
+
+  it("returns error.kind=max_tokens when stop_reason is max_tokens", async () => {
+    mockCreate.mockResolvedValueOnce({
+      stop_reason: "max_tokens",
+      content: [{ type: "text", text: "{ partial" }],
+    });
+    const r = await callClaudeForChunk(baseOptions());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.kind).toBe("max_tokens");
+  });
+
+  it("returns error.kind=invalid_json on parse failure", async () => {
+    mockCreate.mockResolvedValueOnce({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "not JSON at all" }],
+    });
+    const r = await callClaudeForChunk(baseOptions());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.kind).toBe("invalid_json");
+  });
+
+  it("returns error.kind=schema_violation on Zod failure", async () => {
+    mockCreate.mockResolvedValueOnce({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: '{"event": null, "sessions": "nope", "notes": []}' }],
+    });
+    const r = await callClaudeForChunk(baseOptions());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.kind).toBe("schema_violation");
+  });
+
+  it("returns error.kind=rate_limit on 429", async () => {
+    const err = Object.assign(new Error("rate limited"), { status: 429 });
+    mockCreate.mockRejectedValueOnce(err);
+    const r = await callClaudeForChunk(baseOptions());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.kind).toBe("rate_limit");
+  });
+
+  it("returns error.kind=network on other thrown errors", async () => {
+    mockCreate.mockRejectedValueOnce(new Error("ECONNRESET"));
+    const r = await callClaudeForChunk(baseOptions());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.kind).toBe("network");
+  });
+
+  it("includes the partial-session instruction when chunk has partOf", async () => {
+    mockCreate.mockResolvedValueOnce({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: validResponseJSON() }],
+    });
+    const opts = baseOptions();
+    opts.chunk.sessions = [
+      {
+        sessionNumber: 1,
+        titleEn: "X",
+        titlePt: "X",
+        sessionDate: null,
+        timePeriod: null,
+        tracks: [],
+        partOf: { partIndex: 1, partTotal: 3, sessionRef: 1 },
+      },
+    ];
+    await callClaudeForChunk(opts);
+    const userPrompt = mockCreate.mock.calls[0][0].messages[0].content;
+    expect(userPrompt).toMatch(/part 2 of 3/i);
+    expect(userPrompt).toMatch(/do not infer session-level/i);
   });
 });
