@@ -257,6 +257,8 @@ function buildUserPrompt(opts: CallClaudeOptions): string {
     .join("\n");
 }
 
+// ─── Anthropic client ─────────────────────────────────────────────────
+
 let cachedClient: Anthropic | null = null;
 function getClient(): Anthropic {
   if (!cachedClient) {
@@ -304,4 +306,264 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
     if (err.name === "AbortError") return { ok: false, error: { kind: "timeout" } };
     return { ok: false, error: { kind: "network", detail: err.message } };
   }
+}
+
+// ─── Orchestrator ─────────────────────────────────────────────────────
+
+const PARALLEL_CONCURRENCY = 4;
+
+export type ProgressEvent =
+  | { type: "phase"; phase: "scanning" }
+  | { type: "phase"; phase: "deterministic_parse"; totalFiles: number; totalSessions: number }
+  | { type: "phase"; phase: "ai_analysis"; totalChunks: number }
+  | { type: "chunk_progress"; done: number; total: number }
+  | { type: "chunk_failed"; chunkIndex: number; reason: ChunkErrorKind; willFallback: true };
+
+async function withConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  // Process items with limited concurrency using a semaphore-style queue.
+  const results: R[] = new Array(items.length);
+  const queue = items.map((item, index) => ({ item, index }));
+  let active = 0;
+  let queueIndex = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    function runNext() {
+      while (active < limit && queueIndex < queue.length) {
+        const entry = queue[queueIndex++];
+        if (!entry) break;
+        active++;
+        worker(entry.item, entry.index).then(
+          (result) => {
+            results[entry.index] = result;
+            active--;
+            if (queueIndex < queue.length) {
+              runNext();
+            } else if (active === 0) {
+              resolve();
+            }
+          },
+          (err) => reject(err),
+        );
+      }
+      if (queue.length === 0) resolve();
+    }
+    runNext();
+  });
+
+  return results;
+}
+
+export async function analyzeFolder(
+  input: AnalyzeFolderInput,
+  onProgress: (e: ProgressEvent) => void,
+  signal: AbortSignal,
+): Promise<AnalysisResult> {
+  try {
+    return await analyzeFolderImpl(input, onProgress, signal);
+  } catch (_e) {
+    // Should never reach here — all errors are caught at the chunk level.
+    // Fallback: return a deterministic-only result.
+    const determ = deterministicPrePass(input);
+    return determ;
+  }
+}
+
+async function analyzeFolderImpl(
+  input: AnalyzeFolderInput,
+  onProgress: (e: ProgressEvent) => void,
+  signal: AbortSignal,
+): Promise<AnalysisResult> {
+  onProgress({ type: "phase", phase: "scanning" });
+
+  const determ = deterministicPrePass(input);
+  onProgress({
+    type: "phase",
+    phase: "deterministic_parse",
+    totalFiles: input.files.length,
+    totalSessions: determ.sessions.length,
+  });
+
+  const chunks = planChunks(determ.sessions);
+  onProgress({ type: "phase", phase: "ai_analysis", totalChunks: chunks.length });
+
+  let done = 0;
+  const chunkResults = await withConcurrency(chunks, PARALLEL_CONCURRENCY, async (chunk, index) => {
+    let result: ChunkResult;
+    try {
+      result = await runChunkWithRetries(input, chunk, signal);
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      result = { ok: false, error: { kind: "network", detail: err.message } };
+    }
+    done++;
+    onProgress({ type: "chunk_progress", done, total: chunks.length });
+    if (!result.ok) {
+      onProgress({
+        type: "chunk_failed",
+        chunkIndex: index,
+        reason: result.error.kind,
+        willFallback: true,
+      });
+    }
+    return { chunk, result };
+  });
+
+  return mergeChunkResults(determ, chunkResults);
+}
+
+async function runChunkWithRetries(
+  input: AnalyzeFolderInput,
+  chunk: Chunk,
+  signal: AbortSignal,
+): Promise<ChunkResult> {
+  const opts: CallClaudeOptions = {
+    folderName: input.folderName,
+    chunk,
+    knownGroups: input.knownGroups,
+    knownTeachers: input.knownTeachers,
+    knownPlaces: input.knownPlaces,
+    signal,
+  };
+
+  let result = await callClaudeForChunk(opts);
+  if (result.ok) return result;
+
+  if (result.error.kind === "rate_limit") {
+    for (const delay of [2000, 4000, 8000]) {
+      try {
+        await sleep(delay, signal);
+      } catch {
+        return result;
+      }
+      result = await callClaudeForChunk(opts);
+      if (result.ok) return result;
+      if (result.error.kind !== "rate_limit") break;
+    }
+    return result;
+  }
+
+  if (result.error.kind === "invalid_json" || result.error.kind === "schema_violation") {
+    result = await callClaudeForChunk(opts);
+    return result;
+  }
+
+  if (result.error.kind === "max_tokens") {
+    const half = Math.ceil(chunk.sessions.length / 2);
+    if (half === 0) return result;
+    const a: Chunk = { isFirstChunk: chunk.isFirstChunk, sessions: chunk.sessions.slice(0, half) };
+    const b: Chunk = { isFirstChunk: false, sessions: chunk.sessions.slice(half) };
+    const [ra, rb] = await Promise.all([
+      callClaudeForChunk({ ...opts, chunk: a }),
+      callClaudeForChunk({ ...opts, chunk: b }),
+    ]);
+    if (ra.ok && rb.ok) {
+      return {
+        ok: true,
+        value: {
+          event: ra.value.event ?? rb.value.event,
+          sessions: [...ra.value.sessions, ...rb.value.sessions],
+          notes: [...ra.value.notes, ...rb.value.notes],
+        },
+      };
+    }
+    return result;
+  }
+
+  if (result.error.kind === "network") {
+    result = await callClaudeForChunk(opts);
+    return result;
+  }
+
+  // timeout and any other kind: bubble up immediately
+  return result;
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(t);
+      reject(new Error("aborted"));
+    });
+  });
+}
+
+function structuredCloneSession(s: AnalysisSession): AnalysisSession {
+  return { ...s, tracks: s.tracks.map((t) => ({ ...t, corrections: [...t.corrections] })) };
+}
+
+function mergeChunkResults(
+  determ: AnalysisResult,
+  chunkResults: { chunk: Chunk; result: ChunkResult }[],
+): AnalysisResult {
+  const sessionsByRef = new Map<number, AnalysisSession>();
+  const notes: AnalysisResult["notes"] = [];
+  let event: AnalysisEvent = determ.event;
+  let chunksFailed = 0;
+  let aiTracks = 0;
+
+  for (const s of determ.sessions) sessionsByRef.set(s.sessionNumber, structuredCloneSession(s));
+
+  for (const { chunk, result } of chunkResults) {
+    if (!result.ok) {
+      chunksFailed++;
+      continue;
+    }
+    if (chunk.isFirstChunk && result.value.event) {
+      event = result.value.event;
+    }
+    for (const aiSession of result.value.sessions) {
+      const existing = sessionsByRef.get(aiSession.sessionNumber);
+      if (!existing) {
+        // AI returned a session we didn't know about deterministically — add it
+        sessionsByRef.set(aiSession.sessionNumber, aiSession);
+        aiTracks += aiSession.tracks.length;
+        continue;
+      }
+      // Merge AI tracks into the existing deterministic session
+      const aiTracksByPosition = new Map(aiSession.tracks.map((t) => [t.position, t]));
+      existing.tracks = existing.tracks.map((t) => {
+        const aiTrack = aiTracksByPosition.get(t.position);
+        if (aiTrack) {
+          aiTracks++;
+          return aiTrack;
+        }
+        return t;
+      });
+      // Only update session-level fields when this is not a partial chunk
+      const isPartial = chunk.sessions.find(
+        (s) => s.sessionNumber === aiSession.sessionNumber,
+      )?.partOf;
+      if (!isPartial) {
+        existing.titleEn = aiSession.titleEn;
+        existing.titlePt = aiSession.titlePt;
+        existing.sessionDate = aiSession.sessionDate;
+        existing.timePeriod = aiSession.timePeriod;
+      }
+    }
+    notes.push(...result.value.notes);
+  }
+
+  const sessions = Array.from(sessionsByRef.values()).sort(
+    (a, b) => a.sessionNumber - b.sessionNumber,
+  );
+
+  const totalTracks = determ.aiCoverage.totalTracks;
+
+  return {
+    aiCoverage: {
+      totalTracks,
+      tracksAnalyzedByAi: aiTracks,
+      tracksFromDeterministicFallback: totalTracks - aiTracks,
+      chunks: chunkResults.length,
+      chunksFailed,
+    },
+    event,
+    sessions,
+    notes,
+  };
 }

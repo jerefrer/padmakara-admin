@@ -278,3 +278,179 @@ describe("callClaudeForChunk", () => {
     expect(userPrompt).toMatch(/do not infer session-level/i);
   });
 });
+
+// ─── analyzeFolder orchestrator tests ────────────────────────────────────────
+
+import { analyzeFolder, type ProgressEvent } from "../../src/services/track-analysis.ts";
+
+describe("analyzeFolder orchestrator", () => {
+  beforeEach(() => mockCreate.mockReset());
+
+  it("returns deterministic-only result when all chunks fail", async () => {
+    // Use mockRejectedValueOnce twice (initial call + 1 network retry = 2 total).
+    // Permanent mockRejectedValue triggers a Bun 1.3.9 + Vitest 4.0.18 bug
+    // where the leftover rejection fires as unhandledRejection post-test.
+    mockCreate.mockRejectedValueOnce(new Error("ECONNRESET"));
+    mockCreate.mockRejectedValueOnce(new Error("ECONNRESET"));
+    const events: ProgressEvent[] = [];
+    const result = await analyzeFolder(
+      {
+        folderName: "2025.04.12 - PP3",
+        files: [
+          { relativePath: "01_a.mp3", sizeBytes: 1 },
+          { relativePath: "02_b.mp3", sizeBytes: 1 },
+        ],
+        knownGroups: [],
+        knownTeachers: [],
+        knownPlaces: [],
+      },
+      (e) => events.push(e),
+      new AbortController().signal,
+    );
+    expect(result.aiCoverage.tracksAnalyzedByAi).toBe(0);
+    expect(result.aiCoverage.tracksFromDeterministicFallback).toBe(2);
+    expect(result.aiCoverage.chunksFailed).toBeGreaterThan(0);
+    const phases = events.filter((e) => e.type === "phase").map((e) => (e as any).phase);
+    expect(phases).toContain("deterministic_parse");
+    expect(phases).toContain("ai_analysis");
+  });
+
+  it("uses Claude result when single-pass succeeds", async () => {
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            event: {
+              titleEn: "AI Title",
+              titlePt: "AI Título",
+              startDate: "2025-04-12",
+              endDate: "2025-04-12",
+              matchedGroupIds: [],
+              matchedTeacherIds: [],
+              matchedPlaceIds: [],
+              folderConventionOk: true,
+            },
+            sessions: [
+              {
+                sessionNumber: 1,
+                titleEn: "S1",
+                titlePt: "S1",
+                sessionDate: null,
+                timePeriod: null,
+                tracks: [
+                  {
+                    position: 0,
+                    originalFilename: "01_a.mp3",
+                    correctedFilename: "01_a.mp3",
+                    displayTitleEn: "A",
+                    displayTitlePt: "A",
+                    corrections: [
+                      { field: "displayTitlePt", before: "a", after: "A", reason: "case" },
+                    ],
+                  },
+                ],
+              },
+            ],
+            notes: [],
+          }),
+        },
+      ],
+    });
+    const result = await analyzeFolder(
+      {
+        folderName: "2025.04.12 - PP3",
+        files: [{ relativePath: "01_a.mp3", sizeBytes: 1 }],
+        knownGroups: [],
+        knownTeachers: [],
+        knownPlaces: [],
+      },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(result.event.titleEn).toBe("AI Title");
+    expect(result.aiCoverage.tracksAnalyzedByAi).toBe(1);
+    expect(result.aiCoverage.chunksFailed).toBe(0);
+    expect(result.sessions[0].tracks[0].corrections.length).toBe(1);
+  });
+
+  it("falls back per chunk: one chunk fails, other chunks keep AI corrections", async () => {
+    const files = Array.from({ length: 120 }, (_, i) => ({
+      relativePath: `${String(i + 1).padStart(2, "0")}_t.mp3`,
+      sizeBytes: 1,
+    }));
+    mockCreate
+      .mockResolvedValueOnce({
+        stop_reason: "end_turn",
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              event: {
+                titleEn: "T",
+                titlePt: "T",
+                startDate: null,
+                endDate: null,
+                matchedGroupIds: [],
+                matchedTeacherIds: [],
+                matchedPlaceIds: [],
+                folderConventionOk: true,
+              },
+              sessions: [],
+              notes: [],
+            }),
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("network"))
+      .mockRejectedValueOnce(new Error("network")) // retry also fails
+      .mockResolvedValue({
+        stop_reason: "end_turn",
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ event: null, sessions: [], notes: [] }),
+          },
+        ],
+      });
+
+    const result = await analyzeFolder(
+      {
+        folderName: "x",
+        files,
+        knownGroups: [],
+        knownTeachers: [],
+        knownPlaces: [],
+      },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(result.aiCoverage.chunks).toBeGreaterThan(1);
+    expect(result.aiCoverage.chunksFailed).toBe(1);
+    expect(result.aiCoverage.tracksAnalyzedByAi).toBeLessThan(120);
+  });
+
+  it("emits chunk_progress events as chunks complete", async () => {
+    const files = Array.from({ length: 120 }, (_, i) => ({
+      relativePath: `${String(i + 1).padStart(2, "0")}_t.mp3`,
+      sizeBytes: 1,
+    }));
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        { type: "text", text: JSON.stringify({ event: null, sessions: [], notes: [] }) },
+      ],
+    });
+    const events: ProgressEvent[] = [];
+    await analyzeFolder(
+      { folderName: "x", files, knownGroups: [], knownTeachers: [], knownPlaces: [] },
+      (e) => events.push(e),
+      new AbortController().signal,
+    );
+    const progress = events.filter((e) => e.type === "chunk_progress");
+    expect(progress.length).toBeGreaterThan(0);
+    const last = progress[progress.length - 1] as Extract<ProgressEvent, { type: "chunk_progress" }>;
+    expect(last.done).toBe(last.total);
+  });
+});
