@@ -273,12 +273,29 @@ Pipeline:
    sent to Claude as a hint in every chunk.
 
 2. **Decide single-pass vs chunked.** If `files.length <= 80`, one Claude
-   call with all files. Otherwise, chunk: walk sessions in order, packing
-   them into a chunk until adding the next session would push the chunk
-   past 60 tracks; then start a new chunk. A single session is never split
-   across two chunks. Result: chunks of 40–65 tracks typically. Only the
-   first chunk receives the folder name and is responsible for event-level
-   metadata; subsequent chunks return `event: null` and are merged in.
+   call with all files. Otherwise, chunk with a session-boundary
+   preference:
+   - Target chunk size: 60 tracks. Hard maximum: 80 tracks.
+   - Walk sessions in order. For each session:
+     - If the session alone exceeds the hard max (degenerate case — a
+       single session with too many tracks), split that session into
+       sub-chunks of ~60 tracks. Each sub-chunk is tagged
+       `{ sessionRef, partIndex, partTotal }` so the prompt can tell
+       Claude it's looking at a partial session.
+     - Otherwise, pack the session into the current chunk if it fits
+       under the hard max; if it would overflow, flush and start a new
+       chunk with this session.
+   - Result: chunks of 40–80 tracks typically; session boundaries are
+     respected whenever possible. Only the first chunk receives the
+     folder name and is responsible for event-level metadata; subsequent
+     chunks return `event: null` and are merged in.
+   - Partial-session chunks are prompted explicitly: "This chunk contains
+     part X/Y of session N. Use the deterministic pre-pass for
+     session-level fields; correct only the listed tracks." Per-track
+     corrections from each sub-chunk are merged by `sessionRef` +
+     position; if one sub-chunk fails and falls back, only its tracks
+     lose AI corrections — the other sub-chunks of the same session
+     keep theirs.
 
 3. **Claude calls.** Concurrency limit = 4 parallel. Each call:
    - `model: "claude-sonnet-4-6"`
@@ -465,7 +482,13 @@ Service:
 - Chunked mode: one chunk hits rate limit → backoff exhausted →
   deterministic fallback for that chunk only; other chunks' AI corrections
   preserved; `aiCoverage.chunksFailed === 1`.
-- Session boundaries never split across chunks (property test on chunker).
+- Session boundaries respected when sessions fit under hard max
+  (property test on chunker).
+- Degenerate case: single session with >80 tracks → split into sub-chunks
+  tagged with `partIndex`/`partTotal`/`sessionRef`. Merge recombines
+  sub-chunks of the same session in order.
+- Partial-session prompt instruction is included only for sub-chunks of
+  split sessions, not for whole-session chunks.
 - Group/teacher/place abbreviations resolved to DB IDs; unknown
   abbreviations produce no match (empty array) and a `notes` entry.
 
