@@ -56,7 +56,7 @@ import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
-import { SessionTrackTable, type TableValue } from "../components/SessionTrackTable";
+import { SessionTrackTable, type TableValue, type TableTrack } from "../components/SessionTrackTable";
 import { validateImportEvent } from "../utils/eventValidation";
 import {
   uploadTracks,
@@ -997,32 +997,59 @@ export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
 
 /* ───────────── Event Create ───────────── */
 
-/** Bridge EventCreate's InferredSession[] to the shared table's neutral model. */
+const stringArraysEqual = (a: string[], b: string[]): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
+
+/**
+ * Bridge EventCreate's `InferredSession[]` to the shared table's neutral
+ * model. A `WeakMap` keyed by `ParsedTrack` caches the produced `TableTrack`,
+ * so unchanged tracks keep their object identity across renders — that is
+ * what lets `<TrackRow memo>` skip a re-render when another row was edited.
+ * The reverse adapter below cooperates by returning the original `ParsedTrack`
+ * unchanged when no editable field actually changed; combined the two keep
+ * the cache hot.
+ */
+const tableTrackForParsedTrack = new WeakMap<ParsedTrack, TableTrack>();
+
 function sessionsToTableValue(sessions: InferredSession[]): TableValue {
   return {
     sessions: sessions.map((s) => ({
       titleEn: s.titleEn,
       sessionDate: s.date,
       timePeriod: s.timePeriod,
-      tracks: s.tracks.map((t) => ({
-        key: t.originalFilename,
-        originalFilename: t.originalFilename,
-        trackNumber: t.trackNumber,
-        title: t.title,
-        speaker: t.speaker,
-        languages: t.languages,
-        originalLanguage: t.originalLanguage,
-        isTranslation: t.isTranslation,
-        isPractice: t.isPractice ?? false,
-      })),
+      tracks: s.tracks.map((t) => {
+        let tt = tableTrackForParsedTrack.get(t);
+        if (!tt) {
+          tt = {
+            key: t.originalFilename,
+            originalFilename: t.originalFilename,
+            trackNumber: t.trackNumber,
+            title: t.title,
+            speaker: t.speaker,
+            languages: t.languages,
+            originalLanguage: t.originalLanguage,
+            isTranslation: t.isTranslation,
+            isPractice: t.isPractice ?? false,
+          };
+          tableTrackForParsedTrack.set(t, tt);
+        }
+        return tt;
+      }),
     })),
     ignored: [],
   };
 }
 
 /**
- * Merge table edits back into InferredSession[], preserving each ParsedTrack's
- * non-editable fields (File, mediaType, date, …) by key (the originalFilename).
+ * Merge table edits back into `InferredSession[]`, preserving each
+ * `ParsedTrack`'s non-editable fields (File, mediaType, date, …) by key (the
+ * originalFilename). When *no* editable field actually changed, the original
+ * `ParsedTrack` reference is returned unchanged so the forward adapter's
+ * `WeakMap` cache stays hot.
  */
 function tableValueToSessions(
   tv: TableValue,
@@ -1040,6 +1067,17 @@ function tableValueToSessions(
     tracks: s.tracks.map((t) => {
       const base = baseByKey.get(t.key);
       if (!base) throw new Error(`unknown track key ${t.key}`);
+      if (
+        base.trackNumber === t.trackNumber &&
+        base.title === t.title &&
+        base.speaker === t.speaker &&
+        stringArraysEqual(base.languages, t.languages) &&
+        base.originalLanguage === t.originalLanguage &&
+        base.isTranslation === t.isTranslation &&
+        (base.isPractice ?? false) === t.isPractice
+      ) {
+        return base;
+      }
       return {
         ...base,
         trackNumber: t.trackNumber,
