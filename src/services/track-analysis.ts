@@ -45,11 +45,17 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
   );
   const inferred = inferSessions(parsedTracks);
 
+  // The deterministic parser is monolingual: `InferredSession` has only
+  // `titleEn` and `ParsedTrack` has only `title`. We copy the same string
+  // into both EN and PT fallback slots; Claude is responsible for producing
+  // proper bilingual values when AI analysis succeeds.
   const sessions: AnalysisSession[] = inferred.map((s, idx) => ({
     sessionNumber: idx + 1,
     titleEn: s.titleEn,
     titlePt: s.titleEn,
     sessionDate: s.date ?? null,
+    // Parser types timePeriod as `string | null` but only ever emits
+    // "morning" or "afternoon" at runtime (see track-parser.ts).
     timePeriod: (s.timePeriod ?? null) as "morning" | "afternoon" | "evening" | null,
     tracks: s.tracks.map<AnalysisTrack>((t, pos) => ({
       position: pos,
