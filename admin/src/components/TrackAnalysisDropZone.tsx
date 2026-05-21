@@ -6,6 +6,7 @@ import Typography from "@mui/material/Typography";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import FolderIcon from "@mui/icons-material/FolderOpen";
 import CancelIcon from "@mui/icons-material/Cancel";
+import { useTranslate } from "react-admin";
 
 import {
   analyzeFolderStream,
@@ -70,21 +71,44 @@ function readEntryRecursive(
 
 // ─── Progress message formatting ─────────────────────────────────────────────
 
-function formatProgress(ev: ProgressEvent): string {
+function formatProgress(
+  ev: ProgressEvent,
+  t: (key: string) => string,
+): string {
   switch (ev.type) {
     case "phase":
-      if (ev.phase === "scanning") return "Scanning folder…";
-      if (ev.phase === "deterministic_parse")
-        return `Parsed ${ev.totalFiles} file${ev.totalFiles === 1 ? "" : "s"} across ${ev.totalSessions} session${ev.totalSessions === 1 ? "" : "s"}`;
-      if (ev.phase === "ai_analysis")
-        return `Starting AI analysis (${ev.totalChunks} chunk${ev.totalChunks === 1 ? "" : "s"})…`;
-      return "Processing…";
+      if (ev.phase === "scanning")
+        return t("padmakara.import.scanningFolder") || "Scanning folder…";
+      if (ev.phase === "deterministic_parse") {
+        return (
+          t("padmakara.import.parsedSummary") ||
+          "Parsed {{files}} files across {{sessions}} sessions"
+        )
+          .replace("{{files}}", String(ev.totalFiles))
+          .replace("{{sessions}}", String(ev.totalSessions));
+      }
+      if (ev.phase === "ai_analysis") {
+        return (
+          t("padmakara.import.aiAnalysisStarting") ||
+          "Starting AI analysis ({{chunks}} chunks)…"
+        )
+          .replace("{{chunks}}", String(ev.totalChunks));
+      }
+      return t("padmakara.import.processing") || "Processing…";
     case "chunk_progress":
-      return `Analysing… (${ev.done}/${ev.total} chunks done)`;
+      return (
+        t("padmakara.import.chunkProgress") ||
+        "Analysing… ({{done}}/{{total}} chunks done)"
+      )
+        .replace("{{done}}", String(ev.done))
+        .replace("{{total}}", String(ev.total));
     case "chunk_failed":
-      return `Chunk ${ev.chunkIndex + 1} failed — using fallback`;
+      return (
+        t("padmakara.import.chunkFailed") ||
+        "Chunk {{index}} failed — using fallback"
+      ).replace("{{index}}", String(ev.chunkIndex + 1));
     default:
-      return "Working…";
+      return t("padmakara.import.working") || "Working…";
   }
 }
 
@@ -119,6 +143,7 @@ export function TrackAnalysisDropZone({
   fileCount,
   folderName,
 }: TrackAnalysisDropZoneProps) {
+  const t = useTranslate();
   const [phase, setPhase] = useState<DropZonePhase>({ kind: "idle" });
   const [isDragOver, setIsDragOver] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -198,10 +223,14 @@ export function TrackAnalysisDropZone({
 
       const ac = new AbortController();
       abortRef.current = ac;
-      setPhase({ kind: "analysing", progressText: "Starting analysis…" });
+      setPhase({
+        kind: "analysing",
+        progressText:
+          t("padmakara.import.startingAnalysis") || "Starting analysis…",
+      });
 
       const onProgress = (ev: ProgressEvent) => {
-        setPhase({ kind: "analysing", progressText: formatProgress(ev) });
+        setPhase({ kind: "analysing", progressText: formatProgress(ev, t) });
       };
 
       try {
@@ -278,7 +307,7 @@ export function TrackAnalysisDropZone({
           <CircularProgress size={32} />
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {phase.kind === "scanning"
-              ? "Scanning audio files…"
+              ? t("padmakara.import.scanningFiles") || "Scanning audio files…"
               : phase.progressText}
           </Typography>
           {phase.kind === "analysing" && (
@@ -289,7 +318,7 @@ export function TrackAnalysisDropZone({
               onClick={handleCancel}
               sx={{ mt: 0.5 }}
             >
-              Cancel
+              {t("padmakara.import.cancel") || "Cancel"}
             </Button>
           )}
         </Box>
@@ -308,10 +337,12 @@ export function TrackAnalysisDropZone({
           <AudioFileIcon sx={{ color: "success.main", fontSize: 24 }} />
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             <strong>
-              {fileCount} file{fileCount === 1 ? "" : "s"} from{" "}
-              {folderName ?? "folder"}
-            </strong>{" "}
-            — drop a new folder to replace
+              {(t("padmakara.import.filesLoadedSummary") ||
+                "{{count}} files from {{folder}}")
+                .replace("{{count}}", String(fileCount))
+                .replace("{{folder}}", folderName ?? "folder")}
+            </strong>
+            {t("padmakara.import.dropToReplace") || " — drop a new folder to replace"}
           </Typography>
         </Box>
       )}
@@ -331,10 +362,11 @@ export function TrackAnalysisDropZone({
             variant="body1"
             sx={{ fontWeight: 600, color: "text.primary", mb: 0.5 }}
           >
-            Drop a retreat folder here
+            {t("padmakara.import.dropPrompt") || "Drop a retreat folder here"}
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            MP3, WAV, M4A, FLAC, OGG — AI will analyse naming and structure
+            {t("padmakara.import.dropPromptHint") ||
+              "MP3, WAV, M4A, FLAC, OGG — AI will analyse naming and structure"}
           </Typography>
         </>
       )}
