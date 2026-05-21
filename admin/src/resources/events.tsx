@@ -1238,6 +1238,15 @@ export const EventCreate = () => {
     setTrackCorrections(new Map());
     setScannedFiles([]);
     setFolderName(null);
+    // Also clear AI-derived form metadata and lookups so the next folder
+    // starts from a clean slate. Otherwise stale teacher/group selections
+    // from the previous folder linger silently.
+    setForm({ ...EMPTY_FORM });
+    setSelectedTeachers([]);
+    setSelectedGroups([]);
+    setSelectedPlaces([]);
+    setSelectedEventType(null);
+    setSelectedAudience(null);
   }, []);
 
   /** Upload transcript PDFs after the event has been created (so we have eventCode). */
