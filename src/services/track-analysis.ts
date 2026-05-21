@@ -191,7 +191,9 @@ export type ChunkErrorKind =
   | "schema_violation"
   | "rate_limit"
   | "network"
-  | "aborted";
+  | "aborted"
+  | "insufficient_credit"
+  | "auth";
 
 export interface CallClaudeOptions {
   folderName: string;
@@ -324,6 +326,15 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
     });
     if (err.status === 429) return { ok: false, error: { kind: "rate_limit" } };
     if (err.name === "AbortError") return { ok: false, error: { kind: "aborted" } };
+    // Specific 400 cases that are not transient — surface them clearly so
+    // the admin sees a useful message instead of a generic "AI unavailable".
+    const msg = err.message ?? "";
+    if (err.status === 400 && /credit balance is too low/i.test(msg)) {
+      return { ok: false, error: { kind: "insufficient_credit", detail: msg } };
+    }
+    if (err.status === 401 || err.status === 403) {
+      return { ok: false, error: { kind: "auth", detail: msg } };
+    }
     return { ok: false, error: { kind: "network", detail: err.message } };
   }
 }
@@ -431,6 +442,27 @@ async function analyzeFolderImpl(
     }
     return { chunk, result };
   });
+
+  // Fatal-by-design errors: if every chunk failed for the same blocking
+  // reason (no credit, bad API key, etc.), don't silently fall back to the
+  // deterministic parser — throw so the admin sees a clear, actionable
+  // message instead of "AI unavailable for some tracks".
+  const allFailed = chunkResults.every((r) => !r.result.ok);
+  if (allFailed) {
+    const kinds = new Set(
+      chunkResults.map((r) => (r.result.ok ? null : r.result.error.kind)).filter(Boolean),
+    );
+    if (kinds.size === 1 && kinds.has("insufficient_credit")) {
+      throw new Error(
+        "Anthropic credit balance is too low. Top up at https://console.anthropic.com/settings/billing and retry.",
+      );
+    }
+    if (kinds.size === 1 && kinds.has("auth")) {
+      throw new Error(
+        "Anthropic API key is invalid or unauthorized. Check ANTHROPIC_API_KEY in the server env.",
+      );
+    }
+  }
 
   return mergeChunkResults(determ, chunkResults);
 }
