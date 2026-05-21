@@ -23,8 +23,11 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
+import Tooltip from "@mui/material/Tooltip";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import { useNotify } from "react-admin";
 import { authFetch } from "../utils/authFetch";
+import type { TrackCorrection } from "../utils/analyzeFolder";
 
 /**
  * A track as the table edits it — no File / no importFileId; those stay in
@@ -56,6 +59,12 @@ export interface TableValue {
   ignored: TableTrack[];
 }
 
+/**
+ * Map from corrected filename → corrections that were applied to that track.
+ * Provided by the AI analysis flow; undefined in all other uses.
+ */
+export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
+
 const TIME_PERIODS = ["morning", "afternoon"];
 const LANGUAGE_OPTIONS = [
   { value: "en", label: "EN" },
@@ -75,6 +84,12 @@ interface SessionTrackTableProps {
   enablePractice?: boolean;
   /** Show the AI title-cleanup box (POSTs /api/admin/upload/rename-tracks). */
   enableAiRename?: boolean;
+  /**
+   * AI-analysis corrections keyed by corrected filename. When provided,
+   * tracks with corrections show a small badge in the title cell.
+   * When undefined the component renders identically to before (backward-compat).
+   */
+  trackCorrections?: TrackCorrectionsMap;
 }
 
 interface AiSuggestion {
@@ -96,6 +111,7 @@ export function SessionTrackTable({
   enableIgnore = false,
   enablePractice = false,
   enableAiRename = false,
+  trackCorrections,
 }: SessionTrackTableProps) {
   const notify = useNotify();
   const [ignoredOpen, setIgnoredOpen] = useState(false);
@@ -371,18 +387,46 @@ export function SessionTrackTable({
 
                     {/* Title (editable) */}
                     <TableCell sx={{ py: 0.5 }}>
-                      <TextField
-                        size="small"
-                        variant="standard"
-                        fullWidth
-                        value={track.title}
-                        onChange={(e) =>
-                          update((d) => {
-                            const t = d.sessions[sIdx]?.tracks[tIdx];
-                            if (t) t.title = e.target.value;
-                          })
-                        }
-                      />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                        <TextField
+                          size="small"
+                          variant="standard"
+                          fullWidth
+                          value={track.title}
+                          onChange={(e) =>
+                            update((d) => {
+                              const t = d.sessions[sIdx]?.tracks[tIdx];
+                              if (t) t.title = e.target.value;
+                            })
+                          }
+                        />
+                        {(() => {
+                          const corr = trackCorrections?.get(track.originalFilename);
+                          if (!corr || corr.length === 0) return null;
+                          const tipLines = corr.map(
+                            (c) => `${c.field}: "${c.before}" → "${c.after}" — ${c.reason}`,
+                          );
+                          return (
+                            <Tooltip
+                              title={
+                                <Box component="span" sx={{ whiteSpace: "pre-line" }}>
+                                  {tipLines.join("\n")}
+                                </Box>
+                              }
+                              arrow
+                            >
+                              <Chip
+                                icon={<AutoFixHighIcon />}
+                                label={`${corr.length}`}
+                                color="warning"
+                                size="small"
+                                variant="outlined"
+                                sx={{ flexShrink: 0, height: 22, "& .MuiChip-label": { px: 0.5, fontSize: "0.65rem" }, "& .MuiChip-icon": { fontSize: "0.8rem" } }}
+                              />
+                            </Tooltip>
+                          );
+                        })()}
+                      </Box>
                     </TableCell>
 
                     {/* Speaker (editable combobox) */}

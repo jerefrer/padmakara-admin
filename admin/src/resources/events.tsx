@@ -51,12 +51,14 @@ import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
 
 import { TrackDropZone } from "../components/TrackDropZone";
+import { TrackAnalysisDropZone } from "../components/TrackAnalysisDropZone";
+import { AnalysisReport } from "../components/AnalysisReport";
 import { SessionPreview } from "../components/SessionPreview";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
-import { SessionTrackTable, type TableValue } from "../components/SessionTrackTable";
+import { SessionTrackTable, type TableValue, type TrackCorrectionsMap } from "../components/SessionTrackTable";
 import { validateImportEvent } from "../utils/eventValidation";
 import {
   uploadTracks,
@@ -70,7 +72,9 @@ import {
   type InferredSession,
   type FolderMetadata,
   inferSessions,
+  parseTrackFile,
 } from "../utils/trackParser";
+import type { AnalysisResult, ScannedFile, TrackCorrection } from "../utils/analyzeFolder";
 
 /** Convert a human-readable date ("April 17") or ISO date to YYYY-MM-DD using event year */
 const MONTH_MAP: Record<string, string> = {
@@ -997,6 +1001,70 @@ export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
 
 /* ───────────── Event Create ───────────── */
 
+/**
+ * Convert an AnalysisResult + ScannedFile[] into InferredSession[] and a
+ * corrections map. The corrections map is keyed by corrected filename
+ * (which becomes the canonical `originalFilename` stored in the DB).
+ */
+function analysisToInferredSessions(
+  result: AnalysisResult,
+  scannedFiles: ScannedFile[],
+): { sessions: InferredSession[]; corrections: TrackCorrectionsMap } {
+  // Index File objects by their original filename (basename of relativePath).
+  const filesByOriginalName = new Map<string, File>();
+  for (const sf of scannedFiles) {
+    const idx = sf.relativePath.lastIndexOf("/");
+    const basename = idx === -1 ? sf.relativePath : sf.relativePath.slice(idx + 1);
+    filesByOriginalName.set(basename, sf.file);
+  }
+
+  const corrections: TrackCorrectionsMap = new Map<string, TrackCorrection[]>();
+
+  const sessions: InferredSession[] = result.sessions.map((s) => {
+    const tracks: ParsedTrack[] = s.tracks.map((t) => {
+      const file = filesByOriginalName.get(t.originalFilename);
+      if (!file) {
+        throw new Error(
+          `AI returned an unknown filename: "${t.originalFilename}". ` +
+          `Available files: ${[...filesByOriginalName.keys()].join(", ")}`,
+        );
+      }
+
+      // Parse the original file to recover structural metadata
+      // (track number, speaker, languages, etc.), then override with AI values.
+      const parsed = parseTrackFile(file);
+
+      if (t.corrections.length > 0) {
+        // Key by corrected filename so SessionTrackTable can look it up via
+        // track.originalFilename (which we set to correctedFilename below).
+        corrections.set(t.correctedFilename, t.corrections);
+      }
+
+      return {
+        ...parsed,
+        // The AI display title (PT preferred; EN fallback; parser value as last resort).
+        title: t.displayTitlePt || t.displayTitleEn || parsed.title,
+        // The corrected filename becomes the canonical filename — used for S3
+        // uploads and stored in the DB. The key for SessionTrackTable is also
+        // this value (via the `key` field set in sessionsToTableValue).
+        originalFilename: t.correctedFilename,
+        // Keep the File reference from the original scan (unchanged).
+        file,
+      } satisfies ParsedTrack;
+    });
+
+    return {
+      sessionNumber: s.sessionNumber,
+      date: s.sessionDate,
+      timePeriod: s.timePeriod,
+      titleEn: s.titleEn,
+      tracks,
+    } satisfies InferredSession;
+  });
+
+  return { sessions, corrections };
+}
+
 /** Bridge EventCreate's InferredSession[] to the shared table's neutral model. */
 function sessionsToTableValue(sessions: InferredSession[]): TableValue {
   return {
@@ -1069,6 +1137,11 @@ export const EventCreate = () => {
   const cancelUploadRef = useRef<(() => void) | null>(null);
   const [transcriptUploads, setTranscriptUploads] = useState<TranscriptUploadState[]>([]);
 
+  // AI analysis state
+  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [scannedFiles, setScannedFiles] = useState<ScannedFile[]>([]);
+  const [trackCorrections, setTrackCorrections] = useState<TrackCorrectionsMap>(new Map());
+
   const { allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
   const [selectedTeachers, setSelectedTeachers] = useState<TeacherOption[]>([]);
   const [selectedPlaces, setSelectedPlaces] = useState<PlaceOption[]>([]);
@@ -1106,48 +1179,66 @@ export const EventCreate = () => {
     setForm((prev) => ({ ...prev, eventCode: parts.join("-") }));
   }, [form.startDate, form.endDate, selectedEventType, selectedTeachers, selectedPlaces, selectedGroups]);
 
-  const handleFolderDropped = useCallback(
-    (meta: FolderMetadata, tracks: ParsedTrack[]) => {
-      setParsedTracks(tracks);
-      setSessions(inferSessions(tracks));
-      setFolderName(meta.groupSlug ? `${meta.teacherAbbrev ?? ""} – ${meta.groupSlug}` : meta.defaultTitle);
+  const handleAnalyzed = useCallback(
+    (result: AnalysisResult, files: ScannedFile[], droppedFolderName: string) => {
+      let inferredSessions: InferredSession[];
+      let newCorrections: TrackCorrectionsMap;
+
+      try {
+        const out = analysisToInferredSessions(result, files);
+        inferredSessions = out.sessions;
+        newCorrections = out.corrections;
+      } catch (err) {
+        notify(`Failed to process AI analysis: ${(err as Error).message}`, { type: "error" });
+        return;
+      }
+
+      setAnalysis(result);
+      setScannedFiles(files);
+      setParsedTracks(inferredSessions.flatMap((s) => s.tracks));
+      setSessions(inferredSessions);
+      setFolderName(droppedFolderName);
+      setTrackCorrections(newCorrections);
+
       setForm((prev) => ({
         ...prev,
-        titleEn: prev.titleEn || meta.defaultTitle,
-        titlePt: prev.titlePt || meta.defaultTitlePt,
-        startDate: prev.startDate || meta.startDate || "",
-        endDate: prev.endDate || meta.endDate || "",
+        titleEn: prev.titleEn || result.event.titleEn || "",
+        titlePt: prev.titlePt || result.event.titlePt || "",
+        startDate: prev.startDate || result.event.startDate || "",
+        endDate: prev.endDate || result.event.endDate || "",
       }));
-      const abbrevs = new Set<string>();
-      if (meta.teacherAbbrev) abbrevs.add(meta.teacherAbbrev.toUpperCase());
-      for (const track of tracks) {
-        if (track.speaker) abbrevs.add(track.speaker.toUpperCase());
+
+      if (result.event.matchedTeacherIds.length > 0 && allTeachers.length > 0) {
+        const ids = new Set(result.event.matchedTeacherIds.map(Number));
+        const matched = allTeachers.filter((t) => ids.has(t.id));
+        if (matched.length > 0) setSelectedTeachers((prev) => (prev.length === 0 ? matched : prev));
       }
-      if (abbrevs.size > 0 && allTeachers.length > 0) {
-        const matched = allTeachers.filter((t) => abbrevs.has(t.abbreviation.toUpperCase()));
-        setSelectedTeachers((prev) => (prev.length === 0 ? matched : prev));
+      if (result.event.matchedGroupIds.length > 0 && allGroups.length > 0) {
+        const ids = new Set(result.event.matchedGroupIds.map(Number));
+        const matched = allGroups.filter((g) => ids.has(g.id));
+        if (matched.length > 0) setSelectedGroups((prev) => (prev.length === 0 ? matched : prev));
       }
-      if (meta.groupSlug && allGroups.length > 0) {
-        const slug = meta.groupSlug.toLowerCase();
-        const matched = allGroups.filter(
-          (g) =>
-            g.namePt?.toLowerCase().includes(slug) ||
-            g.nameEn.toLowerCase().includes(slug) ||
-            g.slug.toLowerCase() === slug.replace(/\s+/g, "-"),
-        );
-        if (matched.length > 0) {
-          setSelectedGroups((prev) => (prev.length === 0 ? matched : prev));
-          const parallelRetreats = allEventTypes.find((et) => et.abbreviation === "RET");
-          if (parallelRetreats) {
-            setSelectedEventType((prev) => prev ?? parallelRetreats);
-            const retreatGroupMembers = allAudiences.find((a) => a.nameEn === "Retreat group members");
-            if (retreatGroupMembers) setSelectedAudience((prev) => prev ?? retreatGroupMembers);
-          }
-        }
+      if (result.event.matchedPlaceIds.length > 0 && allPlaces.length > 0) {
+        const ids = new Set(result.event.matchedPlaceIds.map(Number));
+        const matched = allPlaces.filter((p) => ids.has(p.id));
+        if (matched.length > 0) setSelectedPlaces((prev) => (prev.length === 0 ? matched : prev));
       }
     },
-    [allTeachers, allGroups, allEventTypes, allAudiences],
+    [allTeachers, allGroups, allPlaces, notify],
   );
+
+  /**
+   * Reset the dropzone so the admin can re-drop the folder.
+   * Future improvement: in-place retry from cached scannedFiles.
+   */
+  const handleRetryAi = useCallback(() => {
+    setAnalysis(null);
+    setSessions([]);
+    setParsedTracks([]);
+    setTrackCorrections(new Map());
+    setScannedFiles([]);
+    setFolderName(null);
+  }, []);
 
   /** Upload transcript PDFs after the event has been created (so we have eventCode). */
   const handleTranscriptFilesDropped = useCallback(
@@ -1315,7 +1406,14 @@ export const EventCreate = () => {
 
       {!hasFolder && (
         <Paper sx={{ p: 3 }}>
-          <TrackDropZone onFolderDropped={handleFolderDropped} fileCount={0} folderName={null} />
+          <TrackAnalysisDropZone
+            onAnalyzed={handleAnalyzed}
+            onError={(err) => notify(err.message, { type: "error" })}
+            authToken={localStorage.getItem("accessToken") ?? ""}
+            apiBase="/api"
+            fileCount={0}
+            folderName={null}
+          />
         </Paper>
       )}
 
@@ -1337,6 +1435,15 @@ export const EventCreate = () => {
             transcriptCount={0}
           />
 
+          {/* AI analysis report (degradation banner + notes) */}
+          {analysis && (
+            <AnalysisReport
+              notes={analysis.notes}
+              aiCoverage={analysis.aiCoverage}
+              onRetryAi={handleRetryAi}
+            />
+          )}
+
           {/* Review & edit the parsed tracks/sessions before saving */}
           <SessionTrackTable
             value={sessionsToTableValue(sessions)}
@@ -1344,6 +1451,7 @@ export const EventCreate = () => {
             teachers={allTeachers}
             enablePractice
             enableAiRename
+            trackCorrections={trackCorrections}
           />
 
           {/* 6.1 — Transcript upload (allowed before or after save; eventCode needed) */}
