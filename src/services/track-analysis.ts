@@ -269,7 +269,13 @@ function getClient(): Anthropic {
 
 export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<ChunkResult> {
   try {
-    const message = await getClient().messages.create(
+    // We use `messages.stream()` rather than `messages.create()` because the
+    // Anthropic SDK refuses non-streaming calls when `max_tokens` is large
+    // enough that the response could plausibly exceed 10 minutes. With
+    // max_tokens=32000 this guardrail trips. `.finalMessage()` returns the
+    // same Message shape once streaming completes, so the rest of the code
+    // below is unchanged.
+    const stream = getClient().messages.stream(
       {
         model: config.anthropic.model,
         // Sonnet 4.6 supports up to 64k output tokens. We use 32k as a safety
@@ -283,6 +289,7 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
       },
       { signal: opts.signal },
     );
+    const message = await stream.finalMessage();
 
     if (message.stop_reason === "max_tokens") {
       return { ok: false, error: { kind: "max_tokens" } };

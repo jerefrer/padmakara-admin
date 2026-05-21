@@ -10,8 +10,16 @@ const mockCreate = vi.hoisted(() => vi.fn());
 
 vi.mock("@anthropic-ai/sdk", () => {
   // Use a real class so Reflect.construct / instanceof checks work in Bun.
+  // The service calls `client.messages.stream(opts).finalMessage()`. We model
+  // that by having `stream()` return an object whose `finalMessage()` forwards
+  // to `mockCreate(opts)` — tests can keep using mockCreate.mockResolvedValue
+  // / mockRejectedValue exactly as before.
   class MockAnthropic {
-    messages = { create: mockCreate };
+    messages = {
+      stream: (...args: unknown[]) => ({
+        finalMessage: () => mockCreate(...args),
+      }),
+    };
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(_opts?: unknown) {}
   }
