@@ -216,33 +216,60 @@ export const MigrationShow = () => (
   </Show>
 );
 
-/** Bridge a ProposedStructure to the shared table's neutral model. */
+const stringArraysEqual = (a: string[], b: string[]): boolean => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
+
+/**
+ * Bridge a `ProposedStructure` to the shared table's neutral model. A
+ * `WeakMap` keyed by `ProposedTrack` caches the produced `TableTrack`, so
+ * unchanged tracks keep their object identity across renders — that is what
+ * lets `<TrackRow memo>` skip a re-render when another row was edited. The
+ * reverse adapter below cooperates by returning the original `ProposedTrack`
+ * unchanged when no editable field actually changed; combined the two keep
+ * the cache hot.
+ */
+const tableTrackForProposedTrack = new WeakMap<ProposedTrack, TableTrack>();
+
+function buildTableTrack(t: ProposedTrack): TableTrack {
+  let tt = tableTrackForProposedTrack.get(t);
+  if (!tt) {
+    tt = {
+      key: String(t.importFileId),
+      originalFilename: t.originalFilename,
+      trackNumber: t.trackNumber,
+      title: t.title,
+      speaker: t.speaker,
+      languages: t.languages,
+      originalLanguage: t.originalLanguage,
+      isTranslation: t.isTranslation,
+      isPractice: false,
+    };
+    tableTrackForProposedTrack.set(t, tt);
+  }
+  return tt;
+}
+
 function structureToTableValue(s: ProposedStructure): TableValue {
-  const toTrack = (t: ProposedTrack): TableTrack => ({
-    key: String(t.importFileId),
-    originalFilename: t.originalFilename,
-    trackNumber: t.trackNumber,
-    title: t.title,
-    speaker: t.speaker,
-    languages: t.languages,
-    originalLanguage: t.originalLanguage,
-    isTranslation: t.isTranslation,
-    isPractice: false,
-  });
   return {
     sessions: s.sessions.map((sess) => ({
       titleEn: sess.titleEn,
       sessionDate: sess.sessionDate,
       timePeriod: sess.timePeriod,
-      tracks: sess.tracks.map(toTrack),
+      tracks: sess.tracks.map(buildTableTrack),
     })),
-    ignored: (s.ignored ?? []).map(toTrack),
+    ignored: (s.ignored ?? []).map(buildTableTrack),
   };
 }
 
 /**
  * Merge table edits back into a ProposedStructure, preserving event +
- * transcripts and each ProposedTrack's importFileId by key.
+ * transcripts and each ProposedTrack's importFileId by key. When *no*
+ * editable field actually changed, the original `ProposedTrack` reference is
+ * returned unchanged so the forward adapter's WeakMap cache stays hot.
  */
 function tableValueToStructure(
   tv: TableValue,
@@ -258,6 +285,16 @@ function tableValueToStructure(
   const toProposed = (t: TableTrack): ProposedTrack => {
     const base = baseByKey.get(t.key);
     if (!base) throw new Error(`unknown track key ${t.key}`);
+    if (
+      base.trackNumber === t.trackNumber &&
+      base.title === t.title &&
+      base.speaker === t.speaker &&
+      stringArraysEqual(base.languages, t.languages) &&
+      base.originalLanguage === t.originalLanguage &&
+      base.isTranslation === t.isTranslation
+    ) {
+      return base;
+    }
     return {
       ...base,
       trackNumber: t.trackNumber,
