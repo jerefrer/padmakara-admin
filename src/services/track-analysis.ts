@@ -297,16 +297,24 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
     try {
       parsed = JSON.parse(text);
     } catch (e) {
+      console.error("[track-analysis] invalid JSON from Claude:", text.slice(0, 500));
       return { ok: false, error: { kind: "invalid_json", detail: (e as Error).message } };
     }
 
     const validated = claudeChunkResponseSchema.safeParse(parsed);
     if (!validated.success) {
+      console.error("[track-analysis] Zod validation failed:", validated.error.message);
+      console.error("[track-analysis] payload was:", JSON.stringify(parsed).slice(0, 1000));
       return { ok: false, error: { kind: "schema_violation", detail: validated.error.message } };
     }
     return { ok: true, value: validated.data };
   } catch (e: unknown) {
     const err = e as { status?: number; name?: string; message?: string };
+    console.error("[track-analysis] Claude call threw:", {
+      name: err.name,
+      status: err.status,
+      message: err.message,
+    });
     if (err.status === 429) return { ok: false, error: { kind: "rate_limit" } };
     if (err.name === "AbortError") return { ok: false, error: { kind: "aborted" } };
     return { ok: false, error: { kind: "network", detail: err.message } };

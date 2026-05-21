@@ -43,7 +43,14 @@ export function AnalysisReport({ notes, aiCoverage, onRetryAi }: AnalysisReportP
           icon={<AutoFixHighIcon />}
           action={
             onRetryAi ? (
-              <Button color="inherit" size="small" onClick={onRetryAi}>
+              <Button
+                variant="contained"
+                color="warning"
+                size="small"
+                onClick={onRetryAi}
+                startIcon={<AutoFixHighIcon />}
+                sx={{ alignSelf: "center", whiteSpace: "nowrap" }}
+              >
                 {t("padmakara.import.retryAi") || "Retry AI analysis"}
               </Button>
             ) : undefined

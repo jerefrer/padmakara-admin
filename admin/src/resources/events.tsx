@@ -1469,7 +1469,17 @@ export const EventCreate = () => {
 
       {hasFolder && !uploadProgress && (
         <>
-          {/* Event details first — the track table replaces the old
+          {/* AI analysis report at the TOP so the admin sees the
+              degradation banner immediately on arrival. Notes follow. */}
+          {analysis && (
+            <AnalysisReport
+              notes={analysis.notes}
+              aiCoverage={analysis.aiCoverage}
+              onRetryAi={handleRetryAi}
+            />
+          )}
+
+          {/* Event details — the track table replaces the old
               section-2 sessions list, so pass empty arrays here. */}
           <EventFormFields
             form={form} setForm={setForm}
@@ -1484,15 +1494,6 @@ export const EventCreate = () => {
             trackCount={0}
             transcriptCount={0}
           />
-
-          {/* AI analysis report (degradation banner + notes) */}
-          {analysis && (
-            <AnalysisReport
-              notes={analysis.notes}
-              aiCoverage={analysis.aiCoverage}
-              onRetryAi={handleRetryAi}
-            />
-          )}
 
           {/* Review & edit the parsed tracks/sessions before saving */}
           <SessionTrackTable
