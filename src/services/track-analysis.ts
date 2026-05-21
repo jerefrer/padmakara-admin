@@ -272,7 +272,12 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
     const message = await getClient().messages.create(
       {
         model: config.anthropic.model,
-        max_tokens: 16000,
+        // Sonnet 4.6 supports up to 64k output tokens. We use 32k as a safety
+        // margin — even a 200-track chunk (the practical hard ceiling) outputs
+        // well under this. The chunker keeps chunks ≤80 tracks, so truncation
+        // should be very rare; if it happens, the max_tokens split-retry path
+        // still recovers.
+        max_tokens: 32000,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: buildUserPrompt(opts) }],
       },

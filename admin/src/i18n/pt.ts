@@ -476,6 +476,7 @@ export const pt = {
       aiUnavailableTitle: "Análise por IA indisponível para alguns ou todos os tracks",
       aiUnavailableBody: "O agrupamento e os títulos abaixo vêm apenas do parser automático. Erros ou typos podem passar despercebidos. Se não for urgente, recomendamos tentar de novo daqui a alguns minutos para melhores resultados. Caso contrário, revê com atenção cada título antes de gravar.",
       aiNotes: "Notas da IA",
+      analyzeError: "Análise por IA falhou: %{error}",
     },
   },
 };

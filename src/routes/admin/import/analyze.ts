@@ -43,6 +43,15 @@ analyzeRoutes.post("/", async (c) => {
     const ac = new AbortController();
     const onAbort = () => ac.abort();
     c.req.raw.signal.addEventListener("abort", onAbort);
+
+    // SSE heartbeat: emit a comment line every 10 s while Claude is thinking.
+    // Without this, a long gap between real progress events (often >30 s for a
+    // single Claude chunk) lets intermediate proxies / Bun's idle timeout close
+    // the connection, producing ERR_INCOMPLETE_CHUNKED_ENCODING on the client.
+    const heartbeat = setInterval(() => {
+      stream.write(": keepalive\n\n").catch(() => {});
+    }, 10_000);
+
     try {
       const result = await analyzeFolder(
         {
@@ -78,6 +87,7 @@ analyzeRoutes.post("/", async (c) => {
         data: JSON.stringify({ message: (err as Error).message }),
       });
     } finally {
+      clearInterval(heartbeat);
       c.req.raw.signal.removeEventListener("abort", onAbort);
     }
   });

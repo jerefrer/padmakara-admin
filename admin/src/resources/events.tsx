@@ -1453,7 +1453,12 @@ export const EventCreate = () => {
         <Paper sx={{ p: 3 }}>
           <TrackAnalysisDropZone
             onAnalyzed={handleAnalyzed}
-            onError={(err) => notify(err.message, { type: "error" })}
+            onError={(err) =>
+              notify("padmakara.import.analyzeError", {
+                type: "error",
+                messageArgs: { error: err.message },
+              })
+            }
             authToken={localStorage.getItem("accessToken") ?? ""}
             apiBase="/api"
             fileCount={0}
