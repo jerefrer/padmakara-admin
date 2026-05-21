@@ -259,6 +259,20 @@ function buildUserPrompt(opts: CallClaudeOptions): string {
     .join("\n");
 }
 
+/**
+ * Strip Markdown code fences (```json ... ``` or ``` ... ```) from Claude's
+ * output. Despite the system prompt telling Claude to return raw JSON, it
+ * often wraps the answer in a fenced code block. We tolerate that here
+ * instead of failing or retrying.
+ */
+export function stripJsonFences(raw: string): string {
+  const trimmed = raw.trim();
+  // ```json ... ``` or ``` ... ```
+  const fenced = /^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/i.exec(trimmed);
+  if (fenced && fenced[1] !== undefined) return fenced[1].trim();
+  return trimmed;
+}
+
 // ─── Anthropic client ─────────────────────────────────────────────────
 
 let cachedClient: Anthropic | null = null;
@@ -304,7 +318,7 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
 
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(stripJsonFences(text));
     } catch (e) {
       console.error("[track-analysis] invalid JSON from Claude:", text.slice(0, 500));
       return { ok: false, error: { kind: "invalid_json", detail: (e as Error).message } };
