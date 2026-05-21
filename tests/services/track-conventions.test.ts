@@ -40,6 +40,25 @@ describe("track-conventions", () => {
       });
       expect(bad.success).toBe(false);
     });
+    it("normalises legacy field name 'filename' to 'correctedFilename'", () => {
+      const ok = trackCorrectionSchema.safeParse({
+        field: "filename",
+        before: "a.mp3",
+        after: "a_clean.mp3",
+        reason: "underscores",
+      });
+      expect(ok.success).toBe(true);
+      if (ok.success) expect(ok.data.field).toBe("correctedFilename");
+    });
+    it("accepts canonical field name 'correctedFilename'", () => {
+      const ok = trackCorrectionSchema.safeParse({
+        field: "correctedFilename",
+        before: "a.mp3",
+        after: "a_clean.mp3",
+        reason: "underscores",
+      });
+      expect(ok.success).toBe(true);
+    });
   });
 
   describe("noteSchema", () => {
@@ -58,6 +77,15 @@ describe("track-conventions", () => {
     it("rejects severity outside info|warning", () => {
       const bad = noteSchema.safeParse({ severity: "error", message: "x" });
       expect(bad.success).toBe(false);
+    });
+    it("treats relatedFilename=null as absent", () => {
+      const ok = noteSchema.safeParse({
+        severity: "info",
+        message: "ok",
+        relatedFilename: null,
+      });
+      expect(ok.success).toBe(true);
+      if (ok.success) expect(ok.data.relatedFilename).toBeUndefined();
     });
   });
 

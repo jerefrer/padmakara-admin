@@ -50,8 +50,12 @@ Notes (free-form warnings):
 
 // ─── Zod schemas ──────────────────────────────────────────────────────
 
+// Accepted correction targets. `"filename"` is kept as a legacy alias for
+// `"correctedFilename"` (Claude tends to use the longer real field name).
 export const trackCorrectionSchema = z.object({
-  field: z.enum(["filename", "displayTitleEn", "displayTitlePt"]),
+  field: z
+    .enum(["filename", "correctedFilename", "displayTitleEn", "displayTitlePt"])
+    .transform((v) => (v === "filename" ? "correctedFilename" : v)),
   before: z.string(),
   after: z.string(),
   reason: z.string(),
@@ -61,7 +65,9 @@ export type TrackCorrection = z.infer<typeof trackCorrectionSchema>;
 export const noteSchema = z.object({
   severity: z.enum(["info", "warning"]),
   message: z.string(),
-  relatedFilename: z.string().optional(),
+  // Claude sometimes sends `null` for "no related filename" rather than
+  // omitting the key. Accept both null and absent.
+  relatedFilename: z.string().nullish().transform((v) => v ?? undefined),
 });
 export type AnalysisNote = z.infer<typeof noteSchema>;
 

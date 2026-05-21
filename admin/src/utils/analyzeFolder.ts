@@ -9,7 +9,7 @@ export type ProgressEvent =
   | { type: "chunk_failed"; chunkIndex: number; reason: string; willFallback: true };
 
 export interface TrackCorrection {
-  field: "filename" | "displayTitleEn" | "displayTitlePt";
+  field: "correctedFilename" | "displayTitleEn" | "displayTitlePt";
   before: string;
   after: string;
   reason: string;
