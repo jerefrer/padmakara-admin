@@ -191,7 +191,7 @@ export type ChunkErrorKind =
   | "schema_violation"
   | "rate_limit"
   | "network"
-  | "timeout";
+  | "aborted";
 
 export interface CallClaudeOptions {
   folderName: string;
@@ -303,7 +303,7 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
   } catch (e: unknown) {
     const err = e as { status?: number; name?: string; message?: string };
     if (err.status === 429) return { ok: false, error: { kind: "rate_limit" } };
-    if (err.name === "AbortError") return { ok: false, error: { kind: "timeout" } };
+    if (err.name === "AbortError") return { ok: false, error: { kind: "aborted" } };
     return { ok: false, error: { kind: "network", detail: err.message } };
   }
 }

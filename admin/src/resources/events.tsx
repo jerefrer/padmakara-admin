@@ -1129,7 +1129,6 @@ export const EventCreate = () => {
   const translate = useTranslate();
 
   const [form, setForm] = useState<EventFormData>({ ...EMPTY_FORM });
-  const [parsedTracks, setParsedTracks] = useState<ParsedTrack[]>([]);
   const [sessions, setSessions] = useState<InferredSession[]>([]);
   const [folderName, setFolderName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -1195,7 +1194,6 @@ export const EventCreate = () => {
 
       setAnalysis(result);
       setScannedFiles(files);
-      setParsedTracks(inferredSessions.flatMap((s) => s.tracks));
       setSessions(inferredSessions);
       setFolderName(droppedFolderName);
       setTrackCorrections(newCorrections);
@@ -1234,7 +1232,6 @@ export const EventCreate = () => {
   const handleRetryAi = useCallback(() => {
     setAnalysis(null);
     setSessions([]);
-    setParsedTracks([]);
     setTrackCorrections(new Map());
     setScannedFiles([]);
     setFolderName(null);
@@ -1406,7 +1403,7 @@ export const EventCreate = () => {
     }
   };
 
-  const hasFolder = parsedTracks.length > 0;
+  const hasFolder = sessions.length > 0;
 
   return (
     <Box sx={{ px: 3, pb: 6 }}>

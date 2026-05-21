@@ -259,7 +259,7 @@ export function TrackAnalysisDropZone({
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [busy, authToken, apiBase, onAnalyzed, onError],
+    [busy, authToken, apiBase, onAnalyzed, onError, t],
   );
 
   // ── Border / background colour ──────────────────────────────────────────────

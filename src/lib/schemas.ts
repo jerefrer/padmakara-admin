@@ -269,7 +269,7 @@ const safeFilenameSchema = z
 // Upload
 export const presignUploadSchema = z.object({
   files: z.array(z.object({
-    filename: z.string().min(1),
+    filename: safeFilenameSchema,
     contentType: z.string().min(1),
     size: z.number().int().min(1),
   })),
