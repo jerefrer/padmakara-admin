@@ -1,5 +1,6 @@
 import AddIcon from "@mui/icons-material/Add";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import CheckIcon from "@mui/icons-material/Check";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -34,7 +35,11 @@ import {
   formatFileSize,
   languageLabel,
 } from "../utils/trackParser";
+import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
+
+/** Map keyed by track's originalFilename → list of corrections applied to it. */
+export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
 
 type PreviewSource =
   | { kind: "track"; trackId: number; mediaType: "audio" | "video" }
@@ -97,6 +102,10 @@ interface SessionPreviewProps {
   /** Edit-mode only: detach + ref-counted Bunny cleanup. */
   onSessionVideoDelete?: (sessionId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
+  /** When provided, tracks whose originalFilename has an entry will get an
+   *  AI-correction badge and an expandable diff panel. Existing callers that
+   *  don't pass this prop see NO visual change. */
+  trackCorrections?: TrackCorrectionsMap;
 }
 
 export const SessionPreview = ({
@@ -107,6 +116,7 @@ export const SessionPreview = ({
   onSessionVideoUpload,
   onSessionVideoDelete,
   allTeachers,
+  trackCorrections,
 }: SessionPreviewProps) => {
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
@@ -141,6 +151,7 @@ export const SessionPreview = ({
               onSessionVideoUpload={onSessionVideoUpload}
               onSessionVideoDelete={onSessionVideoDelete}
               allTeachers={allTeachers}
+              trackCorrections={trackCorrections}
               onPreview={setPreview}
             />
           ))}
@@ -168,6 +179,7 @@ interface SessionCardProps {
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
   onSessionVideoDelete?: (sessionId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
+  trackCorrections?: TrackCorrectionsMap;
   onPreview: (state: PreviewState) => void;
 }
 
@@ -180,6 +192,7 @@ const SessionCard = ({
   onSessionVideoUpload,
   onSessionVideoDelete,
   allTeachers,
+  trackCorrections,
   onPreview,
 }: SessionCardProps) => {
   const [expanded, setExpanded] = useState(true);
@@ -381,6 +394,7 @@ const SessionCard = ({
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
               allTeachers={allTeachers}
+              corrections={trackCorrections?.get(track.originalFilename ?? "")}
               onPreview={onPreview}
             />
           ))}
@@ -571,6 +585,7 @@ const TrackRow = ({
   onTrackUpdate,
   onTrackDelete,
   allTeachers = [],
+  corrections,
   onPreview,
 }: {
   track: ParsedTrack;
@@ -581,6 +596,8 @@ const TrackRow = ({
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
+  /** AI corrections that were applied to this track, if any. */
+  corrections?: TrackCorrection[];
   onPreview: (state: PreviewState) => void;
 }) => {
   const translate = useTranslate();
@@ -887,6 +904,11 @@ const TrackRow = ({
         {cleanTitle(track)}
       </Typography>
 
+      {/* AI corrections badge */}
+      {corrections && corrections.length > 0 && (
+        <TrackCorrectionsBadge corrections={corrections} />
+      )}
+
       {/* Badges */}
       {/* Practice badge — special purple/meditation theme */}
       {track.isPractice && (
@@ -1048,6 +1070,80 @@ const TrackRow = ({
           <DeleteOutlineIcon sx={{ fontSize: 14 }} />
         </IconButton>
       )}
+    </Box>
+  );
+};
+
+/* ───────── AI corrections badge (import-only, stateless parent + collapsible) ───────── */
+
+/**
+ * Small inline badge that shows how many AI corrections were applied to a
+ * track, with an expandable diff panel listing each correction.
+ * Only rendered when corrections.length > 0.
+ */
+const TrackCorrectionsBadge = ({
+  corrections,
+}: {
+  corrections: TrackCorrection[];
+}) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Box sx={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start" }}>
+      <Chip
+        icon={<AutoFixHighIcon sx={{ fontSize: "12px !important" }} />}
+        label={`${corrections.length} AI fix${corrections.length === 1 ? "" : "es"}`}
+        size="small"
+        color="warning"
+        variant="outlined"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        deleteIcon={open ? <ExpandLessIcon sx={{ fontSize: "14px !important" }} /> : <ExpandMoreIcon sx={{ fontSize: "14px !important" }} />}
+        onDelete={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        sx={{
+          height: 20,
+          cursor: "pointer",
+          "& .MuiChip-label": { fontSize: "0.65rem", px: 0.5, fontWeight: 600 },
+        }}
+      />
+      <Collapse in={open} unmountOnExit>
+        <Box
+          sx={{
+            mt: 0.5,
+            p: 1,
+            borderRadius: 1,
+            backgroundColor: "rgba(237,108,2,0.05)",
+            border: "1px solid rgba(237,108,2,0.15)",
+            minWidth: 260,
+            maxWidth: 400,
+          }}
+        >
+          {corrections.map((c, i) => (
+            <Box key={i} sx={{ display: "flex", flexDirection: "column", gap: 0.25, mb: i < corrections.length - 1 ? 1 : 0 }}>
+              <Typography variant="caption" sx={{ fontFamily: "monospace", color: "text.secondary", fontSize: "0.6rem" }}>
+                {c.field}
+              </Typography>
+              <Typography variant="caption" sx={{ fontSize: "0.7rem" }}>
+                <Box component="span" sx={{ color: "error.main", textDecoration: "line-through", mr: 0.5 }}>
+                  {c.before}
+                </Box>
+                {"→ "}
+                <Box component="span" sx={{ color: "success.dark" }}>
+                  {c.after}
+                </Box>
+              </Typography>
+              <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.65rem", fontStyle: "italic" }}>
+                {c.reason}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      </Collapse>
     </Box>
   );
 };
