@@ -115,8 +115,8 @@ describe("planChunks", () => {
     const sessions = [makeSession(1, 30), makeSession(2, 40)];
     const chunks = planChunks(sessions);
     expect(chunks.length).toBe(1);
-    expect(chunks[0].sessions.length).toBe(2);
-    expect(chunks[0].sessions[0].partOf).toBeUndefined();
+    expect(chunks[0]!.sessions.length).toBe(2);
+    expect(chunks[0]!.sessions[0]!.partOf).toBeUndefined();
   });
 
   it("splits sessions across chunks when total tracks > 80, respecting boundaries", () => {
@@ -142,22 +142,22 @@ describe("planChunks", () => {
     expect(chunks.length).toBeGreaterThanOrEqual(3);
     for (const chunk of chunks) {
       expect(chunk.sessions.length).toBe(1);
-      expect(chunk.sessions[0].partOf).toBeDefined();
-      expect(chunk.sessions[0].sessionNumber).toBe(1);
-      expect(chunk.sessions[0].tracks.length).toBeLessThanOrEqual(80);
+      expect(chunk.sessions[0]!.partOf).toBeDefined();
+      expect(chunk.sessions[0]!.sessionNumber).toBe(1);
+      expect(chunk.sessions[0]!.tracks.length).toBeLessThanOrEqual(80);
     }
-    const partTotals = chunks.map((c) => c.sessions[0].partOf!.partTotal);
+    const partTotals = chunks.map((c) => c.sessions[0]!.partOf!.partTotal);
     expect(new Set(partTotals).size).toBe(1);
-    const partIndices = chunks.map((c) => c.sessions[0].partOf!.partIndex);
+    const partIndices = chunks.map((c) => c.sessions[0]!.partOf!.partIndex);
     expect(partIndices).toEqual([0, 1, 2, 3].slice(0, chunks.length));
   });
 
   it("only the first chunk is marked isFirstChunk", () => {
     const sessions = [makeSession(1, 50), makeSession(2, 50), makeSession(3, 50)];
     const chunks = planChunks(sessions);
-    expect(chunks[0].isFirstChunk).toBe(true);
+    expect(chunks[0]!.isFirstChunk).toBe(true);
     for (let i = 1; i < chunks.length; i++) {
-      expect(chunks[i].isFirstChunk).toBe(false);
+      expect(chunks[i]!.isFirstChunk).toBe(false);
     }
   });
 });
@@ -273,7 +273,7 @@ describe("callClaudeForChunk", () => {
       },
     ];
     await callClaudeForChunk(opts);
-    const userPrompt = mockCreate.mock.calls[0][0].messages[0].content;
+    const userPrompt = mockCreate.mock.calls[0]![0].messages[0].content;
     expect(userPrompt).toMatch(/part 2 of 3/i);
     expect(userPrompt).toMatch(/do not infer session-level/i);
   });
@@ -372,7 +372,7 @@ describe("analyzeFolder orchestrator", () => {
     expect(result.event.titleEn).toBe("AI Title");
     expect(result.aiCoverage.tracksAnalyzedByAi).toBe(1);
     expect(result.aiCoverage.chunksFailed).toBe(0);
-    expect(result.sessions[0].tracks[0].corrections.length).toBe(1);
+    expect(result.sessions[0]!.tracks[0]!.corrections.length).toBe(1);
   });
 
   it("falls back per chunk: one chunk fails, other chunks keep AI corrections", async () => {
