@@ -2,11 +2,20 @@ import { useCallback, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
+import LinearProgress from "@mui/material/LinearProgress";
 import Typography from "@mui/material/Typography";
+import { keyframes } from "@mui/system";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import FolderIcon from "@mui/icons-material/FolderOpen";
-import CancelIcon from "@mui/icons-material/Cancel";
+import CloseIcon from "@mui/icons-material/Close";
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import { useTranslate } from "react-admin";
+
+const pulse = keyframes`
+  0%   { opacity: 0.55; transform: scale(0.92); }
+  50%  { opacity: 1;    transform: scale(1.08); }
+  100% { opacity: 0.55; transform: scale(0.92); }
+`;
 
 import {
   analyzeFolderStream,
@@ -71,44 +80,55 @@ function readEntryRecursive(
 
 // ─── Progress message formatting ─────────────────────────────────────────────
 
+interface ProgressView {
+  label: string;
+  /** 0..1 for a determinate bar, or null for an indeterminate one. */
+  progress: number | null;
+}
+
+/**
+ * Map a raw SSE progress event to a human-friendly label + bar value.
+ * Deliberately hides implementation details (chunks) from the admin — they
+ * only care that titles are being cleaned up and roughly how far along it is.
+ * Returns null for events that shouldn't change what's on screen.
+ */
 function formatProgress(
   ev: ProgressEvent,
   t: (key: string) => string,
-): string {
+): ProgressView | null {
   switch (ev.type) {
     case "phase":
       if (ev.phase === "scanning")
-        return t("padmakara.import.scanningFolder") || "Scanning folder…";
+        return { label: t("padmakara.import.scanningFolder") || "Reading your folder…", progress: null };
       if (ev.phase === "deterministic_parse") {
-        return (
-          t("padmakara.import.parsedSummary") ||
-          "Parsed {{files}} files across {{sessions}} sessions"
-        )
-          .replace("{{files}}", String(ev.totalFiles))
-          .replace("{{sessions}}", String(ev.totalSessions));
+        return {
+          label: (
+            t("padmakara.import.parsedSummary") ||
+            "Found {{files}} tracks in {{sessions}} sessions"
+          )
+            .replace("{{files}}", String(ev.totalFiles))
+            .replace("{{sessions}}", String(ev.totalSessions)),
+          progress: 0,
+        };
       }
       if (ev.phase === "ai_analysis") {
-        return (
-          t("padmakara.import.aiAnalysisStarting") ||
-          "Starting AI analysis ({{chunks}} chunks)…"
-        )
-          .replace("{{chunks}}", String(ev.totalChunks));
+        return {
+          label: t("padmakara.import.aiAnalysing") || "Cleaning up titles and structure…",
+          progress: 0,
+        };
       }
-      return t("padmakara.import.processing") || "Processing…";
+      return { label: t("padmakara.import.processing") || "Processing…", progress: null };
     case "chunk_progress":
-      return (
-        t("padmakara.import.chunkProgress") ||
-        "Analysing… ({{done}}/{{total}} chunks done)"
-      )
-        .replace("{{done}}", String(ev.done))
-        .replace("{{total}}", String(ev.total));
+      return {
+        label: t("padmakara.import.aiAnalysing") || "Cleaning up titles and structure…",
+        progress: ev.total > 0 ? ev.done / ev.total : null,
+      };
     case "chunk_failed":
-      return (
-        t("padmakara.import.chunkFailed") ||
-        "Chunk {{index}} failed — using fallback"
-      ).replace("{{index}}", String(ev.chunkIndex + 1));
+      // Don't surface scary per-chunk failures mid-stream; the final banner
+      // covers degradation. Keep whatever is currently on screen.
+      return null;
     default:
-      return t("padmakara.import.working") || "Working…";
+      return null;
   }
 }
 
@@ -117,7 +137,7 @@ function formatProgress(
 type DropZonePhase =
   | { kind: "idle" }
   | { kind: "scanning" }
-  | { kind: "analysing"; progressText: string };
+  | { kind: "analysing"; label: string; progress: number | null };
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -225,12 +245,14 @@ export function TrackAnalysisDropZone({
       abortRef.current = ac;
       setPhase({
         kind: "analysing",
-        progressText:
-          t("padmakara.import.startingAnalysis") || "Starting analysis…",
+        label: t("padmakara.import.startingAnalysis") || "Preparing…",
+        progress: null,
       });
 
       const onProgress = (ev: ProgressEvent) => {
-        setPhase({ kind: "analysing", progressText: formatProgress(ev, t) });
+        const view = formatProgress(ev, t);
+        if (!view) return; // event that shouldn't change the display
+        setPhase({ kind: "analysing", label: view.label, progress: view.progress });
       };
 
       try {
@@ -301,22 +323,71 @@ export function TrackAnalysisDropZone({
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            gap: 1.5,
+            gap: 2,
+            py: 3,
           }}
         >
-          <CircularProgress size={32} />
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            {phase.kind === "scanning"
-              ? t("padmakara.import.scanningFiles") || "Scanning audio files…"
-              : phase.progressText}
-          </Typography>
+          {/* Spinning ring with a pulsing AI sparkle in the centre */}
+          <Box sx={{ position: "relative", width: 88, height: 88 }}>
+            <CircularProgress
+              size={88}
+              thickness={2.2}
+              sx={{ color: "primary.main", position: "absolute", inset: 0 }}
+            />
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <AutoFixHighIcon
+                sx={{
+                  fontSize: 38,
+                  color: "primary.main",
+                  animation: `${pulse} 1.8s ease-in-out infinite`,
+                }}
+              />
+            </Box>
+          </Box>
+
+          <Box sx={{ textAlign: "center" }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: "text.primary" }}>
+              {t("padmakara.import.analysingTitle") || "Analyzing your recordings"}
+            </Typography>
+            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
+              {phase.kind === "scanning"
+                ? t("padmakara.import.scanningFiles") || "Reading audio files…"
+                : phase.label}
+            </Typography>
+          </Box>
+
+          {/* Progress bar — determinate once chunk progress is known */}
+          <Box sx={{ width: "100%", maxWidth: 360 }}>
+            <LinearProgress
+              variant={
+                phase.kind === "analysing" && phase.progress !== null
+                  ? "determinate"
+                  : "indeterminate"
+              }
+              value={
+                phase.kind === "analysing" && phase.progress !== null
+                  ? Math.round(phase.progress * 100)
+                  : undefined
+              }
+              sx={{ height: 8, borderRadius: 4 }}
+            />
+          </Box>
+
           {phase.kind === "analysing" && (
             <Button
-              size="small"
+              variant="outlined"
               color="inherit"
-              startIcon={<CancelIcon />}
+              startIcon={<CloseIcon />}
               onClick={handleCancel}
-              sx={{ mt: 0.5 }}
+              sx={{ mt: 0.5, borderRadius: 2, textTransform: "none", px: 2.5 }}
             >
               {t("padmakara.import.cancel") || "Cancel"}
             </Button>
