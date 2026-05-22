@@ -11,20 +11,93 @@ export interface TrackExportRow {
   changes: string;
 }
 
-const RED = "FFB00020"; // original / removed
-const GREEN = "FF2E7D32"; // corrected / added
+const RED = "FFB00020"; // characters present only in the original
+const GREEN = "FF2E7D32"; // characters present only in the corrected
 const HEADER_BG = "FF5B5EA6"; // brand-ish indigo
 const THIN = { style: "thin" as const, color: { argb: "FFD0D0D0" } };
+const MONO = { name: "Menlo", size: 10 };
+
+// ─── Character-level diff (LCS) ───────────────────────────────────────────
+// Marks each character of `a` and `b` as common (in the longest common
+// subsequence) or changed, so we can bold just the differing characters.
+
+interface Seg {
+  text: string;
+  changed: boolean;
+}
+
+function diffSegments(a: string, b: string): { aSegs: Seg[]; bSegs: Seg[] } {
+  const n = a.length;
+  const m = b.length;
+  // dp[i][j] = LCS length of a[i:] and b[j:]
+  const dp: number[][] = Array.from({ length: n + 1 }, () =>
+    new Array<number>(m + 1).fill(0),
+  );
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i]![j] =
+        a[i] === b[j]
+          ? dp[i + 1]![j + 1]! + 1
+          : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+    }
+  }
+  const aCommon = new Array<boolean>(n).fill(false);
+  const bCommon = new Array<boolean>(m).fill(false);
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      aCommon[i] = true;
+      bCommon[j] = true;
+      i++;
+      j++;
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+      i++;
+    } else {
+      j++;
+    }
+  }
+  return { aSegs: toSegs(a, aCommon), bSegs: toSegs(b, bCommon) };
+}
+
+/** Merge consecutive same-state characters into runs. */
+function toSegs(s: string, common: boolean[]): Seg[] {
+  const segs: Seg[] = [];
+  for (let k = 0; k < s.length; k++) {
+    const changed = !common[k];
+    const last = segs[segs.length - 1];
+    if (last && last.changed === changed) last.text += s[k];
+    else segs.push({ text: s[k]!, changed });
+  }
+  return segs;
+}
+
+/** Build an exceljs rich-text value: changed chars bold + coloured. */
+function richText(
+  segs: Seg[],
+  changedColor: string,
+  mono: boolean,
+): ExcelJSNamespace.CellValue {
+  return {
+    richText: segs.map((seg) => ({
+      text: seg.text,
+      font: seg.changed
+        ? { ...(mono ? MONO : {}), bold: true, color: { argb: changedColor } }
+        : { ...(mono ? MONO : {}) },
+    })),
+  } as ExcelJSNamespace.CellValue;
+}
 
 /**
  * Build and download a styled .xlsx for human review. Each track spans two
- * rows: the original value on top, the corrected value below. Changed fields
- * are coloured (original red, corrected green); unchanged fields are merged
- * into a single cell. Session / # / comment cells are merged across the two
- * rows so each track reads as one block.
+ * rows: the original value on top, the corrected value below. Within a changed
+ * value, only the characters that actually differ are bolded and coloured
+ * (red in the original, green in the corrected); everything else stays plain.
+ * Unchanged fields are merged into a single cell. Session / # / comment cells
+ * are merged across the two rows so each track reads as one block.
  *
  * Uses exceljs (not SheetJS community) because only exceljs writes cell
- * styling — fonts, fills, colours — to .xlsx in its open-source build.
+ * styling — fonts, fills, colours, rich text — to .xlsx in its open build.
  */
 export async function exportTracksToXlsx(
   rows: TrackExportRow[],
@@ -72,36 +145,37 @@ export async function exportTracksToXlsx(
     const titleChanged = r.originalTitle !== r.correctedTitle;
 
     if (filenameChanged) {
-      ws.getCell(`C${tr}`).value = r.originalFilename;
-      ws.getCell(`C${tr}`).font = { color: { argb: RED }, strike: true };
-      ws.getCell(`C${br}`).value = r.correctedFilename;
-      ws.getCell(`C${br}`).font = { color: { argb: GREEN }, bold: true };
+      const { aSegs, bSegs } = diffSegments(r.originalFilename, r.correctedFilename);
+      ws.getCell(`C${tr}`).value = richText(aSegs, RED, true);
+      ws.getCell(`C${br}`).value = richText(bSegs, GREEN, true);
     } else {
       ws.mergeCells(`C${tr}:C${br}`);
       ws.getCell(`C${tr}`).value = r.originalFilename;
+      ws.getCell(`C${tr}`).font = MONO;
     }
 
     if (titleChanged) {
-      ws.getCell(`D${tr}`).value = r.originalTitle;
-      ws.getCell(`D${tr}`).font = { color: { argb: RED }, strike: true };
-      ws.getCell(`D${br}`).value = r.correctedTitle;
-      ws.getCell(`D${br}`).font = { color: { argb: GREEN }, bold: true };
+      const { aSegs, bSegs } = diffSegments(r.originalTitle, r.correctedTitle);
+      ws.getCell(`D${tr}`).value = richText(aSegs, RED, false);
+      ws.getCell(`D${br}`).value = richText(bSegs, GREEN, false);
     } else {
       ws.mergeCells(`D${tr}:D${br}`);
       ws.getCell(`D${tr}`).value = r.originalTitle;
     }
 
-    // Shared formatting for both rows of the block.
+    // Shared formatting for both rows of the block. Everything centred
+    // vertically; monospace on the filename column.
     for (const rowNum of [tr, br]) {
       for (const col of ["A", "B", "C", "D", "E"]) {
         const cell = ws.getCell(`${col}${rowNum}`);
         cell.border = { top: THIN, bottom: THIN, left: THIN, right: THIN };
         cell.alignment = {
-          vertical: col === "A" || col === "B" || col === "E" ? "middle" : "top",
+          vertical: "middle",
           horizontal: col === "B" ? "center" : "left",
           wrapText: true,
         };
-        if (col === "C") cell.font = { ...(cell.font ?? {}), name: "Menlo", size: 10 };
+        // Keep monospace on a filename cell that wasn't set via rich text.
+        if (col === "C" && !filenameChanged) cell.font = MONO;
       }
     }
   }
