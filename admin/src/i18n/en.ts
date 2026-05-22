@@ -274,6 +274,7 @@ export const en = {
       aiUnavailableBody: "The grouping and titles below come from the automatic parser only. Typos or errors may slip through. If this is not urgent, we recommend retrying in a few minutes for better results. Otherwise, please review each title carefully before saving.",
       aiNotes: "AI notes",
       analyzeError: "AI analysis failed: %{error}",
+      exportReview: "Export for review (Excel)",
     },
   },
 };

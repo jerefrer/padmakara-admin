@@ -51,11 +51,11 @@ import type { TrackCorrection } from "../utils/analyzeFolder";
 /** Map keyed by a track's stable key → list of corrections applied to it. */
 export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
 
-function correctionFieldLabel(field: TrackCorrection["field"]): string {
+export function correctionFieldLabel(field: TrackCorrection["field"]): string {
   return field === "title" ? "Title" : "Filename";
 }
 
-function correctionKindLabel(kind: TrackCorrection["kind"]): string {
+export function correctionKindLabel(kind: TrackCorrection["kind"]): string {
   switch (kind) {
     case "accents":
       return "Accents added";

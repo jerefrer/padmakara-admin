@@ -43,6 +43,7 @@ import DialogActions from "@mui/material/DialogActions";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SaveIcon from "@mui/icons-material/Save";
 import DeleteIcon from "@mui/icons-material/Delete";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import SpaIcon from "@mui/icons-material/SelfImprovement";
 import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
@@ -58,7 +59,15 @@ import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
-import { SessionTrackTable, type TableValue, type TableTrack, type TrackCorrectionsMap } from "../components/SessionTrackTable";
+import {
+  SessionTrackTable,
+  type TableValue,
+  type TableTrack,
+  type TrackCorrectionsMap,
+  correctionFieldLabel,
+  correctionKindLabel,
+} from "../components/SessionTrackTable";
+import { exportTracksToXlsx, type TrackExportRow } from "../utils/exportTracksXlsx";
 import { validateImportEvent } from "../utils/eventValidation";
 import {
   uploadTracks,
@@ -1307,6 +1316,38 @@ export const EventCreate = () => {
     setSelectedAudience(null);
   }, []);
 
+  /**
+   * Export the current track list to .xlsx for human review — original vs
+   * corrected filename and title side by side, with a column explaining what
+   * the AI changed. Lets a Portuguese reviewer validate Claude's corrections.
+   */
+  const handleExportForReview = useCallback(() => {
+    const rows: TrackExportRow[] = [];
+    for (const session of sessions) {
+      const sessionLabel = session.titleEn || `Session ${session.sessionNumber}`;
+      for (const track of session.tracks) {
+        const corr = trackCorrections.get(fileKey(track.file)) ?? [];
+        const titleCorr = corr.find((c) => c.field === "title");
+        const changes = corr
+          .map((c) => `${correctionFieldLabel(c.field)}: ${correctionKindLabel(c.kind)}`)
+          .join("; ");
+        rows.push({
+          session: sessionLabel,
+          trackNumber: track.trackNumber,
+          // The File's own name is the true source; the ParsedTrack's
+          // originalFilename now holds the (possibly edited) upload name.
+          originalFilename: track.file.name,
+          correctedFilename: track.originalFilename,
+          originalTitle: titleCorr?.before ?? track.title,
+          correctedTitle: track.title,
+          changes,
+        });
+      }
+    }
+    const base = (form.eventCode || folderName || "event").replace(/[^\w.-]+/g, "_");
+    exportTracksToXlsx(rows, `${base}-tracks-review.xlsx`);
+  }, [sessions, trackCorrections, form.eventCode, folderName]);
+
   /** Upload transcript PDFs after the event has been created (so we have eventCode). */
   const handleTranscriptFilesDropped = useCallback(
     async (files: File[]) => {
@@ -1516,6 +1557,21 @@ export const EventCreate = () => {
             trackCount={0}
             transcriptCount={0}
           />
+
+          {/* Export the list for a human (e.g. a PT-speaking reviewer) to check */}
+          {sessions.length > 0 && (
+            <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<FileDownloadOutlinedIcon />}
+                onClick={handleExportForReview}
+                sx={{ textTransform: "none", borderRadius: 2 }}
+              >
+                {translate("padmakara.import.exportReview") || "Export for review (Excel)"}
+              </Button>
+            </Box>
+          )}
 
           {/* Review & edit the parsed tracks/sessions before saving */}
           <SessionTrackTable
