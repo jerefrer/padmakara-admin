@@ -142,8 +142,8 @@ const HEADER_CELL = {
   color: "text.secondary",
 } as const;
 
-/** Track rows mounted per animation frame (progressive rendering). */
-const PROGRESSIVE_BATCH = 20;
+/** Above this many tracks, defer the table mount one frame behind a spinner. */
+const DEFER_THRESHOLD = 12;
 
 // --- Module-level Autocomplete helpers (stable identity across renders) -----
 
@@ -191,6 +191,64 @@ const renderTeacherOption = (
     </Box>
   </li>
 );
+
+/**
+ * Speaker field that only mounts the (heavy) MUI Autocomplete while it's being
+ * edited. At rest it's a plain read-only TextField, so a table of 50+ rows
+ * mounts ~zero Autocompletes instead of one per row — the difference between a
+ * frozen tab and an instant one. Clicking the field swaps in the Autocomplete
+ * (focused + open); blurring swaps back.
+ */
+function SpeakerCell({
+  value,
+  teachers,
+  onChange,
+}: {
+  value: string | null;
+  teachers: Teacher[];
+  onChange: (abbr: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+
+  if (!editing) {
+    return (
+      <TextField
+        size="small"
+        variant="standard"
+        fullWidth
+        value={value ?? ""}
+        placeholder="—"
+        onFocus={() => setEditing(true)}
+        onMouseDown={() => setEditing(true)}
+        InputProps={{ readOnly: true }}
+      />
+    );
+  }
+
+  return (
+    <Autocomplete
+      freeSolo
+      size="small"
+      openOnFocus
+      options={teachers}
+      value={value ?? ""}
+      getOptionLabel={getTeacherLabel}
+      isOptionEqualToValue={isTeacherEqualToValue}
+      filterOptions={filterTeacherOptions}
+      renderOption={renderTeacherOption}
+      onChange={(_, v) => {
+        const abbr =
+          v == null ? null : typeof v === "string" ? v || null : v.abbreviation;
+        onChange(abbr);
+      }}
+      onInputChange={(_, v) => onChange(v || null)}
+      onBlur={() => setEditing(false)}
+      renderInput={(params) => (
+        <TextField {...params} variant="standard" autoFocus />
+      )}
+    />
+  );
+}
 
 // --- Memoised per-track row -------------------------------------------------
 
@@ -352,32 +410,12 @@ const TrackRow = memo(function TrackRow({
         </Box>
       </TableCell>
 
-      {/* Speaker — searchable by abbreviation OR full name; input shows abbreviation. */}
+      {/* Speaker — lazy: plain field until edited, then a full Autocomplete. */}
       <TableCell sx={{ py: 0.5, width: 150 }}>
-        <Autocomplete
-          freeSolo
-          size="small"
-          options={teachers}
-          value={track.speaker ?? ""}
-          getOptionLabel={getTeacherLabel}
-          isOptionEqualToValue={isTeacherEqualToValue}
-          filterOptions={filterTeacherOptions}
-          renderOption={renderTeacherOption}
-          onChange={(_, v) => {
-            const abbr =
-              v == null
-                ? null
-                : typeof v === "string"
-                  ? v || null
-                  : v.abbreviation;
-            onTrackChange(track.key, { speaker: abbr });
-          }}
-          onInputChange={(_, v) =>
-            onTrackChange(track.key, { speaker: v || null })
-          }
-          renderInput={(params) => (
-            <TextField {...params} variant="standard" />
-          )}
+        <SpeakerCell
+          value={track.speaker}
+          teachers={teachers}
+          onChange={(abbr) => onTrackChange(track.key, { speaker: abbr })}
         />
       </TableCell>
 
@@ -481,32 +519,17 @@ export function SessionTrackTable({
   const [aiInstruction, setAiInstruction] = useState("");
   const [applyingAi, setApplyingAi] = useState(false);
 
-  // Progressive rendering: each track row mounts a MUI Autocomplete + several
-  // inputs, so mounting 50+ rows in one render blocks the main thread (the
-  // browser shows "page unresponsive" on weaker machines). Instead we render
-  // rows in batches, growing the budget one animation frame at a time, so each
-  // task stays short and the page stays interactive.
+  // Deferred mount: paint a spinner first, then mount the (now-lightweight)
+  // table on the next frame. The CSS spinner is GPU-composited, so it keeps
+  // animating even while the table's mount briefly occupies the main thread —
+  // the admin sees clear "loading" feedback instead of a silently frozen page.
   const totalTracks = value.sessions.reduce((n, s) => n + s.tracks.length, 0);
-  const [renderBudget, setRenderBudget] = useState(PROGRESSIVE_BATCH);
+  const [mounted, setMounted] = useState(totalTracks <= DEFER_THRESHOLD);
   useEffect(() => {
-    if (renderBudget >= totalTracks) return;
-    const id = requestAnimationFrame(() =>
-      setRenderBudget((b) => b + PROGRESSIVE_BATCH),
-    );
+    if (mounted) return;
+    const id = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(id);
-  }, [renderBudget, totalTracks]);
-
-  // Prefix sum of track counts so each session knows how many of its tracks
-  // fall within the current render budget.
-  const trackOffsets: number[] = [];
-  {
-    let acc = 0;
-    for (const s of value.sessions) {
-      trackOffsets.push(acc);
-      acc += s.tracks.length;
-    }
-  }
-  const stillRendering = renderBudget < totalTracks;
+  }, [mounted]);
 
   // The callbacks below are referentially stable (`useCallback([])`); they read
   // the current value/onChange via these refs, so a memo'd TrackRow never
@@ -760,6 +783,23 @@ export function SessionTrackTable({
           </Box>
         </Paper>
       )}
+    {!mounted ? (
+      <Paper
+        sx={{
+          mb: 3,
+          py: 8,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 2,
+        }}
+      >
+        <CircularProgress size={36} />
+        <Typography variant="body2" color="text.secondary">
+          Preparing {totalTracks} tracks…
+        </Typography>
+      </Paper>
+    ) : (
     <Paper sx={{ mb: 3 }}>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
@@ -865,39 +905,24 @@ export function SessionTrackTable({
                   </TableRow>
                 )}
 
-                {session.tracks.map((track, tIdx) =>
-                  trackOffsets[sIdx]! + tIdx < renderBudget ? (
-                    <TrackRow
-                      key={track.key}
-                      track={track}
-                      sessionIdx={sIdx}
-                      sessionCount={sessionCount}
-                      teachers={teachers}
-                      enableIgnore={enableIgnore}
-                      enablePractice={enablePractice}
-                      onTrackChange={onTrackChange}
-                      onMoveTrack={onMoveTrack}
-                      onIgnoreTrack={onIgnoreTrack}
-                      editableFilename={editableFilename}
-                      corrections={trackCorrections?.get(track.key)}
-                    />
-                  ) : null,
-                )}
+                {session.tracks.map((track) => (
+                  <TrackRow
+                    key={track.key}
+                    track={track}
+                    sessionIdx={sIdx}
+                    sessionCount={sessionCount}
+                    teachers={teachers}
+                    enableIgnore={enableIgnore}
+                    enablePractice={enablePractice}
+                    onTrackChange={onTrackChange}
+                    onMoveTrack={onMoveTrack}
+                    onIgnoreTrack={onIgnoreTrack}
+                    editableFilename={editableFilename}
+                    corrections={trackCorrections?.get(track.key)}
+                  />
+                ))}
               </Fragment>
             ))}
-            {stillRendering && (
-              <TableRow>
-                <TableCell colSpan={colCount} sx={{ py: 1.5, textAlign: "center" }}>
-                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
-                    <CircularProgress size={16} />
-                    <Typography variant="caption" color="text.secondary">
-                      Loading {totalTracks - renderBudget} more row
-                      {totalTracks - renderBudget === 1 ? "" : "s"}…
-                    </Typography>
-                  </Box>
-                </TableCell>
-              </TableRow>
-            )}
           </TableBody>
         </Table>
       </Box>
@@ -984,6 +1009,7 @@ export function SessionTrackTable({
       )}
 
     </Paper>
+    )}
     </>
   );
 }
