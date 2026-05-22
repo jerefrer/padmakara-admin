@@ -14,6 +14,7 @@ export interface TrackExportRow {
 const RED = "FFB00020"; // characters present only in the original
 const GREEN = "FF2E7D32"; // characters present only in the corrected
 const HEADER_BG = "FF5B5EA6"; // brand-ish indigo
+const ZEBRA_BG = "FFF6F6FA"; // faint stripe on alternate track blocks
 const THIN = { style: "thin" as const, color: { argb: "FFD0D0D0" } };
 const MONO = { name: "Menlo", size: 10 };
 
@@ -111,30 +112,52 @@ export async function exportTracksToXlsx(
     views: [{ state: "frozen", ySplit: 1 }],
   });
 
+  // Size columns so the longest value fits on one line (capped so a stray
+  // very long title can't blow the layout out — it just wraps in that rare row).
+  const maxLen = (header: string, pick: (r: TrackExportRow) => number) =>
+    rows.reduce((m, r) => Math.max(m, pick(r)), header.length);
+  const fit = (n: number, max: number) => Math.min(n + 3, max);
   ws.columns = [
-    { width: 22 }, // A Session
-    { width: 6 }, // B #
-    { width: 52 }, // C Filename
-    { width: 44 }, // D Title
-    { width: 26 }, // E What changed
+    { width: fit(maxLen("Session", (r) => r.session.length), 30) },
+    { width: 5 },
+    {
+      width: fit(
+        maxLen("Filename", (r) =>
+          Math.max(r.originalFilename.length, r.correctedFilename.length),
+        ),
+        95,
+      ),
+    },
+    {
+      width: fit(
+        maxLen("Title", (r) =>
+          Math.max(r.originalTitle.length, r.correctedTitle.length),
+        ),
+        75,
+      ),
+    },
+    { width: fit(maxLen("What changed", (r) => r.changes.length), 50) },
   ];
 
   // ── Header row ──────────────────────────────────────────────────────
   const header = ws.addRow(["Session", "#", "Filename", "Title", "What changed"]);
-  header.height = 22;
+  header.height = 26;
   header.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: HEADER_BG } };
-    cell.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
-    cell.border = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+    cell.alignment = { vertical: "middle", horizontal: "left" };
+    cell.border = { bottom: THIN, left: THIN, right: THIN };
   });
 
   // ── One block (two rows) per track ──────────────────────────────────
-  for (const r of rows) {
+  rows.forEach((r, blockIdx) => {
     const top = ws.addRow([r.session, r.trackNumber, "", "", r.changes]);
     const bottom = ws.addRow(["", "", "", "", ""]);
     const tr = top.number;
     const br = bottom.number;
+    // Roomy rows so the original/corrected pair has breathing space.
+    top.height = 20;
+    bottom.height = 20;
 
     // Session / # / What changed: merge the two rows into one centred cell.
     ws.mergeCells(`A${tr}:A${br}`);
@@ -163,22 +186,34 @@ export async function exportTracksToXlsx(
       ws.getCell(`D${tr}`).value = r.originalTitle;
     }
 
-    // Shared formatting for both rows of the block. Everything centred
-    // vertically; monospace on the filename column.
+    // Each track reads as one bordered band: column separators (left/right)
+    // everywhere, a single divider line only under the block (no line between
+    // the original and corrected rows), and a faint zebra stripe on alternate
+    // blocks for scannability.
+    const zebra = blockIdx % 2 === 1;
     for (const rowNum of [tr, br]) {
+      const isBottomRow = rowNum === br;
       for (const col of ["A", "B", "C", "D", "E"]) {
         const cell = ws.getCell(`${col}${rowNum}`);
-        cell.border = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+        cell.border = {
+          left: THIN,
+          right: THIN,
+          ...(isBottomRow ? { bottom: THIN } : {}),
+        };
         cell.alignment = {
           vertical: "middle",
           horizontal: col === "B" ? "center" : "left",
-          wrapText: true,
+          wrapText: false,
+          indent: 1,
         };
+        if (zebra) {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: ZEBRA_BG } };
+        }
         // Keep monospace on a filename cell that wasn't set via rich text.
         if (col === "C" && !filenameChanged) cell.font = MONO;
       }
     }
-  }
+  });
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {
