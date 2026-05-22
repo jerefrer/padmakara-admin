@@ -304,12 +304,14 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
           <CorrectionsBadge corrections={corrections ?? []} />
         </Box>
       </TableCell>
-      <TableCell sx={{ ...cell, width: 150 }}>
-        <Typography variant="body2" color="text.secondary">
-          {track.speaker || "—"}
-        </Typography>
+      <TableCell sx={{ ...cell, width: 150, textAlign: "center" }}>
+        {track.speaker ? (
+          <Typography variant="body2" color="text.secondary">
+            {track.speaker}
+          </Typography>
+        ) : null}
       </TableCell>
-      <TableCell sx={{ ...cell, width: 90 }}>
+      <TableCell sx={{ ...cell, width: 90, textAlign: "center" }}>
         <Typography variant="caption" color="text.secondary">
           {(track.languages[0] ?? "en").toUpperCase()}
         </Typography>
@@ -863,11 +865,19 @@ export function SessionTrackTable({
             <TableRow sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
               <TableCell sx={{ ...HEADER_CELL, width: 50, pl: 2 }}>#</TableCell>
               <TableCell sx={HEADER_CELL}>Title / Filename</TableCell>
-              <TableCell sx={{ ...HEADER_CELL, width: 150 }}>Speaker</TableCell>
-              <TableCell sx={{ ...HEADER_CELL, width: 90 }}>Language</TableCell>
-              <TableCell sx={{ ...HEADER_CELL, width: 100 }}>Translation</TableCell>
+              <TableCell sx={{ ...HEADER_CELL, width: 150, textAlign: "center" }}>
+                Speaker
+              </TableCell>
+              <TableCell sx={{ ...HEADER_CELL, width: 90, textAlign: "center" }}>
+                Language
+              </TableCell>
+              <TableCell sx={{ ...HEADER_CELL, width: 100, textAlign: "center" }}>
+                Translation
+              </TableCell>
               {enablePractice && (
-                <TableCell sx={{ ...HEADER_CELL, width: 90 }}>Practice</TableCell>
+                <TableCell sx={{ ...HEADER_CELL, width: 90, textAlign: "center" }}>
+                  Practice
+                </TableCell>
               )}
               <TableCell
                 sx={{ ...HEADER_CELL, width: enableIgnore ? 250 : 170 }}
