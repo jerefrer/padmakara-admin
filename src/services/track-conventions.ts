@@ -13,52 +13,61 @@ Rules:
 `.trim();
 
 export const FILENAME_CONVENTION = `
-Expected filename format: NN_descriptive_title.mp3 (or .m4a, .wav, .flac, .ogg)
+Filenames are written by a human and are meant to stay human-readable.
+They typically look like: "001 JKR - The meaning of Shamatha.mp3".
 
-Rules:
-- Two-digit track number at the start, separated by underscore or hyphen.
-- ASCII only — never any accents or diacritics in the filename itself.
-- Underscores instead of spaces.
-- Common deviations to tolerate (and silently correct): typos, missing
-  underscores, mixed case, missing leading zero on track numbers.
+Leave them as-is. Do NOT reformat them. Specifically:
+- Do NOT convert spaces to underscores.
+- Do NOT change capitalization.
+- Keep the existing track-number style (e.g. three-digit "001" stays "001").
+- Audio extensions only: .mp3 .m4a .wav .flac .ogg
 `.trim();
 
 export const WRITING_RULES = `
-Display titles (event titleEn/titlePt, session titleEn/titlePt, track
-displayTitleEn/displayTitlePt):
-- Capitalization: Title Case for English, sentence case for Portuguese.
-- Accents: PRESENT and correct in Portuguese ("Refúgio", "Introdução",
-  "Meditação"). Generally absent in English unless borrowed ("café").
-- Fix obvious typos: "introducao" → "Introdução"; "refugio" → "Refúgio".
+You are CONSERVATIVE. Only change something when it is clearly wrong. When in
+doubt, leave it unchanged. Respect the human's choices.
 
-Corrected filenames (correctedFilename):
-- ASCII only — NEVER any accents. If you fix a Portuguese typo on the
-  display title, the filename should carry the ASCII-folded form of the
-  corrected title (e.g., display "Refúgio" → filename slug "refugio").
-- Underscores, not spaces. Two-digit track numbers with leading zero.
-- Preserve any existing track numbering from the original filename.
-- Audio extensions only: .mp3 .m4a .wav .flac .ogg
+Track display title (the track's own language — English for JKR tracks,
+Portuguese for TRAD tracks; never both):
+- Fix genuine spelling typos: "lazyness" → "laziness", "conciousness" →
+  "consciousness", "rather then" → "rather than".
+- Add missing Portuguese accents/diacritics: "introducao" → "introdução",
+  "respiracao" → "respiração", "pratica" → "prática".
+- Do NOT impose Title Case or change capitalization that is already
+  reasonable. "The meaning of Shamatha" stays "The meaning of Shamatha".
+- Do NOT translate. Do NOT add the speaker, date, or extra words.
+- If the title is already fine, do not emit an edit for it.
 
-Notes (free-form warnings):
-- Add a note when: a filename has no clear track number, two tracks could
-  belong to either of two sessions, a track date conflicts with the folder
-  date, the folder name deviates from FOLDER_NAME_CONVENTION, or anything
-  else looks suspicious.
-- Severity: "info" for things worth knowing, "warning" for things the
-  admin should review.
+Track filename (this becomes the S3 key):
+- Keep it exactly as the human wrote it, including spaces and capitalization.
+- Only change it when fixing a genuine spelling typo that also appears in the
+  filename (e.g. filename "...lazyness.mp3" → "...laziness.mp3"), or to strip
+  a leading/trailing space.
+- ALWAYS stay ASCII — never introduce accents into a filename. So a
+  Portuguese typo fix that adds an accent applies to the DISPLAY TITLE only,
+  not the filename.
+- Do NOT convert spaces to underscores. Do NOT change capitalization.
+- If the filename is already fine, do not emit an edit for it.
+
+Notes (free-form observations):
+- Add a note when something is genuinely worth the admin's attention: a
+  filename with no clear track number, a track that could belong to either of
+  two sessions, a track date that conflicts with the folder date, the folder
+  name deviating from the convention, an orphan file, etc.
+- Do NOT write a note for routine, expected things (e.g. "this is a bilingual
+  pairing" or "track numbers are three digits"). Notes are for surprises.
+- Severity: "info" for things worth knowing, "warning" for things the admin
+  should review before saving.
 `.trim();
 
-// ─── Zod schemas ──────────────────────────────────────────────────────
+// ─── Final result schemas (what the API returns / the frontend consumes) ──
 
-// Accepted correction targets. `"filename"` is kept as a legacy alias for
-// `"correctedFilename"` (Claude tends to use the longer real field name).
+// A correction is COMPUTED server-side by diffing the deterministic value
+// against Claude's edit. `field` is the thing that changed.
 export const trackCorrectionSchema = z.object({
-  field: z
-    .enum(["filename", "correctedFilename", "displayTitleEn", "displayTitlePt"])
-    .transform((v) => (v === "filename" ? "correctedFilename" : v)),
+  field: z.enum(["title", "correctedFilename"]),
   before: z.string(),
   after: z.string(),
-  reason: z.string(),
 });
 export type TrackCorrection = z.infer<typeof trackCorrectionSchema>;
 
@@ -74,9 +83,11 @@ export type AnalysisNote = z.infer<typeof noteSchema>;
 export const analysisTrackSchema = z.object({
   position: z.number().int().nonnegative(),
   originalFilename: z.string(),
+  // The filename that will be uploaded to S3. Equals originalFilename unless
+  // a typo was fixed. ASCII, human-readable, spaces preserved.
   correctedFilename: z.string(),
-  displayTitleEn: z.string(),
-  displayTitlePt: z.string(),
+  // The display title in the track's own language.
+  title: z.string(),
   corrections: z.array(trackCorrectionSchema),
 });
 export type AnalysisTrack = z.infer<typeof analysisTrackSchema>;
@@ -120,13 +131,40 @@ export const analysisResultSchema = z.object({
 });
 export type AnalysisResult = z.infer<typeof analysisResultSchema>;
 
-// ─── Per-chunk Claude response schema ─────────────────────────────────
-// Claude returns one of these per call. `event` is non-null only for
-// the first chunk; null on subsequent chunks of a chunked analysis.
+// ─── Delta schema (what Claude returns per chunk) ─────────────────────────
+//
+// Instead of regenerating the whole structure, Claude only describes what
+// should CHANGE relative to the deterministic pre-pass it is shown. Tracks
+// that are already correct simply don't appear. This keeps the output tiny
+// and removes most of the format-fidelity risk.
 
-export const claudeChunkResponseSchema = z.object({
-  event: analysisEventSchema.nullable(),
-  sessions: z.array(analysisSessionSchema),
-  notes: z.array(noteSchema),
+// Event metadata Claude infers (first chunk only; null on later chunks).
+export const eventDeltaSchema = z
+  .object({
+    titleEn: z.string().nullish().transform((v) => v ?? null),
+    titlePt: z.string().nullish().transform((v) => v ?? null),
+    startDate: z.string().nullish().transform((v) => v ?? null),
+    endDate: z.string().nullish().transform((v) => v ?? null),
+    matchedGroupIds: z.array(z.string()).optional().transform((v) => v ?? []),
+    matchedTeacherIds: z.array(z.string()).optional().transform((v) => v ?? []),
+    matchedPlaceIds: z.array(z.string()).optional().transform((v) => v ?? []),
+  })
+  .nullable();
+export type EventDelta = z.infer<typeof eventDeltaSchema>;
+
+// A single track the model wants to change. Identified by its original
+// filename (the stable key from the deterministic pre-pass). Any field that
+// is absent means "leave it unchanged".
+export const trackEditSchema = z.object({
+  originalFilename: z.string(),
+  title: z.string().optional(),
+  correctedFilename: z.string().optional(),
 });
-export type ClaudeChunkResponse = z.infer<typeof claudeChunkResponseSchema>;
+export type TrackEdit = z.infer<typeof trackEditSchema>;
+
+export const claudeDeltaSchema = z.object({
+  event: eventDeltaSchema,
+  trackEdits: z.array(trackEditSchema).optional().transform((v) => v ?? []),
+  notes: z.array(noteSchema).optional().transform((v) => v ?? []),
+});
+export type ClaudeDelta = z.infer<typeof claudeDeltaSchema>;

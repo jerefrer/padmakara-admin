@@ -14,7 +14,7 @@ describe("track-conventions", () => {
       expect(FOLDER_NAME_CONVENTION).toMatch(/YYYY\.MM\.DD/);
     });
     it("exports non-empty filename convention text", () => {
-      expect(FILENAME_CONVENTION).toMatch(/ASCII|accent/i);
+      expect(FILENAME_CONVENTION).toMatch(/human-readable|filename/i);
     });
     it("exports non-empty writing rules", () => {
       expect(WRITING_RULES).toMatch(/accent/i);
@@ -22,12 +22,19 @@ describe("track-conventions", () => {
   });
 
   describe("trackCorrectionSchema", () => {
-    it("accepts a valid correction", () => {
+    it("accepts a title correction", () => {
       const ok = trackCorrectionSchema.safeParse({
-        field: "displayTitlePt",
+        field: "title",
         before: "Refugio",
         after: "Refúgio",
-        reason: "missing diacritic",
+      });
+      expect(ok.success).toBe(true);
+    });
+    it("accepts a correctedFilename correction", () => {
+      const ok = trackCorrectionSchema.safeParse({
+        field: "correctedFilename",
+        before: "a lazyness.mp3",
+        after: "a laziness.mp3",
       });
       expect(ok.success).toBe(true);
     });
@@ -36,28 +43,8 @@ describe("track-conventions", () => {
         field: "nope",
         before: "a",
         after: "b",
-        reason: "r",
       });
       expect(bad.success).toBe(false);
-    });
-    it("normalises legacy field name 'filename' to 'correctedFilename'", () => {
-      const ok = trackCorrectionSchema.safeParse({
-        field: "filename",
-        before: "a.mp3",
-        after: "a_clean.mp3",
-        reason: "underscores",
-      });
-      expect(ok.success).toBe(true);
-      if (ok.success) expect(ok.data.field).toBe("correctedFilename");
-    });
-    it("accepts canonical field name 'correctedFilename'", () => {
-      const ok = trackCorrectionSchema.safeParse({
-        field: "correctedFilename",
-        before: "a.mp3",
-        after: "a_clean.mp3",
-        reason: "underscores",
-      });
-      expect(ok.success).toBe(true);
     });
   });
 

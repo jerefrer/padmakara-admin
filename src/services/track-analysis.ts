@@ -1,12 +1,19 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { parseTrackFilename, inferSessions, type ParsedTrack } from "./track-parser.ts";
-import type { AnalysisResult, AnalysisSession, AnalysisTrack, AnalysisEvent } from "./track-conventions.ts";
+import type {
+  AnalysisResult,
+  AnalysisSession,
+  AnalysisTrack,
+  AnalysisEvent,
+  TrackCorrection,
+  ClaudeDelta,
+  TrackEdit,
+} from "./track-conventions.ts";
 import {
   FOLDER_NAME_CONVENTION,
   FILENAME_CONVENTION,
   WRITING_RULES,
-  claudeChunkResponseSchema,
-  type ClaudeChunkResponse,
+  claudeDeltaSchema,
 } from "./track-conventions.ts";
 import { config } from "../config.ts";
 
@@ -55,9 +62,8 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
   const inferred = inferSessions(parsedTracks);
 
   // The deterministic parser is monolingual: `InferredSession` has only
-  // `titleEn` and `ParsedTrack` has only `title`. We copy the same string
-  // into both EN and PT fallback slots; Claude is responsible for producing
-  // proper bilingual values when AI analysis succeeds.
+  // `titleEn` and `ParsedTrack` has only `title`. We seed both session title
+  // slots with that value; Claude refines event/session metadata when it runs.
   const sessions: AnalysisSession[] = inferred.map((s, idx) => ({
     sessionNumber: idx + 1,
     titleEn: s.titleEn,
@@ -70,8 +76,7 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
       position: pos,
       originalFilename: t.originalFilename,
       correctedFilename: t.originalFilename,
-      displayTitleEn: t.title,
-      displayTitlePt: t.title,
+      title: t.title,
       corrections: [],
     })),
   }));
@@ -205,7 +210,7 @@ export interface CallClaudeOptions {
 }
 
 export type ChunkResult =
-  | { ok: true; value: ClaudeChunkResponse }
+  | { ok: true; value: ClaudeDelta }
   | { ok: false; error: { kind: ChunkErrorKind; detail?: string } };
 
 const SYSTEM_PROMPT = `
@@ -213,47 +218,69 @@ You assist an admin ingesting audio files for a Buddhist retreat centre.
 Each event has multiple sessions (one or more per day); each session has
 tracks (individual audio files).
 
+You are given a deterministic first pass that already grouped the files into
+sessions and read each track's title from its filename. That structure is
+RELIABLE — do not reproduce it. Your job is only to report what should
+CHANGE: genuine title fixes, the event metadata, and any noteworthy issues.
+
 ${FOLDER_NAME_CONVENTION}
 
 ${FILENAME_CONVENTION}
 
 ${WRITING_RULES}
 
-Output: a single JSON object matching the schema given in the user
-message. No prose, no markdown fences, just JSON.
+Output: a single JSON object (the delta). No prose, no markdown fences,
+just JSON.
 `.trim();
 
 function buildUserPrompt(opts: CallClaudeOptions): string {
-  const partialNotes = opts.chunk.sessions
-    .filter((s) => s.partOf)
-    .map(
-      (s) =>
-        `Note: this chunk contains part ${s.partOf!.partIndex + 1} of ${s.partOf!.partTotal} of session ${s.partOf!.sessionRef}. Do not infer session-level fields (titleEn, titlePt, sessionDate, timePeriod) — copy them as given. Correct only the tracks listed.`,
-    )
+  const partialNote = opts.chunk.sessions.some((s) => s.partOf)
+    ? `\nThis chunk is a partial view of a larger session. Do not infer event metadata from it; just report track edits and notes.\n`
+    : "";
+
+  // Flatten the chunk's tracks into a compact list keyed by filename — this is
+  // all Claude needs to propose edits.
+  const trackLines = opts.chunk.sessions
+    .flatMap((s) => s.tracks)
+    .map((t) => `  - ${t.originalFilename}  (current title: "${t.title}")`)
     .join("\n");
 
   const eventPart = opts.chunk.isFirstChunk
-    ? `Folder name received: ${opts.folderName}\n`
-    : `(Subsequent chunk — do not return event metadata. Set "event": null.)\n`;
+    ? `Folder name received: "${opts.folderName}"\nInfer the event metadata (titleEn, titlePt, startDate, endDate, and the matched group/teacher/place ids) from the folder name and the track titles.\n`
+    : `(Subsequent chunk — set "event" to null; another chunk handles the event metadata.)\n`;
 
   return [
     eventPart,
-    partialNotes && `\n${partialNotes}\n`,
+    partialNote,
     "Known groups (id, abbreviation, names):",
     JSON.stringify(opts.knownGroups, null, 2),
     "Known teachers (id, abbreviation, name):",
     JSON.stringify(opts.knownTeachers, null, 2),
     "Known places (id, abbreviation, name):",
     JSON.stringify(opts.knownPlaces, null, 2),
-    "\nDeterministic pre-pass for the tracks in this chunk:",
-    JSON.stringify(opts.chunk.sessions, null, 2),
-    "\nReturn JSON of shape:",
+    "\nTracks in this chunk (original filename + current title):",
+    trackLines,
+    "\nReturn ONLY a delta JSON of this shape:",
     `{
-  "event": { titleEn, titlePt, startDate, endDate, matchedGroupIds, matchedTeacherIds, matchedPlaceIds, folderConventionOk } | null,
-  "sessions": [{ sessionNumber, titleEn, titlePt, sessionDate, timePeriod, tracks: [{ position, originalFilename, correctedFilename, displayTitleEn, displayTitlePt, corrections: [{ field, before, after, reason }] }] }],
-  "notes": [{ severity, message, relatedFilename? }]
+  "event": {
+    "titleEn": "short English event title" | null,
+    "titlePt": "short Portuguese event title" | null,
+    "startDate": "YYYY-MM-DD" | null,
+    "endDate": "YYYY-MM-DD" | null,
+    "matchedGroupIds": ["<id>"],
+    "matchedTeacherIds": ["<id>"],
+    "matchedPlaceIds": ["<id>"]
+  } | null,
+  "trackEdits": [
+    {
+      "originalFilename": "<exact original filename from the list>",
+      "title": "<corrected display title>",            // omit if the title is already fine
+      "correctedFilename": "<corrected filename>"      // omit unless a typo in the filename needs fixing
+    }
+  ],
+  "notes": [ { "severity": "info" | "warning", "message": "...", "relatedFilename": "<optional>" } ]
 }`,
-    "\nFor every field you change relative to the deterministic pre-pass, add a corrections entry. For anything suspicious (orphan file, missing track number, deviation from the folder convention, ambiguous date), add a notes entry.",
+    "\nOnly include a track in trackEdits if it genuinely needs a change. If a chunk needs no track edits, return an empty trackEdits array. Match each edit to a track by its exact originalFilename.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -324,7 +351,7 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
       return { ok: false, error: { kind: "invalid_json", detail: (e as Error).message } };
     }
 
-    const validated = claudeChunkResponseSchema.safeParse(parsed);
+    const validated = claudeDeltaSchema.safeParse(parsed);
     if (!validated.success) {
       console.error("[track-analysis] Zod validation failed:", validated.error.message);
       console.error("[track-analysis] payload was:", JSON.stringify(parsed).slice(0, 1000));
@@ -531,7 +558,7 @@ async function runChunkWithRetries(
         ok: true,
         value: {
           event: ra.value.event ?? rb.value.event,
-          sessions: [...ra.value.sessions, ...rb.value.sessions],
+          trackEdits: [...ra.value.trackEdits, ...rb.value.trackEdits],
           notes: [...ra.value.notes, ...rb.value.notes],
         },
       };
@@ -566,69 +593,73 @@ function structuredCloneSession(s: AnalysisSession): AnalysisSession {
   return { ...s, tracks: s.tracks.map((t) => ({ ...t, corrections: [...t.corrections] })) };
 }
 
+/**
+ * Apply Claude's deltas onto the deterministic result. Tracks are matched by
+ * `originalFilename`. For each applied edit we compute the `corrections` array
+ * by diffing the deterministic value against the edited value, so "what
+ * changed" is derived server-side rather than trusted from the model.
+ */
 function mergeChunkResults(
   determ: AnalysisResult,
   chunkResults: { chunk: Chunk; result: ChunkResult }[],
 ): AnalysisResult {
-  const sessionsByRef = new Map<number, AnalysisSession>();
+  // Clone the deterministic sessions; index every track by its original
+  // filename for O(1) edit application.
+  const sessions = determ.sessions.map(structuredCloneSession);
+  const trackByFilename = new Map<string, AnalysisTrack>();
+  for (const s of sessions) {
+    for (const t of s.tracks) trackByFilename.set(t.originalFilename, t);
+  }
+
   const notes: AnalysisResult["notes"] = [];
   let event: AnalysisEvent = determ.event;
   let chunksFailed = 0;
   let aiTracks = 0;
-
-  for (const s of determ.sessions) sessionsByRef.set(s.sessionNumber, structuredCloneSession(s));
 
   for (const { chunk, result } of chunkResults) {
     if (!result.ok) {
       chunksFailed++;
       continue;
     }
+    // Every track in a successfully-analysed chunk counts as AI-covered,
+    // whether or not it ended up being edited.
+    aiTracks += chunk.sessions.reduce((n, s) => n + s.tracks.length, 0);
+
+    // Event metadata from the first chunk's delta. Keep the deterministic
+    // folderConventionOk (a deterministic fact, not Claude's to decide), and
+    // fall back to deterministic values for any null the model returned.
     if (chunk.isFirstChunk && result.value.event) {
-      event = result.value.event;
+      const e = result.value.event;
+      event = {
+        titleEn: e.titleEn ?? determ.event.titleEn,
+        titlePt: e.titlePt ?? determ.event.titlePt,
+        startDate: e.startDate ?? determ.event.startDate,
+        endDate: e.endDate ?? determ.event.endDate,
+        matchedGroupIds: e.matchedGroupIds,
+        matchedTeacherIds: e.matchedTeacherIds,
+        matchedPlaceIds: e.matchedPlaceIds,
+        folderConventionOk: determ.event.folderConventionOk,
+      };
     }
-    for (const aiSession of result.value.sessions) {
-      const existing = sessionsByRef.get(aiSession.sessionNumber);
-      if (!existing) {
-        // AI returned a session we didn't know about deterministically — add it
-        sessionsByRef.set(aiSession.sessionNumber, aiSession);
-        aiTracks += aiSession.tracks.length;
-        continue;
-      }
-      // Merge AI tracks into the existing deterministic session
-      const aiTracksByPosition = new Map(aiSession.tracks.map((t) => [t.position, t]));
-      existing.tracks = existing.tracks.map((t) => {
-        const aiTrack = aiTracksByPosition.get(t.position);
-        if (aiTrack) {
-          aiTracks++;
-          return aiTrack;
-        }
-        return t;
-      });
-      // Only update session-level fields when this is not a partial chunk
-      const isPartial = chunk.sessions.find(
-        (s) => s.sessionNumber === aiSession.sessionNumber,
-      )?.partOf;
-      if (!isPartial) {
-        existing.titleEn = aiSession.titleEn;
-        existing.titlePt = aiSession.titlePt;
-        existing.sessionDate = aiSession.sessionDate;
-        existing.timePeriod = aiSession.timePeriod;
-      }
+
+    for (const edit of result.value.trackEdits) {
+      const track = trackByFilename.get(edit.originalFilename);
+      if (!track) continue; // unknown filename — skip silently
+      applyTrackEdit(track, edit);
     }
+
     notes.push(...result.value.notes);
   }
 
-  const sessions = Array.from(sessionsByRef.values()).sort(
-    (a, b) => a.sessionNumber - b.sessionNumber,
-  );
-
   const totalTracks = determ.aiCoverage.totalTracks;
+  // Coverage can't exceed the total even if chunk math overlaps.
+  const covered = Math.min(aiTracks, totalTracks);
 
   return {
     aiCoverage: {
       totalTracks,
-      tracksAnalyzedByAi: aiTracks,
-      tracksFromDeterministicFallback: totalTracks - aiTracks,
+      tracksAnalyzedByAi: covered,
+      tracksFromDeterministicFallback: totalTracks - covered,
       chunks: chunkResults.length,
       chunksFailed,
     },
@@ -636,4 +667,25 @@ function mergeChunkResults(
     sessions,
     notes,
   };
+}
+
+/** Apply a single track edit in place, recording the diffs as corrections. */
+function applyTrackEdit(track: AnalysisTrack, edit: TrackEdit): void {
+  const corrections: TrackCorrection[] = [];
+  if (edit.title !== undefined && edit.title !== track.title) {
+    corrections.push({ field: "title", before: track.title, after: edit.title });
+    track.title = edit.title;
+  }
+  if (
+    edit.correctedFilename !== undefined &&
+    edit.correctedFilename !== track.correctedFilename
+  ) {
+    corrections.push({
+      field: "correctedFilename",
+      before: track.correctedFilename,
+      after: edit.correctedFilename,
+    });
+    track.correctedFilename = edit.correctedFilename;
+  }
+  track.corrections = corrections;
 }

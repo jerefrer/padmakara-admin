@@ -248,10 +248,7 @@ const TrackRow = memo(function TrackRow({
               title={
                 <Box component="span" sx={{ whiteSpace: "pre-line" }}>
                   {corrections
-                    .map(
-                      (c) =>
-                        `${c.field}: "${c.before}" → "${c.after}" — ${c.reason}`,
-                    )
+                    .map((c) => `${c.field}: "${c.before}" → "${c.after}"`)
                     .join("\n")}
                 </Box>
               }

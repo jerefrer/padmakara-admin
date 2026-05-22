@@ -1137,9 +1137,6 @@ const TrackCorrectionsBadge = ({
                   {c.after}
                 </Box>
               </Typography>
-              <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.65rem", fontStyle: "italic" }}>
-                {c.reason}
-              </Typography>
             </Box>
           ))}
         </Box>

@@ -111,8 +111,7 @@ function makeSession(num: number, trackCount: number): AnalysisSession {
       position: i,
       originalFilename: `s${num}_${i}.mp3`,
       correctedFilename: `s${num}_${i}.mp3`,
-      displayTitleEn: `t${i}`,
-      displayTitlePt: `t${i}`,
+      title: `t${i}`,
       corrections: [],
     })),
   };
@@ -187,9 +186,8 @@ function validResponseJSON() {
       matchedGroupIds: [],
       matchedTeacherIds: [],
       matchedPlaceIds: [],
-      folderConventionOk: true,
     },
-    sessions: [],
+    trackEdits: [],
     notes: [],
   });
 }
@@ -239,9 +237,10 @@ describe("callClaudeForChunk", () => {
   });
 
   it("returns error.kind=schema_violation on Zod failure", async () => {
+    // `event` must be an object or null — a number is invalid.
     mockCreate.mockResolvedValueOnce({
       stop_reason: "end_turn",
-      content: [{ type: "text", text: '{"event": null, "sessions": "nope", "notes": []}' }],
+      content: [{ type: "text", text: '{"event": 123, "trackEdits": [], "notes": []}' }],
     });
     const r = await callClaudeForChunk(baseOptions());
     expect(r.ok).toBe(false);
@@ -282,8 +281,7 @@ describe("callClaudeForChunk", () => {
     ];
     await callClaudeForChunk(opts);
     const userPrompt = mockCreate.mock.calls[0]![0].messages[0].content;
-    expect(userPrompt).toMatch(/part 2 of 3/i);
-    expect(userPrompt).toMatch(/do not infer session-level/i);
+    expect(userPrompt).toMatch(/partial view of a larger session/i);
   });
 });
 
@@ -323,7 +321,7 @@ describe("analyzeFolder orchestrator", () => {
     expect(phases).toContain("ai_analysis");
   });
 
-  it("uses Claude result when single-pass succeeds", async () => {
+  it("applies Claude's delta when single-pass succeeds", async () => {
     mockCreate.mockResolvedValue({
       stop_reason: "end_turn",
       content: [
@@ -338,27 +336,11 @@ describe("analyzeFolder orchestrator", () => {
               matchedGroupIds: [],
               matchedTeacherIds: [],
               matchedPlaceIds: [],
-              folderConventionOk: true,
             },
-            sessions: [
+            trackEdits: [
               {
-                sessionNumber: 1,
-                titleEn: "S1",
-                titlePt: "S1",
-                sessionDate: null,
-                timePeriod: null,
-                tracks: [
-                  {
-                    position: 0,
-                    originalFilename: "01_a.mp3",
-                    correctedFilename: "01_a.mp3",
-                    displayTitleEn: "A",
-                    displayTitlePt: "A",
-                    corrections: [
-                      { field: "displayTitlePt", before: "a", after: "A", reason: "case" },
-                    ],
-                  },
-                ],
+                originalFilename: "01_a.mp3",
+                title: "A Deliberately Different Title",
               },
             ],
             notes: [],
@@ -380,7 +362,40 @@ describe("analyzeFolder orchestrator", () => {
     expect(result.event.titleEn).toBe("AI Title");
     expect(result.aiCoverage.tracksAnalyzedByAi).toBe(1);
     expect(result.aiCoverage.chunksFailed).toBe(0);
+    // The delta changed the title → exactly one computed correction.
+    expect(result.sessions[0]!.tracks[0]!.title).toBe("A Deliberately Different Title");
     expect(result.sessions[0]!.tracks[0]!.corrections.length).toBe(1);
+    expect(result.sessions[0]!.tracks[0]!.corrections[0]!.field).toBe("title");
+  });
+
+  it("leaves a track untouched (no corrections) when the delta omits it", async () => {
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            event: null,
+            trackEdits: [],
+            notes: [],
+          }),
+        },
+      ],
+    });
+    const result = await analyzeFolder(
+      {
+        folderName: "2025.04.12 - PP3",
+        files: [{ relativePath: "01_a.mp3", sizeBytes: 1 }],
+        knownGroups: [],
+        knownTeachers: [],
+        knownPlaces: [],
+      },
+      () => {},
+      new AbortController().signal,
+    );
+    expect(result.sessions[0]!.tracks[0]!.corrections.length).toBe(0);
+    // Still counts as AI-covered (Claude looked at it, decided no change).
+    expect(result.aiCoverage.tracksAnalyzedByAi).toBe(1);
   });
 
   it("falls back per chunk: one chunk fails, other chunks keep AI corrections", async () => {
@@ -403,9 +418,8 @@ describe("analyzeFolder orchestrator", () => {
                 matchedGroupIds: [],
                 matchedTeacherIds: [],
                 matchedPlaceIds: [],
-                folderConventionOk: true,
               },
-              sessions: [],
+              trackEdits: [],
               notes: [],
             }),
           },
@@ -418,7 +432,7 @@ describe("analyzeFolder orchestrator", () => {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ event: null, sessions: [], notes: [] }),
+            text: JSON.stringify({ event: null, trackEdits: [], notes: [] }),
           },
         ],
       });
@@ -447,7 +461,7 @@ describe("analyzeFolder orchestrator", () => {
     mockCreate.mockResolvedValue({
       stop_reason: "end_turn",
       content: [
-        { type: "text", text: JSON.stringify({ event: null, sessions: [], notes: [] }) },
+        { type: "text", text: JSON.stringify({ event: null, trackEdits: [], notes: [] }) },
       ],
     });
     const events: ProgressEvent[] = [];
