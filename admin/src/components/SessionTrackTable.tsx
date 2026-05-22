@@ -274,7 +274,8 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
   onEdit,
 }: ReadonlyTrackRowProps) {
   const cell = { py: 0.75 } as const;
-  const mark = (on: boolean) => (on ? "✓" : "–");
+  const mark = (on: boolean) =>
+    on ? <CheckIcon fontSize="small" sx={{ color: "success.main" }} /> : null;
   return (
     <TableRow
       hover
@@ -308,16 +309,16 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
           {track.speaker || "—"}
         </Typography>
       </TableCell>
-      <TableCell sx={{ ...cell, width: 80 }}>
+      <TableCell sx={{ ...cell, width: 90 }}>
         <Typography variant="caption" color="text.secondary">
           {(track.languages[0] ?? "en").toUpperCase()}
         </Typography>
       </TableCell>
-      <TableCell sx={{ ...cell, width: 60, textAlign: "center" }}>
+      <TableCell sx={{ ...cell, width: 100, textAlign: "center" }}>
         {mark(track.isTranslation)}
       </TableCell>
       {enablePractice && (
-        <TableCell sx={{ ...cell, width: 60, textAlign: "center" }}>
+        <TableCell sx={{ ...cell, width: 90, textAlign: "center" }}>
           {mark(track.isPractice)}
         </TableCell>
       )}
@@ -466,7 +467,7 @@ const TrackRow = memo(function TrackRow({
       </TableCell>
 
       {/* Lang */}
-      <TableCell sx={{ py: 0.5, width: 80 }}>
+      <TableCell sx={{ py: 0.5, width: 90 }}>
         <Select
           size="small"
           variant="standard"
@@ -487,7 +488,7 @@ const TrackRow = memo(function TrackRow({
       </TableCell>
 
       {/* Translation */}
-      <TableCell sx={{ py: 0.5, width: 60 }}>
+      <TableCell sx={{ py: 0.5, width: 100, textAlign: "center" }}>
         <Checkbox
           size="small"
           checked={track.isTranslation}
@@ -500,7 +501,7 @@ const TrackRow = memo(function TrackRow({
 
       {/* Practice */}
       {enablePractice && (
-        <TableCell sx={{ py: 0.5, width: 60 }}>
+        <TableCell sx={{ py: 0.5, width: 90, textAlign: "center" }}>
           <Checkbox
             size="small"
             checked={track.isPractice}
@@ -863,18 +864,10 @@ export function SessionTrackTable({
               <TableCell sx={{ ...HEADER_CELL, width: 50, pl: 2 }}>#</TableCell>
               <TableCell sx={HEADER_CELL}>Title / Filename</TableCell>
               <TableCell sx={{ ...HEADER_CELL, width: 150 }}>Speaker</TableCell>
-              <TableCell sx={{ ...HEADER_CELL, width: 80 }}>Lang</TableCell>
-              <TableCell sx={{ ...HEADER_CELL, width: 60 }}>
-                <Tooltip title="Translation">
-                  <span>Trans</span>
-                </Tooltip>
-              </TableCell>
+              <TableCell sx={{ ...HEADER_CELL, width: 90 }}>Language</TableCell>
+              <TableCell sx={{ ...HEADER_CELL, width: 100 }}>Translation</TableCell>
               {enablePractice && (
-                <TableCell sx={{ ...HEADER_CELL, width: 60 }}>
-                  <Tooltip title="Practice">
-                    <span>Prac</span>
-                  </Tooltip>
-                </TableCell>
+                <TableCell sx={{ ...HEADER_CELL, width: 90 }}>Practice</TableCell>
               )}
               <TableCell
                 sx={{ ...HEADER_CELL, width: enableIgnore ? 250 : 170 }}
