@@ -281,12 +281,10 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
       sx={{ opacity: track.isTranslation ? 0.7 : 1, cursor: "pointer" }}
       onClick={() => onEdit(track.key)}
     >
-      <TableCell sx={{ ...cell, pl: 2, verticalAlign: "top", width: 50 }}>
-        {track.trackNumber}
-      </TableCell>
+      <TableCell sx={{ ...cell, pl: 2, width: 50 }}>{track.trackNumber}</TableCell>
       {/* Title (top) + filename (below), stacked so the filename has full width */}
       <TableCell sx={cell}>
-        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="body2">{track.title}</Typography>
             <Typography
@@ -375,7 +373,7 @@ const TrackRow = memo(function TrackRow({
   return (
     <TableRow sx={{ opacity: track.isTranslation ? 0.7 : 1 }}>
       {/* # (editable) */}
-      <TableCell sx={{ pl: 2, py: 0.5, verticalAlign: "top", width: 50 }}>
+      <TableCell sx={{ pl: 2, py: 0.5, width: 50 }}>
         <TextField
           type="number"
           size="small"
@@ -390,10 +388,11 @@ const TrackRow = memo(function TrackRow({
         />
       </TableCell>
 
-      {/* Title (top) + filename (below), stacked so the filename has full width */}
+      {/* Title (top) + filename (below), stacked so both inputs are full width;
+          the corrections badge sits to the right, centred across the two. */}
       <TableCell sx={{ py: 0.5 }}>
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+          <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.5 }}>
             <TextField
               size="small"
               variant="standard"
@@ -405,39 +404,39 @@ const TrackRow = memo(function TrackRow({
               }
               slotProps={{ inputLabel: { shrink: true } }}
             />
-            <CorrectionsBadge corrections={corrections ?? []} />
+            {editableFilename ? (
+              <TextField
+                size="small"
+                variant="standard"
+                fullWidth
+                label="Filename"
+                value={track.uploadFilename}
+                title={track.uploadFilename}
+                onChange={(e) =>
+                  onTrackChange(track.key, { uploadFilename: e.target.value })
+                }
+                slotProps={{ inputLabel: { shrink: true } }}
+                InputProps={{
+                  sx: { fontFamily: "monospace", fontSize: "0.72rem", color: "text.secondary" },
+                }}
+              />
+            ) : (
+              <Typography
+                variant="caption"
+                title={track.uploadFilename}
+                sx={{
+                  fontFamily: "monospace",
+                  fontSize: "0.65rem",
+                  color: "text.secondary",
+                  display: "block",
+                  wordBreak: "break-all",
+                }}
+              >
+                {track.uploadFilename}
+              </Typography>
+            )}
           </Box>
-          {editableFilename ? (
-            <TextField
-              size="small"
-              variant="standard"
-              fullWidth
-              label="Filename"
-              value={track.uploadFilename}
-              title={track.uploadFilename}
-              onChange={(e) =>
-                onTrackChange(track.key, { uploadFilename: e.target.value })
-              }
-              slotProps={{ inputLabel: { shrink: true } }}
-              InputProps={{
-                sx: { fontFamily: "monospace", fontSize: "0.72rem", color: "text.secondary" },
-              }}
-            />
-          ) : (
-            <Typography
-              variant="caption"
-              title={track.uploadFilename}
-              sx={{
-                fontFamily: "monospace",
-                fontSize: "0.65rem",
-                color: "text.secondary",
-                display: "block",
-                wordBreak: "break-all",
-              }}
-            >
-              {track.uploadFilename}
-            </Typography>
-          )}
+          <CorrectionsBadge corrections={corrections ?? []} />
         </Box>
       </TableCell>
 
@@ -829,7 +828,7 @@ export function SessionTrackTable({
               Describe a change to apply across all titles below
             </Typography>
           </Box>
-          <Box sx={{ display: "flex", gap: 2, alignItems: "flex-end" }}>
+          <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
             <TextField
               fullWidth
               size="small"
