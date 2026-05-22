@@ -36,7 +36,6 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Checkbox from "@mui/material/Checkbox";
 import Collapse from "@mui/material/Collapse";
-import CircularProgress from "@mui/material/CircularProgress";
 import Autocomplete from "@mui/material/Autocomplete";
 import Tooltip from "@mui/material/Tooltip";
 import Table from "@mui/material/Table";
@@ -45,6 +44,8 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import CheckIcon from "@mui/icons-material/Check";
 import { useNotify } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import type { TrackCorrection } from "../utils/analyzeFolder";
@@ -142,8 +143,6 @@ const HEADER_CELL = {
   color: "text.secondary",
 } as const;
 
-/** Above this many tracks, defer the table mount one frame behind a spinner. */
-const DEFER_THRESHOLD = 12;
 
 // --- Module-level Autocomplete helpers (stable identity across renders) -----
 
@@ -192,65 +191,158 @@ const renderTeacherOption = (
   </li>
 );
 
-/**
- * Speaker field that only mounts the (heavy) MUI Autocomplete while it's being
- * edited. At rest it's a plain read-only TextField, so a table of 50+ rows
- * mounts ~zero Autocompletes instead of one per row — the difference between a
- * frozen tab and an instant one. Clicking the field swaps in the Autocomplete
- * (focused + open); blurring swaps back.
- */
-function SpeakerCell({
-  value,
-  teachers,
-  onChange,
-}: {
-  value: string | null;
-  teachers: Teacher[];
-  onChange: (abbr: string | null) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-
-  if (!editing) {
-    return (
-      <TextField
-        size="small"
-        variant="standard"
-        fullWidth
-        value={value ?? ""}
-        placeholder="—"
-        onFocus={() => setEditing(true)}
-        onMouseDown={() => setEditing(true)}
-        InputProps={{ readOnly: true }}
-      />
-    );
-  }
-
+/** The ✨ correction badge + rich diff tooltip, shared by both row modes. */
+function CorrectionsBadge({ corrections }: { corrections: TrackCorrection[] }) {
+  if (corrections.length === 0) return null;
   return (
-    <Autocomplete
-      freeSolo
-      size="small"
-      openOnFocus
-      options={teachers}
-      value={value ?? ""}
-      getOptionLabel={getTeacherLabel}
-      isOptionEqualToValue={isTeacherEqualToValue}
-      filterOptions={filterTeacherOptions}
-      renderOption={renderTeacherOption}
-      onChange={(_, v) => {
-        const abbr =
-          v == null ? null : typeof v === "string" ? v || null : v.abbreviation;
-        onChange(abbr);
+    <Tooltip
+      arrow
+      slotProps={{
+        tooltip: {
+          sx: {
+            bgcolor: "background.paper",
+            color: "text.primary",
+            border: "1px solid",
+            borderColor: "divider",
+            boxShadow: 4,
+            p: 1.5,
+            maxWidth: 380,
+          },
+        },
+        arrow: {
+          sx: {
+            color: "background.paper",
+            "&::before": { border: "1px solid", borderColor: "divider" },
+          },
+        },
       }}
-      onInputChange={(_, v) => onChange(v || null)}
-      onBlur={() => setEditing(false)}
-      renderInput={(params) => (
-        <TextField {...params} variant="standard" autoFocus />
-      )}
-    />
+      title={
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+          {corrections.map((c, i) => (
+            <Box
+              key={i}
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 0.25,
+                pb: i < corrections.length - 1 ? 1.25 : 0,
+                borderBottom: i < corrections.length - 1 ? "1px solid" : "none",
+                borderColor: "divider",
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                <AutoAwesomeIcon sx={{ fontSize: 13, color: "warning.main" }} />
+                <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", color: "text.secondary" }}>
+                  {correctionFieldLabel(c.field)} · {correctionKindLabel(c.kind)}
+                </Typography>
+              </Box>
+              <Typography sx={{ fontSize: "0.8rem", color: "error.main", textDecoration: "line-through" }}>
+                {c.before}
+              </Typography>
+              <Typography sx={{ fontSize: "0.8rem", color: "success.main", fontWeight: 600 }}>
+                {c.after}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
+      }
+    >
+      <Chip
+        icon={<AutoAwesomeIcon />}
+        label={String(corrections.length)}
+        size="small"
+        color="warning"
+        variant="outlined"
+      />
+    </Tooltip>
   );
 }
 
-// --- Memoised per-track row -------------------------------------------------
+// --- Read-only row (cheap; the table renders these by default) --------------
+
+interface ReadonlyTrackRowProps {
+  track: TableTrack;
+  enablePractice: boolean;
+  corrections?: TrackCorrection[];
+  onEdit: (key: string) => void;
+}
+
+const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
+  track,
+  enablePractice,
+  corrections,
+  onEdit,
+}: ReadonlyTrackRowProps) {
+  const cell = { py: 0.75 } as const;
+  const mark = (on: boolean) => (on ? "✓" : "–");
+  return (
+    <TableRow
+      hover
+      sx={{ opacity: track.isTranslation ? 0.7 : 1, cursor: "pointer" }}
+      onClick={() => onEdit(track.key)}
+    >
+      <TableCell sx={{ ...cell, pl: 2 }}>{track.trackNumber}</TableCell>
+      <TableCell sx={{ ...cell, maxWidth: 240 }}>
+        <Typography
+          variant="caption"
+          title={track.uploadFilename}
+          sx={{
+            fontFamily: "monospace",
+            fontSize: "0.68rem",
+            color: "text.secondary",
+            display: "block",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {track.uploadFilename}
+        </Typography>
+      </TableCell>
+      <TableCell sx={cell}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+          <Typography variant="body2" sx={{ flex: 1 }}>
+            {track.title}
+          </Typography>
+          <CorrectionsBadge corrections={corrections ?? []} />
+        </Box>
+      </TableCell>
+      <TableCell sx={{ ...cell, width: 150 }}>
+        <Typography variant="body2" color="text.secondary">
+          {track.speaker || "—"}
+        </Typography>
+      </TableCell>
+      <TableCell sx={{ ...cell, width: 80 }}>
+        <Typography variant="caption" color="text.secondary">
+          {(track.languages[0] ?? "en").toUpperCase()}
+        </Typography>
+      </TableCell>
+      <TableCell sx={{ ...cell, width: 60, textAlign: "center" }}>
+        {mark(track.isTranslation)}
+      </TableCell>
+      {enablePractice && (
+        <TableCell sx={{ ...cell, width: 60, textAlign: "center" }}>
+          {mark(track.isPractice)}
+        </TableCell>
+      )}
+      <TableCell sx={{ ...cell }}>
+        <Button
+          size="small"
+          startIcon={<EditOutlinedIcon />}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit(track.key);
+          }}
+          sx={{ textTransform: "none" }}
+        >
+          Edit
+        </Button>
+      </TableCell>
+    </TableRow>
+  );
+});
+
+// --- Memoised per-track row (editable) --------------------------------------
 
 interface TrackRowProps {
   track: TableTrack;
@@ -262,6 +354,7 @@ interface TrackRowProps {
   onTrackChange: (key: string, patch: Partial<TableTrack>) => void;
   onMoveTrack: (key: string, toSessionIdx: number) => void;
   onIgnoreTrack: (key: string) => void;
+  onStopEdit: () => void;
   editableFilename: boolean;
   /** AI corrections to flag on this row (rendered as a Tooltip-equipped chip). */
   corrections?: TrackCorrection[];
@@ -277,6 +370,7 @@ const TrackRow = memo(function TrackRow({
   onTrackChange,
   onMoveTrack,
   onIgnoreTrack,
+  onStopEdit,
   editableFilename,
   corrections,
 }: TrackRowProps) {
@@ -345,77 +439,32 @@ const TrackRow = memo(function TrackRow({
               onTrackChange(track.key, { title: e.target.value })
             }
           />
-          {corrections && corrections.length > 0 && (
-            <Tooltip
-              arrow
-              slotProps={{
-                tooltip: {
-                  sx: {
-                    bgcolor: "background.paper",
-                    color: "text.primary",
-                    border: "1px solid",
-                    borderColor: "divider",
-                    boxShadow: 4,
-                    p: 1.5,
-                    maxWidth: 380,
-                  },
-                },
-                arrow: {
-                  sx: {
-                    color: "background.paper",
-                    "&::before": { border: "1px solid", borderColor: "divider" },
-                  },
-                },
-              }}
-              title={
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-                  {corrections.map((c, i) => (
-                    <Box
-                      key={i}
-                      sx={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 0.25,
-                        pb: i < corrections.length - 1 ? 1.25 : 0,
-                        borderBottom: i < corrections.length - 1 ? "1px solid" : "none",
-                        borderColor: "divider",
-                      }}
-                    >
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                        <AutoAwesomeIcon sx={{ fontSize: 13, color: "warning.main" }} />
-                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", color: "text.secondary" }}>
-                          {correctionFieldLabel(c.field)} · {correctionKindLabel(c.kind)}
-                        </Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: "0.8rem", color: "error.main", textDecoration: "line-through" }}>
-                        {c.before}
-                      </Typography>
-                      <Typography sx={{ fontSize: "0.8rem", color: "success.main", fontWeight: 600 }}>
-                        {c.after}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              }
-            >
-              <Chip
-                icon={<AutoAwesomeIcon />}
-                label={String(corrections.length)}
-                size="small"
-                color="warning"
-                variant="outlined"
-              />
-            </Tooltip>
-          )}
+          <CorrectionsBadge corrections={corrections ?? []} />
         </Box>
       </TableCell>
 
-      {/* Speaker — lazy: plain field until edited, then a full Autocomplete. */}
+      {/* Speaker — searchable by abbreviation OR full name. */}
       <TableCell sx={{ py: 0.5, width: 150 }}>
-        <SpeakerCell
-          value={track.speaker}
-          teachers={teachers}
-          onChange={(abbr) => onTrackChange(track.key, { speaker: abbr })}
+        <Autocomplete
+          freeSolo
+          size="small"
+          options={teachers}
+          value={track.speaker ?? ""}
+          getOptionLabel={getTeacherLabel}
+          isOptionEqualToValue={isTeacherEqualToValue}
+          filterOptions={filterTeacherOptions}
+          renderOption={renderTeacherOption}
+          onChange={(_, v) => {
+            const abbr =
+              v == null
+                ? null
+                : typeof v === "string"
+                  ? v || null
+                  : v.abbreviation;
+            onTrackChange(track.key, { speaker: abbr });
+          }}
+          onInputChange={(_, v) => onTrackChange(track.key, { speaker: v || null })}
+          renderInput={(params) => <TextField {...params} variant="standard" />}
         />
       </TableCell>
 
@@ -496,6 +545,15 @@ const TrackRow = memo(function TrackRow({
               Ignore
             </Button>
           )}
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<CheckIcon />}
+            onClick={onStopEdit}
+            sx={{ textTransform: "none" }}
+          >
+            Done
+          </Button>
         </Box>
       </TableCell>
     </TableRow>
@@ -519,17 +577,13 @@ export function SessionTrackTable({
   const [aiInstruction, setAiInstruction] = useState("");
   const [applyingAi, setApplyingAi] = useState(false);
 
-  // Deferred mount: paint a spinner first, then mount the (now-lightweight)
-  // table on the next frame. The CSS spinner is GPU-composited, so it keeps
-  // animating even while the table's mount briefly occupies the main thread —
-  // the admin sees clear "loading" feedback instead of a silently frozen page.
-  const totalTracks = value.sessions.reduce((n, s) => n + s.tracks.length, 0);
-  const [mounted, setMounted] = useState(totalTracks <= DEFER_THRESHOLD);
-  useEffect(() => {
-    if (mounted) return;
-    const id = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(id);
-  }, [mounted]);
+  // Rows are rendered read-only (plain text — cheap) by default; only the row
+  // the admin is editing mounts the heavy inputs (Autocomplete, Selects, …).
+  // This is what keeps a 50+ track table from freezing the tab on mount: a few
+  // hundred light text cells instead of a few hundred MUI input widgets.
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const startEdit = useCallback((key: string) => setEditingKey(key), []);
+  const stopEdit = useCallback(() => setEditingKey(null), []);
 
   // The callbacks below are referentially stable (`useCallback([])`); they read
   // the current value/onChange via these refs, so a memo'd TrackRow never
@@ -783,23 +837,6 @@ export function SessionTrackTable({
           </Box>
         </Paper>
       )}
-    {!mounted ? (
-      <Paper
-        sx={{
-          mb: 3,
-          py: 8,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: 2,
-        }}
-      >
-        <CircularProgress size={36} />
-        <Typography variant="body2" color="text.secondary">
-          Preparing {totalTracks} tracks…
-        </Typography>
-      </Paper>
-    ) : (
     <Paper sx={{ mb: 3 }}>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
@@ -905,22 +942,33 @@ export function SessionTrackTable({
                   </TableRow>
                 )}
 
-                {session.tracks.map((track) => (
-                  <TrackRow
-                    key={track.key}
-                    track={track}
-                    sessionIdx={sIdx}
-                    sessionCount={sessionCount}
-                    teachers={teachers}
-                    enableIgnore={enableIgnore}
-                    enablePractice={enablePractice}
-                    onTrackChange={onTrackChange}
-                    onMoveTrack={onMoveTrack}
-                    onIgnoreTrack={onIgnoreTrack}
-                    editableFilename={editableFilename}
-                    corrections={trackCorrections?.get(track.key)}
-                  />
-                ))}
+                {session.tracks.map((track) =>
+                  editingKey === track.key ? (
+                    <TrackRow
+                      key={track.key}
+                      track={track}
+                      sessionIdx={sIdx}
+                      sessionCount={sessionCount}
+                      teachers={teachers}
+                      enableIgnore={enableIgnore}
+                      enablePractice={enablePractice}
+                      onTrackChange={onTrackChange}
+                      onMoveTrack={onMoveTrack}
+                      onIgnoreTrack={onIgnoreTrack}
+                      onStopEdit={stopEdit}
+                      editableFilename={editableFilename}
+                      corrections={trackCorrections?.get(track.key)}
+                    />
+                  ) : (
+                    <ReadonlyTrackRow
+                      key={track.key}
+                      track={track}
+                      enablePractice={enablePractice}
+                      corrections={trackCorrections?.get(track.key)}
+                      onEdit={startEdit}
+                    />
+                  ),
+                )}
               </Fragment>
             ))}
           </TableBody>
@@ -1009,7 +1057,6 @@ export function SessionTrackTable({
       )}
 
     </Paper>
-    )}
     </>
   );
 }
