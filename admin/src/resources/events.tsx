@@ -43,7 +43,6 @@ import DialogActions from "@mui/material/DialogActions";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SaveIcon from "@mui/icons-material/Save";
 import DeleteIcon from "@mui/icons-material/Delete";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import SpaIcon from "@mui/icons-material/SelfImprovement";
 import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
@@ -1345,8 +1344,10 @@ export const EventCreate = () => {
       }
     }
     const base = (form.eventCode || folderName || "event").replace(/[^\w.-]+/g, "_");
-    exportTracksToXlsx(rows, `${base}-tracks-review.xlsx`);
-  }, [sessions, trackCorrections, form.eventCode, folderName]);
+    exportTracksToXlsx(rows, `${base}-tracks-review.xlsx`).catch((err) =>
+      notify(`Export failed: ${(err as Error).message}`, { type: "error" }),
+    );
+  }, [sessions, trackCorrections, form.eventCode, folderName, notify]);
 
   /** Upload transcript PDFs after the event has been created (so we have eventCode). */
   const handleTranscriptFilesDropped = useCallback(
@@ -1539,6 +1540,7 @@ export const EventCreate = () => {
               notes={analysis.notes}
               aiCoverage={analysis.aiCoverage}
               onRetryAi={handleRetryAi}
+              onExport={sessions.length > 0 ? handleExportForReview : undefined}
             />
           )}
 
@@ -1557,21 +1559,6 @@ export const EventCreate = () => {
             trackCount={0}
             transcriptCount={0}
           />
-
-          {/* Export the list for a human (e.g. a PT-speaking reviewer) to check */}
-          {sessions.length > 0 && (
-            <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 1 }}>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<FileDownloadOutlinedIcon />}
-                onClick={handleExportForReview}
-                sx={{ textTransform: "none", borderRadius: 2 }}
-              >
-                {translate("padmakara.import.exportReview") || "Export for review (Excel)"}
-              </Button>
-            </Box>
-          )}
 
           {/* Review & edit the parsed tracks/sessions before saving */}
           <SessionTrackTable

@@ -275,6 +275,8 @@ export const en = {
       aiNotes: "AI notes",
       analyzeError: "AI analysis failed: %{error}",
       exportReview: "Export for review (Excel)",
+      analysisReportTitle: "AI analysis",
+      tracksLabel: "tracks",
     },
   },
 };

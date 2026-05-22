@@ -476,6 +476,8 @@ export const pt = {
       aiNotes: "Notas da IA",
       analyzeError: "Análise por IA falhou: %{error}",
       exportReview: "Exportar para revisão (Excel)",
+      analysisReportTitle: "Análise por IA",
+      tracksLabel: "faixas",
     },
   },
 };
