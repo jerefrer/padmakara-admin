@@ -281,29 +281,27 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
       sx={{ opacity: track.isTranslation ? 0.7 : 1, cursor: "pointer" }}
       onClick={() => onEdit(track.key)}
     >
-      <TableCell sx={{ ...cell, pl: 2 }}>{track.trackNumber}</TableCell>
-      <TableCell sx={{ ...cell, maxWidth: 240 }}>
-        <Typography
-          variant="caption"
-          title={track.uploadFilename}
-          sx={{
-            fontFamily: "monospace",
-            fontSize: "0.68rem",
-            color: "text.secondary",
-            display: "block",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {track.uploadFilename}
-        </Typography>
+      <TableCell sx={{ ...cell, pl: 2, verticalAlign: "top", width: 50 }}>
+        {track.trackNumber}
       </TableCell>
+      {/* Title (top) + filename (below), stacked so the filename has full width */}
       <TableCell sx={cell}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <Typography variant="body2" sx={{ flex: 1 }}>
-            {track.title}
-          </Typography>
+        <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="body2">{track.title}</Typography>
+            <Typography
+              variant="caption"
+              sx={{
+                fontFamily: "monospace",
+                fontSize: "0.65rem",
+                color: "text.secondary",
+                display: "block",
+                wordBreak: "break-all",
+              }}
+            >
+              {track.uploadFilename}
+            </Typography>
+          </Box>
           <CorrectionsBadge corrections={corrections ?? []} />
         </Box>
       </TableCell>
@@ -377,7 +375,7 @@ const TrackRow = memo(function TrackRow({
   return (
     <TableRow sx={{ opacity: track.isTranslation ? 0.7 : 1 }}>
       {/* # (editable) */}
-      <TableCell sx={{ pl: 2, py: 0.5 }}>
+      <TableCell sx={{ pl: 2, py: 0.5, verticalAlign: "top", width: 50 }}>
         <TextField
           type="number"
           size="small"
@@ -392,54 +390,54 @@ const TrackRow = memo(function TrackRow({
         />
       </TableCell>
 
-      {/* Filename — editable pre-upload (EventCreate), read-only otherwise */}
-      <TableCell sx={{ py: 0.5, maxWidth: 240 }}>
-        {editableFilename ? (
-          <TextField
-            size="small"
-            variant="standard"
-            fullWidth
-            value={track.uploadFilename}
-            title={track.uploadFilename}
-            onChange={(e) =>
-              onTrackChange(track.key, { uploadFilename: e.target.value })
-            }
-            InputProps={{
-              sx: { fontFamily: "monospace", fontSize: "0.68rem", color: "text.secondary" },
-            }}
-          />
-        ) : (
-          <Typography
-            variant="caption"
-            title={track.uploadFilename}
-            sx={{
-              fontFamily: "monospace",
-              fontSize: "0.65rem",
-              color: "text.secondary",
-              display: "block",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {track.uploadFilename}
-          </Typography>
-        )}
-      </TableCell>
-
-      {/* Title */}
+      {/* Title (top) + filename (below), stacked so the filename has full width */}
       <TableCell sx={{ py: 0.5 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          <TextField
-            size="small"
-            variant="standard"
-            fullWidth
-            value={track.title}
-            onChange={(e) =>
-              onTrackChange(track.key, { title: e.target.value })
-            }
-          />
-          <CorrectionsBadge corrections={corrections ?? []} />
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <TextField
+              size="small"
+              variant="standard"
+              fullWidth
+              label="Title"
+              value={track.title}
+              onChange={(e) =>
+                onTrackChange(track.key, { title: e.target.value })
+              }
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+            <CorrectionsBadge corrections={corrections ?? []} />
+          </Box>
+          {editableFilename ? (
+            <TextField
+              size="small"
+              variant="standard"
+              fullWidth
+              label="Filename"
+              value={track.uploadFilename}
+              title={track.uploadFilename}
+              onChange={(e) =>
+                onTrackChange(track.key, { uploadFilename: e.target.value })
+              }
+              slotProps={{ inputLabel: { shrink: true } }}
+              InputProps={{
+                sx: { fontFamily: "monospace", fontSize: "0.72rem", color: "text.secondary" },
+              }}
+            />
+          ) : (
+            <Typography
+              variant="caption"
+              title={track.uploadFilename}
+              sx={{
+                fontFamily: "monospace",
+                fontSize: "0.65rem",
+                color: "text.secondary",
+                display: "block",
+                wordBreak: "break-all",
+              }}
+            >
+              {track.uploadFilename}
+            </Typography>
+          )}
         </Box>
       </TableCell>
 
@@ -803,36 +801,57 @@ export function SessionTrackTable({
     }
   }, [aiInstruction, notify]);
 
-  const colCount = enablePractice ? 8 : 7;
+  // Columns: # | Title/Filename | Speaker | Lang | Trans | [Prac] | Actions
+  const colCount = enablePractice ? 7 : 6;
   const sessionCount = value.sessions.length;
 
   return (
     <>
-      {/* AI title-cleanup card — sits above the table so the reviewer can
-          shape the titles in bulk before scanning the rows below. */}
+      {/* AI bulk-edit card — visually distinct from the plain form fields so
+          it reads as an AI action, not just another input. */}
       {enableAiRename && (
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+        <Paper
+          variant="outlined"
+          sx={{
+            p: 2,
+            mb: 2,
+            borderColor: "rgba(91,94,166,0.35)",
+            background:
+              "linear-gradient(135deg, rgba(91,94,166,0.07), rgba(91,94,166,0.02))",
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.25 }}>
+            <AutoAwesomeIcon sx={{ color: "primary.main", fontSize: 20 }} />
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              AI bulk edit
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Describe a change to apply across all titles below
+            </Typography>
+          </Box>
+          <Box sx={{ display: "flex", gap: 2, alignItems: "flex-end" }}>
             <TextField
               fullWidth
               size="small"
               multiline
-              minRows={2}
-              maxRows={4}
-              label="AI instruction (optional)"
-              placeholder='e.g. "fix capitalisation and typos in the titles"'
+              minRows={3}
+              maxRows={6}
+              placeholder={
+                'e.g. "Capitalise every title in Title Case" or ' +
+                '"Remove the speaker initials from the titles"'
+              }
               value={aiInstruction}
               onChange={(e) => setAiInstruction(e.target.value)}
-              slotProps={{ inputLabel: { shrink: true } }}
+              sx={{ backgroundColor: "background.paper", borderRadius: 1 }}
             />
             <Button
-              variant="outlined"
-              size="small"
+              variant="contained"
+              startIcon={<AutoAwesomeIcon />}
               onClick={() => void handleApplyAi()}
               disabled={applyingAi || aiInstruction.trim() === ""}
-              sx={{ flexShrink: 0, minWidth: 96 }}
+              sx={{ flexShrink: 0, minWidth: 120, textTransform: "none", borderRadius: 2 }}
             >
-              {applyingAi ? "Applying…" : "Apply AI"}
+              {applyingAi ? "Applying…" : "Apply"}
             </Button>
           </Box>
         </Paper>
@@ -842,11 +861,8 @@ export function SessionTrackTable({
         <Table size="small">
           <TableHead>
             <TableRow sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
-              <TableCell sx={{ ...HEADER_CELL, width: 60, pl: 2 }}>#</TableCell>
-              <TableCell sx={{ ...HEADER_CELL, maxWidth: 240 }}>
-                Filename
-              </TableCell>
-              <TableCell sx={HEADER_CELL}>Title</TableCell>
+              <TableCell sx={{ ...HEADER_CELL, width: 50, pl: 2 }}>#</TableCell>
+              <TableCell sx={HEADER_CELL}>Title / Filename</TableCell>
               <TableCell sx={{ ...HEADER_CELL, width: 150 }}>Speaker</TableCell>
               <TableCell sx={{ ...HEADER_CELL, width: 80 }}>Lang</TableCell>
               <TableCell sx={{ ...HEADER_CELL, width: 60 }}>
