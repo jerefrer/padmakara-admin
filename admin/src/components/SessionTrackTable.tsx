@@ -43,13 +43,30 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { useNotify } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 
-/** Map keyed by track's originalFilename → list of corrections applied to it. */
+/** Map keyed by a track's stable key → list of corrections applied to it. */
 export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
+
+function correctionFieldLabel(field: TrackCorrection["field"]): string {
+  return field === "title" ? "Title" : "Filename";
+}
+
+function correctionKindLabel(kind: TrackCorrection["kind"]): string {
+  switch (kind) {
+    case "accents":
+      return "Accents added";
+    case "spelling":
+      return "Spelling fixed";
+    case "capitalization":
+      return "Capitalization";
+    case "rename":
+      return "Renamed";
+  }
+}
 
 /**
  * A track as the table edits it — no File / no importFileId; those stay in
@@ -58,7 +75,8 @@ export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
 export interface TableTrack {
   /** Stable identity within this table (survives edits and moves). */
   key: string;
-  originalFilename: string;
+  /** Editable filename that will become the S3 key on upload. */
+  uploadFilename: string;
   trackNumber: number;
   title: string;
   speaker: string | null;
@@ -102,8 +120,12 @@ interface SessionTrackTableProps {
   enablePractice?: boolean;
   /** Show the AI title-cleanup box (POSTs /api/admin/upload/rename-tracks). */
   enableAiRename?: boolean;
-  /** When provided, tracks whose `originalFilename` matches a key get an
-   *  AI-correction badge with a tooltip listing the diffs. */
+  /** Allow editing each track's filename (the future S3 key). Only safe
+   *  pre-upload (EventCreate); the migration flow's files already live on S3,
+   *  so it leaves this off and shows the filename read-only. */
+  editableFilename?: boolean;
+  /** When provided, tracks whose `key` matches get an AI-correction badge
+   *  with a tooltip listing the diffs. */
   trackCorrections?: TrackCorrectionsMap;
 }
 
@@ -178,6 +200,7 @@ interface TrackRowProps {
   onTrackChange: (key: string, patch: Partial<TableTrack>) => void;
   onMoveTrack: (key: string, toSessionIdx: number) => void;
   onIgnoreTrack: (key: string) => void;
+  editableFilename: boolean;
   /** AI corrections to flag on this row (rendered as a Tooltip-equipped chip). */
   corrections?: TrackCorrection[];
 }
@@ -192,6 +215,7 @@ const TrackRow = memo(function TrackRow({
   onTrackChange,
   onMoveTrack,
   onIgnoreTrack,
+  editableFilename,
   corrections,
 }: TrackRowProps) {
   return (
@@ -212,23 +236,39 @@ const TrackRow = memo(function TrackRow({
         />
       </TableCell>
 
-      {/* Original filename (read-only) */}
-      <TableCell sx={{ py: 0.5, maxWidth: 200 }}>
-        <Typography
-          variant="caption"
-          title={track.originalFilename}
-          sx={{
-            fontFamily: "monospace",
-            fontSize: "0.65rem",
-            color: "text.secondary",
-            display: "block",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {track.originalFilename}
-        </Typography>
+      {/* Filename — editable pre-upload (EventCreate), read-only otherwise */}
+      <TableCell sx={{ py: 0.5, maxWidth: 240 }}>
+        {editableFilename ? (
+          <TextField
+            size="small"
+            variant="standard"
+            fullWidth
+            value={track.uploadFilename}
+            title={track.uploadFilename}
+            onChange={(e) =>
+              onTrackChange(track.key, { uploadFilename: e.target.value })
+            }
+            InputProps={{
+              sx: { fontFamily: "monospace", fontSize: "0.68rem", color: "text.secondary" },
+            }}
+          />
+        ) : (
+          <Typography
+            variant="caption"
+            title={track.uploadFilename}
+            sx={{
+              fontFamily: "monospace",
+              fontSize: "0.65rem",
+              color: "text.secondary",
+              display: "block",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {track.uploadFilename}
+          </Typography>
+        )}
       </TableCell>
 
       {/* Title */}
@@ -245,17 +285,59 @@ const TrackRow = memo(function TrackRow({
           />
           {corrections && corrections.length > 0 && (
             <Tooltip
+              arrow
+              slotProps={{
+                tooltip: {
+                  sx: {
+                    bgcolor: "background.paper",
+                    color: "text.primary",
+                    border: "1px solid",
+                    borderColor: "divider",
+                    boxShadow: 4,
+                    p: 1.5,
+                    maxWidth: 380,
+                  },
+                },
+                arrow: {
+                  sx: {
+                    color: "background.paper",
+                    "&::before": { border: "1px solid", borderColor: "divider" },
+                  },
+                },
+              }}
               title={
-                <Box component="span" sx={{ whiteSpace: "pre-line" }}>
-                  {corrections
-                    .map((c) => `${c.field}: "${c.before}" → "${c.after}"`)
-                    .join("\n")}
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+                  {corrections.map((c, i) => (
+                    <Box
+                      key={i}
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 0.25,
+                        pb: i < corrections.length - 1 ? 1.25 : 0,
+                        borderBottom: i < corrections.length - 1 ? "1px solid" : "none",
+                        borderColor: "divider",
+                      }}
+                    >
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                        <AutoAwesomeIcon sx={{ fontSize: 13, color: "warning.main" }} />
+                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: 0.3, textTransform: "uppercase", color: "text.secondary" }}>
+                          {correctionFieldLabel(c.field)} · {correctionKindLabel(c.kind)}
+                        </Typography>
+                      </Box>
+                      <Typography sx={{ fontSize: "0.8rem", color: "error.main", textDecoration: "line-through" }}>
+                        {c.before}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.8rem", color: "success.main", fontWeight: 600 }}>
+                        {c.after}
+                      </Typography>
+                    </Box>
+                  ))}
                 </Box>
               }
-              arrow
             >
               <Chip
-                icon={<AutoFixHighIcon />}
+                icon={<AutoAwesomeIcon />}
                 label={String(corrections.length)}
                 size="small"
                 color="warning"
@@ -387,6 +469,7 @@ export function SessionTrackTable({
   enableIgnore = false,
   enablePractice = false,
   enableAiRename = false,
+  editableFilename = false,
   trackCorrections,
 }: SessionTrackTableProps) {
   const notify = useNotify();
@@ -568,7 +651,7 @@ export function SessionTrackTable({
         ...v.ignored,
       ].map((t) => ({
         rowKey: t.key,
-        originalFilename: t.originalFilename,
+        originalFilename: t.uploadFilename,
         title: t.title,
         speaker: t.speaker ?? "",
       }));
@@ -652,8 +735,8 @@ export function SessionTrackTable({
           <TableHead>
             <TableRow sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
               <TableCell sx={{ ...HEADER_CELL, width: 60, pl: 2 }}>#</TableCell>
-              <TableCell sx={{ ...HEADER_CELL, maxWidth: 200 }}>
-                Original filename
+              <TableCell sx={{ ...HEADER_CELL, maxWidth: 240 }}>
+                Filename
               </TableCell>
               <TableCell sx={HEADER_CELL}>Title</TableCell>
               <TableCell sx={{ ...HEADER_CELL, width: 150 }}>Speaker</TableCell>
@@ -763,7 +846,8 @@ export function SessionTrackTable({
                     onTrackChange={onTrackChange}
                     onMoveTrack={onMoveTrack}
                     onIgnoreTrack={onIgnoreTrack}
-                    corrections={trackCorrections?.get(track.originalFilename)}
+                    editableFilename={editableFilename}
+                    corrections={trackCorrections?.get(track.key)}
                   />
                 ))}
               </Fragment>
@@ -813,10 +897,10 @@ export function SessionTrackTable({
                 >
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography variant="body2">
-                      {track.title || track.originalFilename}
+                      {track.title || track.uploadFilename}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      original file: {track.originalFilename}
+                      file: {track.uploadFilename}
                     </Typography>
                   </Box>
                   {sessionCount > 0 ? (

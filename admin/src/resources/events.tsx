@@ -1035,9 +1035,9 @@ function analysisToInferredSessions(
       const parsed = parseTrackFile(file);
 
       if (t.corrections.length > 0) {
-        // Key by corrected filename so SessionTrackTable can look it up via
-        // track.originalFilename (which we set to correctedFilename below).
-        corrections.set(t.correctedFilename, t.corrections);
+        // Key by the file's stable id so the badge survives filename edits
+        // (SessionTrackTable looks corrections up via track.key === fileKey).
+        corrections.set(fileKey(file), t.corrections);
       }
 
       return {
@@ -1084,6 +1084,23 @@ const stringArraysEqual = (a: string[], b: string[]): boolean => {
  */
 const tableTrackForParsedTrack = new WeakMap<ParsedTrack, TableTrack>();
 
+/**
+ * Stable per-File identity. The dropped `File` object survives filename edits
+ * (it's carried through unchanged), so it makes a reliable table row key —
+ * unlike the filename, which the admin can now edit. Keeping the key stable is
+ * what lets the filename input keep focus while typing.
+ */
+const fileKeys = new WeakMap<File, string>();
+let fileKeyCounter = 0;
+function fileKey(file: File): string {
+  let k = fileKeys.get(file);
+  if (!k) {
+    k = `f${fileKeyCounter++}`;
+    fileKeys.set(file, k);
+  }
+  return k;
+}
+
 
 function sessionsToTableValue(sessions: InferredSession[]): TableValue {
   return {
@@ -1095,8 +1112,9 @@ function sessionsToTableValue(sessions: InferredSession[]): TableValue {
         let tt = tableTrackForParsedTrack.get(t);
         if (!tt) {
           tt = {
-            key: t.originalFilename,
-            originalFilename: t.originalFilename,
+            // Stable key from the File — survives filename edits.
+            key: fileKey(t.file),
+            uploadFilename: t.originalFilename,
             trackNumber: t.trackNumber,
             title: t.title,
             speaker: t.speaker,
@@ -1127,7 +1145,7 @@ function tableValueToSessions(
 ): InferredSession[] {
   const baseByKey = new Map<string, ParsedTrack>();
   for (const s of original) {
-    for (const t of s.tracks) baseByKey.set(t.originalFilename, t);
+    for (const t of s.tracks) baseByKey.set(fileKey(t.file), t);
   }
   return tv.sessions.map((s, i) => ({
     sessionNumber: i + 1,
@@ -1144,7 +1162,8 @@ function tableValueToSessions(
         stringArraysEqual(base.languages, t.languages) &&
         base.originalLanguage === t.originalLanguage &&
         base.isTranslation === t.isTranslation &&
-        (base.isPractice ?? false) === t.isPractice
+        (base.isPractice ?? false) === t.isPractice &&
+        base.originalFilename === t.uploadFilename
       ) {
         return base;
       }
@@ -1157,6 +1176,8 @@ function tableValueToSessions(
         originalLanguage: t.originalLanguage,
         isTranslation: t.isTranslation,
         isPractice: t.isPractice,
+        // The edited filename becomes the canonical upload name (the S3 key).
+        originalFilename: t.uploadFilename,
       } satisfies ParsedTrack;
     }),
   }));
@@ -1503,6 +1524,7 @@ export const EventCreate = () => {
             teachers={allTeachers}
             enablePractice
             enableAiRename
+            editableFilename
             trackCorrections={trackCorrections}
           />
 

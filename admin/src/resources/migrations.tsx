@@ -239,7 +239,7 @@ function buildTableTrack(t: ProposedTrack): TableTrack {
   if (!tt) {
     tt = {
       key: String(t.importFileId),
-      originalFilename: t.originalFilename,
+      uploadFilename: t.originalFilename,
       trackNumber: t.trackNumber,
       title: t.title,
       speaker: t.speaker,

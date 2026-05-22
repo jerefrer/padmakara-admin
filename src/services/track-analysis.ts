@@ -673,7 +673,12 @@ function mergeChunkResults(
 function applyTrackEdit(track: AnalysisTrack, edit: TrackEdit): void {
   const corrections: TrackCorrection[] = [];
   if (edit.title !== undefined && edit.title !== track.title) {
-    corrections.push({ field: "title", before: track.title, after: edit.title });
+    corrections.push({
+      field: "title",
+      kind: classifyChange(track.title, edit.title),
+      before: track.title,
+      after: edit.title,
+    });
     track.title = edit.title;
   }
   if (
@@ -682,10 +687,32 @@ function applyTrackEdit(track: AnalysisTrack, edit: TrackEdit): void {
   ) {
     corrections.push({
       field: "correctedFilename",
+      // Filenames stay ASCII, so an accent fix never shows here; classify the
+      // textual change but default the bucket to "rename" when it's broader.
+      kind: classifyChange(track.correctedFilename, edit.correctedFilename, "rename"),
       before: track.correctedFilename,
       after: edit.correctedFilename,
     });
     track.correctedFilename = edit.correctedFilename;
   }
   track.corrections = corrections;
+}
+
+function stripDiacritics(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+/**
+ * Classify a before→after text change so the UI can label it. `fallback` is
+ * used when the change isn't purely accents or capitalization (defaults to
+ * "spelling", but filename changes pass "rename").
+ */
+function classifyChange(
+  before: string,
+  after: string,
+  fallback: TrackCorrection["kind"] = "spelling",
+): TrackCorrection["kind"] {
+  if (stripDiacritics(before) === stripDiacritics(after)) return "accents";
+  if (before.toLowerCase() === after.toLowerCase()) return "capitalization";
+  return fallback;
 }

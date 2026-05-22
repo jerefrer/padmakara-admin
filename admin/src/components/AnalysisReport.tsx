@@ -1,4 +1,4 @@
-import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
 import Alert from "@mui/material/Alert";
@@ -40,7 +40,7 @@ export function AnalysisReport({ notes, aiCoverage, onRetryAi }: AnalysisReportP
       {aiDegraded && (
         <Alert
           severity="warning"
-          icon={<AutoFixHighIcon />}
+          icon={<AutoAwesomeIcon />}
           action={
             onRetryAi ? (
               <Button
@@ -48,7 +48,7 @@ export function AnalysisReport({ notes, aiCoverage, onRetryAi }: AnalysisReportP
                 color="warning"
                 size="small"
                 onClick={onRetryAi}
-                startIcon={<AutoFixHighIcon />}
+                startIcon={<AutoAwesomeIcon />}
                 sx={{ alignSelf: "center", whiteSpace: "nowrap" }}
               >
                 {t("padmakara.import.retryAi") || "Retry AI analysis"}

@@ -24,30 +24,39 @@ Leave them as-is. Do NOT reformat them. Specifically:
 `.trim();
 
 export const WRITING_RULES = `
-You are CONSERVATIVE. Only change something when it is clearly wrong. When in
-doubt, leave it unchanged. Respect the human's choices.
+Be PROACTIVE about fixing genuine mistakes — spelling errors, missing
+accents, and stray capitals are almost never intentional, so fix them. Every
+change is shown to the admin with a clear before→after, and they can revert
+anything that was actually deliberate. What you must NOT do is impose a
+stylistic SCHEME the human didn't choose (don't Title-Case everything, don't
+reformat filenames).
 
 Track display title (the track's own language — English for JKR tracks,
 Portuguese for TRAD tracks; never both):
-- Fix genuine spelling typos: "lazyness" → "laziness", "conciousness" →
-  "consciousness", "rather then" → "rather than".
+- Fix spelling typos: "lazyness" → "laziness", "conciousness" →
+  "consciousness", "rather then" → "rather than", "lifes" → "lives".
 - Add missing Portuguese accents/diacritics: "introducao" → "introdução",
   "respiracao" → "respiração", "pratica" → "prática".
-- Do NOT impose Title Case or change capitalization that is already
-  reasonable. "The meaning of Shamatha" stays "The meaning of Shamatha".
+- Fix STRAY capitals that have no obvious reason — a capital letter in the
+  middle of a word, or a randomly capitalized word mid-sentence. But do NOT
+  impose Title Case: "The meaning of Shamatha" is a fine sentence-style title,
+  leave its capitalization as-is.
 - Do NOT translate. Do NOT add the speaker, date, or extra words.
-- If the title is already fine, do not emit an edit for it.
+- If the title has no genuine error, do not emit an edit for it.
 
 Track filename (this becomes the S3 key):
-- Keep it exactly as the human wrote it, including spaces and capitalization.
-- Only change it when fixing a genuine spelling typo that also appears in the
-  filename (e.g. filename "...lazyness.mp3" → "...laziness.mp3"), or to strip
-  a leading/trailing space.
+- ALWAYS apply the same spelling typo fix to the filename when you fix it in
+  the title (e.g. title "...consciousness" → filename
+  "050 JKR - Question about the eight consciousness.mp3"). A clean title with
+  a misspelled filename is wrong — keep them in sync.
+- Keep the filename's existing style: spaces stay spaces, capitalization
+  stays as the human wrote it. Only the misspelled word(s) change.
 - ALWAYS stay ASCII — never introduce accents into a filename. So a
-  Portuguese typo fix that adds an accent applies to the DISPLAY TITLE only,
-  not the filename.
-- Do NOT convert spaces to underscores. Do NOT change capitalization.
-- If the filename is already fine, do not emit an edit for it.
+  Portuguese accent fix applies to the DISPLAY TITLE only; the filename keeps
+  the ASCII spelling (e.g. title "respiração", filename "...respiracao.mp3").
+- Strip leading/trailing spaces around the filename.
+- Do NOT convert spaces to underscores.
+- If the filename has no genuine error, do not emit an edit for it.
 
 Notes (free-form observations):
 - Add a note when something is genuinely worth the admin's attention: a
@@ -56,6 +65,8 @@ Notes (free-form observations):
   name deviating from the convention, an orphan file, etc.
 - Do NOT write a note for routine, expected things (e.g. "this is a bilingual
   pairing" or "track numbers are three digits"). Notes are for surprises.
+- Do NOT write a note just to explain a spelling/accent fix — the before→after
+  diff already shows that. Notes are for things the admin must DECIDE on.
 - Severity: "info" for things worth knowing, "warning" for things the admin
   should review before saving.
 `.trim();
@@ -63,9 +74,11 @@ Notes (free-form observations):
 // ─── Final result schemas (what the API returns / the frontend consumes) ──
 
 // A correction is COMPUTED server-side by diffing the deterministic value
-// against Claude's edit. `field` is the thing that changed.
+// against Claude's edit. `field` is the thing that changed; `kind` classifies
+// the change so the UI can label it ("Accents added", "Spelling fixed", …).
 export const trackCorrectionSchema = z.object({
   field: z.enum(["title", "correctedFilename"]),
+  kind: z.enum(["accents", "spelling", "capitalization", "rename"]),
   before: z.string(),
   after: z.string(),
 });

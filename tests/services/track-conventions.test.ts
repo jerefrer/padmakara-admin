@@ -25,6 +25,7 @@ describe("track-conventions", () => {
     it("accepts a title correction", () => {
       const ok = trackCorrectionSchema.safeParse({
         field: "title",
+        kind: "accents",
         before: "Refugio",
         after: "Refúgio",
       });
@@ -33,6 +34,7 @@ describe("track-conventions", () => {
     it("accepts a correctedFilename correction", () => {
       const ok = trackCorrectionSchema.safeParse({
         field: "correctedFilename",
+        kind: "spelling",
         before: "a lazyness.mp3",
         after: "a laziness.mp3",
       });
@@ -41,6 +43,16 @@ describe("track-conventions", () => {
     it("rejects an unknown field", () => {
       const bad = trackCorrectionSchema.safeParse({
         field: "nope",
+        kind: "spelling",
+        before: "a",
+        after: "b",
+      });
+      expect(bad.success).toBe(false);
+    });
+    it("rejects an unknown kind", () => {
+      const bad = trackCorrectionSchema.safeParse({
+        field: "title",
+        kind: "nope",
         before: "a",
         after: "b",
       });

@@ -10,6 +10,7 @@ export type ProgressEvent =
 
 export interface TrackCorrection {
   field: "title" | "correctedFilename";
+  kind: "accents" | "spelling" | "capitalization" | "rename";
   before: string;
   after: string;
 }

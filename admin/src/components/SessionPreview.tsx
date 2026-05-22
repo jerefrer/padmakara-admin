@@ -1,6 +1,6 @@
 import AddIcon from "@mui/icons-material/Add";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
-import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import CheckIcon from "@mui/icons-material/Check";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -1091,7 +1091,7 @@ const TrackCorrectionsBadge = ({
   return (
     <Box sx={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start" }}>
       <Chip
-        icon={<AutoFixHighIcon sx={{ fontSize: "12px !important" }} />}
+        icon={<AutoAwesomeIcon sx={{ fontSize: "12px !important" }} />}
         label={`${corrections.length} AI fix${corrections.length === 1 ? "" : "es"}`}
         size="small"
         color="warning"

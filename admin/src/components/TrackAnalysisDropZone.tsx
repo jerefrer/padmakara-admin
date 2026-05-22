@@ -8,7 +8,7 @@ import { keyframes } from "@mui/system";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import FolderIcon from "@mui/icons-material/FolderOpen";
 import CloseIcon from "@mui/icons-material/Close";
-import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { useTranslate } from "react-admin";
 
 const pulse = keyframes`
@@ -343,7 +343,7 @@ export function TrackAnalysisDropZone({
                 justifyContent: "center",
               }}
             >
-              <AutoFixHighIcon
+              <AutoAwesomeIcon
                 sx={{
                   fontSize: 38,
                   color: "primary.main",
