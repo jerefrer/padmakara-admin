@@ -36,6 +36,7 @@ import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Checkbox from "@mui/material/Checkbox";
 import Collapse from "@mui/material/Collapse";
+import CircularProgress from "@mui/material/CircularProgress";
 import Autocomplete from "@mui/material/Autocomplete";
 import Tooltip from "@mui/material/Tooltip";
 import Table from "@mui/material/Table";
@@ -140,6 +141,9 @@ const HEADER_CELL = {
   fontSize: "0.72rem",
   color: "text.secondary",
 } as const;
+
+/** Track rows mounted per animation frame (progressive rendering). */
+const PROGRESSIVE_BATCH = 20;
 
 // --- Module-level Autocomplete helpers (stable identity across renders) -----
 
@@ -476,6 +480,33 @@ export function SessionTrackTable({
   const [ignoredOpen, setIgnoredOpen] = useState(false);
   const [aiInstruction, setAiInstruction] = useState("");
   const [applyingAi, setApplyingAi] = useState(false);
+
+  // Progressive rendering: each track row mounts a MUI Autocomplete + several
+  // inputs, so mounting 50+ rows in one render blocks the main thread (the
+  // browser shows "page unresponsive" on weaker machines). Instead we render
+  // rows in batches, growing the budget one animation frame at a time, so each
+  // task stays short and the page stays interactive.
+  const totalTracks = value.sessions.reduce((n, s) => n + s.tracks.length, 0);
+  const [renderBudget, setRenderBudget] = useState(PROGRESSIVE_BATCH);
+  useEffect(() => {
+    if (renderBudget >= totalTracks) return;
+    const id = requestAnimationFrame(() =>
+      setRenderBudget((b) => b + PROGRESSIVE_BATCH),
+    );
+    return () => cancelAnimationFrame(id);
+  }, [renderBudget, totalTracks]);
+
+  // Prefix sum of track counts so each session knows how many of its tracks
+  // fall within the current render budget.
+  const trackOffsets: number[] = [];
+  {
+    let acc = 0;
+    for (const s of value.sessions) {
+      trackOffsets.push(acc);
+      acc += s.tracks.length;
+    }
+  }
+  const stillRendering = renderBudget < totalTracks;
 
   // The callbacks below are referentially stable (`useCallback([])`); they read
   // the current value/onChange via these refs, so a memo'd TrackRow never
@@ -834,24 +865,39 @@ export function SessionTrackTable({
                   </TableRow>
                 )}
 
-                {session.tracks.map((track) => (
-                  <TrackRow
-                    key={track.key}
-                    track={track}
-                    sessionIdx={sIdx}
-                    sessionCount={sessionCount}
-                    teachers={teachers}
-                    enableIgnore={enableIgnore}
-                    enablePractice={enablePractice}
-                    onTrackChange={onTrackChange}
-                    onMoveTrack={onMoveTrack}
-                    onIgnoreTrack={onIgnoreTrack}
-                    editableFilename={editableFilename}
-                    corrections={trackCorrections?.get(track.key)}
-                  />
-                ))}
+                {session.tracks.map((track, tIdx) =>
+                  trackOffsets[sIdx]! + tIdx < renderBudget ? (
+                    <TrackRow
+                      key={track.key}
+                      track={track}
+                      sessionIdx={sIdx}
+                      sessionCount={sessionCount}
+                      teachers={teachers}
+                      enableIgnore={enableIgnore}
+                      enablePractice={enablePractice}
+                      onTrackChange={onTrackChange}
+                      onMoveTrack={onMoveTrack}
+                      onIgnoreTrack={onIgnoreTrack}
+                      editableFilename={editableFilename}
+                      corrections={trackCorrections?.get(track.key)}
+                    />
+                  ) : null,
+                )}
               </Fragment>
             ))}
+            {stillRendering && (
+              <TableRow>
+                <TableCell colSpan={colCount} sx={{ py: 1.5, textAlign: "center" }}>
+                  <Box sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+                    <CircularProgress size={16} />
+                    <Typography variant="caption" color="text.secondary">
+                      Loading {totalTracks - renderBudget} more row
+                      {totalTracks - renderBudget === 1 ? "" : "s"}…
+                    </Typography>
+                  </Box>
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </Box>
