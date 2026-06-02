@@ -1,5 +1,120 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Readable } from "stream";
+
+const { dbUpdateSets, findFirstMock, uploadedRef, uploadStreamMock, getObjectStreamMock } =
+  vi.hoisted(() => ({
+    dbUpdateSets: [] as Array<Record<string, unknown>>,
+    findFirstMock: vi.fn(),
+    uploadedRef: { buffer: Buffer.alloc(0) },
+    uploadStreamMock: vi.fn(),
+    getObjectStreamMock: vi.fn(),
+  }));
+
+vi.mock("../../src/db/index.ts", () => ({
+  db: {
+    update: () => ({
+      set: (vals: Record<string, unknown>) => {
+        dbUpdateSets.push(vals);
+        return { where: () => Promise.resolve() };
+      },
+    }),
+    query: { events: { findFirst: findFirstMock } },
+  },
+}));
+
+vi.mock("../../src/services/s3.ts", () => ({
+  getObjectStream: getObjectStreamMock,
+  uploadStream: uploadStreamMock,
+  buildZipS3Key: (eventCode: string, requestId: string, filename?: string) =>
+    `downloads/${eventCode}/${filename || requestId}.zip`,
+  buildTrackS3Key: vi.fn(),
+  generatePresignedDownloadUrl: vi.fn(async () => "https://example.test/zip"),
+}));
+
+import { generateRetreatZip } from "../../src/services/zip-generator.ts";
+
+describe("generateRetreatZip - streaming behaviour", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbUpdateSets.length = 0;
+    uploadedRef.buffer = Buffer.alloc(0);
+
+    // Each call returns a fresh, finite stream (a new S3 GetObject body).
+    getObjectStreamMock.mockImplementation(async () =>
+      Readable.from(Buffer.from("FAKE-AUDIO-DATA")),
+    );
+
+    // Stand in for lib-storage Upload: consume the piped archive stream and
+    // capture the bytes so we can assert a real ZIP was produced.
+    uploadStreamMock.mockImplementation(async (_key: string, stream: Readable) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk));
+      }
+      uploadedRef.buffer = Buffer.concat(chunks);
+    });
+
+    findFirstMock.mockResolvedValue({
+      id: 42,
+      eventCode: "2024.04-GRP",
+      titleEn: "Spring Retreat",
+      titlePt: null,
+      sessions: [
+        {
+          titleEn: "Morning",
+          sessionNumber: 1,
+          sessionDate: "2024-04-15",
+          tracks: [
+            { id: 1, title: "Intro", s3Key: "events/x/1.mp3", trackNumber: 1 },
+            { id: 2, title: "Teaching", s3Key: "events/x/2.mp3", trackNumber: 2 },
+          ],
+        },
+        {
+          titleEn: "Evening",
+          sessionNumber: 2,
+          sessionDate: "2024-04-15",
+          tracks: [
+            { id: 3, title: "Closing", s3Key: "events/x/3.mp3", trackNumber: 3 },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("pipes the archive stream straight to S3 instead of buffering a Buffer", async () => {
+    await generateRetreatZip("req-1", 42);
+
+    expect(uploadStreamMock).toHaveBeenCalledTimes(1);
+    const [key, stream, contentType] = uploadStreamMock.mock.calls[0]!;
+
+    // The upload receives the live archive stream, not a pre-built Buffer.
+    // (archiver uses the readable-stream polyfill, so it isn't an instanceof
+    // core Readable — assert on stream behaviour instead.)
+    expect(Buffer.isBuffer(stream)).toBe(false);
+    expect(typeof (stream as Readable).pipe).toBe("function");
+    expect(key).toBe("downloads/2024.04-GRP/spring-retreat.zip");
+    expect(contentType).toBe("application/zip");
+
+    // What was streamed is a real, non-empty ZIP (local file header magic "PK").
+    expect(uploadedRef.buffer.length).toBeGreaterThan(0);
+    expect(uploadedRef.buffer.subarray(0, 2).toString("latin1")).toBe("PK");
+  });
+
+  it("opens each track stream exactly once (no mass pre-buffering)", async () => {
+    await generateRetreatZip("req-1", 42);
+    expect(getObjectStreamMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("marks the request ready with the streamed byte size", async () => {
+    await generateRetreatZip("req-1", 42);
+
+    const ready = dbUpdateSets.find((s) => s.status === "ready");
+    expect(ready).toBeDefined();
+    expect(ready!.progressPercent).toBe(100);
+    expect(ready!.fileSize as number).toBeGreaterThan(0);
+    expect(ready!.s3Key).toBe("downloads/2024.04-GRP/spring-retreat.zip");
+  });
+});
 
 describe("ZIP Generator Service - Logic Tests", () => {
   describe("Progress Calculation", () => {

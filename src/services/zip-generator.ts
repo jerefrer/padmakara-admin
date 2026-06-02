@@ -34,6 +34,38 @@ interface TrackInfo {
 }
 
 /**
+ * Append a single source stream to the archive and resolve once archiver has
+ * fully consumed it (its "entry" event fires). This paces track processing so
+ * only one S3 read stream is open at a time, keeping memory and open
+ * connections bounded even for events with many tracks.
+ */
+function appendTrack(
+  archive: archiver.Archiver,
+  source: Readable,
+  name: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      archive.removeListener("entry", onEntry);
+      archive.removeListener("error", onError);
+    };
+    const onEntry = (entry: archiver.EntryData) => {
+      if (entry.name === name) {
+        cleanup();
+        resolve();
+      }
+    };
+    const onError = (err: Error) => {
+      cleanup();
+      reject(err);
+    };
+    archive.on("entry", onEntry);
+    archive.on("error", onError);
+    archive.append(source, { name });
+  });
+}
+
+/**
  * Main function to generate ZIP file for a retreat/event
  */
 export async function generateRetreatZip(
@@ -105,48 +137,48 @@ export async function generateRetreatZip(
       })
       .where(eq(downloadRequests.id, requestId));
 
-    // Create ZIP archive
+    // Resolve the destination key up front so the archive can be streamed
+    // straight to S3 as it is built, instead of buffering the whole ZIP in
+    // memory first.
+    const eventCode = eventData.eventCode || `event-${eventId}`;
+    const eventTitle = eventData.titleEn || eventData.titlePt || eventCode;
+    const zipFilename = slugify(eventTitle);
+    const zipS3Key = buildZipS3Key(eventCode, requestId, zipFilename);
+
+    // Create the ZIP archive (a Readable stream) and pipe it directly into the
+    // multipart S3 upload. lib-storage applies backpressure, so peak memory is
+    // bounded by the part buffer (~partSize × queueSize), not the archive size.
     const archive = archiver("zip", {
       zlib: { level: 6 }, // Compression level (0-9)
     });
 
-    // Track ZIP output stream and size
-    let zipSize = 0;
-    const chunks: Buffer[] = [];
-
-    archive.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-      zipSize += chunk.length;
+    let fatalArchiveError: Error | null = null;
+    archive.on("error", (err: Error) => {
+      fatalArchiveError = err;
+      console.error(`[ZIP] Archiver error for request ${requestId}:`, err);
+    });
+    archive.on("warning", (warn) => {
+      console.warn(`[ZIP] Archiver warning for request ${requestId}:`, warn);
     });
 
-    // Create readable stream from ZIP chunks
-    const createZipStream = (): Readable => {
-      const stream = new Readable({
-        read() {
-          if (chunks.length > 0) {
-            this.push(chunks.shift());
-          } else if (archive.pointer() > 0) {
-            this.push(null); // End of stream
-          }
-        },
-      });
-      return stream;
-    };
+    console.log(`[ZIP] Streaming archive to S3: ${zipS3Key}`);
+    const uploadPromise = uploadStream(zipS3Key, archive, "application/zip");
 
-    // Process each track
+    // Process each track. appendTrack waits until archiver has fully consumed
+    // each source stream before the next is opened, so we hold at most one S3
+    // read stream at a time — bounding both memory and open connections.
     let processedCount = 0;
 
     for (const track of trackList) {
+      if (fatalArchiveError) break;
       try {
         console.log(`[ZIP] Processing track ${processedCount + 1}/${trackList.length}: ${track.title}`);
 
-        // Download track from S3 as stream
-        const trackStream = await getObjectStream(track.s3Key);
-
-        // Add to ZIP with organized folder structure
+        // Download track from S3 as a stream and append it to the archive.
         // Format: {SessionDate} - {SessionTitle}/Track {TrackNumber} - {Title}.mp3
+        const trackStream = await getObjectStream(track.s3Key);
         const zipEntryName = `${track.sessionDate} - ${track.sessionTitle}/Track ${track.trackNumber} - ${track.title}.mp3`;
-        archive.append(trackStream, { name: zipEntryName });
+        await appendTrack(archive, trackStream, zipEntryName);
 
         processedCount++;
 
@@ -168,22 +200,17 @@ export async function generateRetreatZip(
       }
     }
 
-    // Finalize ZIP
-    await archive.finalize();
+    // Finalize the archive and wait for the upload to drain to S3. Running both
+    // under Promise.all surfaces a failure in either and leaves neither promise
+    // unhandled.
+    await Promise.all([archive.finalize(), uploadPromise]);
 
-    console.log(`[ZIP] Archive finalized. Size: ${zipSize} bytes`);
+    if (fatalArchiveError) {
+      throw fatalArchiveError;
+    }
 
-    // Upload ZIP to S3 with human-readable filename
-    const eventCode = eventData.eventCode || `event-${eventId}`;
-    const eventTitle = eventData.titleEn || eventData.titlePt || eventCode;
-    const zipFilename = slugify(eventTitle);
-    const zipS3Key = buildZipS3Key(eventCode, requestId, zipFilename);
-
-    console.log(`[ZIP] Uploading to S3: ${zipS3Key}`);
-
-    // Convert chunks to stream for upload
-    const zipStream = Readable.from(Buffer.concat(chunks));
-    await uploadStream(zipS3Key, zipStream, "application/zip");
+    const zipSize = archive.pointer();
+    console.log(`[ZIP] Archive finalized and uploaded to ${zipS3Key}. Size: ${zipSize} bytes`);
 
     // Generate presigned download URL (valid for 24 hours)
     const downloadUrl = await generatePresignedDownloadUrl(
