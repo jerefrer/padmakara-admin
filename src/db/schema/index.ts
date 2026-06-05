@@ -78,6 +78,16 @@ export {
   readAlongJobsRelations,
 } from "./read-along-jobs.ts";
 
+// Subtitle jobs and session subtitles
+export {
+  subtitleJobs,
+  subtitleJobsRelations,
+} from "./subtitle-jobs.ts";
+export {
+  sessionSubtitles,
+  sessionSubtitlesRelations,
+} from "./session-subtitles.ts";
+
 // Sync versioning
 export { syncVersions } from "./sync-versions.ts";
 export type { SyncVersion } from "./sync-versions.ts";

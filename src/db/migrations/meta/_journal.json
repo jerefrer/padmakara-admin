@@ -176,6 +176,13 @@
       "when": 1810432000000,
       "tag": "0024_add_import_system",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1780690339922,
+      "tag": "0025_subtitles",
+      "breakpoints": true
     }
   ]
 }
