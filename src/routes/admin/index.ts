@@ -15,11 +15,16 @@ import { uploadRoutes } from "./upload.ts";
 import { publicationRoutes } from "./publications.ts";
 import migrationRoutes from "./migrations.ts";
 import { analyzeRoutes } from "./import/analyze.ts";
+import { TRANSLATION_MODELS, DEFAULT_TRANSLATE_MODEL } from "../../services/translation-models.ts";
 
 const admin = new Hono();
 
 // All admin routes require authentication + admin role
 admin.use("*", authMiddleware, adminMiddleware);
+
+admin.get("/translation-models", (c) =>
+  c.json({ models: TRANSLATION_MODELS, default: DEFAULT_TRANSLATE_MODEL }),
+);
 
 admin.route("/teachers", teacherRoutes);
 admin.route("/places", placeRoutes);
