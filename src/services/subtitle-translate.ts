@@ -179,3 +179,100 @@ export async function translateSentences(
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// translateSubtitles — orchestration
+// ---------------------------------------------------------------------------
+
+import { eq, and } from "drizzle-orm";
+import { db } from "../db/index.js";
+import { sessions } from "../db/schema/sessions.js";
+import { events } from "../db/schema/retreats.js";
+import { sessionSubtitles } from "../db/schema/session-subtitles.js";
+import { subtitleJobs } from "../db/schema/subtitle-jobs.js";
+import { getObjectText, putObject } from "./s3.js";
+import { addCaption } from "./bunny-captions.js";
+import { isAllowedModel } from "./translation-models.js";
+
+const LABELS: Record<string, string> = { pt: "Português", es: "Español", fr: "Français" };
+
+export async function translateSubtitles(
+  sessionId: number,
+  targetLang: string,
+  model: string,
+): Promise<{ s3Key: string; jobId: string }> {
+  if (!isAllowedModel(model)) throw new Error(`Model not allowed: ${model}`);
+
+  const [job] = await db
+    .insert(subtitleJobs)
+    .values({ sessionId, language: targetLang, model, status: "processing", submittedAt: new Date() })
+    .returning();
+
+  if (!job) throw new Error("Failed to create subtitle job");
+
+  try {
+    const session = await db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
+    if (!session) throw new Error("Session not found");
+
+    const source = await db.query.sessionSubtitles.findFirst({
+      where: and(eq(sessionSubtitles.sessionId, sessionId), eq(sessionSubtitles.language, "en")),
+    });
+    if (!source) throw new Error("No English source subtitles to translate");
+
+    const cues = parseVtt(await getObjectText(source.s3Key));
+    const sentences = groupIntoSentences(cues);
+    const translations = await translateSentences(
+      sentences.map((s) => s.text),
+      targetLang,
+      model,
+    );
+
+    const outCues: Cue[] = [];
+    sentences.forEach((s, i) => outCues.push(...recueSentence(s, translations[i] ?? s.text)));
+    const vtt = serializeVtt(outCues);
+
+    const event = await db.query.events.findFirst({ where: eq(events.id, session.eventId) });
+    if (!event) throw new Error("Event not found");
+
+    const s3Key = `events/${event.eventCode}/subtitles/${session.sessionNumber}/${targetLang}.vtt`;
+    await putObject(s3Key, Buffer.from(vtt), "text/vtt");
+
+    await db
+      .insert(sessionSubtitles)
+      .values({
+        sessionId,
+        language: targetLang,
+        label: LABELS[targetLang] ?? targetLang,
+        s3Key,
+        origin: "translation",
+        source: "auto",
+      })
+      .onConflictDoUpdate({
+        target: [sessionSubtitles.sessionId, sessionSubtitles.language],
+        set: { s3Key, source: "auto", stale: false, updatedAt: new Date() },
+      });
+
+    if (session.bunnyVideoId) {
+      await addCaption(session.bunnyVideoId, targetLang, LABELS[targetLang] ?? targetLang, vtt);
+      await db
+        .update(sessionSubtitles)
+        .set({ bunnyUploadedAt: new Date() })
+        .where(
+          and(eq(sessionSubtitles.sessionId, sessionId), eq(sessionSubtitles.language, targetLang)),
+        );
+    }
+
+    await db
+      .update(subtitleJobs)
+      .set({ status: "completed", completedAt: new Date(), updatedAt: new Date() })
+      .where(eq(subtitleJobs.id, job.id));
+
+    return { s3Key, jobId: job.id };
+  } catch (err) {
+    await db
+      .update(subtitleJobs)
+      .set({ status: "failed", errorMessage: String(err), completedAt: new Date(), updatedAt: new Date() })
+      .where(eq(subtitleJobs.id, job.id));
+    throw err;
+  }
+}

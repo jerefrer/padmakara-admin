@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseVtt, serializeVtt, groupIntoSentences, recueSentence } from "../../src/services/subtitle-translate";
 
 const SAMPLE = `WEBVTT
@@ -57,8 +57,6 @@ describe("recueSentence", () => {
 // translateSentences — mocked SDK
 // ---------------------------------------------------------------------------
 
-import { vi } from "vitest";
-
 vi.mock("@anthropic-ai/sdk", () => {
   return {
     default: class {
@@ -75,4 +73,120 @@ it("translateSentences maps ids back to translated text", async () => {
   const { translateSentences } = await import("../../src/services/subtitle-translate");
   const out = await translateSentences(["Hello.", "A test."], "fr", "claude-opus-4-8");
   expect(out).toEqual(["Bonjour.", "Un test."]);
+});
+
+// ---------------------------------------------------------------------------
+// translateSubtitles — orchestration (mocked db, S3, Bunny)
+// ---------------------------------------------------------------------------
+
+// Hoisted mocks for translateSubtitles test (db, s3, bunny-captions)
+const {
+  tsInsertReturning,
+  tsUpdateWhere,
+  tsUpdateSet,
+  tsUpdate,
+  tsOnConflictDoUpdate,
+  tsFindFirstSession,
+  tsFindFirstSourceSub,
+  tsFindFirstEvent,
+  tsMockGetObjectText,
+  tsMockPutObject,
+  tsMockAddCaption,
+} = vi.hoisted(() => {
+  // subtitleJobs insert().values().returning() → [{id:"job-1"}]
+  const tsInsertReturning = vi.fn(() => Promise.resolve([{ id: "job-1" }]));
+
+  // sessionSubtitles insert().values().onConflictDoUpdate()
+  const tsOnConflictDoUpdate = vi.fn(() => Promise.resolve());
+
+  // update().set().where()
+  const tsUpdateWhere = vi.fn(() => Promise.resolve());
+  const tsUpdateSet = vi.fn(() => ({ where: tsUpdateWhere }));
+  const tsUpdate = vi.fn(() => ({ set: tsUpdateSet }));
+
+  // query helpers
+  const tsFindFirstSession = vi.fn(() =>
+    Promise.resolve({ id: 1, eventId: 1, sessionNumber: 1, bunnyVideoId: "vid" }),
+  );
+  const tsFindFirstSourceSub = vi.fn(() =>
+    Promise.resolve({ language: "en", s3Key: "events/E/subtitles/1/en.vtt" }),
+  );
+  const tsFindFirstEvent = vi.fn(() => Promise.resolve({ id: 1, eventCode: "E" }));
+
+  // s3 mocks
+  const tsMockGetObjectText = vi.fn(() =>
+    Promise.resolve("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello there.\n"),
+  );
+  const tsMockPutObject = vi.fn(() => Promise.resolve());
+
+  // bunny-captions mock
+  const tsMockAddCaption = vi.fn(() => Promise.resolve());
+
+  return {
+    tsInsertReturning,
+    tsUpdateWhere,
+    tsUpdateSet,
+    tsUpdate,
+    tsOnConflictDoUpdate,
+    tsFindFirstSession,
+    tsFindFirstSourceSub,
+    tsFindFirstEvent,
+    tsMockGetObjectText,
+    tsMockPutObject,
+    tsMockAddCaption,
+  };
+});
+
+vi.mock("../../src/db/index.ts", () => ({
+  db: {
+    insert: vi.fn(() => ({
+      values: vi.fn(() => ({
+        returning: tsInsertReturning,
+        onConflictDoUpdate: tsOnConflictDoUpdate,
+      })),
+    })),
+    update: tsUpdate,
+    query: {
+      sessions: { findFirst: tsFindFirstSession },
+      sessionSubtitles: { findFirst: tsFindFirstSourceSub },
+      events: { findFirst: tsFindFirstEvent },
+    },
+  },
+}));
+
+vi.mock("../../src/services/s3.ts", () => ({
+  getObjectText: tsMockGetObjectText,
+  putObject: tsMockPutObject,
+}));
+
+vi.mock("../../src/services/bunny-captions.ts", () => ({
+  addCaption: tsMockAddCaption,
+}));
+
+describe("translateSubtitles", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Re-set default return values after clearAllMocks
+    tsFindFirstSession.mockResolvedValue({ id: 1, eventId: 1, sessionNumber: 1, bunnyVideoId: "vid" });
+    tsFindFirstSourceSub.mockResolvedValue({ language: "en", s3Key: "events/E/subtitles/1/en.vtt" });
+    tsFindFirstEvent.mockResolvedValue({ id: 1, eventCode: "E" });
+    tsInsertReturning.mockResolvedValue([{ id: "job-1" }]);
+    tsUpdateWhere.mockResolvedValue(undefined);
+    tsOnConflictDoUpdate.mockResolvedValue(undefined);
+    tsMockGetObjectText.mockResolvedValue("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello there.\n");
+    tsMockPutObject.mockResolvedValue(undefined);
+    tsMockAddCaption.mockResolvedValue(undefined);
+  });
+
+  it("translateSubtitles produces a target VTT and uploads it", async () => {
+    const { translateSubtitles } = await import("../../src/services/subtitle-translate.js");
+    const out = await translateSubtitles(1, "fr", "claude-opus-4-8");
+    expect(out.s3Key).toContain("/fr.vtt");
+    expect(tsMockAddCaption).toHaveBeenCalledWith(
+      expect.any(String),
+      "fr",
+      expect.any(String),
+      expect.stringContaining("WEBVTT"),
+    );
+  });
 });
