@@ -1,0 +1,321 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import Box from "@mui/material/Box";
+import Paper from "@mui/material/Paper";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
+import LinearProgress from "@mui/material/LinearProgress";
+import Tooltip from "@mui/material/Tooltip";
+import Divider from "@mui/material/Divider";
+import ClosedCaptionIcon from "@mui/icons-material/ClosedCaption";
+import DownloadIcon from "@mui/icons-material/Download";
+import { useNotify, useRefresh, useTranslate } from "react-admin";
+import { authFetch } from "../utils/authFetch";
+
+interface SubtitleJob {
+  id: string;
+  status: string;
+  batchJobId: string | null;
+  language: string;
+  whisperModel: string;
+  errorMessage: string | null;
+  createdAt: string;
+  submittedAt: string | null;
+  completedAt: string | null;
+}
+
+interface SessionSubtitle {
+  id: number;
+  sessionId: number;
+  language: string;
+  label: string;
+  s3Key: string;
+  origin: string;
+  source: string;
+  stale: boolean;
+  bunnyUploadedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const TERMINAL_STATUSES = new Set(["completed", "failed"]);
+
+function statusColor(status: string): "default" | "info" | "warning" | "success" | "error" {
+  switch (status) {
+    case "completed":
+      return "success";
+    case "failed":
+      return "error";
+    case "processing":
+    case "submitted":
+      return "info";
+    case "pending":
+      return "warning";
+    default:
+      return "default";
+  }
+}
+
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString();
+}
+
+interface Props {
+  sessionId: number;
+  sessionTitle?: string;
+}
+
+export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
+  const translate = useTranslate();
+  const notify = useNotify();
+  const refresh = useRefresh();
+
+  const [jobs, setJobs] = useState<SubtitleJob[]>([]);
+  const [subtitles, setSubtitles] = useState<SessionSubtitle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [downloadingLang, setDownloadingLang] = useState<string | null>(null);
+  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTerminalCount = useRef<number>(0);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await authFetch(`/api/admin/sessions/${sessionId}/subtitles`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { jobs: SubtitleJob[]; subtitles: SessionSubtitle[] };
+      setJobs(data.jobs ?? []);
+      setSubtitles(data.subtitles ?? []);
+
+      // If a job just transitioned to a terminal state, refresh the parent view
+      // so newly-generated subtitle tracks appear.
+      const terminalCount = (data.jobs ?? []).filter((j) => TERMINAL_STATUSES.has(j.status)).length;
+      if (terminalCount > lastTerminalCount.current) {
+        refresh();
+      }
+      lastTerminalCount.current = terminalCount;
+    } catch {
+      // Silent — polling will retry; surfacing every error is noisy.
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId, refresh]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Poll every 10s while any job is non-terminal.
+  useEffect(() => {
+    const hasActiveJob = jobs.some((j) => !TERMINAL_STATUSES.has(j.status));
+    if (!hasActiveJob) {
+      if (pollTimer.current) {
+        clearTimeout(pollTimer.current);
+        pollTimer.current = null;
+      }
+      return;
+    }
+    pollTimer.current = setTimeout(fetchData, 10_000);
+    return () => {
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+    };
+  }, [jobs, fetchData]);
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const res = await authFetch(`/api/admin/sessions/${sessionId}/subtitles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        const msg = body.error?.message ?? `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      notify(translate("padmakara.subtitles.submittedSuccess"), { type: "success" });
+      await fetchData();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notify(`${translate("padmakara.subtitles.submitFailed")}: ${msg}`, { type: "error" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDownload = async (lang: string) => {
+    setDownloadingLang(lang);
+    try {
+      const res = await authFetch(`/api/admin/sessions/${sessionId}/subtitles/${lang}/download`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      const blob = new Blob([text], { type: "text/vtt" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${lang}.vtt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notify(`Download failed: ${msg}`, { type: "error" });
+    } finally {
+      setDownloadingLang(null);
+    }
+  };
+
+  const latestJob = jobs[0] ?? null;
+  const hasActive = jobs.some((j) => !TERMINAL_STATUSES.has(j.status));
+
+  return (
+    <Paper sx={{ p: 3, mb: 2 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 0.5 }}>
+        <ClosedCaptionIcon color="primary" />
+        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+          {translate("padmakara.subtitles.title")}
+          {sessionTitle && (
+            <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1, fontWeight: 400 }}>
+              — {sessionTitle}
+            </Typography>
+          )}
+        </Typography>
+      </Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        {translate("padmakara.subtitles.description")}
+      </Typography>
+
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, flexWrap: "wrap" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minHeight: 32 }}>
+          {loading ? (
+            <Typography variant="body2" color="text.secondary">
+              {translate("ra.page.loading")}
+            </Typography>
+          ) : latestJob ? (
+            <>
+              <Chip
+                label={translate(`padmakara.subtitles.status.${latestJob.status}`, { _: latestJob.status })}
+                size="small"
+                color={statusColor(latestJob.status)}
+              />
+              <Typography variant="body2" color="text.secondary">
+                {latestJob.language.toUpperCase()} · {formatTimestamp(latestJob.completedAt ?? latestJob.submittedAt ?? latestJob.createdAt)}
+              </Typography>
+            </>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {translate("padmakara.subtitles.noJobs")}
+            </Typography>
+          )}
+        </Box>
+
+        <Tooltip title={translate("padmakara.subtitles.generateTooltip")}>
+          <span>
+            <Button
+              variant="contained"
+              startIcon={<ClosedCaptionIcon />}
+              onClick={handleSubmit}
+              disabled={submitting || hasActive}
+            >
+              {submitting
+                ? translate("padmakara.subtitles.generating")
+                : translate("padmakara.subtitles.generate")}
+            </Button>
+          </span>
+        </Tooltip>
+      </Box>
+
+      {hasActive && <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />}
+
+      {latestJob?.status === "failed" && latestJob.errorMessage && (
+        <Typography variant="body2" color="error" sx={{ mt: 2 }}>
+          {latestJob.errorMessage}
+        </Typography>
+      )}
+
+      {subtitles.length > 0 && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            {translate("padmakara.subtitles.tracks")}
+          </Typography>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+            {subtitles.map((sub) => (
+              <Box
+                key={sub.id}
+                sx={{ display: "flex", alignItems: "center", gap: 1.5, fontSize: "0.8125rem" }}
+              >
+                <Chip
+                  label={sub.label || sub.language.toUpperCase()}
+                  size="small"
+                  color="success"
+                  sx={{ minWidth: 60 }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                  {sub.source} · {sub.origin}
+                  {sub.stale && (
+                    <Box component="span" sx={{ ml: 1, color: "warning.main" }}>
+                      (stale)
+                    </Box>
+                  )}
+                </Typography>
+                <Button
+                  size="small"
+                  startIcon={<DownloadIcon sx={{ fontSize: 14 }} />}
+                  onClick={() => handleDownload(sub.language)}
+                  disabled={downloadingLang === sub.language}
+                  sx={{ textTransform: "none", fontSize: "0.75rem" }}
+                >
+                  {translate("padmakara.subtitles.download")}
+                </Button>
+              </Box>
+            ))}
+          </Box>
+        </>
+      )}
+
+      {subtitles.length === 0 && !loading && jobs.length === 0 && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="caption" color="text.secondary">
+            {translate("padmakara.subtitles.noTracks")}
+          </Typography>
+        </>
+      )}
+
+      {jobs.length > 1 && (
+        <>
+          <Divider sx={{ my: 2 }} />
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            {translate("padmakara.subtitles.recentJobs")}
+          </Typography>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+            {jobs.slice(1, 5).map((job) => (
+              <Box
+                key={job.id}
+                sx={{ display: "flex", alignItems: "center", gap: 1.5, fontSize: "0.8125rem" }}
+              >
+                <Chip
+                  label={translate(`padmakara.subtitles.status.${job.status}`, { _: job.status })}
+                  size="small"
+                  color={statusColor(job.status)}
+                  sx={{ minWidth: 90 }}
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                  {job.language.toUpperCase()} · {formatTimestamp(job.completedAt ?? job.submittedAt ?? job.createdAt)}
+                </Typography>
+                {job.errorMessage && (
+                  <Tooltip title={job.errorMessage}>
+                    <Typography variant="caption" color="error" sx={{ cursor: "help" }}>
+                      ⚠
+                    </Typography>
+                  </Tooltip>
+                )}
+              </Box>
+            ))}
+          </Box>
+        </>
+      )}
+    </Paper>
+  );
+};

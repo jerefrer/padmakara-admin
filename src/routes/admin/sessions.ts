@@ -8,6 +8,8 @@ import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { deleteVideo } from "../../services/bunny.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
+import { submitSubtitleJob, getSubtitleJobs, getSessionSubtitles } from "../../services/subtitles.ts";
+import { getObjectText } from "../../services/s3.ts";
 
 const sessionRoutes = new Hono();
 
@@ -158,6 +160,58 @@ sessionRoutes.delete("/:id", async (c) => {
     console.error("[sync] failed to bump events version:", err),
   );
   return c.json(session);
+});
+
+// ── Subtitles ─────────────────────────────────────────────────────────
+
+/**
+ * POST /admin/sessions/:id/subtitles
+ *
+ * Trigger subtitle generation for a session.
+ * Submits an AWS Batch job that runs Whisper on the session video.
+ */
+sessionRoutes.post("/:id/subtitles", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const body = await c.req.json().catch(() => ({}));
+  const result = await submitSubtitleJob(id, {
+    language: body.language,
+    whisperModel: body.whisperModel,
+  });
+  return c.json(result, 202);
+});
+
+/**
+ * GET /admin/sessions/:id/subtitles
+ *
+ * Get recent subtitle jobs and existing subtitle tracks for a session.
+ */
+sessionRoutes.get("/:id/subtitles", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const [jobs, subtitles] = await Promise.all([
+    getSubtitleJobs(id),
+    getSessionSubtitles(id),
+  ]);
+  return c.json({ jobs, subtitles });
+});
+
+/**
+ * GET /admin/sessions/:id/subtitles/:lang/download
+ *
+ * Download the VTT file for a session subtitle track.
+ */
+sessionRoutes.get("/:id/subtitles/:lang/download", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const lang = c.req.param("lang");
+  const subs = await getSessionSubtitles(id);
+  const sub = subs.find((s) => s.language === lang);
+  if (!sub) return c.json({ error: "Not found" }, 404);
+  const vtt = await getObjectText(sub.s3Key);
+  return new Response(vtt, {
+    headers: {
+      "Content-Type": "text/vtt",
+      "Content-Disposition": `attachment; filename="${lang}.vtt"`,
+    },
+  });
 });
 
 export { sessionRoutes };

@@ -57,6 +57,7 @@ import { SessionPreview } from "../components/SessionPreview";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
+import { SubtitlePanel } from "../components/SubtitlePanel";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
 import {
   SessionTrackTable,
@@ -2222,6 +2223,16 @@ export const EventEdit = () => {
       {trackCount > 0 && transcriptCount > 0 && event?.id && (
         <ReadAlongPanel eventId={Number(event.id)} />
       )}
+
+      {sessions
+        .filter((s) => s.id != null && s.bunnyVideoId)
+        .map((s) => (
+          <SubtitlePanel
+            key={s.id}
+            sessionId={s.id!}
+            sessionTitle={s.titleEn}
+          />
+        ))}
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
