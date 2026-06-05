@@ -108,3 +108,74 @@ function splitSentenceText(text: string, n: number): string[] {
   for (let i = 0; i < words.length; i += target) chunks.push(words.slice(i, i + target).join(" "));
   return chunks;
 }
+
+// ---------------------------------------------------------------------------
+// Translation via Anthropic Claude (structured output)
+// ---------------------------------------------------------------------------
+
+import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { z } from "zod";
+import { config } from "../config.js";
+import { glossaryBlock } from "./glossary.js";
+
+const LANG_NAMES: Record<string, string> = { pt: "Portuguese", es: "Spanish", fr: "French" };
+const CHUNK = 80;
+
+const TranslationSchema = z.object({
+  translations: z.array(
+    z.object({
+      id: z.number().int(),
+      text: z.string(),
+    }),
+  ),
+});
+
+/**
+ * Translate an array of English sentences into `targetLang` using Claude.
+ * Preserves order; falls back to the source sentence on a missing id.
+ * Processes in chunks of up to `CHUNK` sentences per API call.
+ */
+export async function translateSentences(
+  sentences: string[],
+  targetLang: string,
+  model: string,
+): Promise<string[]> {
+  const client = new Anthropic({ apiKey: config.anthropic.apiKey });
+  const langName = LANG_NAMES[targetLang] ?? targetLang;
+  const result: string[] = [];
+
+  for (let i = 0; i < sentences.length; i += CHUNK) {
+    const batch = sentences.slice(i, i + CHUNK);
+    const numbered = batch.map((s, j) => ({ id: j, text: s }));
+
+    const res = await client.messages.parse({
+      model,
+      max_tokens: 16000,
+      thinking: { type: "adaptive" },
+      system: [
+        {
+          type: "text",
+          text:
+            `You are a subtitle translator for Buddhist retreat teachings. Translate each numbered ` +
+            `English sentence into ${langName}, preserving the reverent register. Keep meaning faithful ` +
+            `and natural; prefer concise phrasing suitable for on-screen subtitles. Return one translation ` +
+            `per input id, same ids.\n\n${glossaryBlock()}`,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+      messages: [{ role: "user", content: JSON.stringify({ sentences: numbered }) }],
+      output_config: {
+        format: zodOutputFormat(TranslationSchema),
+      },
+    });
+
+    const parsed = res.parsed_output;
+    if (!parsed) throw new Error("Translation returned no structured output");
+
+    const byId = new Map(parsed.translations.map((t) => [t.id, t.text]));
+    for (let j = 0; j < batch.length; j++) result.push(byId.get(j) ?? batch[j]!);
+  }
+
+  return result;
+}

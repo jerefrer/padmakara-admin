@@ -52,3 +52,27 @@ describe("recueSentence", () => {
     for (let i = 1; i < cues.length; i++) expect(cues[i]?.start).toBeGreaterThanOrEqual(cues[i - 1]?.end ?? 0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// translateSentences — mocked SDK
+// ---------------------------------------------------------------------------
+
+import { vi } from "vitest";
+
+vi.mock("@anthropic-ai/sdk", () => {
+  return {
+    default: class {
+      messages = {
+        parse: vi.fn().mockResolvedValue({
+          parsed_output: { translations: [{ id: 0, text: "Bonjour." }, { id: 1, text: "Un test." }] },
+        }),
+      };
+    },
+  };
+});
+
+it("translateSentences maps ids back to translated text", async () => {
+  const { translateSentences } = await import("../../src/services/subtitle-translate");
+  const out = await translateSentences(["Hello.", "A test."], "fr", "claude-opus-4-8");
+  expect(out).toEqual(["Bonjour.", "Un test."]);
+});

@@ -78,6 +78,7 @@ export const config = {
     // Session-grouping is a reasoning task; default to Sonnet rather than the
     // Haiku model used elsewhere for simple text rewrites.
     model: env("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+    defaultTranslateModel: env("ANTHROPIC_TRANSLATE_MODEL", "claude-opus-4-8"),
   },
 
   importer: {
