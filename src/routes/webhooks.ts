@@ -1,12 +1,16 @@
 import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { readAlongJobs } from "../db/schema/read-along-jobs.ts";
 import { tracks } from "../db/schema/tracks.ts";
 import { sessions } from "../db/schema/sessions.ts";
+import { subtitleJobs } from "../db/schema/subtitle-jobs.ts";
+import { sessionSubtitles } from "../db/schema/session-subtitles.ts";
 import { config } from "../config.ts";
 import { getVideoMeta } from "../services/bunny.ts";
+import { addCaption } from "../services/bunny-captions.ts";
+import { getObjectText } from "../services/s3.ts";
 
 const webhookRoutes = new Hono();
 
@@ -173,6 +177,108 @@ webhookRoutes.post("/bunny", async (c) => {
   } else if (status === 5 || status === 6) {
     console.error(`[webhook] Bunny reported failure (status ${status}) for video ${videoGuid}`);
     // Leave the track row alone — admin can investigate via the dashboard.
+  }
+
+  return c.json({ ok: true });
+});
+
+/**
+ * POST /api/webhooks/subtitles
+ *
+ * Called by the AWS Batch container when a subtitle/caption job finishes
+ * (or fails). Validates HMAC-SHA256 signature, updates the subtitleJobs
+ * record, upserts sessionSubtitles, and uploads the VTT to Bunny captions
+ * when the session has a video attached.
+ *
+ * No auth middleware — public endpoint, HMAC-authenticated.
+ */
+webhookRoutes.post("/subtitles", async (c) => {
+  // Verify HMAC signature
+  const signature = c.req.header("X-Webhook-Signature");
+  if (!signature) {
+    return c.json({ error: "Missing signature" }, 401);
+  }
+
+  const rawBody = await c.req.text();
+  const expected = createHmac("sha256", config.readAlong.webhookSecret)
+    .update(rawBody)
+    .digest("hex");
+
+  const signatureBuf = Buffer.from(signature);
+  const expectedBuf = Buffer.from(expected);
+  if (
+    signatureBuf.length !== expectedBuf.length ||
+    !timingSafeEqual(signatureBuf, expectedBuf)
+  ) {
+    return c.json({ error: "Invalid signature" }, 401);
+  }
+
+  const {
+    jobId,
+    sessionId,
+    status,
+    language,
+    label,
+    s3Key,
+    summary,
+    error,
+  } = JSON.parse(rawBody);
+
+  console.log(`[webhook] Subtitles ${status} for session ${sessionId} (job ${jobId})`);
+
+  // Update the subtitle job record
+  await db
+    .update(subtitleJobs)
+    .set({
+      status,
+      summary: summary ?? null,
+      errorMessage: error ?? null,
+      updatedAt: new Date(),
+      completedAt: new Date(),
+    })
+    .where(eq(subtitleJobs.id, jobId));
+
+  if (status === "completed" && s3Key) {
+    // Upsert the session subtitle row (unique on sessionId + language)
+    await db
+      .insert(sessionSubtitles)
+      .values({
+        sessionId,
+        language,
+        label: label ?? language,
+        s3Key,
+        origin: "transcription",
+        source: "auto",
+      })
+      .onConflictDoUpdate({
+        target: [sessionSubtitles.sessionId, sessionSubtitles.language],
+        set: {
+          s3Key,
+          label: label ?? language,
+          source: "auto",
+          stale: false,
+          updatedAt: new Date(),
+        },
+      });
+
+    // Upload the VTT to Bunny if the session has an attached video
+    const session = await db.query.sessions.findFirst({
+      where: eq(sessions.id, sessionId),
+    });
+
+    if (session?.bunnyVideoId) {
+      const vtt = await getObjectText(s3Key);
+      await addCaption(session.bunnyVideoId, language, label ?? language, vtt);
+      await db
+        .update(sessionSubtitles)
+        .set({ bunnyUploadedAt: new Date() })
+        .where(
+          and(
+            eq(sessionSubtitles.sessionId, sessionId),
+            eq(sessionSubtitles.language, language),
+          ),
+        );
+    }
   }
 
   return c.json({ ok: true });
