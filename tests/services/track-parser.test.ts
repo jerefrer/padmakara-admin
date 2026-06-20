@@ -118,6 +118,53 @@ describe("parseTrackFilename", () => {
       expect(result.date).toBe("2017-11-15");
       expect(result.isTranslation).toBe(true);
     });
+
+    it("parses TIB+ENG multi-language bracket as Tibetan-led original", () => {
+      const result = parseTrackFilename(
+        "017 KPS [TIB+ENG] Motivation 2019-10-06.mp3",
+      );
+      expect(result.trackNumber).toBe(17);
+      expect(result.speaker).toBe("KPS");
+      expect(result.languages).toEqual(["tib", "en"]);
+      expect(result.originalLanguage).toBe("tib");
+      expect(result.isTranslation).toBe(false);
+    });
+
+    it("parses ING+POR multi-language bracket as English-led original", () => {
+      const result = parseTrackFilename(
+        "005 JKR [ING+POR] Mind training 2025-04-14.mp3",
+      );
+      expect(result.languages).toEqual(["en", "pt"]);
+      expect(result.originalLanguage).toBe("en");
+      expect(result.isTranslation).toBe(false);
+    });
+
+    it("parses TIB+ENG+POR trilingual bracket", () => {
+      const result = parseTrackFilename(
+        "006 KTR [TIB+ENG+POR] Teaching 2004-01-17.mp3",
+      );
+      expect(result.languages).toEqual(["tib", "en", "pt"]);
+      expect(result.originalLanguage).toBe("tib");
+      expect(result.isTranslation).toBe(false);
+    });
+
+    it("parses TIB+POR bracket (no English)", () => {
+      const result = parseTrackFilename(
+        "006 KNP [TIB+POR] Ensinamento 2007-06-10.mp3",
+      );
+      expect(result.languages).toEqual(["tib", "pt"]);
+      expect(result.originalLanguage).toBe("tib");
+      expect(result.isTranslation).toBe(false);
+    });
+
+    it("ignores a non-language descriptor in the bracket ([ENG - Audio])", () => {
+      const result = parseTrackFilename(
+        "02 KPS [ENG - Audio] Introduction 2017-11-14.mp3",
+      );
+      expect(result.languages).toEqual(["en"]);
+      expect(result.originalLanguage).toBe("en");
+      expect(result.isTranslation).toBe(true);
+    });
   });
 
   describe("Pattern 4: Underscore prefix translations", () => {

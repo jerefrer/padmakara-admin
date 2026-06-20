@@ -51,9 +51,13 @@ const LANGUAGE_MAP: Record<string, string> = {
   TIBETAN: "tib",
   TIBETANO: "tib",
   FR: "fr",
+  FRA: "fr",
   FRENCH: "fr",
   FRANCÊS: "fr",
 };
+
+/** Recognized language codes (the distinct values of LANGUAGE_MAP): en, pt, tib, fr. */
+const RECOGNIZED_LANGS = new Set(Object.values(LANGUAGE_MAP));
 
 /** Tokens that are NOT teacher abbreviations (language markers, group names, etc.) */
 const NON_TEACHER_TOKENS = new Set([
@@ -182,18 +186,27 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     languages = ["pt"]; // TRAD is always Portuguese in this corpus
   }
 
-  // Extract language from bracket notation [TIB], [ENG], [POR], [ENG - Audio]
-  const bracketLangMatch = baseName.match(/\[([A-Z]+)(?:\s*-\s*[^\]]+)?\]/i);
-  if (bracketLangMatch) {
-    const lang = normalizeLanguage(bracketLangMatch[1]!);
-    if (!hasTradCombo) {
-      languages = [lang];
-      // Bracket notation is used in Tibetan teacher events.
-      // Any non-Tibetan bracket language is a translation of Tibetan original.
-      originalLanguage = lang; // track's own primary language
-      if (lang !== "tib") {
-        isTranslation = true;
-      }
+  // Extract language(s) from bracket notation. Supports single tags
+  // ([TIB], [ENG], [POR], [FRA]), the descriptive form [ENG - Audio] (the
+  // "- Audio" suffix is ignored), and multi-language single files where the
+  // recording carries several languages in sequence: [TIB+ENG], [ING+POR],
+  // [TIB+ENG+POR]. Codes are split on + & / , and validated against the
+  // known language set so descriptive words are discarded.
+  const bracketLangMatch = baseName.match(/\[([^\]]+)\]/);
+  if (bracketLangMatch && !hasTradCombo) {
+    const codes = bracketLangMatch[1]!
+      .split(/[+&/,]/)
+      .map((tok) => normalizeLanguage(tok.split("-")[0]!.trim()))
+      .filter((code) => RECOGNIZED_LANGS.has(code));
+    if (codes.length > 0) {
+      languages = codes;
+      // The first code is the track's primary/source language (Tibetan in
+      // TIB+ENG, English in ENG+POR).
+      originalLanguage = codes[0]!;
+      // Only a single non-Tibetan tag is a pure translation of a Tibetan
+      // original. Multi-language files contain the teaching itself, so they
+      // are kept as originals (matches the SPEAKER+TRAD combo behaviour).
+      isTranslation = codes.length === 1 && codes[0] !== "tib";
     }
   }
 
