@@ -17,6 +17,8 @@ export const en = {
       content: "Content",
       reference: "Reference",
       administration: "Administration",
+      documentation: "Documentation",
+      namingConventions: "Naming conventions (PDF)",
     },
     brand: {
       title: "Padmakara",

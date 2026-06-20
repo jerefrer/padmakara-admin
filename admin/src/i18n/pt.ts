@@ -218,6 +218,8 @@ export const pt = {
       content: "Conteúdo",
       reference: "Referência",
       administration: "Administração",
+      documentation: "Documentação",
+      namingConventions: "Convenções de nomes (PDF)",
     },
     brand: {
       title: "Padmakara",

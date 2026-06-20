@@ -7,6 +7,9 @@ out
 dist
 *.tgz
 
+# generated at build/deploy time from docs/NAMING-CONVENTIONS.md
+admin/public/naming-conventions.pdf
+
 # code coverage
 coverage
 *.lcov

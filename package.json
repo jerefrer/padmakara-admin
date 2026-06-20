@@ -16,13 +16,15 @@
     "db:studio": "bunx drizzle-kit studio",
     "db:seed": "bun run src/scripts/seed-from-csv.ts",
     "db:seed-content": "bun run src/scripts/seed-content.ts",
-    "migrate:wix": "bun run src/scripts/migrate-from-wix.ts"
+    "migrate:wix": "bun run src/scripts/migrate-from-wix.ts",
+    "pdf:naming": "bun run src/scripts/generate-naming-conventions-pdf.ts"
   },
   "devDependencies": {
     "@hono/node-server": "^1.19.9",
     "@types/archiver": "^7.0.0",
     "@types/bcryptjs": "^3.0.0",
     "@types/bun": "latest",
+    "@types/pdfmake": "^0.3.3",
     "drizzle-kit": "^0.31.9",
     "vitest": "^4.0.18"
   },
@@ -46,6 +48,7 @@
     "jose": "^6.1.3",
     "music-metadata": "^11.12.1",
     "pdf-lib": "^1.17.1",
+    "pdfmake": "0.2.7",
     "postgres": "^3.4.8",
     "sharp": "^0.34.5",
     "zod": "^4.3.6"

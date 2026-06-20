@@ -130,6 +130,9 @@ echo "[4/7] Running database migrations..."
 cd "$API_DIR" && $BUN x drizzle-kit migrate
 
 echo "[5/7] Building admin panel..."
+# Generate the naming-conventions PDF into admin/public so the Vite build
+# copies it into admin/dist (served statically by Caddy at /naming-conventions.pdf).
+cd "$API_DIR" && $BUN run src/scripts/generate-naming-conventions-pdf.ts
 cd "$API_DIR/admin" && $BUN install && $BUN x vite build
 
 echo "[6/7] Building web app..."
