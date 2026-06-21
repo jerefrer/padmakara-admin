@@ -77,6 +77,9 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
       originalFilename: t.originalFilename,
       correctedFilename: t.originalFilename,
       title: t.title,
+      languages: t.languages,
+      originalLanguage: t.originalLanguage,
+      isTranslation: t.isTranslation,
       corrections: [],
     })),
   }));

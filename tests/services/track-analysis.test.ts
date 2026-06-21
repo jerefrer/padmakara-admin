@@ -55,6 +55,28 @@ describe("deterministicPrePass", () => {
     expect(result.aiCoverage.chunks).toBe(0);
   });
 
+  it("carries per-track languages, incl. multi-language [TIB+ENG] files", () => {
+    const result = deterministicPrePass({
+      folderName: "2019-10-06_12-KPS-Shantideva [TIB+ENG]",
+      files: [
+        { relativePath: "001 [TIB] Openning prayers.mp3", sizeBytes: 100 },
+        { relativePath: "002 [TIB+ENG] KPS - Introduction.mp3", sizeBytes: 100 },
+        { relativePath: "004 [ENG] KPS - Motivation.mp3", sizeBytes: 100 },
+      ],
+      knownGroups: [],
+      knownTeachers: [],
+      knownPlaces: [],
+    });
+    const tracks = result.sessions.flatMap((s) => s.tracks);
+    const byName = (n: string) => tracks.find((t) => t.originalFilename === n)!;
+    expect(byName("001 [TIB] Openning prayers.mp3").languages).toEqual(["tib"]);
+    expect(byName("002 [TIB+ENG] KPS - Introduction.mp3").languages).toEqual(["tib", "en"]);
+    expect(byName("002 [TIB+ENG] KPS - Introduction.mp3").originalLanguage).toBe("tib");
+    expect(byName("002 [TIB+ENG] KPS - Introduction.mp3").isTranslation).toBe(false);
+    expect(byName("004 [ENG] KPS - Motivation.mp3").languages).toEqual(["en"]);
+    expect(byName("004 [ENG] KPS - Motivation.mp3").isTranslation).toBe(true);
+  });
+
   it("uses the basename when relativePath has subfolders", () => {
     const result = deterministicPrePass({
       folderName: "test",
@@ -112,6 +134,9 @@ function makeSession(num: number, trackCount: number): AnalysisSession {
       originalFilename: `s${num}_${i}.mp3`,
       correctedFilename: `s${num}_${i}.mp3`,
       title: `t${i}`,
+      languages: ["en"],
+      originalLanguage: "en",
+      isTranslation: false,
       corrections: [],
     })),
   };

@@ -101,6 +101,12 @@ export const analysisTrackSchema = z.object({
   correctedFilename: z.string(),
   // The display title in the track's own language.
   title: z.string(),
+  // Language(s) audible in the file, from the deterministic parser. A single
+  // file can carry several (e.g. ['tib','en'] for a TIB+ENG recording). Claude
+  // never edits these; they flow straight from the parser to the admin form.
+  languages: z.array(z.string()).default(["en"]),
+  originalLanguage: z.string().default("en"),
+  isTranslation: z.boolean().default(false),
   corrections: z.array(trackCorrectionSchema),
 });
 export type AnalysisTrack = z.infer<typeof analysisTrackSchema>;
