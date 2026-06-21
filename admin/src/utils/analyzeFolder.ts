@@ -20,6 +20,10 @@ export interface AnalysisTrack {
   originalFilename: string;
   correctedFilename: string;
   title: string;
+  /** Language(s) audible in the file, e.g. ['tib','en'] for a TIB+ENG recording. */
+  languages: string[];
+  originalLanguage: string;
+  isTranslation: boolean;
   corrections: TrackCorrection[];
 }
 

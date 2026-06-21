@@ -108,6 +108,14 @@ const LANGUAGE_OPTIONS = [
   { value: "tib", label: "TIB" },
   { value: "fr", label: "FR" },
 ];
+// Canonical order so a multi-language selection is stable regardless of click
+// order, and `originalLanguage` (the first entry) is the source language
+// (tib < en < pt < fr) — matching the backend parser.
+const LANG_PRIORITY: Record<string, number> = { tib: 0, en: 1, pt: 2, fr: 3 };
+const sortLanguages = (langs: string[]): string[] =>
+  [...langs].sort((a, b) => (LANG_PRIORITY[a] ?? 9) - (LANG_PRIORITY[b] ?? 9));
+const formatLanguages = (langs: string[]): string =>
+  (langs.length ? langs : ["en"]).map((l) => l.toUpperCase()).join("+");
 
 type Teacher = { id: number; name: string; abbreviation: string };
 
@@ -313,7 +321,7 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
       </TableCell>
       <TableCell sx={{ ...cell, width: 90, textAlign: "center" }}>
         <Typography variant="caption" color="text.secondary">
-          {(track.languages[0] ?? "en").toUpperCase()}
+          {formatLanguages(track.languages)}
         </Typography>
       </TableCell>
       <TableCell sx={{ ...cell, width: 100, textAlign: "center" }}>
@@ -468,21 +476,30 @@ const TrackRow = memo(function TrackRow({
         />
       </TableCell>
 
-      {/* Lang */}
-      <TableCell sx={{ py: 0.5, width: 90 }}>
+      {/* Lang — multi-select: a single file can carry several languages
+          (e.g. TIB+ENG). originalLanguage tracks the first (source) language. */}
+      <TableCell sx={{ py: 0.5, width: 110 }}>
         <Select
+          multiple
           size="small"
           variant="standard"
-          value={track.languages[0] ?? "en"}
-          onChange={(e) =>
+          value={track.languages.length ? track.languages : ["en"]}
+          onChange={(e) => {
+            const val = e.target.value;
+            const raw = typeof val === "string" ? val.split(",") : val;
+            const langs = sortLanguages(raw.filter(Boolean));
+            const next = langs.length ? langs : ["en"];
             onTrackChange(track.key, {
-              languages: [String(e.target.value)],
-            })
-          }
+              languages: next,
+              originalLanguage: next[0]!,
+            });
+          }}
+          renderValue={(selected) => formatLanguages(selected as string[])}
           sx={{ width: "100%" }}
         >
           {LANGUAGE_OPTIONS.map((o) => (
             <MenuItem key={o.value} value={o.value}>
+              <Checkbox checked={track.languages.includes(o.value)} size="small" sx={{ py: 0 }} />
               {o.label}
             </MenuItem>
           ))}

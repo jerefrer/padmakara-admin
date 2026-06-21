@@ -1054,6 +1054,12 @@ function analysisToInferredSessions(
         // The AI-cleaned display title (in the track's own language), falling
         // back to the parser's title if the AI didn't touch it.
         title: t.title || parsed.title,
+        // Languages come from the authoritative backend parser (carried through
+        // the analysis result), which handles multi-language files like
+        // [TIB+ENG]. Fall back to the client parse only if absent.
+        languages: t.languages ?? parsed.languages,
+        originalLanguage: t.originalLanguage ?? parsed.originalLanguage,
+        isTranslation: t.isTranslation ?? parsed.isTranslation,
         // The corrected filename becomes the canonical filename — used for S3
         // uploads and stored in the DB. The key for SessionTrackTable is also
         // this value (via the `key` field set in sessionsToTableValue).

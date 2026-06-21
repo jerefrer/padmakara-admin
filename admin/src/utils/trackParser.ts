@@ -48,6 +48,9 @@ function normalizeLanguage(lang: string): string {
   return LANGUAGE_MAP[lang.toUpperCase().trim()] ?? lang.toLowerCase();
 }
 
+/** Recognized language codes (distinct values of LANGUAGE_MAP): en, pt, tib, fr. */
+const RECOGNIZED_LANGS = new Set(Object.values(LANGUAGE_MAP));
+
 const AUDIO_EXT_RE = /\.(mp3|wav|m4a|flac|ogg)$/i;
 const VIDEO_EXT_RE = /\.(mp4|mov|m4v|mkv|webm)$/i;
 
@@ -75,7 +78,8 @@ export function parseTrackFile(file: File): ParsedTrack {
   let trackNumber = 0;
   let speaker: string | null = null;
   let title = baseName;
-  let language = "en";
+  let languages: string[] = ["en"];
+  let originalLanguage = "en";
   let isTranslation = false;
   let date: string | null = null;
   let timePeriod: string | null = null;
@@ -86,11 +90,25 @@ export function parseTrackFile(file: File): ParsedTrack {
 
   if (/(?:^|\s|_)TRAD(?:\s|$|-)/i.test(baseName)) {
     isTranslation = true;
-    language = "pt";
+    languages = ["pt"];
+    originalLanguage = "pt";
   }
 
-  const bracketLangMatch = baseName.match(/\[([A-Z]+)\]/i);
-  if (bracketLangMatch) language = normalizeLanguage(bracketLangMatch[1]!);
+  // Bracket notation — single ([TIB]) and multi-language ([TIB+ENG],
+  // [TIB+ENG+POR]) files. Mirrors the backend parser: split on + & / , and
+  // keep only recognized language codes (descriptors like [ENG - Audio] drop).
+  const bracketLangMatch = baseName.match(/\[([^\]]+)\]/);
+  if (bracketLangMatch) {
+    const codes = bracketLangMatch[1]!
+      .split(/[+&/,]/)
+      .map((tok) => normalizeLanguage(tok.split("-")[0]!.trim()))
+      .filter((code) => RECOGNIZED_LANGS.has(code));
+    if (codes.length > 0) {
+      languages = codes;
+      originalLanguage = codes[0]!;
+      isTranslation = codes.length === 1 && codes[0] !== "tib";
+    }
+  }
 
   const isoDateMatch = baseName.match(/(\d{4}-\d{2}-\d{2})/);
   if (isoDateMatch) date = isoDateMatch[1]!;
@@ -135,7 +153,7 @@ export function parseTrackFile(file: File): ParsedTrack {
   title = title
     .replace(/^TRAD\s*-\s+/i, "")
     .replace(/^TRAD\s+/i, "")
-    .replace(/\[[A-Z]+\]\s*/i, "")
+    .replace(/\[[^\]]+\]\s*/i, "")
     .replace(/\s*\d{4}-\d{2}-\d{2}/, "")
     .replace(/\s*-?\s*\(\d{1,2}\s+\w+\s+(AM|PM)(?:_part_\d+)?\)/i, "")
     .trim();
@@ -143,9 +161,9 @@ export function parseTrackFile(file: File): ParsedTrack {
   if (!title) title = baseName;
 
   return {
-    trackNumber, speaker, title, language, isTranslation,
-    languages: [language],
-    originalLanguage: language,
+    trackNumber, speaker, title, language: originalLanguage, isTranslation,
+    languages,
+    originalLanguage,
     date, timePeriod, partNumber, originalFilename: filename, file,
     mediaType,
   };
