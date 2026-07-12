@@ -124,6 +124,29 @@ describe("deterministicPrePass", () => {
     expect(result.event.folderConventionOk).toBe(false);
   });
 
+  it("backfills a dateless session with the event date for a single-day event", () => {
+    const result = deterministicPrePass({
+      folderName: "2007.05.17-JKR-CFR-HAL",
+      // Filename carries no date of its own.
+      files: [{ relativePath: "001 JKR [ENG+POR] Meditation of Inner Peace.mp3", sizeBytes: 100 }],
+      knownGroups: [], knownTeachers: [], knownPlaces: [], knownEventTypes: [],
+    });
+    expect(result.event.startDate).toBe("2007-05-17");
+    expect(result.event.endDate).toBe("2007-05-17");
+    expect(result.sessions[0]!.sessionDate).toBe("2007-05-17");
+  });
+
+  it("leaves a dateless session null for a multi-day event", () => {
+    const result = deterministicPrePass({
+      folderName: "2009.06.21-23-TGR-ENS-HMA",
+      files: [{ relativePath: "001 no-date.mp3", sizeBytes: 100 }],
+      knownGroups: [], knownTeachers: [], knownPlaces: [], knownEventTypes: [],
+    });
+    expect(result.event.startDate).toBe("2009-06-21");
+    expect(result.event.endDate).toBe("2009-06-23");
+    expect(result.sessions[0]!.sessionDate).toBeNull();
+  });
+
   it("detects an event-type code (CFR) in the folder name", () => {
     const eventTypes = [
       { id: "7", name: "Conference", abbreviation: "CFR" },

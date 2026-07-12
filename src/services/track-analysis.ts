@@ -117,6 +117,16 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
   }));
 
   const event = buildDeterministicEvent(input.folderName, input.knownEventTypes);
+
+  // Single-day event: every session is on that day, so backfill any session
+  // whose date the filenames didn't carry with the event's own date. Multi-day
+  // events are left alone — we can't guess which day a dateless session is on.
+  if (event.startDate && event.startDate === event.endDate) {
+    for (const s of sessions) {
+      if (!s.sessionDate) s.sessionDate = event.startDate;
+    }
+  }
+
   const totalTracks = input.files.length;
 
   return {
