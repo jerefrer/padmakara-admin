@@ -142,4 +142,17 @@ describe("POST /api/admin/import/analyze", () => {
       .filter(Boolean);
     expect(eventNames).toEqual(["phase", "phase", "phase", "chunk_progress", "result"]);
   });
+
+  it("accepts an empty folderName (loose file drop) with 200", async () => {
+    const token = await adminToken();
+    const res = await testRequest("/api/admin/import/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        folderName: "",
+        files: [{ relativePath: "20070517-JKR-CFR-HAL.mp3", sizeBytes: 1 }],
+      }),
+    });
+    expect(res.status).toBe(200);
+  });
 });

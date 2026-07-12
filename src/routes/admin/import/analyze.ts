@@ -6,7 +6,9 @@ import { AppError } from "../../../lib/errors.ts";
 import { analyzeFolder } from "../../../services/track-analysis.ts";
 
 const bodySchema = z.object({
-  folderName: z.string().min(1),
+  // Empty when loose files are dropped (no folder) — metadata then comes from
+  // the filenames and the form.
+  folderName: z.string(),
   files: z
     .array(
       z.object({
