@@ -130,7 +130,10 @@ eventRoutes.get("/:id", async (c) => {
       eventType: true,
       audience: true,
       sessions: {
-        with: { tracks: true },
+        with: {
+          tracks: true,
+          videos: { orderBy: (v: any, { asc }: any) => [asc(v.position)] },
+        },
         orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
       },
       transcripts: true,
