@@ -207,11 +207,16 @@ export function TrackAnalysisDropZone({
       const entries = Array.from(e.dataTransfer.items)
         .map((item) => item.webkitGetAsEntry?.())
         .filter(Boolean) as FileSystemEntry[];
+      if (entries.length === 0) return;
 
+      // Accept either a dropped folder or one/more loose files. A folder gives
+      // the event a name (default title + date inference); a bare file drop has
+      // no folder, so its metadata comes from the filenames and the form.
       const dirEntry = entries.find((en) => en.isDirectory);
-      if (!dirEntry) return; // only accept folder drops
+      const sources = dirEntry ? [dirEntry] : entries.filter((en) => en.isFile);
+      if (sources.length === 0) return;
 
-      const droppedFolderName = dirEntry.name;
+      const droppedFolderName = dirEntry ? dirEntry.name : "";
 
       // ── Phase 1: FS walk ───────────────────────────────────────────────────
 
@@ -219,7 +224,9 @@ export function TrackAnalysisDropZone({
 
       let rawFiles: RawFile[];
       try {
-        const all = await readEntryRecursive(dirEntry, "");
+        const all = (
+          await Promise.all(sources.map((s) => readEntryRecursive(s, "")))
+        ).flat();
         rawFiles = all.filter((rf) => isAudioFilename(rf.file.name));
       } catch (err) {
         setPhase({ kind: "idle" });
@@ -229,7 +236,13 @@ export function TrackAnalysisDropZone({
 
       if (rawFiles.length === 0) {
         setPhase({ kind: "idle" });
-        onError?.(new Error(`No audio files found in folder "${droppedFolderName}"`));
+        onError?.(
+          new Error(
+            dirEntry
+              ? `No audio files found in folder "${droppedFolderName}"`
+              : "No audio files in the dropped selection",
+          ),
+        );
         return;
       }
 
@@ -433,11 +446,11 @@ export function TrackAnalysisDropZone({
             variant="body1"
             sx={{ fontWeight: 600, color: "text.primary", mb: 0.5 }}
           >
-            {t("padmakara.import.dropPrompt") || "Drop a retreat folder here"}
+            {t("padmakara.import.dropPrompt") || "Drop a retreat folder or audio files here"}
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             {t("padmakara.import.dropPromptHint") ||
-              "MP3, WAV, M4A, FLAC, OGG — AI will analyse naming and structure"}
+              "A folder or one or more MP3, WAV, M4A, FLAC, OGG files — AI will analyse naming and structure"}
           </Typography>
         </>
       )}
