@@ -1,15 +1,22 @@
 import { z } from "zod";
 
 export const FOLDER_NAME_CONVENTION = `
-Expected folder name format: YYYY.MM.DD[-DD] - GROUP - PLACE - TEACHER
-Example: "2025.04.12-13 - PP3 - CCA - JKR"
+The folder name (when present) loosely encodes the event: a date
+(YYYY.MM.DD, range allowed), a teacher abbreviation, a place abbreviation,
+sometimes an event-type code, and — only for parallel-retreat series — a
+group code. Separators vary (spaces, hyphens, dots).
 
-Rules:
-- Date at the start, range allowed with a hyphen for the end day.
-- Sections separated by " - " (space-hyphen-space).
-- GROUP, PLACE, TEACHER are short uppercase abbreviations matched against
-  the lists you receive in the user message.
-- Deviations from this format are allowed — flag them in notes if present.
+- Match the teacher, place, and (only if clearly present) group against the
+  lists you receive in the user message, and return their ids.
+- Event-type codes — CFR, ENS, ERT, LNG, RET, CONF — are event TYPES, not
+  places or groups. They are detected automatically; never treat one as an
+  unknown place/group and never warn about it.
+- A group is OPTIONAL and most events have none. Do NOT warn about a missing
+  or unmatched group.
+- The date and the event type are detected deterministically elsewhere — do
+  NOT flag anything about the folder's format, separators, or those fields.
+- The folder name may be empty (loose files dropped without a folder). That is
+  fine — infer what you can from the track filenames instead.
 `.trim();
 
 export const FILENAME_CONVENTION = `
@@ -59,14 +66,19 @@ Track filename (this becomes the S3 key):
 - If the filename has no genuine error, do not emit an edit for it.
 
 Notes (free-form observations):
-- Add a note when something is genuinely worth the admin's attention: a
+- Add a note ONLY when something genuinely needs the admin to DECIDE: a
   filename with no clear track number, a track that could belong to either of
-  two sessions, a track date that conflicts with the folder date, the folder
-  name deviating from the convention, an orphan file, etc.
-- Do NOT write a note for routine, expected things (e.g. "this is a bilingual
-  pairing" or "track numbers are three digits"). Notes are for surprises.
+  two sessions, a track date that conflicts with the folder date, an orphan
+  file, etc.
+- Do NOT write a note for routine, expected things. In particular, NEVER note
+  any of these (they are expected and handled automatically):
+  - a bilingual pairing, or a language tag ([ENG+POR], [TIB+ENG], [POR], …)
+    being stripped from a display title;
+  - a missing, absent, or unmatched group;
+  - an event-type code (CFR, ENS, ERT, LNG, RET, CONF) appearing in the folder;
+  - the folder name's format, separators, or capitalization.
 - Do NOT write a note just to explain a spelling/accent fix — the before→after
-  diff already shows that. Notes are for things the admin must DECIDE on.
+  diff already shows that.
 - Severity: "info" for things worth knowing, "warning" for things the admin
   should review before saving.
 `.trim();
