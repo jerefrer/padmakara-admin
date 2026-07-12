@@ -260,6 +260,39 @@ export async function createVideo(title: string): Promise<{ guid: string }> {
 }
 
 /**
+ * Pull a video into Bunny Stream directly from a source URL, without
+ * downloading it locally first. Used by the Drive→Bunny ingestion script.
+ *
+ * Bunny's `/videos/fetch` endpoint creates the video asynchronously; the
+ * created video's guid is not always present in the fetch response body
+ * (some libraries only return `{ success, message, statusCode }`). Callers
+ * that need the guid immediately should fall back to listing recent library
+ * videos by title if this throws "no guid".
+ */
+export async function fetchVideo(sourceUrl: string, title: string): Promise<{ guid: string }> {
+  if (!config.bunny.libraryId || !config.bunny.apiKey) {
+    throw new Error("Bunny Stream API credentials are not configured");
+  }
+  const url = `https://video.bunnycdn.com/library/${config.bunny.libraryId}/videos/fetch`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      AccessKey: config.bunny.apiKey,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ url: sourceUrl, title }),
+  });
+  if (!response.ok) {
+    throw new Error(`Bunny fetch ${response.status}: ${await response.text()}`);
+  }
+  const data = (await response.json()) as { guid?: string; id?: string };
+  const guid = data.guid ?? data.id;
+  if (!guid) throw new Error(`Bunny fetch returned no guid: ${JSON.stringify(data)}`);
+  return { guid };
+}
+
+/**
  * Generate a TUS upload signature for resumable browser-side uploads.
  *
  * The browser uses tus-js-client to upload directly to Bunny's TUS endpoint
