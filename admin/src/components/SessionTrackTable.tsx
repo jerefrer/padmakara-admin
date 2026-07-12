@@ -593,6 +593,9 @@ export function SessionTrackTable({
   const [ignoredOpen, setIgnoredOpen] = useState(false);
   const [aiInstruction, setAiInstruction] = useState("");
   const [applyingAi, setApplyingAi] = useState(false);
+  // Bulk language assignment — most events are uniform (every track TIB+ENG,
+  // or every track ENG+PT), so one control sets the languages on all tracks.
+  const [bulkLangs, setBulkLangs] = useState<string[]>([]);
 
   // Rows are rendered read-only (plain text — cheap) by default; only the row
   // the admin is editing mounts the heavy inputs (Autocomplete, Selects, …).
@@ -765,6 +768,25 @@ export function SessionTrackTable({
     onChangeRef.current(next);
   }, []);
 
+  const applyBulkLanguages = useCallback(() => {
+    const langs = sortLanguages(bulkLangs.filter(Boolean));
+    if (langs.length === 0) return;
+    const v = valueRef.current;
+    const setLangs = (t: TableTrack): TableTrack => ({
+      ...t,
+      languages: langs,
+      originalLanguage: langs[0]!,
+    });
+    const next: TableValue = {
+      sessions: v.sessions.map((s) => ({ ...s, tracks: s.tracks.map(setLangs) })),
+      ignored: v.ignored.map(setLangs),
+    };
+    onChangeRef.current(next);
+    notify(`Set ${formatLanguages(langs)} on all tracks — review before saving`, {
+      type: "info",
+    });
+  }, [bulkLangs, notify]);
+
   const handleApplyAi = useCallback(async () => {
     const instruction = aiInstruction.trim();
     if (!instruction) return;
@@ -876,6 +898,56 @@ export function SessionTrackTable({
         </Paper>
       )}
     <Paper sx={{ mb: 3 }}>
+      {/* Bulk language bar — set the language(s) on every track at once, for
+          the common case where a whole event is in the same language(s). */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          px: 2,
+          py: 1.25,
+          borderBottom: "1px solid rgba(0,0,0,0.08)",
+          flexWrap: "wrap",
+        }}
+      >
+        <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>
+          Set language for all tracks
+        </Typography>
+        <Select
+          multiple
+          size="small"
+          variant="standard"
+          displayEmpty
+          value={bulkLangs}
+          onChange={(e) => {
+            const val = e.target.value;
+            setBulkLangs(typeof val === "string" ? val.split(",") : val);
+          }}
+          renderValue={(selected) =>
+            (selected as string[]).length
+              ? formatLanguages(selected as string[])
+              : "Choose…"
+          }
+          sx={{ minWidth: 120 }}
+        >
+          {LANGUAGE_OPTIONS.map((o) => (
+            <MenuItem key={o.value} value={o.value}>
+              <Checkbox checked={bulkLangs.includes(o.value)} size="small" sx={{ py: 0 }} />
+              {o.label}
+            </MenuItem>
+          ))}
+        </Select>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={applyBulkLanguages}
+          disabled={bulkLangs.length === 0}
+          sx={{ textTransform: "none" }}
+        >
+          Apply to all
+        </Button>
+      </Box>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
