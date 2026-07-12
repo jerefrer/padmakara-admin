@@ -121,6 +121,15 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
 
   const event = buildDeterministicEvent(input.folderName, input.knownEventTypes);
 
+  // The parser emits a human "Month Day" date (e.g. "June 21", from a
+  // `(21 June AM)` marker) with no year. The admin's date input needs ISO
+  // `YYYY-MM-DD`, so combine the month/day with the event's year (from the
+  // folder date) to fill the field automatically.
+  const eventYear = event.startDate?.slice(0, 4) ?? null;
+  for (const s of sessions) {
+    if (s.sessionDate) s.sessionDate = toIsoSessionDate(s.sessionDate, eventYear);
+  }
+
   // Single-day event: every session is on that day, so backfill any session
   // whose date the filenames didn't carry with the event's own date. Multi-day
   // events are left alone — we can't guess which day a dateless session is on.
@@ -144,6 +153,26 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
     sessions,
     notes: [],
   };
+}
+
+const MONTH_TO_NUM: Record<string, string> = {
+  january: "01", february: "02", march: "03", april: "04", may: "05", june: "06",
+  july: "07", august: "08", september: "09", october: "10", november: "11", december: "12",
+};
+
+/**
+ * Turn a parser session date into ISO `YYYY-MM-DD`. Already-ISO dates pass
+ * through; a "Month Day" string (the parser's output for a `(21 June AM)`
+ * marker) is combined with the event year. Anything else is left untouched.
+ */
+function toIsoSessionDate(raw: string, year: string | null): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const m = raw.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
+  if (m && year) {
+    const mm = MONTH_TO_NUM[m[1]!.toLowerCase()];
+    if (mm) return `${year}-${mm}-${m[2]!.padStart(2, "0")}`;
+  }
+  return raw;
 }
 
 function buildDeterministicEvent(
