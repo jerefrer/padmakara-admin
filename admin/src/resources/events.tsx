@@ -1297,8 +1297,14 @@ export const EventCreate = () => {
         const matched = allPlaces.filter((p) => ids.has(p.id));
         if (matched.length > 0) setSelectedPlaces((prev) => (prev.length === 0 ? matched : prev));
       }
+      if (result.event.matchedEventTypeId && allEventTypes.length > 0) {
+        const match = allEventTypes.find(
+          (et) => String(et.id) === result.event.matchedEventTypeId,
+        );
+        if (match) setSelectedEventType((prev) => prev ?? match);
+      }
     },
-    [allTeachers, allGroups, allPlaces, notify],
+    [allTeachers, allGroups, allPlaces, allEventTypes, setSelectedEventType, notify],
   );
 
   /**

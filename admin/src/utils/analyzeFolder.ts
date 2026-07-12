@@ -50,6 +50,8 @@ export interface AnalysisEvent {
   matchedGroupIds: string[];
   matchedTeacherIds: string[];
   matchedPlaceIds: string[];
+  /** Event-type id detected from a code in the folder name (e.g. CFR). */
+  matchedEventTypeId: string | null;
   folderConventionOk: boolean;
 }
 

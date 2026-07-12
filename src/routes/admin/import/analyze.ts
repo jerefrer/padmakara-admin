@@ -27,7 +27,7 @@ analyzeRoutes.post("/", async (c) => {
   }
   const { folderName, files } = parsed.data;
 
-  const [groupRows, teacherRows, placeRows] = await Promise.all([
+  const [groupRows, teacherRows, placeRows, eventTypeRows] = await Promise.all([
     db.query.retreatGroups.findMany({
       columns: { id: true, nameEn: true, namePt: true, slug: true, abbreviation: true },
     }),
@@ -36,6 +36,9 @@ analyzeRoutes.post("/", async (c) => {
     }),
     db.query.places.findMany({
       columns: { id: true, name: true, abbreviation: true },
+    }),
+    db.query.eventTypes.findMany({
+      columns: { id: true, nameEn: true, abbreviation: true },
     }),
   ]);
 
@@ -73,6 +76,11 @@ analyzeRoutes.post("/", async (c) => {
             id: String(r.id),
             name: r.name,
             abbreviation: r.abbreviation ?? "",
+          })),
+          knownEventTypes: eventTypeRows.map((r) => ({
+            id: String(r.id),
+            name: r.nameEn,
+            abbreviation: r.abbreviation,
           })),
         },
         async (event) => {

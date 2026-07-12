@@ -38,6 +38,7 @@ describe("deterministicPrePass", () => {
       knownGroups: [],
       knownTeachers: [],
       knownPlaces: [],
+      knownEventTypes: [],
     });
     expect(result.sessions.length).toBeGreaterThan(0);
     const session0 = result.sessions[0];
@@ -66,6 +67,7 @@ describe("deterministicPrePass", () => {
       knownGroups: [],
       knownTeachers: [],
       knownPlaces: [],
+      knownEventTypes: [],
     });
     const tracks = result.sessions.flatMap((s) => s.tracks);
     const byName = (n: string) => tracks.find((t) => t.originalFilename === n)!;
@@ -86,6 +88,7 @@ describe("deterministicPrePass", () => {
       knownGroups: [],
       knownTeachers: [],
       knownPlaces: [],
+      knownEventTypes: [],
     });
     const session0 = result.sessions[0];
     expect(session0).toBeDefined();
@@ -103,6 +106,7 @@ describe("deterministicPrePass", () => {
       knownGroups: [],
       knownTeachers: [],
       knownPlaces: [],
+      knownEventTypes: [],
     });
     expect(result.event.titleEn).not.toBeNull();
     expect(result.event.folderConventionOk).toBe(true);
@@ -115,8 +119,38 @@ describe("deterministicPrePass", () => {
       knownGroups: [],
       knownTeachers: [],
       knownPlaces: [],
+      knownEventTypes: [],
     });
     expect(result.event.folderConventionOk).toBe(false);
+  });
+
+  it("detects an event-type code (CFR) in the folder name", () => {
+    const eventTypes = [
+      { id: "7", name: "Conference", abbreviation: "CFR" },
+      { id: "8", name: "Teaching", abbreviation: "ENS" },
+    ];
+    const cfr = deterministicPrePass({
+      folderName: "20070517-JKR-CFR-HAL",
+      files: [{ relativePath: "01.mp3", sizeBytes: 100 }],
+      knownGroups: [], knownTeachers: [], knownPlaces: [], knownEventTypes: eventTypes,
+    });
+    expect(cfr.event.matchedEventTypeId).toBe("7");
+
+    // Alias CONF → CFR
+    const conf = deterministicPrePass({
+      folderName: "20180705-YMR-CONF-FMD",
+      files: [{ relativePath: "01.mp3", sizeBytes: 100 }],
+      knownGroups: [], knownTeachers: [], knownPlaces: [], knownEventTypes: eventTypes,
+    });
+    expect(conf.event.matchedEventTypeId).toBe("7");
+
+    // No type code → null
+    const none = deterministicPrePass({
+      folderName: "2025.04.14",
+      files: [{ relativePath: "01.mp3", sizeBytes: 100 }],
+      knownGroups: [], knownTeachers: [], knownPlaces: [], knownEventTypes: eventTypes,
+    });
+    expect(none.event.matchedEventTypeId).toBeNull();
   });
 });
 
@@ -334,6 +368,7 @@ describe("analyzeFolder orchestrator", () => {
         knownGroups: [],
         knownTeachers: [],
         knownPlaces: [],
+        knownEventTypes: [],
       },
       (e) => events.push(e),
       new AbortController().signal,
@@ -380,6 +415,7 @@ describe("analyzeFolder orchestrator", () => {
         knownGroups: [],
         knownTeachers: [],
         knownPlaces: [],
+        knownEventTypes: [],
       },
       () => {},
       new AbortController().signal,
@@ -414,6 +450,7 @@ describe("analyzeFolder orchestrator", () => {
         knownGroups: [],
         knownTeachers: [],
         knownPlaces: [],
+        knownEventTypes: [],
       },
       () => {},
       new AbortController().signal,
@@ -469,6 +506,7 @@ describe("analyzeFolder orchestrator", () => {
         knownGroups: [],
         knownTeachers: [],
         knownPlaces: [],
+        knownEventTypes: [],
       },
       () => {},
       new AbortController().signal,
@@ -491,7 +529,7 @@ describe("analyzeFolder orchestrator", () => {
     });
     const events: ProgressEvent[] = [];
     await analyzeFolder(
-      { folderName: "x", files, knownGroups: [], knownTeachers: [], knownPlaces: [] },
+      { folderName: "x", files, knownGroups: [], knownTeachers: [], knownPlaces: [], knownEventTypes: [] },
       (e) => events.push(e),
       new AbortController().signal,
     );

@@ -138,6 +138,9 @@ export const analysisEventSchema = z.object({
   matchedGroupIds: z.array(z.string()),
   matchedTeacherIds: z.array(z.string()),
   matchedPlaceIds: z.array(z.string()),
+  // Event-type id detected deterministically from a code in the folder name
+  // (e.g. CFR → Conference). Null when no known type code is present.
+  matchedEventTypeId: z.string().nullable().default(null),
   folderConventionOk: z.boolean(),
 });
 export type AnalysisEvent = z.infer<typeof analysisEventSchema>;

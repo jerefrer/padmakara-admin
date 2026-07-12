@@ -36,17 +36,49 @@ export interface KnownPlace {
   name: string;
   abbreviation: string;
 }
+export interface KnownEventType {
+  id: string;
+  name: string;
+  abbreviation: string;
+}
 export interface AnalyzeFolderInput {
   folderName: string;
   files: { relativePath: string; sizeBytes: number }[];
   knownGroups: KnownGroup[];
   knownTeachers: KnownTeacher[];
   knownPlaces: KnownPlace[];
+  knownEventTypes: KnownEventType[];
 }
 
 // ─── Folder-name regex for the convention check ──────────────────────
 
 const FOLDER_DATE_RE = /^(\d{4})\.(\d{2})\.(\d{2})(?:-(\d{2}))?/;
+
+// Extra spellings of event-type codes that appear in legacy folder names but
+// are not the canonical DB abbreviation (e.g. "CONF" for the "CFR" Conference).
+const EVENT_TYPE_CODE_ALIASES: Record<string, string> = { CONF: "CFR" };
+
+/**
+ * Detect an event-type code (CFR, ENS, ERT, LNG, RET, or the CONF alias) as a
+ * standalone token in the folder name and return the matching type id. Purely
+ * deterministic — the type is never inferred by the AI.
+ */
+function detectEventTypeId(
+  folderName: string,
+  knownEventTypes: KnownEventType[],
+): string | null {
+  const byCode = new Map<string, string>();
+  for (const et of knownEventTypes) {
+    if (et.abbreviation) byCode.set(et.abbreviation.toUpperCase(), et.id);
+  }
+  for (const token of folderName.toUpperCase().split(/[^A-Z0-9]+/)) {
+    if (!token) continue;
+    const code = EVENT_TYPE_CODE_ALIASES[token] ?? token;
+    const id = byCode.get(code);
+    if (id) return id;
+  }
+  return null;
+}
 
 // ─── Deterministic pre-pass ──────────────────────────────────────────
 
@@ -84,7 +116,7 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
     })),
   }));
 
-  const event = buildDeterministicEvent(input.folderName);
+  const event = buildDeterministicEvent(input.folderName, input.knownEventTypes);
   const totalTracks = input.files.length;
 
   return {
@@ -101,7 +133,10 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
   };
 }
 
-function buildDeterministicEvent(folderName: string): AnalysisEvent {
+function buildDeterministicEvent(
+  folderName: string,
+  knownEventTypes: KnownEventType[],
+): AnalysisEvent {
   const match = folderName.match(FOLDER_DATE_RE);
   const folderConventionOk = match !== null;
   let startDate: string | null = null;
@@ -119,6 +154,7 @@ function buildDeterministicEvent(folderName: string): AnalysisEvent {
     matchedGroupIds: [],
     matchedTeacherIds: [],
     matchedPlaceIds: [],
+    matchedEventTypeId: detectEventTypeId(folderName, knownEventTypes),
     folderConventionOk,
   };
 }
@@ -641,6 +677,8 @@ function mergeChunkResults(
         matchedGroupIds: e.matchedGroupIds,
         matchedTeacherIds: e.matchedTeacherIds,
         matchedPlaceIds: e.matchedPlaceIds,
+        // Event type is detected deterministically, never by the model.
+        matchedEventTypeId: determ.event.matchedEventTypeId,
         folderConventionOk: determ.event.folderConventionOk,
       };
     }

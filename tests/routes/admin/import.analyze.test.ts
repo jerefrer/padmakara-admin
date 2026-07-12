@@ -47,6 +47,7 @@ vi.mock("../../../src/db/index.ts", () => ({
       retreatGroups: { findMany: vi.fn(async () => []) },
       teachers: { findMany: vi.fn(async () => []) },
       places: { findMany: vi.fn(async () => []) },
+      eventTypes: { findMany: vi.fn(async () => []) },
     },
   },
 }));
@@ -90,6 +91,7 @@ describe("POST /api/admin/import/analyze", () => {
     (db.query.retreatGroups.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (db.query.teachers.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (db.query.places.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (db.query.eventTypes.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([]);
   });
 
   it("returns 401 without auth", async () => {
