@@ -39,7 +39,7 @@ export interface InferredSession {
 
 const LANGUAGE_MAP: Record<string, string> = {
   ENG: "en", ING: "en", ENGLISH: "en",
-  POR: "pt", PORT: "pt", PORTUGUESE: "pt",
+  POR: "pt", PORT: "pt", PORTUGUESE: "pt", TRAD: "pt",
   TIB: "tib", TIBETAN: "tib",
   FR: "fr", FRENCH: "fr",
 };

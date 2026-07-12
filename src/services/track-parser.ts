@@ -45,6 +45,7 @@ const LANGUAGE_MAP: Record<string, string> = {
   POR: "pt",
   PORT: "pt",
   PT: "pt",
+  TRAD: "pt", // bracketed [TRAD] — "TRAD" means Portuguese translation
   PORTUGUÊS: "pt",
   PORTUGUESE: "pt",
   TIB: "tib",

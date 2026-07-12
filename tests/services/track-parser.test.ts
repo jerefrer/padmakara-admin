@@ -165,6 +165,13 @@ describe("parseTrackFilename", () => {
       expect(result.originalLanguage).toBe("en");
       expect(result.isTranslation).toBe(true);
     });
+
+    it("treats a bracketed [TRAD] as Portuguese (like standalone TRAD)", () => {
+      const result = parseTrackFilename("001-037 [TRAD] 6_10 - Manha.mp3");
+      expect(result.languages).toEqual(["pt"]);
+      expect(result.originalLanguage).toBe("pt");
+      expect(result.isTranslation).toBe(true);
+    });
   });
 
   describe("Pattern 4: Underscore prefix translations", () => {
