@@ -1,12 +1,12 @@
 /**
  * Media Access Token (MAT) — short-lived signed token granting playback
- * access to a single session's video for a single user.
+ * access to a single session_video (recording) for a single user.
  *
  * Flow:
- *   1. Client calls /api/media/video/session/:id with their auth JWT.
+ *   1. Client calls /api/media/video/:sessionVideoId with their auth JWT.
  *   2. Backend verifies audience access, then issues a MAT scoped to:
  *        - userId (sub)
- *        - sessionId (sid)
+ *        - sessionVideoId (svid)
  *        - bunnyVideoId (gid) — locks the token to one Bunny video
  *        - expiry (exp) — typically 4h
  *   3. Client appends ?mat=<token> to every HLS-proxy request.
@@ -32,9 +32,9 @@ const DEFAULT_TTL_SECONDS = 4 * 60 * 60;
 export interface MatPayload {
   /** User id at issuance time. Stored for audit; the proxy doesn't re-check group membership. */
   sub: number;
-  /** Session id this token unlocks. The proxy rejects requests for any other sessionId. */
-  sid: number;
-  /** Bunny video GUID locked at issuance — independent of any later session edits. */
+  /** session_video id this token unlocks. The proxy rejects requests for any other sessionVideoId. */
+  svid: number;
+  /** Bunny video GUID locked at issuance — independent of any later edits. */
   gid: string;
   /** Issued-at unix epoch seconds. */
   iat: number;
@@ -44,7 +44,7 @@ export interface MatPayload {
 
 export async function issueMat(args: {
   userId: number;
-  sessionId: number;
+  sessionVideoId: number;
   bunnyVideoId: string;
   ttlSeconds?: number;
 }): Promise<{ token: string; expiresAt: number }> {
@@ -52,7 +52,7 @@ export async function issueMat(args: {
   const expiresAt = Math.floor(Date.now() / 1000) + ttl;
   const token = await new jose.SignJWT({
     sub: String(args.userId),
-    sid: args.sessionId,
+    svid: args.sessionVideoId,
     gid: args.bunnyVideoId,
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -66,7 +66,7 @@ export async function verifyMat(token: string): Promise<MatPayload | null> {
   try {
     const { payload } = await jose.jwtVerify(token, SECRET);
     if (
-      typeof payload.sid !== "number" ||
+      typeof payload.svid !== "number" ||
       typeof payload.gid !== "string" ||
       typeof payload.sub !== "string" ||
       typeof payload.iat !== "number" ||
@@ -76,7 +76,7 @@ export async function verifyMat(token: string): Promise<MatPayload | null> {
     }
     return {
       sub: parseInt(payload.sub, 10),
-      sid: payload.sid,
+      svid: payload.svid,
       gid: payload.gid,
       iat: payload.iat,
       exp: payload.exp,

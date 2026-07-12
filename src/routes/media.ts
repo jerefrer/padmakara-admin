@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { db } from "../db/index.ts";
 import { tracks } from "../db/schema/tracks.ts";
-import { sessions } from "../db/schema/sessions.ts";
+import { sessionVideos } from "../db/schema/session-videos.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
 import { events } from "../db/schema/retreats.ts";
 import { users } from "../db/schema/users.ts";
@@ -49,19 +49,17 @@ async function getEventForTrack(trackId: number) {
 }
 
 /**
- * Look up the event for a session (session → event with audience)
+ * Look up the event for a session_video (session_video → session → event
+ * with audience). Playback, HLS proxy, and MP4 download are all keyed on
+ * the session_video row's id, not the parent session id.
  */
-async function getEventForSession(sessionId: number) {
-  const session = await db.query.sessions.findFirst({
-    where: eq(sessions.id, sessionId),
-    with: {
-      event: {
-        with: { audience: true },
-      },
-    },
+async function getVideoForPlayback(sessionVideoId: number) {
+  const video = await db.query.sessionVideos.findFirst({
+    where: eq(sessionVideos.id, sessionVideoId),
+    with: { session: { with: { event: { with: { audience: true } } } } },
   });
-  if (!session) return null;
-  return { session, event: session.event ?? null };
+  if (!video) return null;
+  return { video, session: video.session, event: video.session?.event ?? null };
 }
 
 /**
@@ -122,24 +120,22 @@ mediaRoutes.get("/audio/:trackId", async (c) => {
 });
 
 /**
- * GET /api/media/video/session/:sessionId
+ * GET /api/media/video/:sessionVideoId
  *
- * Token-signed Bunny Stream playback URLs for the session's video recording.
- * Audio tracks remain the canonical, topic-indexed content; the session video
- * is the unedited full recording, viewed via Bunny.
+ * Token-signed Bunny Stream playback URLs for one recording (session_video
+ * row) attached to a session. Audio tracks remain the canonical,
+ * topic-indexed content; session videos are unedited full recordings,
+ * viewed via Bunny. A session may have several — one per recording.
  *
- * Returns 404 if the session has no video attached. Same access control as
+ * Returns 404 if the session_video doesn't exist. Same access control as
  * audio (audience rules on the parent event).
  */
-mediaRoutes.get("/video/session/:sessionId", async (c) => {
-  const sessionId = parseInt(c.req.param("sessionId"), 10);
+mediaRoutes.get("/video/:sessionVideoId", async (c) => {
+  const sessionVideoId = parseInt(c.req.param("sessionVideoId"), 10);
   const authUser = getOptionalUser(c);
 
-  const result = await getEventForSession(sessionId);
-  if (!result?.session) throw AppError.notFound("Session not found");
-  if (!result.session.bunnyVideoId) {
-    throw AppError.notFound("Video file not available");
-  }
+  const result = await getVideoForPlayback(sessionVideoId);
+  if (!result?.video) throw AppError.notFound("Video not found");
 
   if (result.event) {
     const userForAccess = await getUserForAccess(authUser);
@@ -147,29 +143,29 @@ mediaRoutes.get("/video/session/:sessionId", async (c) => {
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
-  const urls = buildPlaybackUrls(result.session.bunnyVideoId);
+  const urls = buildPlaybackUrls(result.video.bunnyVideoId);
 
   // Issue a media access token (MAT) and build the HLS-proxy URL. The proxy
   // signs each Bunny URL on the fly and redirects, so native players get
   // full HLS + ABR + per-segment token authentication, and we don't pay any
   // bandwidth cost (segments stream Bunny→user direct via 302). Audience
   // access is verified above; the MAT carries that proof for ~4h, scoped
-  // to this session and (when authenticated) this user.
+  // to this session_video and (when authenticated) this user.
   const mat = await issueMat({
     userId: authUser?.id ?? 0,
-    sessionId,
-    bunnyVideoId: result.session.bunnyVideoId,
+    sessionVideoId,
+    bunnyVideoId: result.video.bunnyVideoId,
   });
 
-  const baseUrl = proxyBaseUrl(c, sessionId);
+  const baseUrl = proxyBaseUrl(c, sessionVideoId);
   const proxyHls = `${baseUrl}/master.m3u8?mat=${encodeURIComponent(mat.token)}`;
 
   return c.json({
     proxyHls,
     iframe: urls.iframe,
     hls: urls.hls,
-    thumbnail: result.session.videoPosterUrl ?? urls.thumbnail,
-    durationSeconds: result.session.videoDurationSeconds ?? null,
+    thumbnail: result.video.posterUrl ?? urls.thumbnail,
+    durationSeconds: result.video.durationSeconds ?? null,
     expiresAt: mat.expiresAt,
   });
 });
@@ -192,13 +188,13 @@ const BUNNY_PROXY_TTL_SECONDS = 5 * 60;
 
 async function authorizeProxyRequest(
   matParam: string | undefined,
-  routeSessionId: number,
+  routeSessionVideoId: number,
 ): Promise<string> {
   if (!matParam) throw AppError.unauthorized("Missing media access token");
   const decoded = await verifyMat(matParam);
   if (!decoded) throw AppError.unauthorized("Invalid or expired media access token");
-  if (decoded.sid !== routeSessionId) {
-    throw AppError.forbidden("Token is not valid for this session");
+  if (decoded.svid !== routeSessionVideoId) {
+    throw AppError.forbidden("Token is not valid for this video");
   }
   return decoded.gid;
 }
@@ -212,7 +208,7 @@ function bunnyUrl(path: string): string {
   return `https://${config.bunny.cdnHostname}${path}?token=${token}&expires=${expires}`;
 }
 
-function proxyBaseUrl(c: any, sessionId: number): string {
+function proxyBaseUrl(c: any, sessionVideoId: number): string {
   // Honour X-Forwarded-Proto / X-Forwarded-Host so URLs stay https when
   // the API runs behind Caddy (prod). c.req.url reports the upstream
   // http://localhost:3000 scheme/host inside the systemd unit, which
@@ -220,7 +216,7 @@ function proxyBaseUrl(c: any, sessionId: number): string {
   const reqUrl = new URL(c.req.url);
   const proto = c.req.header("x-forwarded-proto") ?? reqUrl.protocol.replace(":", "");
   const host = c.req.header("x-forwarded-host") ?? reqUrl.host;
-  return `${proto}://${host}/api/media/video/hls/${sessionId}`;
+  return `${proto}://${host}/api/media/video/hls/${sessionVideoId}`;
 }
 
 /**
@@ -228,10 +224,10 @@ function proxyBaseUrl(c: any, sessionId: number): string {
  * each sub-playlist reference (e.g. `360p/video.m3u8`) into a URL that
  * routes back through this proxy with the MAT preserved.
  */
-mediaRoutes.get("/video/hls/:sessionId/master.m3u8", async (c) => {
-  const sessionId = parseInt(c.req.param("sessionId"), 10);
+mediaRoutes.get("/video/hls/:sessionVideoId/master.m3u8", async (c) => {
+  const sessionVideoId = parseInt(c.req.param("sessionVideoId"), 10);
   const mat = c.req.query("mat");
-  const guid = await authorizeProxyRequest(mat, sessionId);
+  const guid = await authorizeProxyRequest(mat, sessionVideoId);
 
   const upstream = bunnyUrl(`/${guid}/playlist.m3u8`);
   const res = await fetch(upstream);
@@ -240,7 +236,7 @@ mediaRoutes.get("/video/hls/:sessionId/master.m3u8", async (c) => {
   }
   const body = await res.text();
 
-  const base = proxyBaseUrl(c, sessionId);
+  const base = proxyBaseUrl(c, sessionVideoId);
   const matEnc = encodeURIComponent(mat!);
 
   // Sub-playlists are referenced as `<quality>/video.m3u8` — single line
@@ -263,15 +259,15 @@ mediaRoutes.get("/video/hls/:sessionId/master.m3u8", async (c) => {
  * Sub-playlist for a specific quality. Fetches `/{guid}/{quality}/video.m3u8`
  * upstream and rewrites every segment URL to route through this proxy.
  */
-mediaRoutes.get("/video/hls/:sessionId/v/:quality", async (c) => {
-  const sessionId = parseInt(c.req.param("sessionId"), 10);
+mediaRoutes.get("/video/hls/:sessionVideoId/v/:quality", async (c) => {
+  const sessionVideoId = parseInt(c.req.param("sessionVideoId"), 10);
   const quality = c.req.param("quality");
   // Defensive: only allow a small known set of variant names.
   if (!/^[0-9]{2,4}p$/.test(quality)) {
     throw AppError.badRequest("Invalid quality variant");
   }
   const mat = c.req.query("mat");
-  const guid = await authorizeProxyRequest(mat, sessionId);
+  const guid = await authorizeProxyRequest(mat, sessionVideoId);
 
   const upstream = bunnyUrl(`/${guid}/${quality}/video.m3u8`);
   const res = await fetch(upstream);
@@ -280,7 +276,7 @@ mediaRoutes.get("/video/hls/:sessionId/v/:quality", async (c) => {
   }
   const body = await res.text();
 
-  const base = proxyBaseUrl(c, sessionId);
+  const base = proxyBaseUrl(c, sessionVideoId);
   const matEnc = encodeURIComponent(mat!);
 
   // Segment URIs are non-comment lines that aren't another m3u8.
@@ -304,8 +300,8 @@ mediaRoutes.get("/video/hls/:sessionId/v/:quality", async (c) => {
  * the requested path, and 302's the client. The actual segment bytes flow
  * Bunny→client without passing through this backend.
  */
-mediaRoutes.get("/video/hls/:sessionId/s", async (c) => {
-  const sessionId = parseInt(c.req.param("sessionId"), 10);
+mediaRoutes.get("/video/hls/:sessionVideoId/s", async (c) => {
+  const sessionVideoId = parseInt(c.req.param("sessionVideoId"), 10);
   const mat = c.req.query("mat");
   const segPath = c.req.query("p");
   if (!segPath) throw AppError.badRequest("Missing segment path");
@@ -319,21 +315,21 @@ mediaRoutes.get("/video/hls/:sessionId/s", async (c) => {
     throw AppError.badRequest("Invalid segment path");
   }
 
-  const guid = await authorizeProxyRequest(mat, sessionId);
+  const guid = await authorizeProxyRequest(mat, sessionVideoId);
   const upstream = bunnyUrl(`/${guid}/${segPath}`);
   return c.redirect(upstream, 302);
 });
 
 /**
- * GET /api/media/video/session/:sessionId/download?quality=720p
+ * GET /api/media/video/:sessionVideoId/download?quality=720p
  *
- * Token-signed direct-MP4 URL for downloading the session's video to local
- * storage. Picks the best available variant ≤ requested quality (low-res
- * sources may not have a 720p variant). Requires "MP4 Fallback" enabled on
- * the Bunny library.
+ * Token-signed direct-MP4 URL for downloading a recording to local storage.
+ * Picks the best available variant ≤ requested quality (low-res sources may
+ * not have a 720p variant). Requires "MP4 Fallback" enabled on the Bunny
+ * library.
  */
-mediaRoutes.get("/video/session/:sessionId/download", async (c) => {
-  const sessionId = parseInt(c.req.param("sessionId"), 10);
+mediaRoutes.get("/video/:sessionVideoId/download", async (c) => {
+  const sessionVideoId = parseInt(c.req.param("sessionVideoId"), 10);
   const authUser = getOptionalUser(c);
   const qualityParam = (c.req.query("quality") ?? "720p") as BunnyResolution;
   const allowed: ReadonlySet<string> = new Set([
@@ -343,11 +339,8 @@ mediaRoutes.get("/video/session/:sessionId/download", async (c) => {
     throw AppError.badRequest("invalid quality");
   }
 
-  const result = await getEventForSession(sessionId);
-  if (!result?.session) throw AppError.notFound("Session not found");
-  if (!result.session.bunnyVideoId) {
-    throw AppError.notFound("Video file not available");
-  }
+  const result = await getVideoForPlayback(sessionVideoId);
+  if (!result?.video) throw AppError.notFound("Video not found");
 
   if (result.event) {
     const userForAccess = await getUserForAccess(authUser);
@@ -355,14 +348,14 @@ mediaRoutes.get("/video/session/:sessionId/download", async (c) => {
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
-  const meta = await getVideoMeta(result.session.bunnyVideoId);
+  const meta = await getVideoMeta(result.video.bunnyVideoId);
   const available = parseAvailableResolutions(meta.availableResolutions);
   const chosen = bestAvailableResolution(qualityParam, available);
   if (!chosen) {
     throw AppError.notFound("No downloadable variant available for this video");
   }
 
-  const { url, expiresAt } = buildMp4DownloadUrl(result.session.bunnyVideoId, chosen);
+  const { url, expiresAt } = buildMp4DownloadUrl(result.video.bunnyVideoId, chosen);
   return c.json({
     url,
     quality: chosen,
