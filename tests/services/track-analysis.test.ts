@@ -136,6 +136,25 @@ describe("deterministicPrePass", () => {
     expect(result.sessions[0]!.sessionDate).toBe("2007-05-17");
   });
 
+  it("reads a compact/dashed folder date (20030912) like the dotted form", () => {
+    const compact = deterministicPrePass({
+      folderName: "20030912-CNR-CFR-FAR",
+      files: [{ relativePath: "001 CNR Conference.mp3", sizeBytes: 100 }],
+      knownGroups: [], knownTeachers: [], knownPlaces: [], knownEventTypes: [],
+    });
+    expect(compact.event.startDate).toBe("2003-09-12");
+    expect(compact.event.endDate).toBe("2003-09-12");
+    expect(compact.event.folderConventionOk).toBe(true);
+    expect(compact.sessions[0]!.sessionDate).toBe("2003-09-12");
+
+    const dashed = deterministicPrePass({
+      folderName: "2003-09-12 - CNR - CFR - FAR",
+      files: [{ relativePath: "001 CNR Conference.mp3", sizeBytes: 100 }],
+      knownGroups: [], knownTeachers: [], knownPlaces: [], knownEventTypes: [],
+    });
+    expect(dashed.event.startDate).toBe("2003-09-12");
+  });
+
   it("leaves a dateless session null for a multi-day event", () => {
     const result = deterministicPrePass({
       folderName: "2009.06.21-23-TGR-ENS-HMA",

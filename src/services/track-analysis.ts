@@ -52,7 +52,10 @@ export interface AnalyzeFolderInput {
 
 // ─── Folder-name regex for the convention check ──────────────────────
 
-const FOLDER_DATE_RE = /^(\d{4})\.(\d{2})\.(\d{2})(?:-(\d{2}))?/;
+// Accepts the date at the start of a folder name in dotted (2003.09.12),
+// dashed (2003-09-12) or compact (20030912) form, with an optional end day
+// for multi-day events (…-23, …_23).
+const FOLDER_DATE_RE = /^(\d{4})[.\-]?(\d{2})[.\-]?(\d{2})(?:[-_](\d{2}))?/;
 
 // Extra spellings of event-type codes that appear in legacy folder names but
 // are not the canonical DB abbreviation (e.g. "CONF" for the "CFR" Conference).
