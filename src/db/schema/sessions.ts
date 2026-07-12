@@ -10,6 +10,7 @@ import {
 import { relations } from "drizzle-orm";
 import { events } from "./retreats.ts";
 import { tracks } from "./tracks.ts";
+import { sessionVideos } from "./session-videos.ts";
 
 export const sessions = pgTable(
   "sessions",
@@ -25,12 +26,6 @@ export const sessions = pgTable(
     sessionNumber: integer("session_number").notNull(),
     partNumber: integer("part_number"),
     description: text("description"),
-    // Optional video recording for this session. Audio tracks (above) remain
-    // the canonical topic-indexed content; the session video is the unedited
-    // full recording, viewed via Bunny Stream.
-    bunnyVideoId: text("bunny_video_id"),
-    videoDurationSeconds: integer("video_duration_seconds"),
-    videoPosterUrl: text("video_poster_url"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -43,4 +38,5 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
     references: [events.id],
   }),
   tracks: many(tracks),
+  videos: many(sessionVideos),
 }));

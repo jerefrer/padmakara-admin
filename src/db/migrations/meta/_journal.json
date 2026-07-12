@@ -183,6 +183,13 @@
       "when": 1810518400000,
       "tag": "0025_subtitles",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1810604800000,
+      "tag": "0026_session_videos",
+      "breakpoints": true
     }
   ]
 }

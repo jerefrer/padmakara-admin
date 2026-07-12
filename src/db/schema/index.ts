@@ -15,6 +15,7 @@ export {
   eventPlacesRelations,
 } from "./retreats.ts";
 export { sessions, sessionsRelations } from "./sessions.ts";
+export { sessionVideos, sessionVideosRelations } from "./session-videos.ts";
 export { tracks, tracksRelations } from "./tracks.ts";
 export { transcripts, transcriptsRelations } from "./transcripts.ts";
 export { eventFiles, eventFilesRelations } from "./event-files.ts";
