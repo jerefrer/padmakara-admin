@@ -167,6 +167,19 @@ export const createSessionSchema = z.object({
 
 export const updateSessionSchema = createSessionSchema.partial();
 
+// Session videos — one row per Bunny Stream recording attached to a session.
+export const createSessionVideoSchema = z.object({
+  sessionId: z.number().int(),
+  bunnyVideoId: z.string().min(1),
+  position: z.number().int().min(0).optional().default(0),
+  title: z.string().max(200).optional().nullable(),
+});
+
+export const updateSessionVideoSchema = z.object({
+  position: z.number().int().min(0).optional(),
+  title: z.string().max(200).optional().nullable(),
+});
+
 // Tracks (audio only — video lives on the parent session)
 export const createTrackSchema = z.object({
   sessionId: z.number().int(),
