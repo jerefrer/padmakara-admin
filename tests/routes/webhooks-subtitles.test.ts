@@ -42,7 +42,7 @@ vi.mock("../../src/db/index.ts", () => ({
     update: mockUpdate,
     insert: mockInsert,
     query: {
-      sessions: { findFirst: mockFindFirst },
+      sessionVideos: { findFirst: mockFindFirst },
     },
   },
 }));
@@ -125,13 +125,13 @@ describe("POST /api/webhooks/subtitles — signature verification", () => {
     expect(res.status).toBe(200);
   });
 
-  it("uploads VTT to Bunny when session has a bunnyVideoId", async () => {
+  it("uploads VTT to Bunny when the session has a primary session_video", async () => {
     const { addCaption } = await import("../../src/services/bunny-captions.ts");
     const { getObjectText } = await import("../../src/services/s3.ts");
     const mockAddCaption = addCaption as ReturnType<typeof vi.fn>;
     const mockGetObjectText = getObjectText as ReturnType<typeof vi.fn>;
 
-    mockFindFirst.mockResolvedValueOnce({ id: 1, bunnyVideoId: "vid-abc" });
+    mockFindFirst.mockResolvedValueOnce({ id: 5, sessionId: 1, position: 0, bunnyVideoId: "vid-abc" });
     mockGetObjectText.mockResolvedValueOnce("WEBVTT\n\n00:00.000 --> 00:01.000\nHello");
 
     const body = {
@@ -154,11 +154,11 @@ describe("POST /api/webhooks/subtitles — signature verification", () => {
     );
   });
 
-  it("skips Bunny upload when session has no bunnyVideoId", async () => {
+  it("skips Bunny upload when the session has no session_video", async () => {
     const { addCaption } = await import("../../src/services/bunny-captions.ts");
     const mockAddCaption = addCaption as ReturnType<typeof vi.fn>;
 
-    mockFindFirst.mockResolvedValueOnce({ id: 1, bunnyVideoId: null });
+    mockFindFirst.mockResolvedValueOnce(null);
 
     const body = {
       jobId: "job-4",

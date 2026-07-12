@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { readAlongJobs } from "../db/schema/read-along-jobs.ts";
 import { tracks } from "../db/schema/tracks.ts";
-import { sessions } from "../db/schema/sessions.ts";
+import { sessionVideos } from "../db/schema/session-videos.ts";
 import { subtitleJobs } from "../db/schema/subtitle-jobs.ts";
 import { sessionSubtitles } from "../db/schema/session-subtitles.ts";
 import { config } from "../config.ts";
@@ -155,20 +155,21 @@ webhookRoutes.post("/bunny", async (c) => {
 
   // Only act on terminal states. Intermediate transitions are noise.
   if (status === 4) {
-    // Finished — fetch metadata and update the matching session. Videos live
-    // on `sessions` (not `tracks`); each session has at most one video.
+    // Finished — fetch metadata and update the matching session_video row.
+    // A session can have several recordings; each is its own session_videos
+    // row keyed by its Bunny GUID.
     try {
       const meta = await getVideoMeta(videoGuid);
       const duration = Math.round(meta.length || 0);
       const result = await db
-        .update(sessions)
-        .set({ videoDurationSeconds: duration, updatedAt: new Date() })
-        .where(eq(sessions.bunnyVideoId, videoGuid))
-        .returning({ id: sessions.id });
+        .update(sessionVideos)
+        .set({ durationSeconds: duration, updatedAt: new Date() })
+        .where(eq(sessionVideos.bunnyVideoId, videoGuid))
+        .returning({ id: sessionVideos.id });
       if (result.length === 0) {
-        console.warn(`[webhook] No session found for Bunny video ${videoGuid} (orphan or admin still saving)`);
+        console.warn(`[webhook] No session_video found for Bunny video ${videoGuid} (orphan or admin still saving)`);
       } else {
-        console.log(`[webhook] Updated session ${result[0]!.id} videoDurationSeconds=${duration}s`);
+        console.log(`[webhook] Updated session_video ${result[0]!.id} durationSeconds=${duration}s`);
       }
     } catch (err) {
       console.error(`[webhook] Failed to fetch metadata for ${videoGuid}:`, err);
@@ -261,14 +262,18 @@ webhookRoutes.post("/subtitles", async (c) => {
         },
       });
 
-    // Upload the VTT to Bunny if the session has an attached video
-    const session = await db.query.sessions.findFirst({
-      where: eq(sessions.id, sessionId),
+    // Upload the VTT to Bunny if the session has a primary (first) video.
+    // TODO(multi-video-subtitles): captions are only ever added to the
+    // primary session_video (position 0); per-video subtitles are out of
+    // scope for now — see docs/superpowers/plans/2026-07-13-multiple-videos-per-session.md.
+    const video = await db.query.sessionVideos.findFirst({
+      where: eq(sessionVideos.sessionId, sessionId),
+      orderBy: (v, { asc }) => [asc(v.position)],
     });
 
-    if (session?.bunnyVideoId) {
+    if (video?.bunnyVideoId) {
       const vtt = await getObjectText(s3Key);
-      await addCaption(session.bunnyVideoId, language, label ?? language, vtt);
+      await addCaption(video.bunnyVideoId, language, label ?? language, vtt);
       await db
         .update(sessionSubtitles)
         .set({ bunnyUploadedAt: new Date() })

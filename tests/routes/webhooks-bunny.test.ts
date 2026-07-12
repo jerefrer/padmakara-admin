@@ -15,7 +15,11 @@ const { mockUpdate, mockUpdateSet, mockUpdateWhere, mockUpdateReturning } = vi.h
 vi.mock("../../src/db/index.ts", () => ({
   db: {
     update: mockUpdate,
-    query: { tracks: { findFirst: vi.fn() }, sessions: { findFirst: vi.fn() } },
+    query: {
+      tracks: { findFirst: vi.fn() },
+      sessions: { findFirst: vi.fn() },
+      sessionVideos: { findFirst: vi.fn() },
+    },
   },
 }));
 
@@ -100,7 +104,7 @@ describe("POST /api/webhooks/bunny", () => {
     expect(res.status).toBe(400);
   });
 
-  it("on Status=4 (finished) updates the matching session's video duration", async () => {
+  it("on Status=4 (finished) updates the matching session_video's duration", async () => {
     mockGetVideoMeta.mockResolvedValueOnce({
       guid: "vid-guid-123",
       title: "Day 1",
@@ -119,11 +123,11 @@ describe("POST /api/webhooks/bunny", () => {
     expect(mockGetVideoMeta).toHaveBeenCalledWith("vid-guid-123");
     expect(mockUpdate).toHaveBeenCalled();
     expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ videoDurationSeconds: 5401 }),
+      expect.objectContaining({ durationSeconds: 5401 }),
     );
   });
 
-  it("on Status=4 with no matching session logs but still 200s (idempotent)", async () => {
+  it("on Status=4 with no matching session_video logs but still 200s (idempotent)", async () => {
     mockUpdateReturning.mockResolvedValueOnce([]);
     mockGetVideoMeta.mockResolvedValueOnce({
       guid: "orphan",
