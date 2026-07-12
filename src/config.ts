@@ -76,8 +76,11 @@ export const config = {
   anthropic: {
     apiKey: env("ANTHROPIC_API_KEY", ""),
     // Session-grouping is a reasoning task; default to Sonnet rather than the
-    // Haiku model used elsewhere for simple text rewrites.
-    model: env("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+    // Haiku model used elsewhere for simple text rewrites. Sonnet 5 (over 4.6)
+    // gives far more reliable tool-call JSON — 4.6 sometimes stringified the
+    // delta arrays or mis-escaped quotes in corrupted filenames, which broke
+    // the whole analysis; see callClaudeForChunk / DELTA_TOOL in track-analysis.
+    model: env("ANTHROPIC_MODEL", "claude-sonnet-5"),
     defaultTranslateModel: env("ANTHROPIC_TRANSLATE_MODEL", "claude-opus-4-8"),
   },
 

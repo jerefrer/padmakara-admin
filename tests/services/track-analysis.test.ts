@@ -277,8 +277,8 @@ import {
   type CallClaudeOptions,
 } from "../../src/services/track-analysis.ts";
 
-function validResponseJSON() {
-  return JSON.stringify({
+function validDelta() {
+  return {
     event: {
       titleEn: "Test",
       titlePt: "Teste",
@@ -290,7 +290,13 @@ function validResponseJSON() {
     },
     trackEdits: [],
     notes: [],
-  });
+  };
+}
+
+// Claude now returns its delta via a forced `emit_analysis` tool call; the SDK
+// hands the parsed object back as the tool_use block's `input`. Model that here.
+function emitContent(delta: unknown) {
+  return [{ type: "tool_use", id: "toolu_test", name: "emit_analysis", input: delta }];
 }
 
 function baseOptions(): CallClaudeOptions {
@@ -310,7 +316,7 @@ describe("callClaudeForChunk", () => {
   it("returns parsed response on a successful end_turn", async () => {
     mockCreate.mockResolvedValueOnce({
       stop_reason: "end_turn",
-      content: [{ type: "text", text: validResponseJSON() }],
+      content: emitContent(validDelta()),
     });
     const r = await callClaudeForChunk(baseOptions());
     expect(r.ok).toBe(true);
@@ -341,7 +347,7 @@ describe("callClaudeForChunk", () => {
     // `event` must be an object or null — a number is invalid.
     mockCreate.mockResolvedValueOnce({
       stop_reason: "end_turn",
-      content: [{ type: "text", text: '{"event": 123, "trackEdits": [], "notes": []}' }],
+      content: emitContent({ event: 123, trackEdits: [], notes: [] }),
     });
     const r = await callClaudeForChunk(baseOptions());
     expect(r.ok).toBe(false);
@@ -366,7 +372,7 @@ describe("callClaudeForChunk", () => {
   it("includes the partial-session instruction when chunk has partOf", async () => {
     mockCreate.mockResolvedValueOnce({
       stop_reason: "end_turn",
-      content: [{ type: "text", text: validResponseJSON() }],
+      content: emitContent(validDelta()),
     });
     const opts = baseOptions();
     opts.chunk.sessions = [
@@ -426,29 +432,24 @@ describe("analyzeFolder orchestrator", () => {
   it("applies Claude's delta when single-pass succeeds", async () => {
     mockCreate.mockResolvedValue({
       stop_reason: "end_turn",
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            event: {
-              titleEn: "AI Title",
-              titlePt: "AI Título",
-              startDate: "2025-04-12",
-              endDate: "2025-04-12",
-              matchedGroupIds: [],
-              matchedTeacherIds: [],
-              matchedPlaceIds: [],
-            },
-            trackEdits: [
-              {
-                originalFilename: "01_a.mp3",
-                title: "A Deliberately Different Title",
-              },
-            ],
-            notes: [],
-          }),
+      content: emitContent({
+        event: {
+          titleEn: "AI Title",
+          titlePt: "AI Título",
+          startDate: "2025-04-12",
+          endDate: "2025-04-12",
+          matchedGroupIds: [],
+          matchedTeacherIds: [],
+          matchedPlaceIds: [],
         },
-      ],
+        trackEdits: [
+          {
+            originalFilename: "01_a.mp3",
+            title: "A Deliberately Different Title",
+          },
+        ],
+        notes: [],
+      }),
     });
     const result = await analyzeFolder(
       {
@@ -474,16 +475,11 @@ describe("analyzeFolder orchestrator", () => {
   it("leaves a track untouched (no corrections) when the delta omits it", async () => {
     mockCreate.mockResolvedValue({
       stop_reason: "end_turn",
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            event: null,
-            trackEdits: [],
-            notes: [],
-          }),
-        },
-      ],
+      content: emitContent({
+        event: null,
+        trackEdits: [],
+        notes: [],
+      }),
     });
     const result = await analyzeFolder(
       {
@@ -510,35 +506,25 @@ describe("analyzeFolder orchestrator", () => {
     mockCreate
       .mockResolvedValueOnce({
         stop_reason: "end_turn",
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              event: {
-                titleEn: "T",
-                titlePt: "T",
-                startDate: null,
-                endDate: null,
-                matchedGroupIds: [],
-                matchedTeacherIds: [],
-                matchedPlaceIds: [],
-              },
-              trackEdits: [],
-              notes: [],
-            }),
+        content: emitContent({
+          event: {
+            titleEn: "T",
+            titlePt: "T",
+            startDate: null,
+            endDate: null,
+            matchedGroupIds: [],
+            matchedTeacherIds: [],
+            matchedPlaceIds: [],
           },
-        ],
+          trackEdits: [],
+          notes: [],
+        }),
       })
       .mockRejectedValueOnce(new Error("network"))
       .mockRejectedValueOnce(new Error("network")) // retry also fails
       .mockResolvedValue({
         stop_reason: "end_turn",
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({ event: null, trackEdits: [], notes: [] }),
-          },
-        ],
+        content: emitContent({ event: null, trackEdits: [], notes: [] }),
       });
 
     const result = await analyzeFolder(
@@ -565,9 +551,7 @@ describe("analyzeFolder orchestrator", () => {
     }));
     mockCreate.mockResolvedValue({
       stop_reason: "end_turn",
-      content: [
-        { type: "text", text: JSON.stringify({ event: null, trackEdits: [], notes: [] }) },
-      ],
+      content: emitContent({ event: null, trackEdits: [], notes: [] }),
     });
     const events: ProgressEvent[] = [];
     await analyzeFolder(

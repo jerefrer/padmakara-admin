@@ -26,8 +26,8 @@ describe("config.database defaults", () => {
 });
 
 describe("config.anthropic defaults", () => {
-  it("defaults model to claude-sonnet-4-6 when ANTHROPIC_MODEL is not set", () => {
-    expect(config.anthropic.model).toBe("claude-sonnet-4-6");
+  it("defaults model to claude-sonnet-5 when ANTHROPIC_MODEL is not set", () => {
+    expect(config.anthropic.model).toBe("claude-sonnet-5");
   });
 
   it("exposes apiKey as a string", () => {

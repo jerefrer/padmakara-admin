@@ -281,9 +281,65 @@ ${FILENAME_CONVENTION}
 
 ${WRITING_RULES}
 
-Output: a single JSON object (the delta). No prose, no markdown fences,
-just JSON.
+Report your result by calling the \`emit_analysis\` tool with the delta.
 `.trim();
+
+// Claude returns its delta by CALLING this tool rather than emitting free-text
+// JSON. The SDK hands us the tool input as an already-parsed, correctly-escaped
+// object, so a filename containing a quote or other character the model might
+// normalise can no longer produce invalid JSON that fails the whole chunk.
+const DELTA_TOOL: Anthropic.Tool = {
+  name: "emit_analysis",
+  description:
+    "Report the analysis delta: event metadata, the track edits that are genuinely needed, and any notes.",
+  input_schema: {
+    type: "object",
+    properties: {
+      event: {
+        anyOf: [
+          {
+            type: "object",
+            properties: {
+              titleEn: { type: ["string", "null"] },
+              titlePt: { type: ["string", "null"] },
+              startDate: { type: ["string", "null"] },
+              endDate: { type: ["string", "null"] },
+              matchedGroupIds: { type: "array", items: { type: "string" } },
+              matchedTeacherIds: { type: "array", items: { type: "string" } },
+              matchedPlaceIds: { type: "array", items: { type: "string" } },
+            },
+          },
+          { type: "null" },
+        ],
+      },
+      trackEdits: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            originalFilename: { type: "string" },
+            title: { type: "string" },
+            correctedFilename: { type: "string" },
+          },
+          required: ["originalFilename"],
+        },
+      },
+      notes: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            severity: { type: "string", enum: ["info", "warning"] },
+            message: { type: "string" },
+            relatedFilename: { type: "string" },
+          },
+          required: ["severity", "message"],
+        },
+      },
+    },
+    required: ["event", "trackEdits", "notes"],
+  },
+};
 
 function buildUserPrompt(opts: CallClaudeOptions): string {
   const partialNote = opts.chunk.sessions.some((s) => s.partOf)
@@ -312,7 +368,7 @@ function buildUserPrompt(opts: CallClaudeOptions): string {
     JSON.stringify(opts.knownPlaces, null, 2),
     "\nTracks in this chunk (original filename + current title):",
     trackLines,
-    "\nReturn ONLY a delta JSON of this shape:",
+    "\nCall the emit_analysis tool with a delta of this shape:",
     `{
   "event": {
     "titleEn": "short English event title" | null,
@@ -362,6 +418,27 @@ function getClient(): Anthropic {
   return cachedClient;
 }
 
+/**
+ * Sonnet occasionally returns a nested tool-input field (`event`/`trackEdits`/
+ * `notes`) as a JSON *string* rather than the object/array itself. The tool
+ * channel escapes the string correctly, so it always parses — normalise those
+ * fields back to values before Zod validation.
+ */
+function coerceDeltaFields(input: unknown): unknown {
+  if (typeof input !== "object" || input === null) return input;
+  const obj: Record<string, unknown> = { ...(input as Record<string, unknown>) };
+  for (const key of ["event", "trackEdits", "notes"]) {
+    if (typeof obj[key] === "string") {
+      try {
+        obj[key] = JSON.parse(obj[key] as string);
+      } catch {
+        // Leave as-is; Zod will surface the mismatch.
+      }
+    }
+  }
+  return obj;
+}
+
 export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<ChunkResult> {
   try {
     // We use `messages.stream()` rather than `messages.create()` because the
@@ -380,6 +457,8 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
         // still recovers.
         max_tokens: 32000,
         system: SYSTEM_PROMPT,
+        tools: [DELTA_TOOL],
+        tool_choice: { type: "tool", name: "emit_analysis" },
         messages: [{ role: "user", content: buildUserPrompt(opts) }],
       },
       { signal: opts.signal },
@@ -390,23 +469,22 @@ export async function callClaudeForChunk(opts: CallClaudeOptions): Promise<Chunk
       return { ok: false, error: { kind: "max_tokens" } };
     }
 
-    const textBlock = message.content.find((b: { type: string }) => b.type === "text") as
-      | { type: "text"; text: string }
-      | undefined;
-    const text = textBlock?.text ?? "";
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(stripJsonFences(text));
-    } catch (e) {
-      console.error("[track-analysis] invalid JSON from Claude:", text.slice(0, 500));
-      return { ok: false, error: { kind: "invalid_json", detail: (e as Error).message } };
+    const toolUse = message.content.find(
+      (b): b is Anthropic.ToolUseBlock =>
+        b.type === "tool_use" && b.name === "emit_analysis",
+    );
+    if (!toolUse) {
+      console.error(
+        "[track-analysis] Claude did not call emit_analysis; stop_reason:",
+        message.stop_reason,
+      );
+      return { ok: false, error: { kind: "invalid_json", detail: "no emit_analysis tool call" } };
     }
 
-    const validated = claudeDeltaSchema.safeParse(parsed);
+    const validated = claudeDeltaSchema.safeParse(coerceDeltaFields(toolUse.input));
     if (!validated.success) {
       console.error("[track-analysis] Zod validation failed:", validated.error.message);
-      console.error("[track-analysis] payload was:", JSON.stringify(parsed).slice(0, 1000));
+      console.error("[track-analysis] payload was:", JSON.stringify(toolUse.input).slice(0, 1000));
       return { ok: false, error: { kind: "schema_violation", detail: validated.error.message } };
     }
     return { ok: true, value: validated.data };
