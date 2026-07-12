@@ -154,8 +154,15 @@ const HEADER_CELL = {
 
 // --- Module-level Autocomplete helpers (stable identity across renders) -----
 
+// The speaker is stored as an abbreviation but shown as the full name.
 const getTeacherLabel = (option: Teacher | string): string =>
-  typeof option === "string" ? option : option.abbreviation;
+  typeof option === "string" ? option : option.name;
+
+/** Resolve a stored speaker abbreviation to the teacher's full name for display. */
+const teacherDisplayName = (teachers: Teacher[], abbr: string | null): string => {
+  if (!abbr) return "";
+  return teachers.find((t) => t.abbreviation === abbr)?.name ?? abbr;
+};
 
 const isTeacherEqualToValue = (
   option: Teacher,
@@ -270,6 +277,7 @@ function CorrectionsBadge({ corrections }: { corrections: TrackCorrection[] }) {
 
 interface ReadonlyTrackRowProps {
   track: TableTrack;
+  teachers: Teacher[];
   enablePractice: boolean;
   corrections?: TrackCorrection[];
   onEdit: (key: string) => void;
@@ -277,6 +285,7 @@ interface ReadonlyTrackRowProps {
 
 const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
   track,
+  teachers,
   enablePractice,
   corrections,
   onEdit,
@@ -315,7 +324,7 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
       <TableCell sx={{ ...cell, width: 150, textAlign: "center" }}>
         {track.speaker ? (
           <Typography variant="body2" color="text.secondary">
-            {track.speaker}
+            {teacherDisplayName(teachers, track.speaker)}
           </Typography>
         ) : null}
       </TableCell>
@@ -457,21 +466,29 @@ const TrackRow = memo(function TrackRow({
           freeSolo
           size="small"
           options={teachers}
-          value={track.speaker ?? ""}
+          // Show the full name; the stored value stays the abbreviation.
+          value={teachers.find((t) => t.abbreviation === track.speaker) ?? track.speaker ?? ""}
           getOptionLabel={getTeacherLabel}
           isOptionEqualToValue={isTeacherEqualToValue}
           filterOptions={filterTeacherOptions}
           renderOption={renderTeacherOption}
+          // Commit on selection / Enter (not on every keystroke). A free-typed
+          // value is resolved to a known teacher by name or abbreviation.
           onChange={(_, v) => {
-            const abbr =
-              v == null
-                ? null
-                : typeof v === "string"
-                  ? v || null
-                  : v.abbreviation;
-            onTrackChange(track.key, { speaker: abbr });
+            if (v == null) {
+              onTrackChange(track.key, { speaker: null });
+              return;
+            }
+            if (typeof v === "string") {
+              const q = v.trim().toLowerCase();
+              const match = teachers.find(
+                (t) => t.abbreviation.toLowerCase() === q || t.name.toLowerCase() === q,
+              );
+              onTrackChange(track.key, { speaker: match ? match.abbreviation : v || null });
+              return;
+            }
+            onTrackChange(track.key, { speaker: v.abbreviation });
           }}
-          onInputChange={(_, v) => onTrackChange(track.key, { speaker: v || null })}
           renderInput={(params) => <TextField {...params} variant="standard" />}
         />
       </TableCell>
@@ -1050,7 +1067,8 @@ export function SessionTrackTable({
                 )}
 
                 {session.tracks.map((track) =>
-                  editingKey === track.key ? (
+                  // Guard against a null/absent key matching the null default.
+                  editingKey != null && editingKey === track.key ? (
                     <TrackRow
                       key={track.key}
                       track={track}
@@ -1070,6 +1088,7 @@ export function SessionTrackTable({
                     <ReadonlyTrackRow
                       key={track.key}
                       track={track}
+                      teachers={teachers}
                       enablePractice={enablePractice}
                       corrections={trackCorrections?.get(track.key)}
                       onEdit={startEdit}
