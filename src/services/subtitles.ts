@@ -2,6 +2,7 @@ import { BatchClient, SubmitJobCommand } from "@aws-sdk/client-batch";
 import { eq, desc } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { sessions } from "../db/schema/sessions.ts";
+import { sessionVideos } from "../db/schema/session-videos.ts";
 import { events } from "../db/schema/retreats.ts";
 import { tracks } from "../db/schema/tracks.ts";
 import { subtitleJobs } from "../db/schema/subtitle-jobs.ts";
@@ -35,7 +36,16 @@ export async function submitSubtitleJob(
     where: eq(sessions.id, sessionId),
   });
   if (!session) throw new Error("Session not found");
-  if (!session.bunnyVideoId) throw new Error("Session has no video");
+
+  // TODO(multi-video-subtitles): generate per session_video, not just the
+  // first. Subtitles stay per-session for now, generated from the primary
+  // (position 0) recording — see
+  // docs/superpowers/plans/2026-07-13-multiple-videos-per-session.md.
+  const video = await db.query.sessionVideos.findFirst({
+    where: eq(sessionVideos.sessionId, sessionId),
+    orderBy: (v, { asc }) => [asc(v.position)],
+  });
+  if (!video) throw new Error("Session has no video");
 
   const event = await db.query.events.findFirst({
     where: eq(events.id, session.eventId),
@@ -61,7 +71,7 @@ export async function submitSubtitleJob(
 
   // Lowest-resolution signed Bunny MP4 URL — only its audio track is needed
   // by the Whisper pipeline, so 240p minimises the download size.
-  const { url: videoAudioUrl } = buildMp4DownloadUrl(session.bunnyVideoId, "240p");
+  const { url: videoAudioUrl } = buildMp4DownloadUrl(video.bunnyVideoId, "240p");
 
   const eventCode = event.eventCode;
   const transcriptPrefix = `events/${eventCode}/transcripts/`;

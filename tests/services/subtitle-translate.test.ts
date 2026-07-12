@@ -89,6 +89,7 @@ const {
   tsFindFirstSession,
   tsFindFirstSourceSub,
   tsFindFirstEvent,
+  tsFindFirstSessionVideo,
   tsMockGetObjectText,
   tsMockPutObject,
   tsMockAddCaption,
@@ -106,12 +107,15 @@ const {
 
   // query helpers
   const tsFindFirstSession = vi.fn(() =>
-    Promise.resolve({ id: 1, eventId: 1, sessionNumber: 1, bunnyVideoId: "vid" }),
+    Promise.resolve({ id: 1, eventId: 1, sessionNumber: 1 }),
   );
   const tsFindFirstSourceSub = vi.fn(() =>
     Promise.resolve({ language: "en", s3Key: "events/E/subtitles/1/en.vtt" }),
   );
   const tsFindFirstEvent = vi.fn(() => Promise.resolve({ id: 1, eventCode: "E" }));
+  const tsFindFirstSessionVideo = vi.fn(() =>
+    Promise.resolve({ id: 1, sessionId: 1, position: 0, bunnyVideoId: "vid" }),
+  );
 
   // s3 mocks
   const tsMockGetObjectText = vi.fn(() =>
@@ -131,6 +135,7 @@ const {
     tsFindFirstSession,
     tsFindFirstSourceSub,
     tsFindFirstEvent,
+    tsFindFirstSessionVideo,
     tsMockGetObjectText,
     tsMockPutObject,
     tsMockAddCaption,
@@ -150,6 +155,7 @@ vi.mock("../../src/db/index.ts", () => ({
       sessions: { findFirst: tsFindFirstSession },
       sessionSubtitles: { findFirst: tsFindFirstSourceSub },
       events: { findFirst: tsFindFirstEvent },
+      sessionVideos: { findFirst: tsFindFirstSessionVideo },
     },
   },
 }));
@@ -167,9 +173,10 @@ describe("translateSubtitles", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Re-set default return values after clearAllMocks
-    tsFindFirstSession.mockResolvedValue({ id: 1, eventId: 1, sessionNumber: 1, bunnyVideoId: "vid" });
+    tsFindFirstSession.mockResolvedValue({ id: 1, eventId: 1, sessionNumber: 1 });
     tsFindFirstSourceSub.mockResolvedValue({ language: "en", s3Key: "events/E/subtitles/1/en.vtt" });
     tsFindFirstEvent.mockResolvedValue({ id: 1, eventCode: "E" });
+    tsFindFirstSessionVideo.mockResolvedValue({ id: 1, sessionId: 1, position: 0, bunnyVideoId: "vid" });
     tsInsertReturning.mockResolvedValue([{ id: "job-1" }]);
     tsUpdateWhere.mockResolvedValue(undefined);
     tsOnConflictDoUpdate.mockResolvedValue(undefined);

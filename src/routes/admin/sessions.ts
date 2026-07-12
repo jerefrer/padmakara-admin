@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { sessions } from "../../db/schema/sessions.ts";
+import { sessionVideos } from "../../db/schema/session-videos.ts";
 import { events } from "../../db/schema/retreats.ts";
 import { sessionSubtitles } from "../../db/schema/session-subtitles.ts";
 import { createSessionSchema, updateSessionSchema } from "../../lib/schemas.ts";
@@ -237,8 +238,14 @@ sessionRoutes.put("/:id/subtitles/:lang", async (c) => {
       set: { s3Key, source: "human", stale: false, updatedAt: new Date() },
     });
 
-  if (session.bunnyVideoId) {
-    await addCaption(session.bunnyVideoId, lang, existing?.label ?? lang, vtt);
+  // TODO(multi-video-subtitles): human-verified VTT is only ever uploaded to
+  // the primary (position 0) session_video's captions.
+  const video = await db.query.sessionVideos.findFirst({
+    where: eq(sessionVideos.sessionId, id),
+    orderBy: (v, { asc }) => [asc(v.position)],
+  });
+  if (video?.bunnyVideoId) {
+    await addCaption(video.bunnyVideoId, lang, existing?.label ?? lang, vtt);
   }
 
   // If the English source changed, mark all translations stale.

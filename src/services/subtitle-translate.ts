@@ -187,6 +187,7 @@ export async function translateSentences(
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { sessions } from "../db/schema/sessions.js";
+import { sessionVideos } from "../db/schema/session-videos.js";
 import { events } from "../db/schema/retreats.js";
 import { sessionSubtitles } from "../db/schema/session-subtitles.js";
 import { subtitleJobs } from "../db/schema/subtitle-jobs.js";
@@ -252,8 +253,15 @@ export async function translateSubtitles(
         set: { s3Key, source: "auto", stale: false, updatedAt: new Date() },
       });
 
-    if (session.bunnyVideoId) {
-      await addCaption(session.bunnyVideoId, targetLang, LABELS[targetLang] ?? targetLang, vtt);
+    // TODO(multi-video-subtitles): translations are only ever uploaded to
+    // the primary (position 0) session_video's captions.
+    const video = await db.query.sessionVideos.findFirst({
+      where: eq(sessionVideos.sessionId, sessionId),
+      orderBy: (v, { asc }) => [asc(v.position)],
+    });
+
+    if (video?.bunnyVideoId) {
+      await addCaption(video.bunnyVideoId, targetLang, LABELS[targetLang] ?? targetLang, vtt);
       await db
         .update(sessionSubtitles)
         .set({ bunnyUploadedAt: new Date() })
