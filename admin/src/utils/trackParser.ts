@@ -80,6 +80,75 @@ export function detectMediaType(name: string): TrackMediaType {
   return isVideoFilename(name) ? "video" : "audio";
 }
 
+// ─── Session date parsing ─────────────────────────────────────────────────
+// Mirrors the backend parser (src/services/track-parser.ts). A trailing
+// marker like "(11 June PM)" carries the session; the date part comes in
+// several shapes (day-month, month-day, ordinals, numeric DD/MM[/YYYY]) in
+// English or Portuguese and all resolve to the same normalized form.
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+const MONTH_NORMALIZE: Record<string, string> = {
+  january: "January", february: "February", march: "March", april: "April",
+  may: "May", june: "June", july: "July", august: "August",
+  september: "September", october: "October", november: "November", december: "December",
+  janeiro: "January", fevereiro: "February", março: "March", abril: "April",
+  maio: "May", junho: "June", julho: "July", agosto: "August",
+  setembro: "September", outubro: "October", novembro: "November", dezembro: "December",
+};
+
+const MONTHS_PATTERN =
+  "January|February|March|April|May|June|July|August|September|October|November|December"
+  + "|Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro";
+
+const SESSION_DATE_TOKEN =
+  `(?:\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?`
+  + `|\\d{1,2}(?:st|nd|rd|th)?[\\s_-]+(?:${MONTHS_PATTERN})`
+  + `|(?:${MONTHS_PATTERN})[\\s_-]+\\d{1,2}(?:st|nd|rd|th)?)`;
+
+function normalizeYear(y: string): number {
+  const n = parseInt(y, 10);
+  if (y.length <= 2) return n >= 70 ? 1900 + n : 2000 + n;
+  return n;
+}
+
+function parseSessionDateToken(
+  token: string,
+): { month: string; day: number; year: number | null } | null {
+  const t = token.trim();
+
+  const numeric = t.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$/);
+  if (numeric) {
+    const day = parseInt(numeric[1]!, 10);
+    const monthNum = parseInt(numeric[2]!, 10);
+    if (monthNum < 1 || monthNum > 12 || day < 1 || day > 31) return null;
+    return { month: MONTH_NAMES[monthNum - 1]!, day, year: numeric[3] ? normalizeYear(numeric[3]) : null };
+  }
+
+  const dayMonth = t.match(new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)?[\\s_-]+(${MONTHS_PATTERN})$`, "i"));
+  if (dayMonth) {
+    return { month: MONTH_NORMALIZE[dayMonth[2]!.toLowerCase()] ?? dayMonth[2]!, day: parseInt(dayMonth[1]!, 10), year: null };
+  }
+
+  const monthDay = t.match(new RegExp(`^(${MONTHS_PATTERN})[\\s_-]+(\\d{1,2})(?:st|nd|rd|th)?$`, "i"));
+  if (monthDay) {
+    return { month: MONTH_NORMALIZE[monthDay[1]!.toLowerCase()] ?? monthDay[1]!, day: parseInt(monthDay[2]!, 10), year: null };
+  }
+
+  return null;
+}
+
+function formatSessionDate(parsed: { month: string; day: number; year: number | null }): string {
+  if (parsed.year !== null) {
+    const mm = String(MONTH_NAMES.indexOf(parsed.month) + 1).padStart(2, "0");
+    return `${parsed.year}-${mm}-${String(parsed.day).padStart(2, "0")}`;
+  }
+  return `${parsed.month} ${parsed.day}`;
+}
+
 export function parseTrackFile(file: File): ParsedTrack {
   const filename = file.name;
   const baseName = filename.replace(AUDIO_EXT_RE, "").replace(VIDEO_EXT_RE, "");
@@ -95,8 +164,30 @@ export function parseTrackFile(file: File): ParsedTrack {
   let timePeriod: string | null = null;
   let partNumber: number | null = null;
 
-  const numMatch = baseName.match(/^(\d+)[_\s]/);
-  if (numMatch) trackNumber = parseInt(numMatch[1]!, 10);
+  // Extract the track number from the start. The separator may be an
+  // underscore, space, OR hyphen (e.g. "07-KNP-..."). Guard against date-like
+  // prefixes: an 8-digit YYYYMMDD or a 4-digit ISO-date year is not a track
+  // number. Mirrors the backend parser.
+  const numMatch = baseName.match(/^(\d+)[_\s-]/);
+  if (numMatch) {
+    const num = parseInt(numMatch[1]!, 10);
+    const numStr = numMatch[1]!;
+    if (numStr.length === 8) {
+      const yyyy = parseInt(numStr.slice(0, 4), 10);
+      const mm = parseInt(numStr.slice(4, 6), 10);
+      const dd = parseInt(numStr.slice(6, 8), 10);
+      if (yyyy >= 1900 && yyyy <= 2099 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+        trackNumber = 0;
+        date = `${yyyy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+      } else {
+        trackNumber = num;
+      }
+    } else if (numStr.length === 4 && num >= 1900 && num <= 2099 && /^\d{4}-\d{2}-\d{2}/.test(baseName)) {
+      trackNumber = 0;
+    } else {
+      trackNumber = num;
+    }
+  }
 
   if (/(?:^|\s|_)TRAD(?:\s|$|-)/i.test(baseName)) {
     isTranslation = true;
@@ -123,20 +214,34 @@ export function parseTrackFile(file: File): ParsedTrack {
   const isoDateMatch = baseName.match(/(\d{4}-\d{2}-\d{2})/);
   if (isoDateMatch) date = isoDateMatch[1]!;
 
-  const sessionMatch = baseName.match(
-    /\((\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(AM|PM)(?:_part_(\d+))?\)/i,
+  // Session marker: parenthesized first, then a trailing non-parenthesized
+  // form. The date part is captured whole and re-parsed, so all supported
+  // shapes are handled (see SESSION_DATE_TOKEN).
+  const parenSession = baseName.match(
+    new RegExp(`\\(\\s*(${SESSION_DATE_TOKEN})[\\s_-]+(AM|PM)(?:[\\s_-]+part[\\s_-]*(\\d+)[^)]*)?\\s*\\)`, "i"),
   );
-  if (sessionMatch) {
-    const [, day, month, period, part] = sessionMatch;
-    date = `${month} ${day}`;
-    timePeriod = period!.toLowerCase() === "am" ? "morning" : "afternoon";
-    if (part) partNumber = parseInt(part, 10);
+  const trailingSession = !parenSession
+    ? baseName.match(
+        new RegExp(`[\\s_-]+(${SESSION_DATE_TOKEN})[\\s_-]+(AM|PM)(?:[\\s_-]+part[\\s_-]*(\\d+)\\w*)?$`, "i"),
+      )
+    : null;
+
+  const sessMatch = parenSession ?? trailingSession;
+  let sessionMarker: string | null = null;
+  if (sessMatch) {
+    const parsedDate = parseSessionDateToken(sessMatch[1]!);
+    if (parsedDate) {
+      sessionMarker = sessMatch[0]!;
+      date = formatSessionDate(parsedDate);
+      timePeriod = sessMatch[2]!.toLowerCase() === "am" ? "morning" : "afternoon";
+      if (sessMatch[3]) partNumber = parseInt(sessMatch[3], 10);
+    }
   }
 
-  // Detect speaker abbreviation — try multiple separator patterns
-  const speakerMatch =
-    baseName.match(/^\d+[_\s-]+([A-Z]{2,5})\s*-\s/i) ||    // "001 JKR - ..." or "001-JKR - ..."
-    baseName.match(/^\d+[_\s-]+([A-Z]{2,5})\s+\[/i);       // "001 JKR [TIB] ..."
+  // Detect speaker abbreviation. The abbreviation may be followed by " - ", a
+  // language bracket (with or without a leading space), or a bare hyphen
+  // ("01-KNP-[TIB+PT]..."). Mirrors the backend parser's separator set.
+  const speakerMatch = baseName.match(/^\d+[_\s-]+([A-Z]{2,5})(?:\s+-|\s*\[|-)/i);
   if (speakerMatch && speakerMatch[1]!.toUpperCase() !== "TRAD") {
     speaker = speakerMatch[1]!.toUpperCase();
   }
@@ -164,8 +269,16 @@ export function parseTrackFile(file: File): ParsedTrack {
     .replace(/^TRAD\s*-\s+/i, "")
     .replace(/^TRAD\s+/i, "")
     .replace(/\[[^\]]+\]\s*/i, "")
-    .replace(/\s*\d{4}-\d{2}-\d{2}/, "")
-    .replace(/\s*-?\s*\(\d{1,2}\s+\w+\s+(AM|PM)(?:_part_\d+)?\)/i, "")
+    .replace(/\s*\d{4}-\d{2}-\d{2}/, "");
+
+  // Remove the exact session marker matched above (all supported date shapes).
+  if (sessionMarker) {
+    title = title.replace(sessionMarker, "");
+  }
+
+  title = title
+    // Remove trailing dashes/whitespace left behind by the marker.
+    .replace(/[\s-]+$/, "")
     .trim();
 
   if (!title) title = baseName;

@@ -497,6 +497,59 @@ describe("parseTrackFilename", () => {
       expect(m4a.title).toBe("Test");
     });
   });
+
+  describe("Session date marker formats", () => {
+    // All eight forms describe the same session: 11 June, afternoon (PM).
+    const base = "01-KNP-[TIB+PT] Oracoes Iniciais";
+    const cases: Array<[string, string]> = [
+      ["day month", `${base} (11 June PM).mp3`],
+      ["day month with ordinal", `${base} (11th June PM).mp3`],
+      ["month day", `${base} (June 11 PM).mp3`],
+      ["month day with ordinal", `${base} (June 11th PM).mp3`],
+      ["numeric slash", `${base} (11/06 PM).mp3`],
+      ["numeric hyphen", `${base} (11-06 PM).mp3`],
+    ];
+
+    for (const [label, filename] of cases) {
+      it(`parses ${label} → "June 11" afternoon`, () => {
+        const result = parseTrackFilename(filename);
+        expect(result.date).toBe("June 11");
+        expect(result.timePeriod).toBe("afternoon");
+        expect(result.title).toBe("Oracoes Iniciais");
+      });
+    }
+
+    it("parses numeric slash with year → ISO date", () => {
+      const result = parseTrackFilename(`${base} (11/06/2026 PM).mp3`);
+      expect(result.date).toBe("2026-06-11");
+      expect(result.timePeriod).toBe("afternoon");
+      expect(result.title).toBe("Oracoes Iniciais");
+    });
+
+    it("parses numeric hyphen with year → ISO date", () => {
+      const result = parseTrackFilename(`${base} (11-06-2026 PM).mp3`);
+      expect(result.date).toBe("2026-06-11");
+      expect(result.timePeriod).toBe("afternoon");
+      expect(result.title).toBe("Oracoes Iniciais");
+    });
+
+    it("reads AM as morning", () => {
+      const result = parseTrackFilename(`${base} (June 11 AM).mp3`);
+      expect(result.timePeriod).toBe("morning");
+    });
+
+    it("keeps the part number across formats", () => {
+      const result = parseTrackFilename(`${base} (June 11th PM part 2).mp3`);
+      expect(result.date).toBe("June 11");
+      expect(result.partNumber).toBe(2);
+    });
+
+    it("ignores a parenthetical that is not a date", () => {
+      const result = parseTrackFilename("01-KNP - Questions (open floor).mp3");
+      expect(result.date).toBeNull();
+      expect(result.timePeriod).toBeNull();
+    });
+  });
 });
 
 describe("inferSessions", () => {
