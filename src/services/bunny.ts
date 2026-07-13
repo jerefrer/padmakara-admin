@@ -118,6 +118,23 @@ export function buildPlaybackUrls(videoId: string, ttlSeconds?: number): Playbac
 }
 
 /**
+ * Build a signed thumbnail URL for a Bunny video (poster frame Bunny generates
+ * at /{videoId}/thumbnail.jpg). Used for the video grid — the token is required
+ * because the pull zone has CDN token authentication enabled. Thumbnails are
+ * low-sensitivity poster frames, so they get a longer default TTL than playback
+ * so a long-open grid page doesn't lose its images.
+ */
+export function buildThumbnailUrl(videoId: string, ttlSeconds = 24 * 60 * 60): string {
+  if (!config.bunny.cdnHostname) {
+    throw new Error("BUNNY_STREAM_CDN_HOSTNAME is not configured");
+  }
+  const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const path = `/${videoId}/thumbnail.jpg`;
+  const token = signCdnPath(path, expires);
+  return `https://${config.bunny.cdnHostname}${path}?token=${token}&expires=${expires}`;
+}
+
+/**
  * Build a token-signed direct-MP4 URL for offline download.
  *
  * Requires "MP4 Fallback" to be enabled on the Bunny library. The path

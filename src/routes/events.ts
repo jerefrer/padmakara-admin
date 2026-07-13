@@ -15,6 +15,7 @@ import { checkEventAccess, filterAccessibleEvents, canUserSeeSubscriberContent, 
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
+import { applyEventVideoThumbnails, applyEventsVideoThumbnails } from "../lib/video-utils.ts";
 
 const eventRoutes = new Hono();
 
@@ -111,6 +112,7 @@ eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
 
   await resolveEventsTeacherUrls(data);
   await resolveEventsGroupUrls(data);
+  applyEventsVideoThumbnails(data);
   return c.json(data);
 });
 
@@ -139,6 +141,7 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
 
   await resolveEventTeacherUrls(event);
   await resolveEventGroupUrls(event);
+  applyEventVideoThumbnails(event);
   return c.json(event);
 });
 
@@ -165,6 +168,7 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
 
   await resolveEventTeacherUrls(event);
   await resolveEventGroupUrls(event);
+  applyEventVideoThumbnails(event);
   return c.json(event);
 });
 
@@ -339,6 +343,7 @@ eventRoutes.get("/", async (c) => {
     });
     await resolveEventsTeacherUrls(data);
     await resolveEventsGroupUrls(data);
+  applyEventsVideoThumbnails(data);
     return c.json(data);
   }
 
@@ -371,6 +376,7 @@ eventRoutes.get("/", async (c) => {
 
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
+  applyEventsVideoThumbnails(accessibleEvents);
   return c.json(accessibleEvents);
 });
 
@@ -420,6 +426,7 @@ eventRoutes.get("/:id", async (c) => {
 
   await resolveEventTeacherUrls(event);
   await resolveEventGroupUrls(event);
+  applyEventVideoThumbnails(event);
   return c.json({ ...event, relatedPublications: relatedPubsWithUrls });
 });
 
