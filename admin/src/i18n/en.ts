@@ -210,6 +210,8 @@ export const en = {
       trackPlay: "Play",
       videoPlay: "Play",
       video: "Video",
+      videoCount: "%{count} videos",
+      part: "Part",
       videoAttached: "Video recording attached",
       videoNone: "No video recording",
       videoTranscoding: "Transcoding…",

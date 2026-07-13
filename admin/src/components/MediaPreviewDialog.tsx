@@ -11,7 +11,7 @@ import { authFetch } from "../utils/authFetch";
 
 type MediaSource =
   | { kind: "track"; trackId: number; mediaType: "audio" | "video" }
-  | { kind: "session-video"; sessionId: number };
+  | { kind: "session-video"; sessionVideoId: number };
 
 interface MediaPreviewDialogProps {
   open: boolean;
@@ -34,7 +34,7 @@ async function fetchMedia(source: MediaSource): Promise<ResolvedMedia> {
   }
 
   // Session video — Bunny iframe is the simplest reliable player here.
-  const res = await authFetch(`/api/media/video/session/${source.sessionId}`);
+  const res = await authFetch(`/api/media/video/${source.sessionVideoId}`);
   if (!res.ok) throw new Error(`Failed to load video (${res.status})`);
   const json = (await res.json()) as { iframe: string };
   return { url: json.iframe, mediaType: "iframe" };

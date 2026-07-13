@@ -411,6 +411,8 @@ export const pt = {
       trackPlay: "Reproduzir",
       videoPlay: "Reproduzir",
       video: "Vídeo",
+      videoCount: "%{count} vídeos",
+      part: "Parte",
       videoAttached: "Vídeo associado",
       videoNone: "Sem gravação de vídeo",
       videoTranscoding: "A transcodificar…",

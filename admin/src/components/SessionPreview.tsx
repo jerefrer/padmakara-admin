@@ -32,6 +32,7 @@ import { authFetch } from "../utils/authFetch";
 import {
   type InferredSession,
   type ParsedTrack,
+  type SessionVideo,
   formatFileSize,
   languageLabel,
 } from "../utils/trackParser";
@@ -43,7 +44,7 @@ export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
 
 type PreviewSource =
   | { kind: "track"; trackId: number; mediaType: "audio" | "video" }
-  | { kind: "session-video"; sessionId: number };
+  | { kind: "session-video"; sessionVideoId: number };
 
 interface PreviewState {
   source: PreviewSource;
@@ -99,8 +100,8 @@ interface SessionPreviewProps {
   onTrackDelete?: (trackId: number) => Promise<void>;
   /** Edit-mode only: triggered when admin picks a new video file for a session. */
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
-  /** Edit-mode only: detach + ref-counted Bunny cleanup. */
-  onSessionVideoDelete?: (sessionId: number) => Promise<void>;
+  /** Edit-mode only: deletes one attached video by its session_videos row id. */
+  onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   /** When provided, tracks whose originalFilename has an entry will get an
    *  AI-correction badge and an expandable diff panel. Existing callers that
@@ -177,7 +178,7 @@ interface SessionCardProps {
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
-  onSessionVideoDelete?: (sessionId: number) => Promise<void>;
+  onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   trackCorrections?: TrackCorrectionsMap;
   onPreview: (state: PreviewState) => void;
@@ -306,14 +307,19 @@ const SessionCard = ({
             </IconButton>
           )}
 
-          {/* Video presence badge — shown when this session has a Bunny video. */}
-          {session.bunnyVideoId && (
+          {/* Video presence badge — shown when this session has at least one
+              attached video. Single video: show its duration. Multiple: show
+              a count instead of listing every duration inline. */}
+          {(session.videos?.length ?? 0) > 0 && (
             <Chip
               icon={<MovieIcon sx={{ fontSize: "12px !important" }} />}
               label={
-                session.videoDurationSeconds
-                  ? formatDuration(session.videoDurationSeconds)
-                  : translate("padmakara.session.video") || "Video"
+                session.videos!.length > 1
+                  ? translate("padmakara.session.videoCount", { count: session.videos!.length }) ||
+                    `${session.videos!.length} videos`
+                  : session.videos![0]!.durationSeconds
+                    ? formatDuration(session.videos![0]!.durationSeconds!)
+                    : translate("padmakara.session.video") || "Video"
               }
               size="small"
               sx={{
@@ -373,12 +379,11 @@ const SessionCard = ({
       {/* Track list */}
       <Collapse in={expanded}>
         <Box>
-          {/* Video row — only meaningful in edit mode where session.id exists. */}
+          {/* Video section — only meaningful in edit mode where session.id exists. */}
           {session.id && (onSessionVideoUpload || onSessionVideoDelete) && (
-            <SessionVideoRow
+            <SessionVideosSection
               sessionId={session.id}
-              bunnyVideoId={session.bunnyVideoId ?? null}
-              durationSeconds={session.videoDurationSeconds ?? null}
+              videos={session.videos ?? []}
               onUpload={onSessionVideoUpload}
               onDelete={onSessionVideoDelete}
               hasFollowingTracks={session.tracks.length > 0}
@@ -415,30 +420,35 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-interface SessionVideoRowProps {
+interface SessionVideosSectionProps {
   sessionId: number;
-  bunnyVideoId: string | null;
-  durationSeconds: number | null;
+  /** Videos for this session, ordered by position (backend already orders
+   *  these — no client re-sort needed). */
+  videos: SessionVideo[];
   onUpload?: (sessionId: number, file: File) => void;
-  onDelete?: (sessionId: number) => Promise<void>;
+  onDelete?: (sessionVideoId: number) => Promise<void>;
   hasFollowingTracks: boolean;
   sessionTitle: string;
   onPreview: (state: PreviewState) => void;
 }
 
-const SessionVideoRow = ({
+/**
+ * Renders one row per video attached to a session (a session may have
+ * several now), plus an "Add video" affordance below the list. Replaces the
+ * old single-video row — there is no per-video "Replace" action; to swap a
+ * video an admin deletes it and adds a new one.
+ */
+const SessionVideosSection = ({
   sessionId,
-  bunnyVideoId,
-  durationSeconds,
+  videos,
   onUpload,
   onDelete,
   hasFollowingTracks,
   sessionTitle,
   onPreview,
-}: SessionVideoRowProps) => {
+}: SessionVideosSectionProps) => {
   const translate = useTranslate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   const triggerPicker = () => fileInputRef.current?.click();
 
@@ -448,6 +458,90 @@ const SessionVideoRow = ({
     if (file && onUpload) onUpload(sessionId, file);
   };
 
+  return (
+    <Box
+      sx={{
+        borderBottom: hasFollowingTracks ? "1px dashed rgba(0,0,0,0.06)" : "none",
+        "& > *:not(:last-child)": {
+          borderBottom: "1px dashed rgba(0,0,0,0.06)",
+        },
+      }}
+    >
+      {videos.map((video) => (
+        <SessionVideoRow
+          key={video.id}
+          video={video}
+          sessionTitle={sessionTitle}
+          showPartLabel={videos.length > 1}
+          onDelete={onDelete}
+          onPreview={onPreview}
+        />
+      ))}
+
+      {/* Empty state / add-video row */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          px: 2,
+          py: 1.25,
+        }}
+      >
+        {videos.length === 0 && (
+          <>
+            <Box sx={{ color: "text.disabled", display: "flex" }}>
+              <VideoFileIcon sx={{ fontSize: 18 }} />
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.85rem", fontStyle: "italic" }}>
+              {translate("padmakara.session.videoNone") || "No video recording"}
+            </Typography>
+          </>
+        )}
+        <Box sx={{ flex: 1 }} />
+        {onUpload && (
+          <Button
+            size="small"
+            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+            onClick={triggerPicker}
+            sx={{ textTransform: "none", fontSize: "0.75rem" }}
+          >
+            {translate("padmakara.session.videoAdd") || "Add video"}
+          </Button>
+        )}
+      </Box>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/*,.mp4,.mov,.m4v,.mkv,.webm"
+        style={{ display: "none" }}
+        onChange={handleFileChange}
+      />
+    </Box>
+  );
+};
+
+interface SessionVideoRowProps {
+  video: SessionVideo;
+  sessionTitle: string;
+  /** True when the session has 2+ videos — shows a "Part N" label so rows
+   *  are distinguishable. */
+  showPartLabel: boolean;
+  onDelete?: (sessionVideoId: number) => Promise<void>;
+  onPreview: (state: PreviewState) => void;
+}
+
+const SessionVideoRow = ({
+  video,
+  sessionTitle,
+  showPartLabel,
+  onDelete,
+  onPreview,
+}: SessionVideoRowProps) => {
+  const translate = useTranslate();
+  const [deleting, setDeleting] = useState(false);
+
   const handleDelete = async () => {
     if (!onDelete) return;
     if (!window.confirm(translate("padmakara.session.videoDeleteConfirm") || "Detach this video and delete it from Bunny? This cannot be undone.")) {
@@ -455,11 +549,14 @@ const SessionVideoRow = ({
     }
     setDeleting(true);
     try {
-      await onDelete(sessionId);
+      await onDelete(video.id);
     } finally {
       setDeleting(false);
     }
   };
+
+  const partLabel = `${translate("padmakara.session.part") || "Part"} ${video.position + 1}`;
+  const previewTitle = video.title ?? (showPartLabel ? `${sessionTitle} — ${partLabel}` : sessionTitle);
 
   // Common row styling — matches TrackRow's visual weight without copying its
   // semantics. Sits inside the Collapse, above the track list.
@@ -471,94 +568,53 @@ const SessionVideoRow = ({
         gap: 1,
         px: 2,
         py: 1.25,
-        borderBottom: hasFollowingTracks ? "1px dashed rgba(0,0,0,0.06)" : "none",
-        backgroundColor: bunnyVideoId ? "rgba(220, 53, 69, 0.025)" : "transparent",
+        backgroundColor: "rgba(220, 53, 69, 0.025)",
       }}
     >
-      <Box sx={{ color: bunnyVideoId ? "#b91c1c" : "text.disabled", display: "flex" }}>
-        {bunnyVideoId ? <MovieIcon sx={{ fontSize: 18 }} /> : <VideoFileIcon sx={{ fontSize: 18 }} />}
+      <Box sx={{ color: "#b91c1c", display: "flex" }}>
+        <MovieIcon sx={{ fontSize: 18 }} />
       </Box>
 
-      {bunnyVideoId ? (
-        <>
-          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
-            {translate("padmakara.session.videoAttached") || "Video recording attached"}
-          </Typography>
-          <Chip
-            label={durationSeconds ? formatDuration(durationSeconds) : translate("padmakara.session.videoTranscoding") || "Transcoding…"}
-            size="small"
-            variant="outlined"
-            sx={{ height: 22, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
-          />
-          <Typography variant="caption" color="text.secondary" sx={{ ml: 1, fontFamily: "monospace" }}>
-            {bunnyVideoId.slice(0, 8)}
-          </Typography>
-          <Box sx={{ flex: 1 }} />
-          <IconButton
-            size="small"
-            onClick={() =>
-              onPreview({
-                source: { kind: "session-video", sessionId },
-                title: sessionTitle,
-              })
-            }
-            sx={{ color: "#b91c1c" }}
-            title={translate("padmakara.session.videoPlay") || "Play"}
-          >
-            <PlayArrowIcon sx={{ fontSize: 20 }} />
-          </IconButton>
-          {onUpload && (
-            <Button
-              size="small"
-              startIcon={<EditIcon sx={{ fontSize: 14 }} />}
-              onClick={triggerPicker}
-              disabled={deleting}
-              sx={{ textTransform: "none", fontSize: "0.75rem" }}
-            >
-              {translate("padmakara.session.videoReplace") || "Replace"}
-            </Button>
-          )}
-          {onDelete && (
-            <Button
-              size="small"
-              color="error"
-              startIcon={<DeleteOutlineIcon sx={{ fontSize: 14 }} />}
-              onClick={handleDelete}
-              disabled={deleting}
-              sx={{ textTransform: "none", fontSize: "0.75rem" }}
-            >
-              {deleting
-                ? translate("padmakara.session.videoDeleting") || "Removing…"
-                : translate("padmakara.session.videoDelete") || "Delete"}
-            </Button>
-          )}
-        </>
-      ) : (
-        <>
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.85rem", fontStyle: "italic" }}>
-            {translate("padmakara.session.videoNone") || "No video recording"}
-          </Typography>
-          <Box sx={{ flex: 1 }} />
-          {onUpload && (
-            <Button
-              size="small"
-              startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-              onClick={triggerPicker}
-              sx={{ textTransform: "none", fontSize: "0.75rem" }}
-            >
-              {translate("padmakara.session.videoAdd") || "Add video"}
-            </Button>
-          )}
-        </>
-      )}
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="video/*,.mp4,.mov,.m4v,.mkv,.webm"
-        style={{ display: "none" }}
-        onChange={handleFileChange}
+      <Typography variant="body2" sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
+        {video.title ?? (showPartLabel ? partLabel : translate("padmakara.session.videoAttached") || "Video recording attached")}
+      </Typography>
+      <Chip
+        label={video.durationSeconds ? formatDuration(video.durationSeconds) : translate("padmakara.session.videoTranscoding") || "Transcoding…"}
+        size="small"
+        variant="outlined"
+        sx={{ height: 22, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
       />
+      <Typography variant="caption" color="text.secondary" sx={{ ml: 1, fontFamily: "monospace" }}>
+        {video.bunnyVideoId.slice(0, 8)}
+      </Typography>
+      <Box sx={{ flex: 1 }} />
+      <IconButton
+        size="small"
+        onClick={() =>
+          onPreview({
+            source: { kind: "session-video", sessionVideoId: video.id },
+            title: previewTitle,
+          })
+        }
+        sx={{ color: "#b91c1c" }}
+        title={translate("padmakara.session.videoPlay") || "Play"}
+      >
+        <PlayArrowIcon sx={{ fontSize: 20 }} />
+      </IconButton>
+      {onDelete && (
+        <Button
+          size="small"
+          color="error"
+          startIcon={<DeleteOutlineIcon sx={{ fontSize: 14 }} />}
+          onClick={handleDelete}
+          disabled={deleting}
+          sx={{ textTransform: "none", fontSize: "0.75rem" }}
+        >
+          {deleting
+            ? translate("padmakara.session.videoDeleting") || "Removing…"
+            : translate("padmakara.session.videoDelete") || "Delete"}
+        </Button>
+      )}
     </Box>
   );
 };
