@@ -6,6 +6,7 @@ import {
   timestamp,
   integer,
   primaryKey,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { teachers } from "./teachers.ts";
@@ -27,6 +28,12 @@ export const events = pgTable("retreats", {
   mainThemesEn: text("main_themes_en"),
   sessionThemesEn: text("session_themes_en"),
   sessionThemesPt: text("session_themes_pt"),
+  titleEnReviewed: boolean("title_en_reviewed").notNull().default(true),
+  titlePtReviewed: boolean("title_pt_reviewed").notNull().default(true),
+  mainThemesEnReviewed: boolean("main_themes_en_reviewed").notNull().default(true),
+  mainThemesPtReviewed: boolean("main_themes_pt_reviewed").notNull().default(true),
+  sessionThemesEnReviewed: boolean("session_themes_en_reviewed").notNull().default(true),
+  sessionThemesPtReviewed: boolean("session_themes_pt_reviewed").notNull().default(true),
   startDate: date("start_date", { mode: "string" }),
   endDate: date("end_date", { mode: "string" }),
   eventTypeId: integer("event_type_id").references(() => eventTypes.id, {

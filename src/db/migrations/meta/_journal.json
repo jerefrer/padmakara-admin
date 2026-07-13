@@ -197,6 +197,13 @@
       "when": 1810691200000,
       "tag": "0027_per_video_subtitles",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1810777600000,
+      "tag": "0028_event_translation_review_flags",
+      "breakpoints": true
     }
   ]
 }
