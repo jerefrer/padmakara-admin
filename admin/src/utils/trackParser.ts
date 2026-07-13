@@ -10,6 +10,10 @@ export interface ParsedTrack {
   trackNumber: number;
   speaker: string | null;
   title: string;
+  titleEn?: string;
+  titlePt?: string;
+  titleEnReviewed?: boolean;
+  titlePtReviewed?: boolean;
   language?: string; // deprecated — kept for local-parse compat
   languages: string[];
   originalLanguage: string;

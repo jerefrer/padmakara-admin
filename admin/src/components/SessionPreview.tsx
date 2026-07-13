@@ -737,6 +737,10 @@ const TrackRow = ({
   const [deleting, setDeleting] = useState(false);
   const [editValues, setEditValues] = useState({
     title: track.title || "",
+    titleEn: track.titleEn ?? "",
+    titlePt: track.titlePt ?? "",
+    titleEnReviewed: track.titleEnReviewed ?? true,
+    titlePtReviewed: track.titlePtReviewed ?? true,
     originalFilename: track.originalFilename || "",
     languages: track.languages && track.languages.length > 0
       ? [...track.languages]
@@ -746,6 +750,7 @@ const TrackRow = ({
     speaker: track.speaker || "",
   });
   const [saving, setSaving] = useState(false);
+  const [translatingTitle, setTranslatingTitle] = useState<string | null>(null);
 
   // Determine icon — prefer the explicit mediaType discriminator (set by parser
   // for video tracks), falling back to format-based detection for legacy rows.
@@ -776,6 +781,10 @@ const TrackRow = ({
   const handleCancel = () => {
     setEditValues({
       title: track.title || "",
+      titleEn: track.titleEn ?? "",
+      titlePt: track.titlePt ?? "",
+      titleEnReviewed: track.titleEnReviewed ?? true,
+      titlePtReviewed: track.titlePtReviewed ?? true,
       originalFilename: track.originalFilename || "",
       languages: track.languages && track.languages.length > 0
         ? [...track.languages]
@@ -785,6 +794,27 @@ const TrackRow = ({
       speaker: track.speaker || "",
     });
     setEditing(false);
+  };
+
+  const translateTitleSide = async (
+    source: "titleEn" | "titlePt",
+    target: "titleEn" | "titlePt",
+    targetReviewed: "titleEnReviewed" | "titlePtReviewed",
+    direction: TranslateDirection,
+  ) => {
+    const text = (editValues[source] || "").trim();
+    if (!text) return;
+    setTranslatingTitle(source);
+    try {
+      const out = await translateFields(direction, { [target]: text });
+      setEditValues((prev) => ({ ...prev, [target]: out[target] ?? "", [targetReviewed]: false }));
+    } catch (e: any) {
+      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
+        type: "error",
+      });
+    } finally {
+      setTranslatingTitle(null);
+    }
   };
 
   const handleDelete = async () => {
@@ -866,6 +896,56 @@ const TrackRow = ({
               autoFocus
               helperText="Shown to users in the mobile app"
             />
+            {editValues.languages.length > 1 && (
+              <>
+                <TextField
+                  size="small"
+                  label={translate("padmakara.events.titleEn")}
+                  value={editValues.titleEn}
+                  onChange={(e) => setEditValues({ ...editValues, titleEn: e.target.value, titleEnReviewed: true })}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Button size="small" variant="text"
+                    disabled={!editValues.titleEn.trim() || translatingTitle !== null}
+                    startIcon={translatingTitle === "titleEn" ? <CircularProgress size={14} /> : undefined}
+                    onClick={() => translateTitleSide("titleEn", "titlePt", "titlePtReviewed", "en-to-pt")}>
+                    {translate("padmakara.events.translateToPt")}
+                  </Button>
+                  {!editValues.titleEnReviewed && (
+                    <>
+                      <Chip size="small" color="warning" variant="outlined" label={translate("padmakara.events.aiUnreviewed")} />
+                      <Button size="small" variant="text" onClick={() => setEditValues({ ...editValues, titleEnReviewed: true })}>
+                        {translate("padmakara.events.markReviewed")}
+                      </Button>
+                    </>
+                  )}
+                </Box>
+                <TextField
+                  size="small"
+                  label={translate("padmakara.events.titlePt")}
+                  value={editValues.titlePt}
+                  onChange={(e) => setEditValues({ ...editValues, titlePt: e.target.value, titlePtReviewed: true })}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Button size="small" variant="text"
+                    disabled={!editValues.titlePt.trim() || translatingTitle !== null}
+                    startIcon={translatingTitle === "titlePt" ? <CircularProgress size={14} /> : undefined}
+                    onClick={() => translateTitleSide("titlePt", "titleEn", "titleEnReviewed", "pt-to-en")}>
+                    {translate("padmakara.events.translateToEn")}
+                  </Button>
+                  {!editValues.titlePtReviewed && (
+                    <>
+                      <Chip size="small" color="warning" variant="outlined" label={translate("padmakara.events.aiUnreviewed")} />
+                      <Button size="small" variant="text" onClick={() => setEditValues({ ...editValues, titlePtReviewed: true })}>
+                        {translate("padmakara.events.markReviewed")}
+                      </Button>
+                    </>
+                  )}
+                </Box>
+              </>
+            )}
             <TextField
               size="small"
               label="Source filename (read-only)"
