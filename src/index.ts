@@ -10,7 +10,12 @@ const app = new Hono();
 
 // Global middleware
 app.use("*", logger());
-app.use("*", secureHeaders());
+// CORP defaults to "same-origin", which blocks the web app (app.padmakara.pt)
+// from loading media served by the API (api.padmakara.pt) — hls.js fetches the
+// HLS playlist/segments cross-origin and the browser rejects it with
+// ERR_BLOCKED_BY_RESPONSE.NotSameOrigin. Access is gated by JWT/MAT, not CORP,
+// so allow cross-origin embedding of API resources.
+app.use("*", secureHeaders({ crossOriginResourcePolicy: "cross-origin" }));
 app.use(
   "/api/*",
   cors({
