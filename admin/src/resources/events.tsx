@@ -1240,14 +1240,11 @@ function analysisToInferredSessions(
       titleEn: s.titleEn,
       // The AI analysis already proposes a PT title alongside the EN one (see
       // `AnalysisSession` in analyzeFolder.ts) — carry it through rather than
-      // discarding it. Reviewed flags default true here to match this same
-      // screen's existing convention for AI-derived event-level fields (see
-      // `handleAnalyzed`, which leaves `EMPTY_FORM`'s reviewed defaults
-      // untouched rather than flagging them unreviewed like the Migration
-      // screen does).
+      // discarding it. Reviewed flags default false here because this input is
+      // machine-generated (AI-inferred) and requires human review before use.
       titlePt: s.titlePt,
-      titleEnReviewed: true,
-      titlePtReviewed: true,
+      titleEnReviewed: false,
+      titlePtReviewed: false,
       tracks,
     } satisfies InferredSession;
   });
