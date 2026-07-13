@@ -85,7 +85,14 @@ translateRoutes.post("/", async (c) => {
     throw AppError.internal("Translation response was not an object of strings");
   }
 
-  return c.json({ translations: result.data });
+  // Return only the keys that were requested — ignore any extra/renamed keys
+  // the model may have invented, so callers never receive junk fields.
+  const filtered: Record<string, string> = {};
+  for (const key of Object.keys(items)) {
+    if (typeof result.data[key] === "string") filtered[key] = result.data[key];
+  }
+
+  return c.json({ translations: filtered });
 });
 
 export { translateRoutes };
