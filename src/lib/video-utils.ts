@@ -1,12 +1,14 @@
 import { buildThumbnailUrl } from "../services/bunny.ts";
 
 /**
- * Populate `posterUrl` on each session video with a signed Bunny thumbnail URL.
+ * Ensure each session video has a `posterUrl` for the grid.
  *
- * The DB column `session_videos.poster_url` is intentionally left null (we don't
- * store the CDN hostname), so the video grid has no image to show. Compute a
- * signed thumbnail on read instead — mirrors how playback URLs are signed on
- * the fly. Guarded so a missing Bunny config never breaks the event response.
+ * `session_videos.poster_url` is the optional CUSTOM-poster override (a full
+ * URL an admin can set for a nicer/branded thumbnail). It's normally null, so
+ * we fall back to Bunny's auto-generated thumbnail — computed as a signed URL
+ * on read (the DB never stores the CDN hostname, and the pull zone enforces CDN
+ * token auth). A stored custom poster wins. Guarded so a missing Bunny config
+ * never breaks the event response.
  */
 export function applyEventVideoThumbnails(event: unknown): void {
   const ev = event as { sessions?: { videos?: { bunnyVideoId?: string | null; posterUrl?: string | null }[] }[] } | null;
@@ -14,6 +16,7 @@ export function applyEventVideoThumbnails(event: unknown): void {
   for (const session of ev.sessions) {
     for (const video of session.videos ?? []) {
       if (!video?.bunnyVideoId) continue;
+      if (video.posterUrl) continue; // custom poster override — keep it
       try {
         video.posterUrl = buildThumbnailUrl(video.bunnyVideoId);
       } catch {
