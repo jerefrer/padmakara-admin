@@ -24,6 +24,17 @@ export interface ParsedTrack {
   mediaType: TrackMediaType;
 }
 
+/** A single video attached to a session (a session may have several, ordered by position). */
+export interface SessionVideo {
+  id: number;
+  sessionId: number;
+  bunnyVideoId: string;
+  position: number;
+  title: string | null;
+  durationSeconds: number | null;
+  posterUrl: string | null;
+}
+
 export interface InferredSession {
   id?: number; // Database session id (optional - only present when from database)
   sessionNumber: number;
@@ -31,10 +42,9 @@ export interface InferredSession {
   timePeriod: string | null;
   titleEn: string;
   tracks: ParsedTrack[];
-  /** Bunny Stream GUID when this session has a recorded video. Null if audio-only. */
-  bunnyVideoId?: string | null;
-  /** Cached duration of the Bunny video in seconds; null while transcoding. */
-  videoDurationSeconds?: number | null;
+  /** Videos attached to this session, ordered by position. Empty/undefined for
+   *  audio-only sessions or sessions not yet loaded from the DB. */
+  videos?: SessionVideo[];
 }
 
 const LANGUAGE_MAP: Record<string, string> = {

@@ -76,9 +76,11 @@ import {
   type UploadProgress as UploadProgressData,
 } from "../utils/uploadManager";
 import { uploadVideoFile } from "../utils/videoUploader";
+import { authFetch } from "../utils/authFetch";
 import {
   type ParsedTrack,
   type InferredSession,
+  type SessionVideo,
   type FolderMetadata,
   inferSessions,
   parseTrackFile,
@@ -508,7 +510,8 @@ interface EventFormProps {
   onTrackUpdate?: (trackId: number, updates: Partial<ParsedTrack>) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
-  onSessionVideoDelete?: (sessionId: number) => Promise<void>;
+  /** Deletes one attached video by its session_videos row id. */
+  onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   onFeaturedToggle?: () => void;
   onStatusChange?: (newStatus: string) => void;
   trackCount: number;
@@ -1450,11 +1453,13 @@ export const EventCreate = () => {
             timePeriod: session.timePeriod || null,
           },
         });
+        let videoPositionForSession = 0;
         for (const track of session.tracks) {
           if (track.mediaType === "video") {
-            // Videos attach to the session itself — no track row is created.
-            // The uploader patches the session with bunnyVideoId once Bunny
-            // finishes transcoding.
+            // Videos attach to the session as their own session_videos rows —
+            // no track row is created. The uploader creates that row once
+            // Bunny finishes transcoding. New sessions always start with zero
+            // videos, so position is just this session's running count.
             uploadItems.push({
               // trackId is unused on the video path; satisfy the type with -1.
               trackId: -1,
@@ -1464,6 +1469,7 @@ export const EventCreate = () => {
               filename: track.originalFilename,
               mediaType: "video",
               title: track.title,
+              position: videoPositionForSession++,
             });
             continue;
           }
@@ -1642,8 +1648,7 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
     date: s.sessionDate || null,
     timePeriod: s.timePeriod || null,
     titleEn: s.titleEn || `Session ${s.sessionNumber}`,
-    bunnyVideoId: s.bunnyVideoId || null,
-    videoDurationSeconds: s.videoDurationSeconds ?? null,
+    videos: (s.videos || []) as SessionVideo[],
     tracks: (s.tracks || []).map((t: any) => ({
       id: t.id,
       trackNumber: t.trackNumber,
@@ -1842,10 +1847,12 @@ export const EventEdit = () => {
 
   // Single-video upload from the edit page. Drives the same UploadProgress
   // overlay used by the create wizard so progress + transcoding feedback look
-  // identical. The promise resolves when Bunny finishes transcoding and the
-  // session row is patched with bunnyVideoId + videoDurationSeconds.
+  // identical. The promise resolves once Bunny finishes transcoding and a new
+  // `session_videos` row exists for this session (a session may now have
+  // several videos — this adds one more, at the next available position).
   const handleSessionVideoUpload = useCallback(
     (sessionId: number, file: File) => {
+      const position = sessions.find((s) => s.id === sessionId)?.videos?.length ?? 0;
       const signal: { cancelled: boolean; abort?: () => void } = { cancelled: false };
       cancelUploadRef.current = () => {
         signal.cancelled = true;
@@ -1867,6 +1874,7 @@ export const EventEdit = () => {
 
       uploadVideoFile({
         sessionId,
+        position,
         title: file.name.replace(/\.[^.]+$/, ""),
         file,
         signal,
@@ -1928,23 +1936,19 @@ export const EventEdit = () => {
           cancelUploadRef.current = null;
         });
     },
-    [notify, refresh, translate],
+    [notify, refresh, translate, sessions],
   );
 
   const handleSessionVideoDelete = useCallback(
-    async (sessionId: number) => {
+    async (sessionVideoId: number) => {
       try {
-        await dataProvider.update("sessions", {
-          id: sessionId,
-          data: { bunnyVideoId: null, videoDurationSeconds: null, videoPosterUrl: null },
-          previousData: {},
-        });
+        const res = await authFetch(`/api/admin/session-videos/${sessionVideoId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
         setSessions((prev) =>
-          prev.map((s) =>
-            s.id === sessionId
-              ? { ...s, bunnyVideoId: null, videoDurationSeconds: null }
-              : s,
-          ),
+          prev.map((s) => ({
+            ...s,
+            videos: (s.videos ?? []).filter((v) => v.id !== sessionVideoId),
+          })),
         );
         notify(translate("padmakara.session.videoDeleted") || "Video removed", { type: "success" });
         refresh();
@@ -1953,7 +1957,7 @@ export const EventEdit = () => {
         throw error;
       }
     },
-    [dataProvider, notify, refresh, translate],
+    [notify, refresh, translate],
   );
 
   // 6.1 — Transcript upload handler for EventEdit
@@ -2031,6 +2035,7 @@ export const EventEdit = () => {
             },
           });
 
+          let videoPositionForSession = 0;
           for (const track of session.tracks) {
             if (track.mediaType === "video") {
               uploadItems.push({
@@ -2041,6 +2046,7 @@ export const EventEdit = () => {
                 filename: track.originalFilename,
                 mediaType: "video",
                 title: track.title,
+                position: videoPositionForSession++,
               });
               continue;
             }
@@ -2236,15 +2242,19 @@ export const EventEdit = () => {
         <ReadAlongPanel eventId={Number(event.id)} />
       )}
 
-      {sessions
-        .filter((s) => s.id != null && s.bunnyVideoId)
-        .map((s) => (
+      {sessions.flatMap((s) =>
+        (s.videos ?? []).map((v) => (
           <SubtitlePanel
-            key={s.id}
-            sessionId={s.id!}
-            sessionTitle={s.titleEn}
+            key={v.id}
+            sessionVideoId={v.id}
+            videoLabel={
+              (s.videos?.length ?? 0) > 1
+                ? `${s.titleEn ?? ""} — ${v.title ?? `${translate("padmakara.session.part") || "Part"} ${v.position + 1}`}`
+                : (s.titleEn ?? "")
+            }
           />
-        ))}
+        )),
+      )}
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
