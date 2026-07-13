@@ -463,6 +463,12 @@ export interface EventFormData {
   mainThemesEn: string;
   sessionThemesEn: string;
   sessionThemesPt: string;
+  titleEnReviewed: boolean;
+  titlePtReviewed: boolean;
+  mainThemesEnReviewed: boolean;
+  mainThemesPtReviewed: boolean;
+  sessionThemesEnReviewed: boolean;
+  sessionThemesPtReviewed: boolean;
   startDate: string;
   endDate: string;
   status: string;
@@ -479,6 +485,9 @@ export const EMPTY_FORM: EventFormData = {
   eventCode: "", titleEn: "", titlePt: "",
   mainThemesPt: "", mainThemesEn: "",
   sessionThemesEn: "", sessionThemesPt: "",
+  titleEnReviewed: true, titlePtReviewed: true,
+  mainThemesEnReviewed: true, mainThemesPtReviewed: true,
+  sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
   startDate: "", endDate: "", status: "draft",
   featuredAt: null,
 };
@@ -523,6 +532,17 @@ interface EventFormProps {
 
 const syncedRows = (a: string, b: string, min = 3) =>
   Math.max(a.split("\n").length, b.split("\n").length, min);
+
+/** Text fields that have a companion `<field>Reviewed` boolean. Editing one of
+ *  these by hand marks it reviewed; translating INTO one marks it unreviewed. */
+const REVIEWED_KEY: Partial<Record<keyof EventFormData, keyof EventFormData>> = {
+  titleEn: "titleEnReviewed",
+  titlePt: "titlePtReviewed",
+  mainThemesEn: "mainThemesEnReviewed",
+  mainThemesPt: "mainThemesPtReviewed",
+  sessionThemesEn: "sessionThemesEnReviewed",
+  sessionThemesPt: "sessionThemesPtReviewed",
+};
 
 const EVENT_TYPE_COLORS = [
   "#5B5EA6", "#E57373", "#4DB6AC", "#FFB74D", "#7986CB",
@@ -575,7 +595,13 @@ export const EventFormFields = ({
   const updateField =
     (field: keyof EventFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+      const value = e.target.value;
+      const reviewedKey = REVIEWED_KEY[field];
+      setForm((prev) => ({
+        ...prev,
+        [field]: value,
+        ...(reviewedKey ? { [reviewedKey]: true } : {}),
+      }));
     };
 
   const handleEventTypeChange = useCallback(
@@ -1721,6 +1747,12 @@ export const EventEdit = () => {
       endDate: event.endDate || "",
       status: event.status || "draft",
       featuredAt: event.featuredAt || null,
+      titleEnReviewed: event.titleEnReviewed ?? true,
+      titlePtReviewed: event.titlePtReviewed ?? true,
+      mainThemesEnReviewed: event.mainThemesEnReviewed ?? true,
+      mainThemesPtReviewed: event.mainThemesPtReviewed ?? true,
+      sessionThemesEnReviewed: event.sessionThemesEnReviewed ?? true,
+      sessionThemesPtReviewed: event.sessionThemesPtReviewed ?? true,
     });
 
     if (event.eventTeachers && allTeachers.length > 0) {
