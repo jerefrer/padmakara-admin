@@ -31,6 +31,7 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import MuiTextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import Autocomplete from "@mui/material/Autocomplete";
 import Grid from "@mui/material/Grid";
 import ToggleButton from "@mui/material/ToggleButton";
@@ -77,6 +78,7 @@ import {
 } from "../utils/uploadManager";
 import { uploadVideoFile } from "../utils/videoUploader";
 import { authFetch } from "../utils/authFetch";
+import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import {
   type ParsedTrack,
   type InferredSession,
@@ -604,6 +606,123 @@ export const EventFormFields = ({
       }));
     };
 
+  const notify = useNotify();
+  // Which field (or "all") is currently being translated — drives spinners/disabled.
+  const [translating, setTranslating] = useState<string | null>(null);
+
+  const translateOne = async (
+    sourceField: keyof EventFormData,
+    targetField: keyof EventFormData,
+    targetReviewedField: keyof EventFormData,
+    direction: TranslateDirection,
+  ) => {
+    const source = String(form[sourceField] ?? "").trim();
+    if (!source) return;
+    setTranslating(sourceField as string);
+    try {
+      const out = await translateFields(direction, { [targetField as string]: source });
+      const translated = out[targetField as string] ?? "";
+      setForm((prev) => ({ ...prev, [targetField]: translated, [targetReviewedField]: false }));
+    } catch (e: any) {
+      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
+        type: "error",
+      });
+    } finally {
+      setTranslating(null);
+    }
+  };
+
+  const translateAllMissing = async (direction: TranslateDirection) => {
+    // [sourceField, targetField, targetReviewedField]
+    const pairs: Array<[keyof EventFormData, keyof EventFormData, keyof EventFormData]> =
+      direction === "en-to-pt"
+        ? [
+            ["titleEn", "titlePt", "titlePtReviewed"],
+            ["mainThemesEn", "mainThemesPt", "mainThemesPtReviewed"],
+            ["sessionThemesEn", "sessionThemesPt", "sessionThemesPtReviewed"],
+          ]
+        : [
+            ["titlePt", "titleEn", "titleEnReviewed"],
+            ["mainThemesPt", "mainThemesEn", "mainThemesEnReviewed"],
+            ["sessionThemesPt", "sessionThemesEn", "sessionThemesEnReviewed"],
+          ];
+    const items: Record<string, string> = {};
+    const targetOf: Record<string, keyof EventFormData> = {};
+    const reviewedOf: Record<string, keyof EventFormData> = {};
+    for (const [src, tgt, rev] of pairs) {
+      const source = String(form[src] ?? "").trim();
+      const target = String(form[tgt] ?? "").trim();
+      if (source && !target) {
+        const k = tgt as string;
+        items[k] = source;
+        targetOf[k] = tgt;
+        reviewedOf[k] = rev;
+      }
+    }
+    if (Object.keys(items).length === 0) {
+      notify(translate("padmakara.events.translateNothing"), { type: "info" });
+      return;
+    }
+    setTranslating("all");
+    try {
+      const out = await translateFields(direction, items);
+      setForm((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(out)) {
+          (next as any)[targetOf[key]] = out[key];
+          (next as any)[reviewedOf[key]] = false;
+        }
+        return next;
+      });
+    } catch (e: any) {
+      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
+        type: "error",
+      });
+    } finally {
+      setTranslating(null);
+    }
+  };
+
+  // Render the translate button + unreviewed chip that sit under one field.
+  // `direction` translates THIS field into the OTHER field.
+  const fieldControls = (
+    thisField: keyof EventFormData,
+    otherField: keyof EventFormData,
+    otherReviewedField: keyof EventFormData,
+    thisReviewedField: keyof EventFormData,
+    direction: TranslateDirection,
+    translateLabelKey: string,
+  ) => (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5, minHeight: 30 }}>
+      <Button
+        size="small"
+        variant="text"
+        disabled={!String(form[thisField] ?? "").trim() || translating !== null}
+        startIcon={translating === (thisField as string) ? <CircularProgress size={14} /> : undefined}
+        onClick={() => translateOne(thisField, otherField, otherReviewedField, direction)}
+      >
+        {translate(translateLabelKey)}
+      </Button>
+      {!form[thisReviewedField] && (
+        <>
+          <Chip
+            size="small"
+            color="warning"
+            variant="outlined"
+            label={translate("padmakara.events.aiUnreviewed")}
+          />
+          <Button
+            size="small"
+            variant="text"
+            onClick={() => setForm((prev) => ({ ...prev, [thisReviewedField]: true }))}
+          >
+            {translate("padmakara.events.markReviewed")}
+          </Button>
+        </>
+      )}
+    </Box>
+  );
+
   const handleEventTypeChange = useCallback(
     (v: EventTypeOption | null) => {
       setSelectedEventType(v);
@@ -674,6 +793,16 @@ export const EventFormFields = ({
 
       {/* ── Title ── */}
       <Paper sx={{ p: 3, mb: 2 }}>
+        <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+          <Button size="small" variant="outlined" disabled={translating !== null}
+            onClick={() => translateAllMissing("en-to-pt")}>
+            {translate("padmakara.events.translateAllToPt")}
+          </Button>
+          <Button size="small" variant="outlined" disabled={translating !== null}
+            onClick={() => translateAllMissing("pt-to-en")}>
+            {translate("padmakara.events.translateAllToEn")}
+          </Button>
+        </Box>
         <Grid container spacing={2.5}>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -685,6 +814,7 @@ export const EventFormFields = ({
               placeholder="2025 Spring Retreat"
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("titleEn", "titlePt", "titlePtReviewed", "titleEnReviewed", "en-to-pt", "padmakara.events.translateToPt")}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -695,6 +825,7 @@ export const EventFormFields = ({
               placeholder="Retiro de Primavera 2025"
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("titlePt", "titleEn", "titleEnReviewed", "titlePtReviewed", "pt-to-en", "padmakara.events.translateToEn")}
           </Grid>
         </Grid>
       </Paper>
@@ -876,6 +1007,7 @@ export const EventFormFields = ({
               placeholder={translate("padmakara.events.mainThemesPlaceholderEn")}
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("mainThemesEn", "mainThemesPt", "mainThemesPtReviewed", "mainThemesEnReviewed", "en-to-pt", "padmakara.events.translateToPt")}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -888,6 +1020,7 @@ export const EventFormFields = ({
               placeholder={translate("padmakara.events.mainThemesPlaceholderPt")}
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("mainThemesPt", "mainThemesEn", "mainThemesEnReviewed", "mainThemesPtReviewed", "pt-to-en", "padmakara.events.translateToEn")}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -900,6 +1033,7 @@ export const EventFormFields = ({
               placeholder={translate("padmakara.events.sessionThemesPlaceholderEn")}
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("sessionThemesEn", "sessionThemesPt", "sessionThemesPtReviewed", "sessionThemesEnReviewed", "en-to-pt", "padmakara.events.translateToPt")}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -912,6 +1046,7 @@ export const EventFormFields = ({
               placeholder={translate("padmakara.events.sessionThemesPlaceholderPt")}
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("sessionThemesPt", "sessionThemesEn", "sessionThemesEnReviewed", "sessionThemesPtReviewed", "pt-to-en", "padmakara.events.translateToEn")}
           </Grid>
         </Grid>
       </Paper>
