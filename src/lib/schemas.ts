@@ -165,6 +165,8 @@ export const createSessionSchema = z.object({
   eventId: z.number().int(),
   titleEn: z.string().max(200).optional().nullable(),
   titlePt: z.string().max(200).optional().nullable(),
+  titleEnReviewed: z.boolean().optional(),
+  titlePtReviewed: z.boolean().optional(),
   sessionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   timePeriod: z.enum(["morning", "afternoon", "evening", "full_day"]).optional().nullable(),
   sessionNumber: z.number().int().min(1),

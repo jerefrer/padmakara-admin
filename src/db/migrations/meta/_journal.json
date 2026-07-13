@@ -204,6 +204,13 @@
       "when": 1810777600000,
       "tag": "0028_event_translation_review_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1810864000000,
+      "tag": "0029_session_translation_review_flags",
+      "breakpoints": true
     }
   ]
 }
