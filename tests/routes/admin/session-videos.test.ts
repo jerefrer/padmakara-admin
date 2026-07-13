@@ -42,9 +42,34 @@ vi.mock("../../../src/services/sync-versions.ts", () => ({
   bumpVersion: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../../../src/services/subtitles.ts", () => ({
+  submitSubtitleJob: vi.fn(() =>
+    Promise.resolve({
+      jobId: "job-1",
+      batchJobId: "batch-1",
+      status: "submitted",
+      sessionId: 7,
+      sessionVideoId: 3,
+      language: "en",
+      trackCount: 2,
+    }),
+  ),
+  getSubtitleJobsForVideo: vi.fn(() => Promise.resolve([])),
+  getVideoSubtitles: vi.fn(() => Promise.resolve([])),
+}));
+
+vi.mock("../../../src/services/subtitle-translate.ts", () => ({
+  translateSubtitles: vi.fn(() => Promise.resolve({ s3Key: "events/E/subtitles/s1/v3/pt.vtt", jobId: "job-2" })),
+}));
+
+vi.mock("../../../src/services/bunny-captions.ts", () => ({
+  addCaption: vi.fn(() => Promise.resolve()),
+}));
+
 import { db } from "../../../src/db/index.ts";
 import { deleteVideo } from "../../../src/services/bunny.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
+import { submitSubtitleJob } from "../../../src/services/subtitles.ts";
 
 const mockReturning = (db as any)._returning as ReturnType<typeof vi.fn>;
 const mockFindFirstSessionVideo = (db as any)._findFirstSessionVideo as ReturnType<typeof vi.fn>;
@@ -190,5 +215,26 @@ describe("PATCH /api/admin/session-videos/:id", () => {
       body: JSON.stringify({ position: 1 }),
     });
     expect(status).toBe(404);
+  });
+});
+
+describe("POST /api/admin/session-videos/:videoId/subtitles", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("calls submitSubtitleJob with the session_video id", async () => {
+    const mockSubmit = submitSubtitleJob as ReturnType<typeof vi.fn>;
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/session-videos/3/subtitles", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ language: "en", whisperModel: "turbo" }),
+    });
+
+    expect(status).toBe(202);
+    expect(mockSubmit).toHaveBeenCalledWith(3, { language: "en", whisperModel: "turbo" });
+    expect(body).toMatchObject({ jobId: "job-1", sessionVideoId: 3 });
   });
 });
