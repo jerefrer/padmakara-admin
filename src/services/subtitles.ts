@@ -24,28 +24,23 @@ interface SubmitOptions {
 }
 
 /**
- * Submit a subtitle-generation job for a session.
+ * Submit a subtitle-generation job for a session_video.
  * Creates a DB job record and submits to AWS Batch.
  * Mirrors submitReadAlongJob in read-along.ts.
  */
 export async function submitSubtitleJob(
-  sessionId: number,
+  sessionVideoId: number,
   options: SubmitOptions = {},
 ) {
+  const video = await db.query.sessionVideos.findFirst({
+    where: eq(sessionVideos.id, sessionVideoId),
+  });
+  if (!video) throw new Error("Session video not found");
+
   const session = await db.query.sessions.findFirst({
-    where: eq(sessions.id, sessionId),
+    where: eq(sessions.id, video.sessionId),
   });
   if (!session) throw new Error("Session not found");
-
-  // TODO(multi-video-subtitles): generate per session_video, not just the
-  // first. Subtitles stay per-session for now, generated from the primary
-  // (position 0) recording — see
-  // docs/superpowers/plans/2026-07-13-multiple-videos-per-session.md.
-  const video = await db.query.sessionVideos.findFirst({
-    where: eq(sessionVideos.sessionId, sessionId),
-    orderBy: (v, { asc }) => [asc(v.position)],
-  });
-  if (!video) throw new Error("Session has no video");
 
   const event = await db.query.events.findFirst({
     where: eq(events.id, session.eventId),
@@ -56,7 +51,7 @@ export async function submitSubtitleJob(
   const whisperModel = options.whisperModel ?? "turbo";
 
   const sessionTracks = await db.query.tracks.findMany({
-    where: eq(tracks.sessionId, sessionId),
+    where: eq(tracks.sessionId, session.id),
   });
   const trackNumbers = sessionTracks
     .map((t) => t.trackNumber)
@@ -66,7 +61,7 @@ export async function submitSubtitleJob(
   // Create job record
   const [job] = await db
     .insert(subtitleJobs)
-    .values({ sessionId, language, whisperModel })
+    .values({ sessionId: session.id, sessionVideoId, language, whisperModel })
     .returning();
 
   // Lowest-resolution signed Bunny MP4 URL — only its audio track is needed
@@ -79,14 +74,15 @@ export async function submitSubtitleJob(
   const webhookUrl = `${config.urls.backend}/api/webhooks/subtitles`;
 
   const command = new SubmitJobCommand({
-    jobName: `subtitles-${eventCode}-s${session.sessionNumber}`,
+    jobName: `subtitles-${eventCode}-s${session.sessionNumber}-v${sessionVideoId}`,
     jobDefinition: config.readAlong.jobDefinition,
     jobQueue: config.readAlong.jobQueue,
     containerOverrides: {
       environment: [
         { name: "JOB_MODE", value: "subtitles" },
         { name: "JOB_ID", value: job!.id },
-        { name: "SESSION_ID", value: String(sessionId) },
+        { name: "SESSION_ID", value: String(session.id) },
+        { name: "SESSION_VIDEO_ID", value: String(sessionVideoId) },
         { name: "EVENT_CODE", value: eventCode },
         { name: "SESSION_NUMBER", value: String(session.sessionNumber) },
         { name: "TRACK_NUMBERS", value: trackNumbers.join(",") },
@@ -117,25 +113,36 @@ export async function submitSubtitleJob(
     jobId: job!.id,
     batchJobId: response.jobId,
     status: "submitted",
-    sessionId,
+    sessionId: session.id,
+    sessionVideoId,
     language,
     trackCount: trackNumbers.length,
   };
 }
 
 /**
- * Get recent subtitle jobs for a session.
+ * Get recent subtitle jobs for a session_video.
  */
-export async function getSubtitleJobs(sessionId: number) {
+export async function getSubtitleJobsForVideo(sessionVideoId: number) {
   return db.query.subtitleJobs.findMany({
-    where: eq(subtitleJobs.sessionId, sessionId),
+    where: eq(subtitleJobs.sessionVideoId, sessionVideoId),
     orderBy: [desc(subtitleJobs.createdAt)],
     limit: 10,
   });
 }
 
 /**
- * Get subtitle records (VTT files) for a session.
+ * Get subtitle records (VTT files) for a session_video.
+ */
+export async function getVideoSubtitles(sessionVideoId: number) {
+  return db.query.sessionSubtitles.findMany({
+    where: eq(sessionSubtitles.sessionVideoId, sessionVideoId),
+  });
+}
+
+/**
+ * Get subtitle records (VTT files) for all of a session's videos —
+ * denormalized session-level listing.
  */
 export async function getSessionSubtitles(sessionId: number) {
   return db.query.sessionSubtitles.findMany({
