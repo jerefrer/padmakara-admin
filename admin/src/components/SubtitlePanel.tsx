@@ -87,11 +87,11 @@ function formatTimestamp(iso: string | null): string {
 }
 
 interface Props {
-  sessionId: number;
-  sessionTitle?: string;
+  sessionVideoId: number;
+  videoLabel?: string;
 }
 
-export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
+export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
   const translate = useTranslate();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -134,7 +134,7 @@ export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await authFetch(`/api/admin/sessions/${sessionId}/subtitles`);
+      const res = await authFetch(`/api/admin/session-videos/${sessionVideoId}/subtitles`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { jobs: SubtitleJob[]; subtitles: SessionSubtitle[] };
       setJobs(data.jobs ?? []);
@@ -152,7 +152,7 @@ export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
     } finally {
       setLoading(false);
     }
-  }, [sessionId, refresh]);
+  }, [sessionVideoId, refresh]);
 
   useEffect(() => {
     fetchData();
@@ -177,7 +177,7 @@ export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      const res = await authFetch(`/api/admin/sessions/${sessionId}/subtitles`, {
+      const res = await authFetch(`/api/admin/session-videos/${sessionVideoId}/subtitles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -200,7 +200,7 @@ export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
   const handleDownload = async (lang: string) => {
     setDownloadingLang(lang);
     try {
-      const res = await authFetch(`/api/admin/sessions/${sessionId}/subtitles/${lang}/download`);
+      const res = await authFetch(`/api/admin/session-videos/${sessionVideoId}/subtitles/${lang}/download`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
       const blob = new Blob([text], { type: "text/vtt" });
@@ -222,7 +222,7 @@ export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
     setTranslatingLang(lang);
     try {
       const res = await authFetch(
-        `/api/admin/sessions/${sessionId}/subtitles/${lang}/translate`,
+        `/api/admin/session-videos/${sessionVideoId}/subtitles/${lang}/translate`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -256,7 +256,7 @@ export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
         return;
       }
       const res = await authFetch(
-        `/api/admin/sessions/${sessionId}/subtitles/${lang}`,
+        `/api/admin/session-videos/${sessionVideoId}/subtitles/${lang}`,
         {
           method: "PUT",
           headers: { "Content-Type": "text/vtt" },
@@ -291,9 +291,9 @@ export const SubtitlePanel = ({ sessionId, sessionTitle }: Props) => {
         <ClosedCaptionIcon color="primary" />
         <Typography variant="h6" sx={{ fontWeight: 600 }}>
           {translate("padmakara.subtitles.title")}
-          {sessionTitle && (
+          {videoLabel && (
             <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1, fontWeight: 400 }}>
-              — {sessionTitle}
+              — {videoLabel}
             </Typography>
           )}
         </Typography>
