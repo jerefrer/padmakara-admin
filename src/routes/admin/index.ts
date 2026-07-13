@@ -16,6 +16,7 @@ import { uploadRoutes } from "./upload.ts";
 import { publicationRoutes } from "./publications.ts";
 import migrationRoutes from "./migrations.ts";
 import { analyzeRoutes } from "./import/analyze.ts";
+import { translateRoutes } from "./translate.ts";
 import { TRANSLATION_MODELS, DEFAULT_TRANSLATE_MODEL } from "../../services/translation-models.ts";
 
 const admin = new Hono();
@@ -36,6 +37,7 @@ admin.route("/audiences", audienceRoutes);
 admin.route("/sessions", sessionRoutes);
 admin.route("/session-videos", sessionVideoRoutes);
 admin.route("/tracks", trackRoutes);
+admin.route("/translate", translateRoutes);
 admin.route("/users", userRoutes);
 admin.route("/approvals", approvalRoutes);
 admin.route("/upload", uploadRoutes);

@@ -10,6 +10,10 @@ export interface ParsedTrack {
   trackNumber: number;
   speaker: string | null;
   title: string;
+  titleEn?: string;
+  titlePt?: string;
+  titleEnReviewed?: boolean;
+  titlePtReviewed?: boolean;
   language?: string; // deprecated — kept for local-parse compat
   languages: string[];
   originalLanguage: string;
@@ -41,6 +45,9 @@ export interface InferredSession {
   date: string | null;
   timePeriod: string | null;
   titleEn: string;
+  titlePt: string;
+  titleEnReviewed: boolean;
+  titlePtReviewed: boolean;
   tracks: ParsedTrack[];
   /** Videos attached to this session, ordered by position. Empty/undefined for
    *  audio-only sessions or sessions not yet loaded from the DB. */
@@ -248,6 +255,9 @@ export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
       date: sample.date,
       timePeriod: sample.timePeriod,
       titleEn,
+      titlePt: "",
+      titleEnReviewed: true,
+      titlePtReviewed: true,
       tracks: groupTracks.sort((a, b) => {
         if (a.trackNumber !== b.trackNumber) return a.trackNumber - b.trackNumber;
         // Original before translation within same track number

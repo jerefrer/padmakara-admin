@@ -6,6 +6,7 @@ import {
   integer,
   timestamp,
   unique,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { events } from "./retreats.ts";
@@ -21,6 +22,8 @@ export const sessions = pgTable(
       .references(() => events.id, { onDelete: "cascade" }),
     titleEn: text("title_en"),
     titlePt: text("title_pt"),
+    titleEnReviewed: boolean("title_en_reviewed").notNull().default(true),
+    titlePtReviewed: boolean("title_pt_reviewed").notNull().default(true),
     sessionDate: date("session_date", { mode: "string" }),
     timePeriod: text("time_period").default("morning"),
     sessionNumber: integer("session_number").notNull(),

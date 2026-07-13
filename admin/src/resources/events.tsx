@@ -31,6 +31,7 @@ import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
 import MuiTextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import Autocomplete from "@mui/material/Autocomplete";
 import Grid from "@mui/material/Grid";
 import ToggleButton from "@mui/material/ToggleButton";
@@ -77,6 +78,7 @@ import {
 } from "../utils/uploadManager";
 import { uploadVideoFile } from "../utils/videoUploader";
 import { authFetch } from "../utils/authFetch";
+import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import {
   type ParsedTrack,
   type InferredSession,
@@ -463,6 +465,12 @@ export interface EventFormData {
   mainThemesEn: string;
   sessionThemesEn: string;
   sessionThemesPt: string;
+  titleEnReviewed: boolean;
+  titlePtReviewed: boolean;
+  mainThemesEnReviewed: boolean;
+  mainThemesPtReviewed: boolean;
+  sessionThemesEnReviewed: boolean;
+  sessionThemesPtReviewed: boolean;
   startDate: string;
   endDate: string;
   status: string;
@@ -479,6 +487,9 @@ export const EMPTY_FORM: EventFormData = {
   eventCode: "", titleEn: "", titlePt: "",
   mainThemesPt: "", mainThemesEn: "",
   sessionThemesEn: "", sessionThemesPt: "",
+  titleEnReviewed: true, titlePtReviewed: true,
+  mainThemesEnReviewed: true, mainThemesPtReviewed: true,
+  sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
   startDate: "", endDate: "", status: "draft",
   featuredAt: null,
 };
@@ -506,7 +517,7 @@ interface EventFormProps {
   sessions: InferredSession[];
   transcripts: any[];
   eventFiles: any[];
-  onSessionTitleChange: (idx: number, title: string) => void;
+  onSessionTitleChange: (idx: number, patch: Partial<InferredSession>) => void;
   onTrackUpdate?: (trackId: number, updates: Partial<ParsedTrack>) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
@@ -523,6 +534,17 @@ interface EventFormProps {
 
 const syncedRows = (a: string, b: string, min = 3) =>
   Math.max(a.split("\n").length, b.split("\n").length, min);
+
+/** Text fields that have a companion `<field>Reviewed` boolean. Editing one of
+ *  these by hand marks it reviewed; translating INTO one marks it unreviewed. */
+const REVIEWED_KEY: Partial<Record<keyof EventFormData, keyof EventFormData>> = {
+  titleEn: "titleEnReviewed",
+  titlePt: "titlePtReviewed",
+  mainThemesEn: "mainThemesEnReviewed",
+  mainThemesPt: "mainThemesPtReviewed",
+  sessionThemesEn: "sessionThemesEnReviewed",
+  sessionThemesPt: "sessionThemesPtReviewed",
+};
 
 const EVENT_TYPE_COLORS = [
   "#5B5EA6", "#E57373", "#4DB6AC", "#FFB74D", "#7986CB",
@@ -575,8 +597,131 @@ export const EventFormFields = ({
   const updateField =
     (field: keyof EventFormData) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+      const value = e.target.value;
+      const reviewedKey = REVIEWED_KEY[field];
+      setForm((prev) => ({
+        ...prev,
+        [field]: value,
+        ...(reviewedKey ? { [reviewedKey]: true } : {}),
+      }));
     };
+
+  const notify = useNotify();
+  // Which field (or "all") is currently being translated — drives spinners/disabled.
+  const [translating, setTranslating] = useState<string | null>(null);
+
+  const translateOne = async (
+    sourceField: keyof EventFormData,
+    targetField: keyof EventFormData,
+    targetReviewedField: keyof EventFormData,
+    direction: TranslateDirection,
+  ) => {
+    const source = String(form[sourceField] ?? "").trim();
+    if (!source) return;
+    setTranslating(sourceField as string);
+    try {
+      const out = await translateFields(direction, { [targetField as string]: source });
+      const translated = out[targetField as string] ?? "";
+      setForm((prev) => ({ ...prev, [targetField]: translated, [targetReviewedField]: false }));
+    } catch (e: any) {
+      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
+        type: "error",
+      });
+    } finally {
+      setTranslating(null);
+    }
+  };
+
+  const translateAllMissing = async (direction: TranslateDirection) => {
+    // [sourceField, targetField, targetReviewedField]
+    const pairs: Array<[keyof EventFormData, keyof EventFormData, keyof EventFormData]> =
+      direction === "en-to-pt"
+        ? [
+            ["titleEn", "titlePt", "titlePtReviewed"],
+            ["mainThemesEn", "mainThemesPt", "mainThemesPtReviewed"],
+            ["sessionThemesEn", "sessionThemesPt", "sessionThemesPtReviewed"],
+          ]
+        : [
+            ["titlePt", "titleEn", "titleEnReviewed"],
+            ["mainThemesPt", "mainThemesEn", "mainThemesEnReviewed"],
+            ["sessionThemesPt", "sessionThemesEn", "sessionThemesEnReviewed"],
+          ];
+    const items: Record<string, string> = {};
+    const targetOf: Record<string, keyof EventFormData> = {};
+    const reviewedOf: Record<string, keyof EventFormData> = {};
+    for (const [src, tgt, rev] of pairs) {
+      const source = String(form[src] ?? "").trim();
+      const target = String(form[tgt] ?? "").trim();
+      if (source && !target) {
+        const k = tgt as string;
+        items[k] = source;
+        targetOf[k] = tgt;
+        reviewedOf[k] = rev;
+      }
+    }
+    if (Object.keys(items).length === 0) {
+      notify(translate("padmakara.events.translateNothing"), { type: "info" });
+      return;
+    }
+    setTranslating("all");
+    try {
+      const out = await translateFields(direction, items);
+      setForm((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(out)) {
+          (next as any)[targetOf[key]] = out[key];
+          (next as any)[reviewedOf[key]] = false;
+        }
+        return next;
+      });
+    } catch (e: any) {
+      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
+        type: "error",
+      });
+    } finally {
+      setTranslating(null);
+    }
+  };
+
+  // Render the translate button + unreviewed chip that sit under one field.
+  // `direction` translates THIS field into the OTHER field.
+  const fieldControls = (
+    thisField: keyof EventFormData,
+    otherField: keyof EventFormData,
+    otherReviewedField: keyof EventFormData,
+    thisReviewedField: keyof EventFormData,
+    direction: TranslateDirection,
+    translateLabelKey: string,
+  ) => (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5, minHeight: 30 }}>
+      <Button
+        size="small"
+        variant="text"
+        disabled={!String(form[thisField] ?? "").trim() || translating !== null}
+        startIcon={translating === (thisField as string) ? <CircularProgress size={14} /> : undefined}
+        onClick={() => translateOne(thisField, otherField, otherReviewedField, direction)}
+      >
+        {translate(translateLabelKey)}
+      </Button>
+      {!form[thisReviewedField] && (
+        <>
+          <Chip
+            size="small"
+            color="warning"
+            variant="outlined"
+            label={translate("padmakara.events.aiUnreviewed")}
+          />
+          <Button
+            size="small"
+            variant="text"
+            onClick={() => setForm((prev) => ({ ...prev, [thisReviewedField]: true }))}
+          >
+            {translate("padmakara.events.markReviewed")}
+          </Button>
+        </>
+      )}
+    </Box>
+  );
 
   const handleEventTypeChange = useCallback(
     (v: EventTypeOption | null) => {
@@ -648,6 +793,16 @@ export const EventFormFields = ({
 
       {/* ── Title ── */}
       <Paper sx={{ p: 3, mb: 2 }}>
+        <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+          <Button size="small" variant="outlined" disabled={translating !== null}
+            onClick={() => translateAllMissing("en-to-pt")}>
+            {translate("padmakara.events.translateAllToPt")}
+          </Button>
+          <Button size="small" variant="outlined" disabled={translating !== null}
+            onClick={() => translateAllMissing("pt-to-en")}>
+            {translate("padmakara.events.translateAllToEn")}
+          </Button>
+        </Box>
         <Grid container spacing={2.5}>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -659,6 +814,7 @@ export const EventFormFields = ({
               placeholder="2025 Spring Retreat"
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("titleEn", "titlePt", "titlePtReviewed", "titleEnReviewed", "en-to-pt", "padmakara.events.translateToPt")}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -669,6 +825,7 @@ export const EventFormFields = ({
               placeholder="Retiro de Primavera 2025"
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("titlePt", "titleEn", "titleEnReviewed", "titlePtReviewed", "pt-to-en", "padmakara.events.translateToEn")}
           </Grid>
         </Grid>
       </Paper>
@@ -850,6 +1007,7 @@ export const EventFormFields = ({
               placeholder={translate("padmakara.events.mainThemesPlaceholderEn")}
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("mainThemesEn", "mainThemesPt", "mainThemesPtReviewed", "mainThemesEnReviewed", "en-to-pt", "padmakara.events.translateToPt")}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -862,6 +1020,7 @@ export const EventFormFields = ({
               placeholder={translate("padmakara.events.mainThemesPlaceholderPt")}
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("mainThemesPt", "mainThemesEn", "mainThemesEnReviewed", "mainThemesPtReviewed", "pt-to-en", "padmakara.events.translateToEn")}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -874,6 +1033,7 @@ export const EventFormFields = ({
               placeholder={translate("padmakara.events.sessionThemesPlaceholderEn")}
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("sessionThemesEn", "sessionThemesPt", "sessionThemesPtReviewed", "sessionThemesEnReviewed", "en-to-pt", "padmakara.events.translateToPt")}
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
             <MuiTextField
@@ -886,6 +1046,7 @@ export const EventFormFields = ({
               placeholder={translate("padmakara.events.sessionThemesPlaceholderPt")}
               slotProps={{ inputLabel: { shrink: true } }}
             />
+            {fieldControls("sessionThemesPt", "sessionThemesEn", "sessionThemesEnReviewed", "sessionThemesPtReviewed", "pt-to-en", "padmakara.events.translateToEn")}
           </Grid>
         </Grid>
       </Paper>
@@ -1077,6 +1238,13 @@ function analysisToInferredSessions(
       date: s.sessionDate,
       timePeriod: s.timePeriod,
       titleEn: s.titleEn,
+      // The AI analysis already proposes a PT title alongside the EN one (see
+      // `AnalysisSession` in analyzeFolder.ts) — carry it through rather than
+      // discarding it. Reviewed flags default false here because this input is
+      // machine-generated (AI-inferred) and requires human review before use.
+      titlePt: s.titlePt,
+      titleEnReviewed: false,
+      titlePtReviewed: false,
       tracks,
     } satisfies InferredSession;
   });
@@ -1165,40 +1333,52 @@ function tableValueToSessions(
   for (const s of original) {
     for (const t of s.tracks) baseByKey.set(fileKey(t.file), t);
   }
-  return tv.sessions.map((s, i) => ({
-    sessionNumber: i + 1,
-    date: s.sessionDate,
-    timePeriod: s.timePeriod,
-    titleEn: s.titleEn,
-    tracks: s.tracks.map((t) => {
-      const base = baseByKey.get(t.key);
-      if (!base) throw new Error(`unknown track key ${t.key}`);
-      if (
-        base.trackNumber === t.trackNumber &&
-        base.title === t.title &&
-        base.speaker === t.speaker &&
-        stringArraysEqual(base.languages, t.languages) &&
-        base.originalLanguage === t.originalLanguage &&
-        base.isTranslation === t.isTranslation &&
-        (base.isPractice ?? false) === t.isPractice &&
-        base.originalFilename === t.uploadFilename
-      ) {
-        return base;
-      }
-      return {
-        ...base,
-        trackNumber: t.trackNumber,
-        title: t.title,
-        speaker: t.speaker,
-        languages: t.languages,
-        originalLanguage: t.originalLanguage,
-        isTranslation: t.isTranslation,
-        isPractice: t.isPractice,
-        // The edited filename becomes the canonical upload name (the S3 key).
-        originalFilename: t.uploadFilename,
-      } satisfies ParsedTrack;
-    }),
-  }));
+  return tv.sessions.map((s, i) => {
+    // `TableSession` (the table's neutral model) has no titlePt/reviewed
+    // fields — carry them forward from the original session at this index so
+    // editing tracks/title in the table doesn't clobber AI- or DB-sourced PT
+    // titles. A session appended via "+ Add session" has no `original[i]`
+    // counterpart, so it gets the same blank/reviewed-true defaults as any
+    // other brand-new session.
+    const origSession = original[i];
+    return {
+      sessionNumber: i + 1,
+      date: s.sessionDate,
+      timePeriod: s.timePeriod,
+      titleEn: s.titleEn,
+      titlePt: origSession?.titlePt ?? "",
+      titleEnReviewed: origSession?.titleEnReviewed ?? true,
+      titlePtReviewed: origSession?.titlePtReviewed ?? true,
+      tracks: s.tracks.map((t) => {
+        const base = baseByKey.get(t.key);
+        if (!base) throw new Error(`unknown track key ${t.key}`);
+        if (
+          base.trackNumber === t.trackNumber &&
+          base.title === t.title &&
+          base.speaker === t.speaker &&
+          stringArraysEqual(base.languages, t.languages) &&
+          base.originalLanguage === t.originalLanguage &&
+          base.isTranslation === t.isTranslation &&
+          (base.isPractice ?? false) === t.isPractice &&
+          base.originalFilename === t.uploadFilename
+        ) {
+          return base;
+        }
+        return {
+          ...base,
+          trackNumber: t.trackNumber,
+          title: t.title,
+          speaker: t.speaker,
+          languages: t.languages,
+          originalLanguage: t.originalLanguage,
+          isTranslation: t.isTranslation,
+          isPractice: t.isPractice,
+          // The edited filename becomes the canonical upload name (the S3 key).
+          originalFilename: t.uploadFilename,
+        } satisfies ParsedTrack;
+      }),
+    };
+  });
 }
 
 export const EventCreate = () => {
@@ -1365,6 +1545,18 @@ export const EventCreate = () => {
     );
   }, [sessions, trackCorrections, form.eventCode, folderName, notify]);
 
+  // The create-flow track/session editor is SessionTrackTable (below), not
+  // SessionPreview — so this handler is never invoked today (EventFormFields
+  // is rendered with sessions={[]} in the create flow). It exists so the prop
+  // type matches EventFormFields' onSessionTitleChange and stays correct if a
+  // future revision lets SessionPreview edit already-created sessions here too.
+  const handleSessionTitleChange = useCallback(
+    (idx: number, patch: Partial<InferredSession>) => {
+      setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+    },
+    [],
+  );
+
   /** Upload transcript PDFs after the event has been created (so we have eventCode). */
   const handleTranscriptFilesDropped = useCallback(
     async (files: File[]) => {
@@ -1449,6 +1641,9 @@ export const EventCreate = () => {
             eventId: event.id,
             sessionNumber: session.sessionNumber,
             titleEn: session.titleEn,
+            titlePt: session.titlePt || null,
+            titleEnReviewed: session.titleEnReviewed,
+            titlePtReviewed: session.titlePtReviewed,
             sessionDate: toIsoDate(session.date, form.startDate) || null,
             timePeriod: session.timePeriod || null,
           },
@@ -1479,6 +1674,10 @@ export const EventCreate = () => {
               sessionId: createdSession.id,
               trackNumber: track.trackNumber,
               title: track.title,
+              titleEn: track.titleEn || null,
+              titlePt: track.titlePt || null,
+              titleEnReviewed: track.titleEnReviewed ?? true,
+              titlePtReviewed: track.titlePtReviewed ?? true,
               speaker: track.speaker,
               languages: track.languages,
               originalLanguage: track.originalLanguage,
@@ -1574,7 +1773,7 @@ export const EventCreate = () => {
             selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
             allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
             allEventTypes={allEventTypes} allAudiences={allAudiences}
-            sessions={[]} transcripts={[]} eventFiles={[]} onSessionTitleChange={() => {}}
+            sessions={[]} transcripts={[]} eventFiles={[]} onSessionTitleChange={handleSessionTitleChange}
             trackCount={0}
             transcriptCount={0}
           />
@@ -1648,11 +1847,18 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
     date: s.sessionDate || null,
     timePeriod: s.timePeriod || null,
     titleEn: s.titleEn || `Session ${s.sessionNumber}`,
+    titlePt: s.titlePt || "",
+    titleEnReviewed: s.titleEnReviewed ?? true,
+    titlePtReviewed: s.titlePtReviewed ?? true,
     videos: (s.videos || []) as SessionVideo[],
     tracks: (s.tracks || []).map((t: any) => ({
       id: t.id,
       trackNumber: t.trackNumber,
       title: t.title,
+      titleEn: t.titleEn ?? "",
+      titlePt: t.titlePt ?? "",
+      titleEnReviewed: t.titleEnReviewed ?? true,
+      titlePtReviewed: t.titlePtReviewed ?? true,
       speaker: t.speaker || null,
       languages: t.languages || [t.originalLanguage || "en"],
       originalLanguage: t.originalLanguage || "en",
@@ -1721,6 +1927,12 @@ export const EventEdit = () => {
       endDate: event.endDate || "",
       status: event.status || "draft",
       featuredAt: event.featuredAt || null,
+      titleEnReviewed: event.titleEnReviewed ?? true,
+      titlePtReviewed: event.titlePtReviewed ?? true,
+      mainThemesEnReviewed: event.mainThemesEnReviewed ?? true,
+      mainThemesPtReviewed: event.mainThemesPtReviewed ?? true,
+      sessionThemesEnReviewed: event.sessionThemesEnReviewed ?? true,
+      sessionThemesPtReviewed: event.sessionThemesPtReviewed ?? true,
     });
 
     if (event.eventTeachers && allTeachers.length > 0) {
@@ -1758,10 +1970,21 @@ export const EventEdit = () => {
   }, [event?.sessions]);
 
   const handleSessionTitleChange = useCallback(
-    (idx: number, title: string) => {
-      setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, titleEn: title } : s)));
+    (idx: number, patch: Partial<InferredSession>) => {
+      const session = sessions[idx];
+      setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+      // Persist immediately for existing (saved) sessions. New sessions in an
+      // edit have no id yet and are handled by their own create flow.
+      if (session?.id) {
+        dataProvider
+          .update("sessions", { id: session.id, data: patch, previousData: {} })
+          .then(() => refresh())
+          .catch((error: any) =>
+            notify(`Error updating session: ${error.message}`, { type: "error" }),
+          );
+      }
     },
-    [],
+    [sessions, dataProvider, notify, refresh],
   );
 
   const handleTrackUpdate = useCallback(
@@ -1771,6 +1994,10 @@ export const EventEdit = () => {
           id: trackId,
           data: {
             title: updates.title,
+            titleEn: updates.titleEn,
+            titlePt: updates.titlePt,
+            titleEnReviewed: updates.titleEnReviewed,
+            titlePtReviewed: updates.titlePtReviewed,
             originalFilename: updates.originalFilename,
             languages: updates.languages,
             originalLanguage: updates.originalLanguage,
@@ -1790,6 +2017,10 @@ export const EventEdit = () => {
                 ? {
                     ...track,
                     title: updates.title ?? track.title,
+                    titleEn: updates.titleEn ?? track.titleEn,
+                    titlePt: updates.titlePt ?? track.titlePt,
+                    titleEnReviewed: updates.titleEnReviewed ?? track.titleEnReviewed,
+                    titlePtReviewed: updates.titlePtReviewed ?? track.titlePtReviewed,
                     originalFilename: updates.originalFilename ?? track.originalFilename,
                     languages: updates.languages ?? track.languages,
                     originalLanguage: updates.originalLanguage ?? track.originalLanguage,
