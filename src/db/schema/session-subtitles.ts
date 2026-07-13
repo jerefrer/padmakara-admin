@@ -1,6 +1,7 @@
 import { pgTable, serial, integer, text, boolean, timestamp, unique } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { sessions } from "./sessions.ts";
+import { sessionVideos } from "./session-videos.ts";
 
 export const sessionSubtitles = pgTable(
   "session_subtitles",
@@ -9,6 +10,9 @@ export const sessionSubtitles = pgTable(
     sessionId: integer("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
+    sessionVideoId: integer("session_video_id").references(() => sessionVideos.id, {
+      onDelete: "cascade",
+    }),
     language: text("language").notNull(), // ISO 639-1, e.g. "en", "pt", "es", "fr"
     label: text("label").notNull(), // human label shown in the player, e.g. "English"
     s3Key: text("s3_key").notNull(), // the .vtt source of truth
@@ -19,12 +23,16 @@ export const sessionSubtitles = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [unique().on(t.sessionId, t.language)],
+  (t) => [unique().on(t.sessionVideoId, t.language)],
 );
 
 export const sessionSubtitlesRelations = relations(sessionSubtitles, ({ one }) => ({
   session: one(sessions, {
     fields: [sessionSubtitles.sessionId],
     references: [sessions.id],
+  }),
+  sessionVideo: one(sessionVideos, {
+    fields: [sessionSubtitles.sessionVideoId],
+    references: [sessionVideos.id],
   }),
 }));

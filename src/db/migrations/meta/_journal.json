@@ -190,6 +190,13 @@
       "when": 1810604800000,
       "tag": "0026_session_videos",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1810691200000,
+      "tag": "0027_per_video_subtitles",
+      "breakpoints": true
     }
   ]
 }
