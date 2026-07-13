@@ -72,6 +72,96 @@ function normalizeLanguage(lang: string): string {
   return LANGUAGE_MAP[upper] ?? lang.toLowerCase();
 }
 
+// ─── Session date parsing ─────────────────────────────────────────────────
+//
+// A track filename may carry the session it belongs to as a trailing marker,
+// usually parenthesized, e.g. "(11 June PM)". The date part comes in several
+// shapes and both English/Portuguese; the day may precede or follow the month,
+// may carry an ordinal suffix, or be fully numeric (day-first, Portuguese
+// convention) with an optional year. All resolve to the same normalized form.
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+const MONTH_NORMALIZE: Record<string, string> = {
+  january: "January", february: "February", march: "March", april: "April",
+  may: "May", june: "June", july: "July", august: "August",
+  september: "September", october: "October", november: "November", december: "December",
+  janeiro: "January", fevereiro: "February", março: "March", abril: "April",
+  maio: "May", junho: "June", julho: "July", agosto: "August",
+  setembro: "September", outubro: "October", novembro: "November", dezembro: "December",
+};
+
+// Month names (English + Portuguese) for the session-marker regexes.
+const MONTHS_PATTERN =
+  "January|February|March|April|May|June|July|August|September|October|November|December"
+  + "|Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro";
+
+// A self-contained date token: numeric DD/MM[/YYYY], day-then-month, or
+// month-then-day — each with an optional ordinal suffix on the day. Captured as
+// a single group and re-parsed by parseSessionDateToken so group numbering
+// stays stable across the alternatives.
+const SESSION_DATE_TOKEN =
+  `(?:\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?`
+  + `|\\d{1,2}(?:st|nd|rd|th)?[\\s_-]+(?:${MONTHS_PATTERN})`
+  + `|(?:${MONTHS_PATTERN})[\\s_-]+\\d{1,2}(?:st|nd|rd|th)?)`;
+
+/** Expand a 2- or 4-digit year string to a full year (2-digit ≥70 → 19xx). */
+function normalizeYear(y: string): number {
+  const n = parseInt(y, 10);
+  if (y.length <= 2) return n >= 70 ? 1900 + n : 2000 + n;
+  return n;
+}
+
+/**
+ * Parse a bare date token (already stripped of the AM/PM and part suffix) into
+ * a month name, day, and optional year. Returns null if the token is not a
+ * recognizable date, so a false-positive parenthetical is simply ignored.
+ */
+function parseSessionDateToken(
+  token: string,
+): { month: string; day: number; year: number | null } | null {
+  const t = token.trim();
+
+  // Numeric day-first: 11/06, 11-06, 11/06/2026, 11-06-2026
+  const numeric = t.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$/);
+  if (numeric) {
+    const day = parseInt(numeric[1]!, 10);
+    const monthNum = parseInt(numeric[2]!, 10);
+    if (monthNum < 1 || monthNum > 12 || day < 1 || day > 31) return null;
+    return { month: MONTH_NAMES[monthNum - 1]!, day, year: numeric[3] ? normalizeYear(numeric[3]) : null };
+  }
+
+  // Day then month name (optional ordinal): "11 June", "11th June"
+  const dayMonth = t.match(new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)?[\\s_-]+(${MONTHS_PATTERN})$`, "i"));
+  if (dayMonth) {
+    return { month: MONTH_NORMALIZE[dayMonth[2]!.toLowerCase()] ?? dayMonth[2]!, day: parseInt(dayMonth[1]!, 10), year: null };
+  }
+
+  // Month name then day (optional ordinal): "June 11", "June 11th"
+  const monthDay = t.match(new RegExp(`^(${MONTHS_PATTERN})[\\s_-]+(\\d{1,2})(?:st|nd|rd|th)?$`, "i"));
+  if (monthDay) {
+    return { month: MONTH_NORMALIZE[monthDay[1]!.toLowerCase()] ?? monthDay[1]!, day: parseInt(monthDay[2]!, 10), year: null };
+  }
+
+  return null;
+}
+
+/**
+ * Format a parsed session date. With a year it becomes ISO (YYYY-MM-DD, ready
+ * for the DB); without a year it stays "Month Day" so the caller can attach the
+ * event's year later.
+ */
+function formatSessionDate(parsed: { month: string; day: number; year: number | null }): string {
+  if (parsed.year !== null) {
+    const mm = String(MONTH_NAMES.indexOf(parsed.month) + 1).padStart(2, "0");
+    return `${parsed.year}-${mm}-${String(parsed.day).padStart(2, "0")}`;
+  }
+  return `${parsed.month} ${parsed.day}`;
+}
+
 export function parseTrackFilename(filename: string): ParsedTrack {
   // Remove extension
   const baseName = filename.replace(/\.(mp3|wav|m4a|flac|ogg|mpeg)$/i, "");
@@ -223,35 +313,32 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     }
   }
 
-  // Month names (English + Portuguese) for session info extraction
-  const MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
-    + "|Janeiro|Fevereiro|Março|Abril|Maio|Junho|Julho|Agosto|Setembro|Outubro|Novembro|Dezembro";
-
-  // Extract date and session info from parenthetical: (17 April AM), (18 April_AM_Part_1), (20 April-AM-part 2)
-  // The [^)]* after \d+ allows trailing sub-part indicators like "part_1_2" or "part 1a"
-  const sessionMatch = baseName.match(
-    new RegExp(`\\((\\d{1,2})[\\s_-]+(${MONTHS})[\\s_-]+(AM|PM)(?:[\\s_-]+part[\\s_-]*(\\d+)[^)]*)?\\)`, "i"),
+  // Extract date and session info from a session marker. The date part is
+  // captured whole (see SESSION_DATE_TOKEN) and re-parsed, so all supported
+  // shapes — (11 June PM), (June 11th PM), (11/06 PM), (11-06-2026 PM), with an
+  // optional "part N" — are handled. Parenthesized form first, then a trailing
+  // non-parenthesized form: "-21_April_AM_part_1".
+  const parenSession = baseName.match(
+    new RegExp(`\\(\\s*(${SESSION_DATE_TOKEN})[\\s_-]+(AM|PM)(?:[\\s_-]+part[\\s_-]*(\\d+)[^)]*)?\\s*\\)`, "i"),
   );
-  // Also match non-parenthesized session info at end: -21_April_AM_part_1, -21_April_AM_part_1_2
-  const nonParenSessionMatch = !sessionMatch
+  const trailingSession = !parenSession
     ? baseName.match(
-        new RegExp(`[\\s-]+(\\d{1,2})[\\s_-]+(${MONTHS})[\\s_-]+(AM|PM)(?:[\\s_-]+part[\\s_-]*(\\d+)\\w*)?$`, "i"),
+        new RegExp(`[\\s_-]+(${SESSION_DATE_TOKEN})[\\s_-]+(AM|PM)(?:[\\s_-]+part[\\s_-]*(\\d+)\\w*)?$`, "i"),
       )
     : null;
 
-  const sessMatch = sessionMatch ?? nonParenSessionMatch;
+  const sessMatch = parenSession ?? trailingSession;
+  // The full matched marker, stripped from the title once we confirm the date
+  // parses (a parenthetical that isn't actually a date is left untouched).
+  let sessionMarker: string | null = null;
   if (sessMatch) {
-    const [, day, month, period, part] = sessMatch;
-    // Normalize Portuguese month names to English for consistent grouping
-    const MONTH_NORMALIZE: Record<string, string> = {
-      janeiro: "January", fevereiro: "February", março: "March", abril: "April",
-      maio: "May", junho: "June", julho: "July", agosto: "August",
-      setembro: "September", outubro: "October", novembro: "November", dezembro: "December",
-    };
-    const normalizedMonth = MONTH_NORMALIZE[month!.toLowerCase()] ?? month;
-    date = `${normalizedMonth} ${day}`;
-    timePeriod = period!.toLowerCase() === "am" ? "morning" : "afternoon";
-    if (part) partNumber = parseInt(part, 10);
+    const parsedDate = parseSessionDateToken(sessMatch[1]!);
+    if (parsedDate) {
+      sessionMarker = sessMatch[0]!;
+      date = formatSessionDate(parsedDate);
+      timePeriod = sessMatch[2]!.toLowerCase() === "am" ? "morning" : "afternoon";
+      if (sessMatch[3]) partNumber = parseInt(sessMatch[3], 10);
+    }
   }
 
   // Build the speaker string for title cleanup (handle combos with + or &)
@@ -277,22 +364,20 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   title = title
     .replace(/^TRAD\s+-\s+/i, "")
     .replace(/^TRAD\s+/i, "")
-    // Remove language tag in brackets (including [ENG - Audio] patterns)
-    .replace(/\[[A-Z]+(?:\s*-\s*[^\]]+)?\]\s*/i, "")
+    // Remove language tag in brackets — single ([ENG]), descriptive
+    // ([ENG - Audio]), and multi-language ([TIB+ENG], [TIB+ENG+POR]) forms.
+    .replace(/\[[A-Z]+(?:[+&/,][A-Z]+)*(?:\s*-\s*[^\]]+)?\]\s*/i, "")
     // Remove ISO date
     .replace(/\s*\d{4}-\d{2}-\d{2}/, "")
     // Remove compact date (YYYYMMDD)
-    .replace(/\s*\d{8}(?:\s|$)/, "")
-    // Remove session info in parentheses: (20 April_AM_part 1), (8 April-AM-Part 2), (21 April_AM_part 1a)
-    .replace(
-      /\s*-?\s*\(\d{1,2}[\s_-]+\w+[\s_-]+(AM|PM)(?:[\s_-]+part[\s_-]*\d+[^)]*)?\)/i,
-      "",
-    )
-    // Remove non-parenthesized session info at end: -21_April_AM_part_1, -21_April_AM_part_1_2
-    .replace(
-      /[\s-]+\d{1,2}[\s_-]+\w+[\s_-]+(AM|PM)(?:[\s_-]+part[\s_-]*\d+\w*)?$/i,
-      "",
-    )
+    .replace(/\s*\d{8}(?:\s|$)/, "");
+
+  // Remove the exact session marker matched above (all supported date shapes).
+  if (sessionMarker) {
+    title = title.replace(sessionMarker, "");
+  }
+
+  title = title
     // Remove trailing "- AM", "- PM", standalone "AM", "PM" markers
     .replace(/\s*-?\s*\b(AM|PM)\b\s*$/i, "")
     // Remove trailing dashes and whitespace
