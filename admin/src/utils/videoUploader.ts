@@ -78,21 +78,6 @@ async function pollBunnyMeta(
   throw new Error("Upload cancelled");
 }
 
-/** Save bunnyVideoId, videoDurationSeconds, posterUrl onto the session row. */
-async function patchSession(
-  sessionId: number,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  const res = await authFetch(`${API_URL}/sessions/${sessionId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(patch),
-  });
-  if (!res.ok) {
-    throw new Error(`Session update failed (${res.status}): ${await res.text()}`);
-  }
-}
-
 /** Best-effort cleanup if upload fails before the track row is patched. */
 async function deleteBunnyVideo(videoId: string): Promise<void> {
   try {
@@ -103,8 +88,10 @@ async function deleteBunnyVideo(videoId: string): Promise<void> {
 }
 
 interface UploadVideoOpts {
-  /** ID of the session that the video belongs to. The video becomes that session's recording. */
+  /** ID of the session that the video belongs to. The video becomes one of that session's recordings. */
   sessionId: number;
+  /** 0-based position among the session's videos (order they play in). */
+  position: number;
   title: string;
   file: File;
   signal: { cancelled: boolean; abort?: () => void };
@@ -117,15 +104,17 @@ interface UploadVideoOpts {
 
 /**
  * Upload a single video file end-to-end: create Bunny video → TUS upload →
- * poll for transcoding completion → patch the session row with metadata.
+ * poll for transcoding completion → create a `session_videos` row.
  *
- * Videos are session-scoped (one session has at most one video; audio tracks
- * are independent topic-indexed slices). Resolves when the session row has
- * been updated with `bunnyVideoId` and `videoDurationSeconds`. Rejects (and
- * best-effort deletes the orphan video) on any failure.
+ * A session may have MULTIPLE videos now (each its own `session_videos` row,
+ * ordered by `position`); audio tracks remain independent topic-indexed
+ * slices. Resolves once the new `session_videos` row has been created — the
+ * Bunny webhook backfills `durationSeconds` on that row asynchronously after
+ * transcoding finishes. Rejects (and best-effort deletes the orphan video) on
+ * any failure.
  */
 export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
-  const { sessionId, title, file, signal, onProgress, onTranscodingStart, onTranscodeStatus } = opts;
+  const { sessionId, position, title, file, signal, onProgress, onTranscodingStart, onTranscodeStatus } = opts;
 
   // 1. Create the Bunny video record.
   const creds = await createBunnyVideo(title);
@@ -164,15 +153,21 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
 
     // 3. Poll Bunny until transcoding finishes (or fails).
     onTranscodingStart?.();
-    const meta = await pollBunnyMeta(creds.videoId, signal, onTranscodeStatus);
+    await pollBunnyMeta(creds.videoId, signal, onTranscodeStatus);
 
-    // 4. Patch the session row with the Bunny GUID + duration. We deliberately
-    //    leave videoPosterUrl null — the public media endpoint computes a
-    //    signed thumbnail URL on the fly so the CDN hostname stays server-side.
-    await patchSession(sessionId, {
-      bunnyVideoId: creds.videoId,
-      videoDurationSeconds: Math.round(meta.durationSeconds),
+    // 4. Create the session_videos row. We deliberately don't send duration
+    //    or poster — the Bunny webhook backfills `durationSeconds` on this
+    //    row once transcoding finishes, and the public media endpoint
+    //    computes a signed thumbnail URL on the fly so the CDN hostname
+    //    stays server-side.
+    const res = await authFetch(`${API_URL}/session-videos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, bunnyVideoId: creds.videoId, position }),
     });
+    if (!res.ok) {
+      throw new Error(`Create session video failed (${res.status}): ${await res.text()}`);
+    }
 
     createdVideoId = null; // success — don't clean up
   } finally {

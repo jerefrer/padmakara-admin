@@ -83,9 +83,11 @@ export interface UploadItem {
   /**
    * For video items: the database session ID to attach the Bunny video to.
    * The audio path uses sessionNumber + presigned-URL flow; the video path
-   * needs the session row's primary key for the final patch.
+   * needs the session row's primary key to create the `session_videos` row.
    */
   sessionId?: number;
+  /** For video items: 0-based position among the session's videos. */
+  position?: number;
 }
 
 export interface FileStatus {
@@ -386,6 +388,7 @@ export function uploadTracks(
       }
       await uploadVideoFile({
         sessionId: item.sessionId,
+        position: item.position ?? 0,
         title: item.title ?? item.filename,
         file: item.file,
         signal,
