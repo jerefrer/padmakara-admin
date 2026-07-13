@@ -1238,6 +1238,16 @@ function analysisToInferredSessions(
       date: s.sessionDate,
       timePeriod: s.timePeriod,
       titleEn: s.titleEn,
+      // The AI analysis already proposes a PT title alongside the EN one (see
+      // `AnalysisSession` in analyzeFolder.ts) — carry it through rather than
+      // discarding it. Reviewed flags default true here to match this same
+      // screen's existing convention for AI-derived event-level fields (see
+      // `handleAnalyzed`, which leaves `EMPTY_FORM`'s reviewed defaults
+      // untouched rather than flagging them unreviewed like the Migration
+      // screen does).
+      titlePt: s.titlePt,
+      titleEnReviewed: true,
+      titlePtReviewed: true,
       tracks,
     } satisfies InferredSession;
   });
@@ -1326,40 +1336,52 @@ function tableValueToSessions(
   for (const s of original) {
     for (const t of s.tracks) baseByKey.set(fileKey(t.file), t);
   }
-  return tv.sessions.map((s, i) => ({
-    sessionNumber: i + 1,
-    date: s.sessionDate,
-    timePeriod: s.timePeriod,
-    titleEn: s.titleEn,
-    tracks: s.tracks.map((t) => {
-      const base = baseByKey.get(t.key);
-      if (!base) throw new Error(`unknown track key ${t.key}`);
-      if (
-        base.trackNumber === t.trackNumber &&
-        base.title === t.title &&
-        base.speaker === t.speaker &&
-        stringArraysEqual(base.languages, t.languages) &&
-        base.originalLanguage === t.originalLanguage &&
-        base.isTranslation === t.isTranslation &&
-        (base.isPractice ?? false) === t.isPractice &&
-        base.originalFilename === t.uploadFilename
-      ) {
-        return base;
-      }
-      return {
-        ...base,
-        trackNumber: t.trackNumber,
-        title: t.title,
-        speaker: t.speaker,
-        languages: t.languages,
-        originalLanguage: t.originalLanguage,
-        isTranslation: t.isTranslation,
-        isPractice: t.isPractice,
-        // The edited filename becomes the canonical upload name (the S3 key).
-        originalFilename: t.uploadFilename,
-      } satisfies ParsedTrack;
-    }),
-  }));
+  return tv.sessions.map((s, i) => {
+    // `TableSession` (the table's neutral model) has no titlePt/reviewed
+    // fields — carry them forward from the original session at this index so
+    // editing tracks/title in the table doesn't clobber AI- or DB-sourced PT
+    // titles. A session appended via "+ Add session" has no `original[i]`
+    // counterpart, so it gets the same blank/reviewed-true defaults as any
+    // other brand-new session.
+    const origSession = original[i];
+    return {
+      sessionNumber: i + 1,
+      date: s.sessionDate,
+      timePeriod: s.timePeriod,
+      titleEn: s.titleEn,
+      titlePt: origSession?.titlePt ?? "",
+      titleEnReviewed: origSession?.titleEnReviewed ?? true,
+      titlePtReviewed: origSession?.titlePtReviewed ?? true,
+      tracks: s.tracks.map((t) => {
+        const base = baseByKey.get(t.key);
+        if (!base) throw new Error(`unknown track key ${t.key}`);
+        if (
+          base.trackNumber === t.trackNumber &&
+          base.title === t.title &&
+          base.speaker === t.speaker &&
+          stringArraysEqual(base.languages, t.languages) &&
+          base.originalLanguage === t.originalLanguage &&
+          base.isTranslation === t.isTranslation &&
+          (base.isPractice ?? false) === t.isPractice &&
+          base.originalFilename === t.uploadFilename
+        ) {
+          return base;
+        }
+        return {
+          ...base,
+          trackNumber: t.trackNumber,
+          title: t.title,
+          speaker: t.speaker,
+          languages: t.languages,
+          originalLanguage: t.originalLanguage,
+          isTranslation: t.isTranslation,
+          isPractice: t.isPractice,
+          // The edited filename becomes the canonical upload name (the S3 key).
+          originalFilename: t.uploadFilename,
+        } satisfies ParsedTrack;
+      }),
+    };
+  });
 }
 
 export const EventCreate = () => {
@@ -1809,6 +1831,9 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
     date: s.sessionDate || null,
     timePeriod: s.timePeriod || null,
     titleEn: s.titleEn || `Session ${s.sessionNumber}`,
+    titlePt: s.titlePt || "",
+    titleEnReviewed: s.titleEnReviewed ?? true,
+    titlePtReviewed: s.titlePtReviewed ?? true,
     videos: (s.videos || []) as SessionVideo[],
     tracks: (s.tracks || []).map((t: any) => ({
       id: t.id,
