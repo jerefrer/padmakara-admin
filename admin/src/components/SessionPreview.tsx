@@ -20,6 +20,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
@@ -36,6 +37,7 @@ import {
   formatFileSize,
   languageLabel,
 } from "../utils/trackParser";
+import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
 
@@ -90,7 +92,7 @@ function getFileIcon(type: FileType) {
 
 interface SessionPreviewProps {
   sessions: InferredSession[];
-  onSessionTitleChange: (sessionIndex: number, title: string) => void;
+  onSessionTitleChange: (sessionIndex: number, patch: Partial<InferredSession>) => void;
   onTrackUpdate?: (
     trackId: number,
     updates: Partial<ParsedTrack>,
@@ -146,7 +148,7 @@ export const SessionPreview = ({
               key={session.sessionNumber}
               session={session}
               index={idx}
-              onTitleChange={(title) => onSessionTitleChange(idx, title)}
+              onTitleChange={(patch) => onSessionTitleChange(idx, patch)}
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
               onSessionVideoUpload={onSessionVideoUpload}
@@ -171,7 +173,7 @@ export const SessionPreview = ({
 interface SessionCardProps {
   session: InferredSession;
   index: number;
-  onTitleChange: (title: string) => void;
+  onTitleChange: (patch: Partial<InferredSession>) => void;
   onTrackUpdate?: (
     trackId: number,
     updates: Partial<ParsedTrack>,
@@ -198,8 +200,36 @@ const SessionCard = ({
 }: SessionCardProps) => {
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(session.titleEn);
   const translate = useTranslate();
+  const notify = useNotify();
+  const [edit, setEdit] = useState({
+    titleEn: session.titleEn,
+    titlePt: session.titlePt,
+    titleEnReviewed: session.titleEnReviewed,
+    titlePtReviewed: session.titlePtReviewed,
+  });
+  const [translating, setTranslating] = useState<string | null>(null);
+
+  const translateSide = async (
+    source: "titleEn" | "titlePt",
+    target: "titleEn" | "titlePt",
+    targetReviewed: "titleEnReviewed" | "titlePtReviewed",
+    direction: TranslateDirection,
+  ) => {
+    const text = edit[source].trim();
+    if (!text) return;
+    setTranslating(source);
+    try {
+      const out = await translateFields(direction, { [target]: text });
+      setEdit((prev) => ({ ...prev, [target]: out[target] ?? "", [targetReviewed]: false }));
+    } catch (e: any) {
+      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
+        type: "error",
+      });
+    } finally {
+      setTranslating(null);
+    }
+  };
 
   // Build date chip label with AM/PM inline
   const dateLabel = (() => {
@@ -214,7 +244,12 @@ const SessionCard = ({
   })();
 
   const handleSaveTitle = () => {
-    onTitleChange(editTitle);
+    onTitleChange({
+      titleEn: edit.titleEn,
+      titlePt: edit.titlePt,
+      titleEnReviewed: edit.titleEnReviewed,
+      titlePtReviewed: edit.titlePtReviewed,
+    });
     setEditing(false);
   };
 
@@ -264,18 +299,57 @@ const SessionCard = ({
         </Box>
 
         {editing ? (
-          <TextField
-            size="small"
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSaveTitle()}
-            onClick={(e) => e.stopPropagation()}
-            autoFocus
-            sx={{
-              flex: 1,
-              "& .MuiInputBase-input": { fontSize: "0.88rem", py: 0.5 },
-            }}
-          />
+          <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.75 }} onClick={(e) => e.stopPropagation()}>
+            <TextField
+              size="small"
+              label={translate("padmakara.events.titleEn")}
+              value={edit.titleEn}
+              onChange={(e) => setEdit((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
+              onKeyDown={(e) => e.key === "Enter" && handleSaveTitle()}
+              autoFocus
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Button size="small" variant="text"
+                disabled={!edit.titleEn.trim() || translating !== null}
+                startIcon={translating === "titleEn" ? <CircularProgress size={14} /> : undefined}
+                onClick={() => translateSide("titleEn", "titlePt", "titlePtReviewed", "en-to-pt")}>
+                {translate("padmakara.events.translateToPt")}
+              </Button>
+              {!edit.titleEnReviewed && (
+                <>
+                  <Chip size="small" color="warning" variant="outlined" label={translate("padmakara.events.aiUnreviewed")} />
+                  <Button size="small" variant="text" onClick={() => setEdit((p) => ({ ...p, titleEnReviewed: true }))}>
+                    {translate("padmakara.events.markReviewed")}
+                  </Button>
+                </>
+              )}
+            </Box>
+            <TextField
+              size="small"
+              label={translate("padmakara.events.titlePt")}
+              value={edit.titlePt}
+              onChange={(e) => setEdit((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
+              onKeyDown={(e) => e.key === "Enter" && handleSaveTitle()}
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Button size="small" variant="text"
+                disabled={!edit.titlePt.trim() || translating !== null}
+                startIcon={translating === "titlePt" ? <CircularProgress size={14} /> : undefined}
+                onClick={() => translateSide("titlePt", "titleEn", "titleEnReviewed", "pt-to-en")}>
+                {translate("padmakara.events.translateToEn")}
+              </Button>
+              {!edit.titlePtReviewed && (
+                <>
+                  <Chip size="small" color="warning" variant="outlined" label={translate("padmakara.events.aiUnreviewed")} />
+                  <Button size="small" variant="text" onClick={() => setEdit((p) => ({ ...p, titlePtReviewed: true }))}>
+                    {translate("padmakara.events.markReviewed")}
+                  </Button>
+                </>
+              )}
+            </Box>
+          </Box>
         ) : (
           <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>
             {session.titleEn}

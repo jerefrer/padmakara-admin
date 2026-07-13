@@ -517,7 +517,7 @@ interface EventFormProps {
   sessions: InferredSession[];
   transcripts: any[];
   eventFiles: any[];
-  onSessionTitleChange: (idx: number, title: string) => void;
+  onSessionTitleChange: (idx: number, patch: Partial<InferredSession>) => void;
   onTrackUpdate?: (trackId: number, updates: Partial<ParsedTrack>) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
@@ -1545,6 +1545,18 @@ export const EventCreate = () => {
     );
   }, [sessions, trackCorrections, form.eventCode, folderName, notify]);
 
+  // The create-flow track/session editor is SessionTrackTable (below), not
+  // SessionPreview — so this handler is never invoked today (EventFormFields
+  // is rendered with sessions={[]} in the create flow). It exists so the prop
+  // type matches EventFormFields' onSessionTitleChange and stays correct if a
+  // future revision lets SessionPreview edit already-created sessions here too.
+  const handleSessionTitleChange = useCallback(
+    (idx: number, patch: Partial<InferredSession>) => {
+      setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+    },
+    [],
+  );
+
   /** Upload transcript PDFs after the event has been created (so we have eventCode). */
   const handleTranscriptFilesDropped = useCallback(
     async (files: File[]) => {
@@ -1629,6 +1641,9 @@ export const EventCreate = () => {
             eventId: event.id,
             sessionNumber: session.sessionNumber,
             titleEn: session.titleEn,
+            titlePt: session.titlePt || null,
+            titleEnReviewed: session.titleEnReviewed,
+            titlePtReviewed: session.titlePtReviewed,
             sessionDate: toIsoDate(session.date, form.startDate) || null,
             timePeriod: session.timePeriod || null,
           },
@@ -1754,7 +1769,7 @@ export const EventCreate = () => {
             selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
             allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
             allEventTypes={allEventTypes} allAudiences={allAudiences}
-            sessions={[]} transcripts={[]} eventFiles={[]} onSessionTitleChange={() => {}}
+            sessions={[]} transcripts={[]} eventFiles={[]} onSessionTitleChange={handleSessionTitleChange}
             trackCount={0}
             transcriptCount={0}
           />
@@ -1947,10 +1962,21 @@ export const EventEdit = () => {
   }, [event?.sessions]);
 
   const handleSessionTitleChange = useCallback(
-    (idx: number, title: string) => {
-      setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, titleEn: title } : s)));
+    (idx: number, patch: Partial<InferredSession>) => {
+      const session = sessions[idx];
+      setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
+      // Persist immediately for existing (saved) sessions. New sessions in an
+      // edit have no id yet and are handled by their own create flow.
+      if (session?.id) {
+        dataProvider
+          .update("sessions", { id: session.id, data: patch, previousData: {} })
+          .then(() => refresh())
+          .catch((error: any) =>
+            notify(`Error updating session: ${error.message}`, { type: "error" }),
+          );
+      }
     },
-    [],
+    [sessions, dataProvider, notify, refresh],
   );
 
   const handleTrackUpdate = useCallback(
