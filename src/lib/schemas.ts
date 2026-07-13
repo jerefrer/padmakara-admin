@@ -192,6 +192,10 @@ export const updateSessionVideoSchema = z.object({
 export const createTrackSchema = z.object({
   sessionId: z.number().int(),
   title: z.string().min(1).max(200),
+  titleEn: z.string().max(200).optional().nullable(),
+  titlePt: z.string().max(200).optional().nullable(),
+  titleEnReviewed: z.boolean().optional(),
+  titlePtReviewed: z.boolean().optional(),
   trackNumber: z.number().int().min(1),
   languages: z.array(z.string().min(2).max(10)).optional().default(["en"]),
   originalLanguage: z.string().min(2).max(10).optional().default("en"),
@@ -208,6 +212,10 @@ export const createTrackSchema = z.object({
 export const updateTrackSchema = z.object({
   sessionId: z.number().int(),
   title: z.string().min(1).max(200),
+  titleEn: z.string().max(200).nullable(),
+  titlePt: z.string().max(200).nullable(),
+  titleEnReviewed: z.boolean(),
+  titlePtReviewed: z.boolean(),
   trackNumber: z.number().int().min(1),
   languages: z.array(z.string().min(2).max(10)),
   originalLanguage: z.string().min(2).max(10),

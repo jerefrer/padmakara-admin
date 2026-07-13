@@ -211,6 +211,13 @@
       "when": 1810864000000,
       "tag": "0029_session_translation_review_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1810950400000,
+      "tag": "0030_track_title_translations",
+      "breakpoints": true
     }
   ]
 }

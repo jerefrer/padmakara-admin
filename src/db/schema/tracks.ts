@@ -19,6 +19,10 @@ export const tracks = pgTable(
       .notNull()
       .references(() => sessions.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    titleEn: text("title_en"),
+    titlePt: text("title_pt"),
+    titleEnReviewed: boolean("title_en_reviewed").notNull().default(true),
+    titlePtReviewed: boolean("title_pt_reviewed").notNull().default(true),
     trackNumber: integer("track_number").notNull(),
     speaker: text("speaker"),
     languages: text("languages").array().notNull().default(["en"]),
