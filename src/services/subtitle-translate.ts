@@ -198,25 +198,40 @@ import { isAllowedModel } from "./translation-models.js";
 const LABELS: Record<string, string> = { pt: "Português", es: "Español", fr: "Français" };
 
 export async function translateSubtitles(
-  sessionId: number,
+  sessionVideoId: number,
   targetLang: string,
   model: string,
 ): Promise<{ s3Key: string; jobId: string }> {
   if (!isAllowedModel(model)) throw new Error(`Model not allowed: ${model}`);
 
+  const video = await db.query.sessionVideos.findFirst({
+    where: eq(sessionVideos.id, sessionVideoId),
+  });
+  if (!video) throw new Error("Session video not found");
+
   const [job] = await db
     .insert(subtitleJobs)
-    .values({ sessionId, language: targetLang, model, status: "processing", submittedAt: new Date() })
+    .values({
+      sessionId: video.sessionId,
+      sessionVideoId,
+      language: targetLang,
+      model,
+      status: "processing",
+      submittedAt: new Date(),
+    })
     .returning();
 
   if (!job) throw new Error("Failed to create subtitle job");
 
   try {
-    const session = await db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
+    const session = await db.query.sessions.findFirst({ where: eq(sessions.id, video.sessionId) });
     if (!session) throw new Error("Session not found");
 
     const source = await db.query.sessionSubtitles.findFirst({
-      where: and(eq(sessionSubtitles.sessionId, sessionId), eq(sessionSubtitles.language, "en")),
+      where: and(
+        eq(sessionSubtitles.sessionVideoId, sessionVideoId),
+        eq(sessionSubtitles.language, "en"),
+      ),
     });
     if (!source) throw new Error("No English source subtitles to translate");
 
@@ -235,13 +250,14 @@ export async function translateSubtitles(
     const event = await db.query.events.findFirst({ where: eq(events.id, session.eventId) });
     if (!event) throw new Error("Event not found");
 
-    const s3Key = `events/${event.eventCode}/subtitles/${session.sessionNumber}/${targetLang}.vtt`;
+    const s3Key = `events/${event.eventCode}/subtitles/s${session.sessionNumber}/v${sessionVideoId}/${targetLang}.vtt`;
     await putObject(s3Key, Buffer.from(vtt), "text/vtt");
 
     await db
       .insert(sessionSubtitles)
       .values({
-        sessionId,
+        sessionId: video.sessionId,
+        sessionVideoId,
         language: targetLang,
         label: LABELS[targetLang] ?? targetLang,
         s3Key,
@@ -249,24 +265,35 @@ export async function translateSubtitles(
         source: "auto",
       })
       .onConflictDoUpdate({
-        target: [sessionSubtitles.sessionId, sessionSubtitles.language],
+        target: [sessionSubtitles.sessionVideoId, sessionSubtitles.language],
         set: { s3Key, source: "auto", stale: false, updatedAt: new Date() },
       });
 
-    // TODO(multi-video-subtitles): translations are only ever uploaded to
-    // the primary (position 0) session_video's captions.
-    const video = await db.query.sessionVideos.findFirst({
-      where: eq(sessionVideos.sessionId, sessionId),
-      orderBy: (v, { asc }) => [asc(v.position)],
-    });
-
-    if (video?.bunnyVideoId) {
+    if (video.bunnyVideoId) {
       await addCaption(video.bunnyVideoId, targetLang, LABELS[targetLang] ?? targetLang, vtt);
       await db
         .update(sessionSubtitles)
         .set({ bunnyUploadedAt: new Date() })
         .where(
-          and(eq(sessionSubtitles.sessionId, sessionId), eq(sessionSubtitles.language, targetLang)),
+          and(
+            eq(sessionSubtitles.sessionVideoId, sessionVideoId),
+            eq(sessionSubtitles.language, targetLang),
+          ),
+        );
+    }
+
+    // Defensive: if this translation call ever produces an "en" track (not
+    // expected in normal flow, which always translates FROM en), mark this
+    // video's other translations stale since the source just changed.
+    if (targetLang === "en") {
+      await db
+        .update(sessionSubtitles)
+        .set({ stale: true, updatedAt: new Date() })
+        .where(
+          and(
+            eq(sessionSubtitles.sessionVideoId, sessionVideoId),
+            eq(sessionSubtitles.origin, "translation"),
+          ),
         );
     }
 

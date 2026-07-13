@@ -110,12 +110,12 @@ const {
     Promise.resolve({ id: 1, eventId: 1, sessionNumber: 1 }),
   );
   const tsFindFirstSourceSub = vi.fn(() =>
-    Promise.resolve({ language: "en", s3Key: "events/E/subtitles/1/en.vtt" }),
+    Promise.resolve({ language: "en", s3Key: "events/E/subtitles/s1/v1/en.vtt" }),
   );
   const tsFindFirstEvent = vi.fn(() => Promise.resolve({ id: 1, eventCode: "E" }));
-  const tsFindFirstSessionVideo = vi.fn(() =>
-    Promise.resolve({ id: 1, sessionId: 1, position: 0, bunnyVideoId: "vid" }),
-  );
+  const tsFindFirstSessionVideo = vi.fn<
+    () => Promise<{ id: number; sessionId: number; position: number; bunnyVideoId: string } | null>
+  >(() => Promise.resolve({ id: 1, sessionId: 1, position: 0, bunnyVideoId: "vid" }));
 
   // s3 mocks
   const tsMockGetObjectText = vi.fn(() =>
@@ -174,7 +174,7 @@ describe("translateSubtitles", () => {
     vi.clearAllMocks();
     // Re-set default return values after clearAllMocks
     tsFindFirstSession.mockResolvedValue({ id: 1, eventId: 1, sessionNumber: 1 });
-    tsFindFirstSourceSub.mockResolvedValue({ language: "en", s3Key: "events/E/subtitles/1/en.vtt" });
+    tsFindFirstSourceSub.mockResolvedValue({ language: "en", s3Key: "events/E/subtitles/s1/v1/en.vtt" });
     tsFindFirstEvent.mockResolvedValue({ id: 1, eventCode: "E" });
     tsFindFirstSessionVideo.mockResolvedValue({ id: 1, sessionId: 1, position: 0, bunnyVideoId: "vid" });
     tsInsertReturning.mockResolvedValue([{ id: "job-1" }]);
@@ -185,15 +185,23 @@ describe("translateSubtitles", () => {
     tsMockAddCaption.mockResolvedValue(undefined);
   });
 
-  it("translateSubtitles produces a target VTT and uploads it", async () => {
+  it("translateSubtitles produces a target VTT keyed on the session_video and uploads it", async () => {
     const { translateSubtitles } = await import("../../src/services/subtitle-translate.js");
     const out = await translateSubtitles(1, "fr", "claude-opus-4-8");
-    expect(out.s3Key).toContain("/fr.vtt");
+    expect(out.s3Key).toBe("events/E/subtitles/s1/v1/fr.vtt");
     expect(tsMockAddCaption).toHaveBeenCalledWith(
       expect.any(String),
       "fr",
       expect.any(String),
       expect.stringContaining("WEBVTT"),
+    );
+  });
+
+  it("throws when the session_video does not exist", async () => {
+    tsFindFirstSessionVideo.mockResolvedValueOnce(null);
+    const { translateSubtitles } = await import("../../src/services/subtitle-translate.js");
+    await expect(translateSubtitles(999, "fr", "claude-opus-4-8")).rejects.toThrow(
+      "Session video not found",
     );
   });
 });
