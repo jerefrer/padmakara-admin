@@ -257,6 +257,14 @@ function structureToTableValue(s: ProposedStructure): TableValue {
   return {
     sessions: s.sessions.map((sess) => ({
       titleEn: sess.titleEn,
+      // `ProposedSession` (the legacy migration flow's model) has no PT title
+      // or reviewed-state storage — only EventCreate persists those. Default
+      // to blank/reviewed so the shared table's EN/PT editor has somewhere
+      // to write; `tableValueToStructure` below drops them again since
+      // `ProposedSession` doesn't carry them back to the server.
+      titlePt: "",
+      titleEnReviewed: true,
+      titlePtReviewed: true,
       sessionDate: sess.sessionDate,
       timePeriod: sess.timePeriod,
       tracks: sess.tracks.map(buildTableTrack),

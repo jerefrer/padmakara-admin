@@ -43,11 +43,13 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
+import CircularProgress from "@mui/material/CircularProgress";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import CheckIcon from "@mui/icons-material/Check";
-import { useNotify } from "react-admin";
+import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
+import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 
 /** Map keyed by a track's stable key → list of corrections applied to it. */
@@ -90,6 +92,9 @@ export interface TableTrack {
 
 export interface TableSession {
   titleEn: string;
+  titlePt: string;
+  titleEnReviewed: boolean;
+  titlePtReviewed: boolean;
   sessionDate: string | null;
   timePeriod: string | null;
   tracks: TableTrack[];
@@ -594,6 +599,134 @@ const TrackRow = memo(function TrackRow({
   );
 });
 
+// --- Session title EN/PT editor ---------------------------------------------
+
+interface SessionTitleEditorProps {
+  session: TableSession;
+  sIdx: number;
+  onSessionChange: (sessionIdx: number, patch: Partial<TableSession>) => void;
+}
+
+/**
+ * EN/PT session-title editor with a translate-into-the-other-side button,
+ * mirroring the pattern used by `SessionCard` in SessionPreview.tsx (the
+ * edit-flow equivalent). Extracted into its own component — rather than a
+ * single `translating` flag on the table — so each session row's in-flight
+ * translate state is independent; sessions are rendered in a map and a
+ * shared flag would light up every row's spinner at once.
+ */
+function SessionTitleEditor({ session, sIdx, onSessionChange }: SessionTitleEditorProps) {
+  const translate = useTranslate();
+  const notify = useNotify();
+  const [translating, setTranslating] = useState<"titleEn" | "titlePt" | null>(null);
+
+  const translateSide = async (
+    source: "titleEn" | "titlePt",
+    target: "titleEn" | "titlePt",
+    targetReviewed: "titleEnReviewed" | "titlePtReviewed",
+    direction: TranslateDirection,
+  ) => {
+    const text = session[source].trim();
+    if (!text) return;
+    setTranslating(source);
+    try {
+      const out = await translateFields(direction, { [target]: text });
+      onSessionChange(sIdx, {
+        [target]: out[target] ?? "",
+        [targetReviewed]: false,
+      } as Partial<TableSession>);
+    } catch (e: any) {
+      notify(
+        `${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`,
+        { type: "error" },
+      );
+    } finally {
+      setTranslating(null);
+    }
+  };
+
+  return (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5 }}>
+      <TextField
+        size="small"
+        label={translate("padmakara.events.titleEn") || "Session title (EN)"}
+        value={session.titleEn}
+        onChange={(e) =>
+          onSessionChange(sIdx, { titleEn: e.target.value, titleEnReviewed: true })
+        }
+        sx={{ width: "100%" }}
+        slotProps={{ inputLabel: { shrink: true } }}
+      />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Button
+          size="small"
+          variant="text"
+          disabled={!session.titleEn.trim() || translating !== null}
+          startIcon={translating === "titleEn" ? <CircularProgress size={14} /> : undefined}
+          onClick={() => translateSide("titleEn", "titlePt", "titlePtReviewed", "en-to-pt")}
+        >
+          {translate("padmakara.events.translateToPt")}
+        </Button>
+        {!session.titleEnReviewed && (
+          <>
+            <Chip
+              size="small"
+              color="warning"
+              variant="outlined"
+              label={translate("padmakara.events.aiUnreviewed")}
+            />
+            <Button
+              size="small"
+              variant="text"
+              onClick={() => onSessionChange(sIdx, { titleEnReviewed: true })}
+            >
+              {translate("padmakara.events.markReviewed")}
+            </Button>
+          </>
+        )}
+      </Box>
+      <TextField
+        size="small"
+        label={translate("padmakara.events.titlePt") || "Session title (PT)"}
+        value={session.titlePt}
+        onChange={(e) =>
+          onSessionChange(sIdx, { titlePt: e.target.value, titlePtReviewed: true })
+        }
+        sx={{ width: "100%" }}
+        slotProps={{ inputLabel: { shrink: true } }}
+      />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Button
+          size="small"
+          variant="text"
+          disabled={!session.titlePt.trim() || translating !== null}
+          startIcon={translating === "titlePt" ? <CircularProgress size={14} /> : undefined}
+          onClick={() => translateSide("titlePt", "titleEn", "titleEnReviewed", "pt-to-en")}
+        >
+          {translate("padmakara.events.translateToEn")}
+        </Button>
+        {!session.titlePtReviewed && (
+          <>
+            <Chip
+              size="small"
+              color="warning"
+              variant="outlined"
+              label={translate("padmakara.events.aiUnreviewed")}
+            />
+            <Button
+              size="small"
+              variant="text"
+              onClick={() => onSessionChange(sIdx, { titlePtReviewed: true })}
+            >
+              {translate("padmakara.events.markReviewed")}
+            </Button>
+          </>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
 // --- Main component ---------------------------------------------------------
 
 export function SessionTrackTable({
@@ -776,6 +909,9 @@ export function SessionTrackTable({
         ...v.sessions,
         {
           titleEn: "New session",
+          titlePt: "",
+          titleEnReviewed: true,
+          titlePtReviewed: true,
           sessionDate: null,
           timePeriod: "morning",
           tracks: [],
@@ -1004,23 +1140,19 @@ export function SessionTrackTable({
                     }}
                   >
                     <Box
-                      sx={{ display: "flex", gap: 1, alignItems: "center" }}
+                      sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}
                     >
                       <Chip
                         label={`Session ${sIdx + 1}`}
                         size="small"
                         color="primary"
                         variant="outlined"
+                        sx={{ mt: 0.75 }}
                       />
-                      <TextField
-                        size="small"
-                        label="Session title"
-                        value={session.titleEn}
-                        onChange={(e) =>
-                          onSessionChange(sIdx, { titleEn: e.target.value })
-                        }
-                        sx={{ flex: 1 }}
-                        slotProps={{ inputLabel: { shrink: true } }}
+                      <SessionTitleEditor
+                        session={session}
+                        sIdx={sIdx}
+                        onSessionChange={onSessionChange}
                       />
                       <TextField
                         size="small"
@@ -1032,7 +1164,7 @@ export function SessionTrackTable({
                             sessionDate: e.target.value || null,
                           })
                         }
-                        sx={{ width: 165 }}
+                        sx={{ width: 165, mt: 0.25 }}
                         slotProps={{ inputLabel: { shrink: true } }}
                       />
                       <Select
@@ -1043,7 +1175,7 @@ export function SessionTrackTable({
                             timePeriod: String(e.target.value),
                           })
                         }
-                        sx={{ width: 135 }}
+                        sx={{ width: 135, mt: 0.25 }}
                       >
                         {TIME_PERIODS.map((p) => (
                           <MenuItem key={p} value={p}>

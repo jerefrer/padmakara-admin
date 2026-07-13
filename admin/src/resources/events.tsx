@@ -1292,6 +1292,9 @@ function sessionsToTableValue(sessions: InferredSession[]): TableValue {
   return {
     sessions: sessions.map((s) => ({
       titleEn: s.titleEn,
+      titlePt: s.titlePt,
+      titleEnReviewed: s.titleEnReviewed,
+      titlePtReviewed: s.titlePtReviewed,
       sessionDate: s.date,
       timePeriod: s.timePeriod,
       tracks: s.tracks.map((t) => {
@@ -1334,10 +1337,10 @@ function tableValueToSessions(
     for (const t of s.tracks) baseByKey.set(fileKey(t.file), t);
   }
   return tv.sessions.map((s, i) => {
-    // `TableSession` (the table's neutral model) has no titlePt/reviewed
-    // fields — carry them forward from the original session at this index so
-    // editing tracks/title in the table doesn't clobber AI- or DB-sourced PT
-    // titles. A session appended via "+ Add session" has no `original[i]`
+    // `TableSession` now carries titlePt/reviewed fields directly (edited in
+    // the table's EN/PT session-title editor) — prefer those, falling back to
+    // the original session at this index for any field the table row doesn't
+    // have set. A session appended via "+ Add session" has no `original[i]`
     // counterpart, so it gets the same blank/reviewed-true defaults as any
     // other brand-new session.
     const origSession = original[i];
@@ -1346,9 +1349,9 @@ function tableValueToSessions(
       date: s.sessionDate,
       timePeriod: s.timePeriod,
       titleEn: s.titleEn,
-      titlePt: origSession?.titlePt ?? "",
-      titleEnReviewed: origSession?.titleEnReviewed ?? true,
-      titlePtReviewed: origSession?.titlePtReviewed ?? true,
+      titlePt: s.titlePt ?? origSession?.titlePt ?? "",
+      titleEnReviewed: s.titleEnReviewed ?? origSession?.titleEnReviewed ?? true,
+      titlePtReviewed: s.titlePtReviewed ?? origSession?.titlePtReviewed ?? true,
       tracks: s.tracks.map((t) => {
         const base = baseByKey.get(t.key);
         if (!base) throw new Error(`unknown track key ${t.key}`);
