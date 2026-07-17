@@ -15,6 +15,7 @@ import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs } from "../../services/read-along.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
+import { resolveSpeaker, rosterPromptBlock } from "../../services/speaker-resolve.ts";
 
 const eventRoutes = new Hono();
 
@@ -313,14 +314,10 @@ eventRoutes.post("/:id/rename-tracks", async (c) => {
 
   const rowsJson = JSON.stringify(rows, null, 2);
 
-  const rosterList = roster
-    .map((t) => `${t.abbreviation} — ${t.name}`)
-    .join("\n");
-
   const message = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 4096,
-    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.\n\nKnown teachers (abbreviation — name):\n${rosterList}\n\nThe "speaker" field must be an existing teacher's abbreviation from this roster. If the instruction names a teacher by code or by full/partial name, map it to the matching abbreviation. Only if there is no plausible match, return the raw string.`,
+    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.${rosterPromptBlock(roster)}`,
     messages: [
       {
         role: "user",
@@ -377,44 +374,6 @@ eventRoutes.post("/:id/rename-tracks", async (c) => {
 
   return c.json({ suggestions });
 });
-
-/**
- * Resolve a speaker string returned by the AI to an existing teacher's
- * abbreviation. Tries, in order: exact abbreviation match, exact name match,
- * fuzzy name-based contains match. Falls back to the raw string (flagged
- * unmatched) when nothing plausible is found.
- *
- * An empty/whitespace-only string is treated as an intentional "no speaker"
- * value, not a match attempt — matching it against every teacher (via
- * `name.includes("")`) would silently resolve it to the first roster entry.
- *
- * The fuzzy pass never treats the teacher's abbreviation as a substring to
- * search for: real abbreviations are 2 letters (RR, CK, ST, ...), so
- * `query.includes(abbreviation)` over-matches almost any short phrase that
- * happens to contain those two letters together.
- */
-function resolveSpeaker(
-  raw: string,
-  roster: { abbreviation: string; name: string }[],
-): { speaker: string; unmatched?: true } {
-  const q = raw.trim().toLowerCase();
-  if (!q) return { speaker: raw }; // empty = intentional "no speaker", not a match attempt
-  // exact abbreviation
-  let m = roster.find((t) => t.abbreviation.toLowerCase() === q);
-  if (m) return { speaker: m.abbreviation };
-  // exact full name
-  m = roster.find((t) => t.name.toLowerCase() === q);
-  if (m) return { speaker: m.abbreviation };
-  // fuzzy: name-based only (NEVER the short abbreviation as a substring), and only
-  // for queries long enough to be meaningful, to avoid short-substring false matches.
-  if (q.length >= 3) {
-    m = roster.find(
-      (t) => t.name.toLowerCase().includes(q) || q.includes(t.name.toLowerCase()),
-    );
-    if (m) return { speaker: m.abbreviation };
-  }
-  return { speaker: raw, unmatched: true };
-}
 
 // ── Read Along ────────────────────────────────────────────────────────
 

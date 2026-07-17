@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import Anthropic from "@anthropic-ai/sdk";
+import { db } from "../../db/index.ts";
 import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key } from "../../services/s3.ts";
 import { parseTrackFilename, inferSessions } from "../../services/track-parser.ts";
 import { presignUploadSchema, presignTranscriptSchema, inferSessionsSchema, renameTracksSchema } from "../../lib/schemas.ts";
@@ -10,6 +11,7 @@ import {
   buildTusCredentials,
 } from "../../services/bunny.ts";
 import { AppError } from "../../lib/errors.ts";
+import { resolveSpeaker, rosterPromptBlock } from "../../services/speaker-resolve.ts";
 
 const uploadRoutes = new Hono();
 
@@ -155,13 +157,18 @@ uploadRoutes.post("/rename-tracks", async (c) => {
   }
 
   const { instruction, rows } = parsed.data;
+
+  const roster = await db.query.teachers.findMany({
+    columns: { abbreviation: true, name: true },
+  });
+
   const anthropic = new Anthropic({ apiKey });
   const rowsJson = JSON.stringify(rows, null, 2);
 
   const message = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 4096,
-    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.`,
+    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.${rosterPromptBlock(roster)}`,
     messages: [
       {
         role: "user",
@@ -183,18 +190,32 @@ uploadRoutes.post("/rename-tracks", async (c) => {
       .trim();
   }
 
-  let suggestions: { rowKey: string; title?: string; speaker?: string }[];
+  let suggestions: {
+    rowKey: string;
+    title?: string;
+    speaker?: string;
+    speakerUnmatched?: true;
+  }[];
   try {
     const raw: unknown = JSON.parse(responseText);
     if (!Array.isArray(raw)) throw new Error("Expected array");
     suggestions = raw.map((item: unknown) => {
       if (typeof item !== "object" || item === null) throw new Error("Bad item");
       const s = item as Record<string, unknown>;
-      const out: { rowKey: string; title?: string; speaker?: string } = {
+      const out: {
+        rowKey: string;
+        title?: string;
+        speaker?: string;
+        speakerUnmatched?: true;
+      } = {
         rowKey: String(s.rowKey ?? ""),
       };
       if (typeof s.title === "string") out.title = s.title;
-      if (typeof s.speaker === "string") out.speaker = s.speaker;
+      if (typeof s.speaker === "string") {
+        const resolved = resolveSpeaker(s.speaker, roster);
+        out.speaker = resolved.speaker;
+        if (resolved.unmatched) out.speakerUnmatched = true;
+      }
       return out;
     });
   } catch {

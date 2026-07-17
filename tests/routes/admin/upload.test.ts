@@ -12,10 +12,21 @@ vi.mock("../../../src/services/s3.ts", () => ({
   ),
 }));
 
-// db is referenced indirectly via auth/admin middleware paths — mock minimally.
+// db is referenced indirectly via auth/admin middleware paths, and directly
+// by rename-tracks for the teacher roster used in speaker resolution.
 vi.mock("../../../src/db/index.ts", () => ({
   db: {
-    query: { users: { findFirst: vi.fn() } },
+    query: {
+      users: { findFirst: vi.fn() },
+      teachers: {
+        findMany: vi.fn(() =>
+          Promise.resolve([
+            { abbreviation: "PWR", name: "Pema Wangyal Rinpoche" },
+            { abbreviation: "JKR", name: "Jigme Khyentse Rinpoche" },
+          ]),
+        ),
+      },
+    },
     select: vi.fn(),
   },
 }));
@@ -508,5 +519,59 @@ describe("POST /api/admin/upload/rename-tracks", () => {
     });
 
     expect(status).toBe(403);
+  });
+
+  // This is the endpoint the admin create-form UI's AI bulk-edit box actually
+  // calls (SessionTrackTable.tsx), so speaker resolution has to work here —
+  // not only on the unused POST /admin/events/:id/rename-tracks variant.
+  it("keeps an exact teacher abbreviation as-is", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "PWR" }])),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Set speaker to PWR", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
+    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+  });
+
+  it("resolves a full teacher name to its abbreviation", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(
+        JSON.stringify([{ rowKey: "1-1", speaker: "Pema Wangyal Rinpoche" }]),
+      ),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Set speaker to Pema", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
+    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+  });
+
+  it("flags an unmatched speaker with speakerUnmatched: true", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(
+        JSON.stringify([{ rowKey: "1-1", speaker: "Some Unknown Person" }]),
+      ),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "x", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0]).toMatchObject({
+      speaker: "Some Unknown Person",
+      speakerUnmatched: true,
+    });
   });
 });
