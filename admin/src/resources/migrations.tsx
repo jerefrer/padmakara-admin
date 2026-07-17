@@ -242,6 +242,14 @@ function buildTableTrack(t: ProposedTrack): TableTrack {
       uploadFilename: t.originalFilename,
       trackNumber: t.trackNumber,
       title: t.title,
+      // `ProposedTrack` (the legacy migration flow's model) has no EN/PT
+      // title split — default to blank/reviewed so the shared table's EN/PT
+      // editor has somewhere to write; `tableValueToStructure` below drops
+      // them again since `ProposedTrack` doesn't carry them back to the server.
+      titleEn: "",
+      titlePt: "",
+      titleEnReviewed: true,
+      titlePtReviewed: true,
       speaker: t.speaker,
       languages: t.languages,
       originalLanguage: t.originalLanguage,

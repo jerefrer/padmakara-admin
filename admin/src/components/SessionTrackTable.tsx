@@ -50,6 +50,7 @@ import CheckIcon from "@mui/icons-material/Check";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
+import { TranslatableField, useFieldTranslate } from "./TranslatableField";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 
 /** Map keyed by a track's stable key → list of corrections applied to it. */
@@ -83,6 +84,10 @@ export interface TableTrack {
   uploadFilename: string;
   trackNumber: number;
   title: string;
+  titleEn: string;
+  titlePt: string;
+  titleEnReviewed: boolean;
+  titlePtReviewed: boolean;
   speaker: string | null;
   languages: string[];
   originalLanguage: string;
@@ -309,7 +314,7 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
       <TableCell sx={cell}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="body2">{track.title}</Typography>
+            <Typography variant="body2">{track.titleEn || track.titlePt || track.title}</Typography>
             <Typography
               variant="caption"
               sx={{
@@ -362,6 +367,59 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
     </TableRow>
   );
 });
+
+// --- Track title EN/PT editor (table-cell version) --------------------------
+
+interface TrackTitleEditorProps {
+  track: TableTrack;
+  onTrackChange: (key: string, patch: Partial<TableTrack>) => void;
+}
+
+/**
+ * EN/PT track-title editor built on the shared `TranslatableField` +
+ * `useFieldTranslate()` (Task 3). Extracted into its own component — rather
+ * than one `translating` flag on the table — so each row's in-flight
+ * translate state is independent; rows are rendered in a `.map()` and a
+ * shared flag would light up every row's spinner at once (same reasoning as
+ * `SessionTitleEditor` above).
+ */
+function TrackTitleEditor({ track, onTrackChange }: TrackTitleEditorProps) {
+  const translate = useTranslate();
+  const ft = useFieldTranslate();
+
+  return (
+    <>
+      <TranslatableField
+        label={translate("padmakara.events.titleEn") || "Title (English)"}
+        value={track.titleEn}
+        onChange={(v) => onTrackChange(track.key, { titleEn: v, titleEnReviewed: true })}
+        reviewed={track.titleEnReviewed}
+        onMarkReviewed={() => onTrackChange(track.key, { titleEnReviewed: true })}
+        canTranslate={!!track.titlePt.trim()}
+        translatePending={ft.translating}
+        translateTooltip={translate("padmakara.events.translateToEn")}
+        onTranslate={async () => {
+          const out = await ft.translate(track.titlePt, "pt-to-en");
+          if (out != null) onTrackChange(track.key, { titleEn: out, titleEnReviewed: false });
+        }}
+      />
+      <TranslatableField
+        label={translate("padmakara.events.titlePt") || "Title (Portuguese)"}
+        value={track.titlePt}
+        onChange={(v) => onTrackChange(track.key, { titlePt: v, titlePtReviewed: true })}
+        reviewed={track.titlePtReviewed}
+        onMarkReviewed={() => onTrackChange(track.key, { titlePtReviewed: true })}
+        canTranslate={!!track.titleEn.trim()}
+        translatePending={ft.translating}
+        translateTooltip={translate("padmakara.events.translateToPt")}
+        onTranslate={async () => {
+          const out = await ft.translate(track.titleEn, "en-to-pt");
+          if (out != null) onTrackChange(track.key, { titlePt: out, titlePtReviewed: false });
+        }}
+      />
+    </>
+  );
+}
 
 // --- Memoised per-track row (editable) --------------------------------------
 
@@ -418,17 +476,7 @@ const TrackRow = memo(function TrackRow({
       <TableCell sx={{ py: 0.5 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
           <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.5 }}>
-            <TextField
-              size="small"
-              variant="standard"
-              fullWidth
-              label="Title"
-              value={track.title}
-              onChange={(e) =>
-                onTrackChange(track.key, { title: e.target.value })
-              }
-              slotProps={{ inputLabel: { shrink: true } }}
-            />
+            <TrackTitleEditor track={track} onTrackChange={onTrackChange} />
             {editableFilename ? (
               <TextField
                 size="small"
@@ -1274,7 +1322,7 @@ export function SessionTrackTable({
                 >
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography variant="body2">
-                      {track.title || track.uploadFilename}
+                      {track.titleEn || track.titlePt || track.title || track.uploadFilename}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       file: {track.uploadFilename}

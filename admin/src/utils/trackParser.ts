@@ -211,6 +211,14 @@ function formatSessionDate(parsed: { month: string; day: number; year: number | 
   return `${parsed.month} ${parsed.day}`;
 }
 
+/** Heuristic: does this title text read as Portuguese? (diacritics + stopwords) */
+export function detectTitleLanguage(title: string): "en" | "pt" {
+  const t = title.toLowerCase();
+  if (/[ãõáéíóúâêôàç]/.test(t)) return "pt";
+  if (/\b(de|da|do|das|dos|e|para|com|sessão|oração|orações|ensinamentos?)\b/.test(t)) return "pt";
+  return "en";
+}
+
 export function parseTrackFile(file: File): ParsedTrack {
   const filename = file.name;
   const baseName = filename.replace(AUDIO_EXT_RE, "").replace(VIDEO_EXT_RE, "");
@@ -345,10 +353,19 @@ export function parseTrackFile(file: File): ParsedTrack {
 
   if (!title) title = baseName;
 
+  // Pre-fill the EN/PT title fields by detected language, leaving the other
+  // blank — a human-entered filename title is not AI output, so both sides
+  // start reviewed.
+  const _lang = detectTitleLanguage(title);
+
   return {
     trackNumber, speaker, title, language: originalLanguage, isTranslation,
     languages,
     originalLanguage,
+    titleEn: _lang === "en" ? title : "",
+    titlePt: _lang === "pt" ? title : "",
+    titleEnReviewed: true,
+    titlePtReviewed: true,
     date, timePeriod, partNumber, originalFilename: filename, file,
     mediaType,
   };

@@ -87,6 +87,7 @@ import {
   inferSessions,
   parseTrackFile,
   formatSessionTitle,
+  detectTitleLanguage,
 } from "../utils/trackParser";
 import type { AnalysisResult, ScannedFile, TrackCorrection } from "../utils/analyzeFolder";
 
@@ -1189,11 +1190,19 @@ function analysisToInferredSessions(
         corrections.set(fileKey(file), t.corrections);
       }
 
+      // The AI-cleaned display title (in the track's own language), falling
+      // back to the parser's title if the AI didn't touch it. Re-detect the
+      // language from the final title so titleEn/titlePt (pre-filled by
+      // `parsed` from the un-corrected title) land in the same field the
+      // admin actually sees.
+      const finalTitle = t.title || parsed.title;
+      const finalTitleLang = detectTitleLanguage(finalTitle);
+
       return {
         ...parsed,
-        // The AI-cleaned display title (in the track's own language), falling
-        // back to the parser's title if the AI didn't touch it.
-        title: t.title || parsed.title,
+        title: finalTitle,
+        titleEn: finalTitleLang === "en" ? finalTitle : "",
+        titlePt: finalTitleLang === "pt" ? finalTitle : "",
         // Languages come from the authoritative backend parser (carried through
         // the analysis result), which handles multi-language files like
         // [TIB+ENG]. Fall back to the client parse only if absent.
@@ -1303,6 +1312,10 @@ function sessionsToTableValue(sessions: InferredSession[]): TableValue {
             uploadFilename: t.originalFilename,
             trackNumber: t.trackNumber,
             title: t.title,
+            titleEn: t.titleEn ?? "",
+            titlePt: t.titlePt ?? "",
+            titleEnReviewed: t.titleEnReviewed ?? true,
+            titlePtReviewed: t.titlePtReviewed ?? true,
             speaker: t.speaker,
             languages: t.languages,
             originalLanguage: t.originalLanguage,
@@ -1355,6 +1368,10 @@ function tableValueToSessions(
         if (
           base.trackNumber === t.trackNumber &&
           base.title === t.title &&
+          (base.titleEn ?? "") === t.titleEn &&
+          (base.titlePt ?? "") === t.titlePt &&
+          (base.titleEnReviewed ?? true) === t.titleEnReviewed &&
+          (base.titlePtReviewed ?? true) === t.titlePtReviewed &&
           base.speaker === t.speaker &&
           stringArraysEqual(base.languages, t.languages) &&
           base.originalLanguage === t.originalLanguage &&
@@ -1368,6 +1385,10 @@ function tableValueToSessions(
           ...base,
           trackNumber: t.trackNumber,
           title: t.title,
+          titleEn: t.titleEn,
+          titlePt: t.titlePt,
+          titleEnReviewed: t.titleEnReviewed,
+          titlePtReviewed: t.titlePtReviewed,
           speaker: t.speaker,
           languages: t.languages,
           originalLanguage: t.originalLanguage,
@@ -1663,7 +1684,10 @@ export const EventCreate = () => {
               file: track.file,
               filename: track.originalFilename,
               mediaType: "video",
-              title: track.title,
+              // Videos have no titleEn/titlePt split (session_videos carries a
+              // single `title`) — prefer whichever language field the admin
+              // edited in the review table, same as the tracks payload below.
+              title: track.titleEn || track.titlePt || track.title,
               position: videoPositionForSession++,
             });
             continue;
@@ -1673,7 +1697,9 @@ export const EventCreate = () => {
             data: {
               sessionId: createdSession.id,
               trackNumber: track.trackNumber,
-              title: track.title,
+              // The notNull base column always reflects a real title — prefer
+              // whichever language field the admin actually edited.
+              title: track.titleEn || track.titlePt || track.title || "",
               titleEn: track.titleEn || null,
               titlePt: track.titlePt || null,
               titleEnReviewed: track.titleEnReviewed ?? true,
@@ -1989,11 +2015,15 @@ export const EventEdit = () => {
 
   const handleTrackUpdate = useCallback(
     async (trackId: number, updates: Partial<ParsedTrack>) => {
+      // The notNull base column always reflects a real title — prefer
+      // whichever language field the admin actually edited (the base "Title"
+      // input no longer exists in the edit form; see SessionPreview.tsx).
+      const baseTitle = updates.titleEn || updates.titlePt || updates.title;
       try {
         await dataProvider.update("tracks", {
           id: trackId,
           data: {
-            title: updates.title,
+            title: baseTitle,
             titleEn: updates.titleEn,
             titlePt: updates.titlePt,
             titleEnReviewed: updates.titleEnReviewed,
@@ -2016,7 +2046,7 @@ export const EventEdit = () => {
               track.id === trackId
                 ? {
                     ...track,
-                    title: updates.title ?? track.title,
+                    title: baseTitle ?? track.title,
                     titleEn: updates.titleEn ?? track.titleEn,
                     titlePt: updates.titlePt ?? track.titlePt,
                     titleEnReviewed: updates.titleEnReviewed ?? track.titleEnReviewed,

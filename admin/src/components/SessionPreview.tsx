@@ -40,6 +40,7 @@ import {
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
+import { TranslatableField, useFieldTranslate } from "./TranslatableField";
 
 /** Map keyed by track's originalFilename → list of corrections applied to it. */
 export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
@@ -750,7 +751,7 @@ const TrackRow = ({
     speaker: track.speaker || "",
   });
   const [saving, setSaving] = useState(false);
-  const [translatingTitle, setTranslatingTitle] = useState<string | null>(null);
+  const ft = useFieldTranslate();
 
   // Determine icon — prefer the explicit mediaType discriminator (set by parser
   // for video tracks), falling back to format-based detection for legacy rows.
@@ -794,27 +795,6 @@ const TrackRow = ({
       speaker: track.speaker || "",
     });
     setEditing(false);
-  };
-
-  const translateTitleSide = async (
-    source: "titleEn" | "titlePt",
-    target: "titleEn" | "titlePt",
-    targetReviewed: "titleEnReviewed" | "titlePtReviewed",
-    direction: TranslateDirection,
-  ) => {
-    const text = (editValues[source] || "").trim();
-    if (!text) return;
-    setTranslatingTitle(source);
-    try {
-      const out = await translateFields(direction, { [target]: text });
-      setEditValues((prev) => ({ ...prev, [target]: out[target] ?? "", [targetReviewed]: false }));
-    } catch (e: any) {
-      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
-        type: "error",
-      });
-    } finally {
-      setTranslatingTitle(null);
-    }
   };
 
   const handleDelete = async () => {
@@ -886,66 +866,34 @@ const TrackRow = ({
           </Typography>
 
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
-            <TextField
-              size="small"
-              label="Title"
-              value={editValues.title}
-              onChange={(e) =>
-                setEditValues({ ...editValues, title: e.target.value })
-              }
-              autoFocus
-              helperText="Shown to users in the mobile app"
+            <TranslatableField
+              label={translate("padmakara.events.titleEn") || "Title (English)"}
+              value={editValues.titleEn}
+              onChange={(v) => setEditValues({ ...editValues, titleEn: v, titleEnReviewed: true })}
+              reviewed={editValues.titleEnReviewed}
+              onMarkReviewed={() => setEditValues({ ...editValues, titleEnReviewed: true })}
+              canTranslate={!!editValues.titlePt.trim()}
+              translatePending={ft.translating}
+              translateTooltip={translate("padmakara.events.translateToEn")}
+              onTranslate={async () => {
+                const out = await ft.translate(editValues.titlePt, "pt-to-en");
+                if (out != null) setEditValues({ ...editValues, titleEn: out, titleEnReviewed: false });
+              }}
             />
-            {editValues.languages.length > 1 && (
-              <>
-                <TextField
-                  size="small"
-                  label={translate("padmakara.events.titleEn")}
-                  value={editValues.titleEn}
-                  onChange={(e) => setEditValues({ ...editValues, titleEn: e.target.value, titleEnReviewed: true })}
-                  slotProps={{ inputLabel: { shrink: true } }}
-                />
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <Button size="small" variant="text"
-                    disabled={!editValues.titleEn.trim() || translatingTitle !== null}
-                    startIcon={translatingTitle === "titleEn" ? <CircularProgress size={14} /> : undefined}
-                    onClick={() => translateTitleSide("titleEn", "titlePt", "titlePtReviewed", "en-to-pt")}>
-                    {translate("padmakara.events.translateToPt")}
-                  </Button>
-                  {!editValues.titleEnReviewed && (
-                    <>
-                      <Chip size="small" color="warning" variant="outlined" label={translate("padmakara.events.aiUnreviewed")} />
-                      <Button size="small" variant="text" onClick={() => setEditValues({ ...editValues, titleEnReviewed: true })}>
-                        {translate("padmakara.events.markReviewed")}
-                      </Button>
-                    </>
-                  )}
-                </Box>
-                <TextField
-                  size="small"
-                  label={translate("padmakara.events.titlePt")}
-                  value={editValues.titlePt}
-                  onChange={(e) => setEditValues({ ...editValues, titlePt: e.target.value, titlePtReviewed: true })}
-                  slotProps={{ inputLabel: { shrink: true } }}
-                />
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  <Button size="small" variant="text"
-                    disabled={!editValues.titlePt.trim() || translatingTitle !== null}
-                    startIcon={translatingTitle === "titlePt" ? <CircularProgress size={14} /> : undefined}
-                    onClick={() => translateTitleSide("titlePt", "titleEn", "titleEnReviewed", "pt-to-en")}>
-                    {translate("padmakara.events.translateToEn")}
-                  </Button>
-                  {!editValues.titlePtReviewed && (
-                    <>
-                      <Chip size="small" color="warning" variant="outlined" label={translate("padmakara.events.aiUnreviewed")} />
-                      <Button size="small" variant="text" onClick={() => setEditValues({ ...editValues, titlePtReviewed: true })}>
-                        {translate("padmakara.events.markReviewed")}
-                      </Button>
-                    </>
-                  )}
-                </Box>
-              </>
-            )}
+            <TranslatableField
+              label={translate("padmakara.events.titlePt") || "Title (Portuguese)"}
+              value={editValues.titlePt}
+              onChange={(v) => setEditValues({ ...editValues, titlePt: v, titlePtReviewed: true })}
+              reviewed={editValues.titlePtReviewed}
+              onMarkReviewed={() => setEditValues({ ...editValues, titlePtReviewed: true })}
+              canTranslate={!!editValues.titleEn.trim()}
+              translatePending={ft.translating}
+              translateTooltip={translate("padmakara.events.translateToPt")}
+              onTranslate={async () => {
+                const out = await ft.translate(editValues.titleEn, "en-to-pt");
+                if (out != null) setEditValues({ ...editValues, titlePt: out, titlePtReviewed: false });
+              }}
+            />
             <TextField
               size="small"
               label="Source filename (read-only)"
