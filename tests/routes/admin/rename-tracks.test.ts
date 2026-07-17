@@ -242,6 +242,41 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 
+  it("accepts a track with an empty originalFilename (nullable DB column)", async () => {
+    // Regression: `tracks.original_filename` is a nullable DB column, and
+    // EventEdit sends `originalFilename: tk.originalFilename ?? ""` for legacy
+    // tracks with no original filename recorded. The schema used to require
+    // `.min(1)` on both `originalFilename` and `title`, so this legacy shape
+    // failed Zod validation with a 400 before ever reaching the AI service.
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify({ tracks: [] })),
+    );
+
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          instruction: "Fix titles",
+          tracks: [
+            {
+              rowKey: "1-1",
+              originalFilename: "",
+              title: "001 JKR - Opening teachings",
+              speaker: null,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(status).toBe(200);
+    expect((body as any).tracks).toEqual([]);
+    expect(mockMessagesCreate).toHaveBeenCalledOnce();
+  });
+
   it("returns 400 VALIDATION_ERROR for non-JSON body", async () => {
     const token = await adminToken();
     const { status, body } = await testJson(
