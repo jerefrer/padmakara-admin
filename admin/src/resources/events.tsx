@@ -2337,6 +2337,47 @@ export const EventEdit = () => {
     [dataProvider, notify, translate, refresh, sessions]
   );
 
+  /**
+   * Apply an AI-assist suggestion (from `AiAssistPanel`) in edit mode. Event
+   * fields are staged into `form` — persisted when the admin clicks Save.
+   * Session and track suggestions persist immediately through the existing
+   * per-item update handlers (same as any other manual edit in this form).
+   */
+  const handleAiApply = useCallback(async (result: AiAssistResult) => {
+    // Event fields → staged into form; persisted when the admin clicks Save.
+    if (result.event) {
+      setForm((f) => ({
+        ...f,
+        ...result.event,
+        titleEnReviewed: result.event!.titleEn !== undefined ? true : f.titleEnReviewed,
+        titlePtReviewed: result.event!.titlePt !== undefined ? true : f.titlePtReviewed,
+      }));
+    }
+    // Session titles → immediate persist via the existing handler.
+    for (const s of result.sessions) {
+      const idx = sessions.findIndex((x) => String(x.id) === s.rowKey);
+      if (idx < 0) continue;
+      const patch: Record<string, unknown> = {};
+      if (s.titleEn !== undefined) { patch.titleEn = s.titleEn; patch.titleEnReviewed = true; }
+      if (s.titlePt !== undefined) { patch.titlePt = s.titlePt; patch.titlePtReviewed = true; }
+      if (Object.keys(patch).length) await handleSessionTitleChange(idx, patch, { silent: true });
+    }
+    // Tracks → immediate persist via the existing handler.
+    for (const tr of result.tracks) {
+      const trackId = Number(tr.rowKey);
+      if (!Number.isFinite(trackId)) continue;
+      const updates: Record<string, unknown> = {};
+      if (tr.title != null) {
+        const lang = detectTitleLanguage(tr.title);
+        if (lang === "pt") { updates.titlePt = tr.title; updates.titlePtReviewed = true; }
+        else { updates.titleEn = tr.title; updates.titleEnReviewed = true; }
+      }
+      if (tr.speaker != null) updates.speaker = tr.speaker;
+      if (Object.keys(updates).length) await handleTrackUpdate(trackId, updates, { silent: true });
+    }
+    refresh();
+  }, [sessions, handleSessionTitleChange, handleTrackUpdate, refresh]);
+
   const handleTrackDelete = useCallback(
     async (trackId: number) => {
       try {
@@ -2746,6 +2787,29 @@ export const EventEdit = () => {
         trackCount={trackCount}
         transcriptCount={transcriptCount}
       />
+
+      {/* AI-assist: natural-language rename/theme suggestions, applied
+          immediately (sessions/tracks) or staged into `form` (event fields,
+          saved via the Save button) */}
+      {trackCount > 0 && (
+        <AiAssistPanel
+          endpoint={`/api/admin/events/${id}/rename-tracks`}
+          event={{
+            titleEn: form.titleEn, titlePt: form.titlePt,
+            mainThemesEn: form.mainThemesEn, mainThemesPt: form.mainThemesPt,
+            sessionThemesEn: form.sessionThemesEn, sessionThemesPt: form.sessionThemesPt,
+            startDate: form.startDate, endDate: form.endDate,
+          }}
+          sessions={sessions.map((s) => ({ rowKey: String(s.id), titleEn: s.titleEn, titlePt: s.titlePt }))}
+          tracks={sessions.flatMap((s) => s.tracks).map((tk) => ({
+            rowKey: String(tk.id),
+            originalFilename: tk.originalFilename ?? "",
+            title: tk.titleEn || tk.titlePt || tk.title,
+            speaker: tk.speaker ?? "",
+          }))}
+          onApply={handleAiApply}
+        />
+      )}
 
       {/* 6.2 — Add sessions/tracks to an existing event */}
       <Paper sx={{ p: 3, mb: 3 }}>
