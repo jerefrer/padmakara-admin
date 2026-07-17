@@ -85,6 +85,7 @@ import {
   type SessionVideo,
   type FolderMetadata,
   inferSessions,
+  applyFolderSpeakerFallback,
   parseTrackFile,
   formatSessionTitle,
   detectTitleLanguage,
@@ -1626,7 +1627,13 @@ export const EventCreate = () => {
 
       try {
         const out = analysisToInferredSessions(result, files);
-        inferredSessions = out.sessions;
+        // When the folder name resolves to exactly one known teacher and no
+        // filename carries a speaker, attribute every track to that teacher.
+        // (0 matches = folder teacher unknown; >1 = ambiguous — both skip.)
+        const matchedIds = new Set(result.event.matchedTeacherIds.map(Number));
+        const folderTeachers = allTeachers.filter((t) => matchedIds.has(t.id));
+        const folderSpeaker = folderTeachers.length === 1 ? folderTeachers[0]!.abbreviation : null;
+        inferredSessions = applyFolderSpeakerFallback(out.sessions, folderSpeaker);
         newCorrections = out.corrections;
       } catch (err) {
         notify(`Failed to process AI analysis: ${(err as Error).message}`, { type: "error" });
@@ -2462,7 +2469,17 @@ export const EventEdit = () => {
       }
       setAddTracksUploading(true);
       try {
-        const inferredNewSessions = inferSessions(tracks);
+        // Attribute every track to the folder-name teacher when none of the
+        // filenames name a speaker (only if that teacher is a known one).
+        const folderTeacher = meta.teacherAbbrev
+          ? allTeachers.find(
+              (t) => t.abbreviation.toLowerCase() === meta.teacherAbbrev!.toLowerCase(),
+            )
+          : undefined;
+        const inferredNewSessions = applyFolderSpeakerFallback(
+          inferSessions(tracks),
+          folderTeacher?.abbreviation ?? null,
+        );
         const existingSessionNumbers = new Set(sessions.map((s) => s.sessionNumber));
         // Assign new session numbers that don't conflict with existing ones
         const maxExisting = sessions.reduce((m, s) => Math.max(m, s.sessionNumber), 0);

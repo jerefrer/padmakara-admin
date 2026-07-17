@@ -451,6 +451,31 @@ export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
   return sessions;
 }
 
+/**
+ * Folder-name speaker fallback.
+ *
+ * When a dropped folder names its teacher (e.g. "2025-04-17_18-JKR-…") but none
+ * of the track filenames carry a speaker abbreviation, every track is
+ * attributed to that folder teacher. The gate is folder-level and
+ * all-or-nothing: if even one filename already names a speaker, the folder's
+ * filenames are treated as authoritative and nothing is changed (a mixed folder
+ * may carry guest speakers). Returns `sessions` unchanged — same references —
+ * when the fallback does not apply, so callers relying on stable track identity
+ * (memoized table rows) are undisturbed.
+ */
+export function applyFolderSpeakerFallback(
+  sessions: InferredSession[],
+  folderSpeaker: string | null,
+): InferredSession[] {
+  if (!folderSpeaker) return sessions;
+  const anyFilenameSpeaker = sessions.some((s) => s.tracks.some((t) => t.speaker));
+  if (anyFilenameSpeaker) return sessions;
+  return sessions.map((s) => ({
+    ...s,
+    tracks: s.tracks.map((t) => ({ ...t, speaker: folderSpeaker })),
+  }));
+}
+
 /* ───────────── Folder Name Parser ───────────── */
 
 /**
