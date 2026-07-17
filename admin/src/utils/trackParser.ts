@@ -116,6 +116,38 @@ const SESSION_DATE_TOKEN =
   + `|\\d{1,2}(?:st|nd|rd|th)?[\\s_-]+(?:${MONTHS_PATTERN})`
   + `|(?:${MONTHS_PATTERN})[\\s_-]+\\d{1,2}(?:st|nd|rd|th)?)`;
 
+const PERIOD_LABELS: Record<"en" | "pt", Record<string, string>> = {
+  en: { morning: "Morning", afternoon: "Afternoon", evening: "Evening" },
+  pt: { morning: "Manhã", afternoon: "Tarde", evening: "Noite" },
+};
+const MONTHS_EN = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTHS_PT = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+
+/** Localise a session's date+period default title. `date` may be an ISO date
+ *  (YYYY-MM-DD) or an already-formatted string; ISO dates are localised, other
+ *  strings are reused verbatim. */
+export function formatSessionTitle(
+  date: string | null,
+  timePeriod: string | null,
+  partNumber: number | null,
+  lang: "en" | "pt",
+): string {
+  const period = timePeriod ? PERIOD_LABELS[lang][timePeriod] ?? "" : "";
+  let datePart = date ?? "";
+  const iso = date?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    const month = parseInt(iso[2]!, 10) - 1;
+    const day = parseInt(iso[3]!, 10);
+    datePart = lang === "pt"
+      ? `${day} de ${MONTHS_PT[month]}`
+      : `${MONTHS_EN[month]} ${day}`;
+  }
+  let title = datePart && period ? `${datePart} – ${period}` : (datePart || period);
+  if (!title) return lang === "pt" ? "Sessão" : "Session";
+  if (partNumber) title += lang === "pt" ? ` (Parte ${partNumber})` : ` (Part ${partNumber})`;
+  return title;
+}
+
 function normalizeYear(y: string): number {
   const n = parseInt(y, 10);
   if (y.length <= 2) return n >= 70 ? 1900 + n : 2000 + n;
@@ -352,23 +384,15 @@ export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
     // Use an original track for the session title, not a translation
     const sample = groupTracks.find((t) => !t.isTranslation) ?? groupTracks[0]!;
 
-    let titleEn = "";
-    if (sample.date && sample.timePeriod) {
-      const periodLabel = sample.timePeriod === "morning" ? "Morning" : sample.timePeriod === "afternoon" ? "Afternoon" : "Evening";
-      titleEn = `${sample.date} – ${periodLabel}`;
-      if (sample.partNumber) titleEn += ` (Part ${sample.partNumber})`;
-    } else if (sample.date) {
-      titleEn = sample.date;
-    } else {
-      titleEn = `Session ${sessionNumber}`;
-    }
+    const titleEn = formatSessionTitle(sample.date, sample.timePeriod, sample.partNumber, "en");
+    const titlePt = formatSessionTitle(sample.date, sample.timePeriod, sample.partNumber, "pt");
 
     sessions.push({
       sessionNumber,
       date: sample.date,
       timePeriod: sample.timePeriod,
       titleEn,
-      titlePt: "",
+      titlePt,
       titleEnReviewed: true,
       titlePtReviewed: true,
       tracks: groupTracks.sort((a, b) => {
