@@ -519,8 +519,16 @@ interface EventFormProps {
   sessions: InferredSession[];
   transcripts: any[];
   eventFiles: any[];
-  onSessionTitleChange: (idx: number, patch: Partial<InferredSession>) => void;
-  onTrackUpdate?: (trackId: number, updates: Partial<ParsedTrack>) => Promise<void>;
+  onSessionTitleChange: (
+    idx: number,
+    patch: Partial<InferredSession>,
+    opts?: { silent?: boolean },
+  ) => void | Promise<void>;
+  onTrackUpdate?: (
+    trackId: number,
+    updates: Partial<ParsedTrack>,
+    opts?: { silent?: boolean },
+  ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
   /** Deletes one attached video by its session_videos row id. */
@@ -609,6 +617,7 @@ export const EventFormFields = ({
     };
 
   const notify = useNotify();
+  const refresh = useRefresh();
   // Busy while a multi-field batch translate is running — either the global
   // "Translate all" (event fields + session titles) or "Translate all tracks"
   // (edit-view only). Shared with `ft` (the per-field TranslatableField
@@ -678,19 +687,46 @@ export const EventFormFields = ({
         }
         return next;
       });
-      sessions.forEach((_, i) => {
-        const key = `session:${i}:${tgtSessionField}`;
-        if (out[key] != null) {
-          // The computed property keys (`titleEn`/`titlePt` + their
-          // `...Reviewed` companion, chosen by `direction`) are provably one
-          // of the two valid pairs, but TS can't verify a dynamic key against
-          // `Partial<InferredSession>` at this call site.
-          onSessionTitleChange(i, {
-            [tgtSessionField]: out[key],
-            [`${tgtSessionField}Reviewed`]: false,
-          } as Partial<InferredSession>);
+      // Distribute session-title fills through a single batch: each call is
+      // `silent` (no per-item toast/refresh from onSessionTitleChange itself)
+      // so filling e.g. 20 session titles doesn't queue 20 toasts + 20
+      // cache-invalidating refreshes — one combined notify + refresh fires
+      // once the whole batch settles instead.
+      const sessionUpdates = sessions
+        .map((_, i) => {
+          const key = `session:${i}:${tgtSessionField}`;
+          return out[key] != null ? { idx: i, value: out[key] } : null;
+        })
+        .filter((v): v is { idx: number; value: string } => v !== null);
+
+      if (sessionUpdates.length > 0) {
+        const results = await Promise.allSettled(
+          sessionUpdates.map(({ idx, value }) =>
+            Promise.resolve(
+              // The computed property keys (`titleEn`/`titlePt` + their
+              // `...Reviewed` companion, chosen by `direction`) are provably
+              // one of the two valid pairs, but TS can't verify a dynamic key
+              // against `Partial<InferredSession>` at this call site.
+              onSessionTitleChange(
+                idx,
+                {
+                  [tgtSessionField]: value,
+                  [`${tgtSessionField}Reviewed`]: false,
+                } as Partial<InferredSession>,
+                { silent: true },
+              ),
+            ),
+          ),
+        );
+        const failureCount = results.filter((r) => r.status === "rejected").length;
+        const successCount = results.length - failureCount;
+        refresh();
+        if (failureCount > 0) {
+          notify(`Failed to update ${failureCount} session title(s)`, { type: "error" });
+        } else if (successCount > 0) {
+          notify(`Translated ${successCount} session title(s)`, { type: "success" });
         }
-      });
+      }
     } catch (e: any) {
       notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
         type: "error",
@@ -734,19 +770,36 @@ export const EventFormFields = ({
     setBulkBusy(true);
     try {
       const out = await translateFields(direction, items);
-      await Promise.all(
-        targets
-          .filter((t) => out[String(t.trackId)] != null)
-          .map((t) =>
-            // Same dynamic-key situation as `translateAllMissing` above —
-            // `tgtField`/`tgtReviewedField` are one of the two valid pairs,
-            // but the key is computed at runtime so TS can't check it here.
-            onTrackUpdate(t.trackId, {
+      const applicable = targets.filter((t) => out[String(t.trackId)] != null);
+      // Each per-track update is `silent` — no per-item toast/refresh from
+      // handleTrackUpdate — so filling e.g. 20 track titles doesn't queue 20
+      // toasts + 20 cache-invalidating refreshes. One combined notify +
+      // refresh fires once the whole batch settles instead.
+      const results = await Promise.allSettled(
+        applicable.map((t) =>
+          // Same dynamic-key situation as `translateAllMissing` above —
+          // `tgtField`/`tgtReviewedField` are one of the two valid pairs,
+          // but the key is computed at runtime so TS can't check it here.
+          onTrackUpdate(
+            t.trackId,
+            {
               [tgtField]: out[String(t.trackId)],
               [tgtReviewedField]: false,
-            } as Partial<ParsedTrack>),
+            } as Partial<ParsedTrack>,
+            { silent: true },
           ),
+        ),
       );
+      if (results.length > 0) {
+        const failureCount = results.filter((r) => r.status === "rejected").length;
+        const successCount = results.length - failureCount;
+        refresh();
+        if (failureCount > 0) {
+          notify(`Failed to translate ${failureCount} track title(s)`, { type: "error" });
+        } else if (successCount > 0) {
+          notify(`Translated ${successCount} track title(s)`, { type: "success" });
+        }
+      }
     } catch (e: any) {
       notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
         type: "error",
@@ -2104,29 +2157,53 @@ export const EventEdit = () => {
   }, [event?.sessions]);
 
   const handleSessionTitleChange = useCallback(
-    (idx: number, patch: Partial<InferredSession>) => {
+    (idx: number, patch: Partial<InferredSession>, opts?: { silent?: boolean }) => {
       const session = sessions[idx];
       setSessions((prev) => prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)));
       // Persist immediately for existing (saved) sessions. New sessions in an
       // edit have no id yet and are handled by their own create flow.
       if (session?.id) {
-        dataProvider
-          .update("sessions", { id: session.id, data: patch, previousData: {} })
+        const promise = dataProvider.update("sessions", { id: session.id, data: patch, previousData: {} });
+        if (opts?.silent) {
+          // Batch callers (translateAllMissing) handle their own single
+          // refresh/notify after the whole batch settles — let rejections
+          // propagate so Promise.allSettled can count them.
+          return promise.then(() => {});
+        }
+        return promise
           .then(() => refresh())
           .catch((error: any) =>
             notify(`Error updating session: ${error.message}`, { type: "error" }),
           );
       }
+      return undefined;
     },
     [sessions, dataProvider, notify, refresh],
   );
 
   const handleTrackUpdate = useCallback(
-    async (trackId: number, updates: Partial<ParsedTrack>) => {
+    async (trackId: number, updates: Partial<ParsedTrack>, opts?: { silent?: boolean }) => {
+      // Locate the track's current state so a PARTIAL update (e.g. the
+      // "Translate all tracks" batch, which only sends `{ titlePt }`) still
+      // computes the base title from the full picture — otherwise a track
+      // that already has an English title would have its notNull `title`
+      // column overwritten by the Portuguese translation just because the
+      // update itself didn't carry `titleEn`.
+      const track = sessions
+        .flatMap((session) => session.tracks)
+        .find((t) => t.id === trackId);
+
       // The notNull base column always reflects a real title — prefer
-      // whichever language field the admin actually edited (the base "Title"
-      // input no longer exists in the edit form; see SessionPreview.tsx).
-      const baseTitle = updates.titleEn || updates.titlePt || updates.title;
+      // whichever language field is set after merging the update over the
+      // track's existing values, EN winning when both are present (the base
+      // "Title" input no longer exists in the edit form; see SessionPreview.tsx).
+      const merged = {
+        titleEn: updates.titleEn ?? track?.titleEn,
+        titlePt: updates.titlePt ?? track?.titlePt,
+        title: updates.title ?? track?.title,
+      };
+      const baseTitle = merged.titleEn || merged.titlePt || merged.title;
+
       try {
         await dataProvider.update("tracks", {
           id: trackId,
@@ -2150,36 +2227,40 @@ export const EventEdit = () => {
         setSessions((prev) =>
           prev.map((session) => ({
             ...session,
-            tracks: session.tracks.map((track) =>
-              track.id === trackId
+            tracks: session.tracks.map((t) =>
+              t.id === trackId
                 ? {
-                    ...track,
-                    title: baseTitle ?? track.title,
-                    titleEn: updates.titleEn ?? track.titleEn,
-                    titlePt: updates.titlePt ?? track.titlePt,
-                    titleEnReviewed: updates.titleEnReviewed ?? track.titleEnReviewed,
-                    titlePtReviewed: updates.titlePtReviewed ?? track.titlePtReviewed,
-                    originalFilename: updates.originalFilename ?? track.originalFilename,
-                    languages: updates.languages ?? track.languages,
-                    originalLanguage: updates.originalLanguage ?? track.originalLanguage,
-                    isPractice: updates.isPractice ?? track.isPractice,
-                    isTranslation: updates.isTranslation ?? track.isTranslation,
-                    speaker: updates.speaker ?? track.speaker,
+                    ...t,
+                    title: baseTitle ?? t.title,
+                    titleEn: updates.titleEn ?? t.titleEn,
+                    titlePt: updates.titlePt ?? t.titlePt,
+                    titleEnReviewed: updates.titleEnReviewed ?? t.titleEnReviewed,
+                    titlePtReviewed: updates.titlePtReviewed ?? t.titlePtReviewed,
+                    originalFilename: updates.originalFilename ?? t.originalFilename,
+                    languages: updates.languages ?? t.languages,
+                    originalLanguage: updates.originalLanguage ?? t.originalLanguage,
+                    isPractice: updates.isPractice ?? t.isPractice,
+                    isTranslation: updates.isTranslation ?? t.isTranslation,
+                    speaker: updates.speaker ?? t.speaker,
                   }
-                : track
+                : t
             ),
           }))
         );
 
-        notify(translate("padmakara.events.trackUpdated"), { type: "success" });
-        // Invalidate cached event data so changes persist on re-navigation
-        refresh();
+        if (!opts?.silent) {
+          notify(translate("padmakara.events.trackUpdated"), { type: "success" });
+          // Invalidate cached event data so changes persist on re-navigation
+          refresh();
+        }
       } catch (error: any) {
-        notify(`Error updating track: ${error.message}`, { type: "error" });
+        if (!opts?.silent) {
+          notify(`Error updating track: ${error.message}`, { type: "error" });
+        }
         throw error;
       }
     },
-    [dataProvider, notify, translate, refresh]
+    [dataProvider, notify, translate, refresh, sessions]
   );
 
   const handleTrackDelete = useCallback(
