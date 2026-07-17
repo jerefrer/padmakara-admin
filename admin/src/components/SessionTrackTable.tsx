@@ -43,13 +43,11 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import CircularProgress from "@mui/material/CircularProgress";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
-import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "./TranslatableField";
 import { detectTitleLanguage } from "../utils/trackParser";
 import type { TrackCorrection } from "../utils/analyzeFolder";
@@ -657,121 +655,48 @@ interface SessionTitleEditorProps {
 }
 
 /**
- * EN/PT session-title editor with a translate-into-the-other-side button,
- * mirroring the pattern used by `SessionCard` in SessionPreview.tsx (the
- * edit-flow equivalent). Extracted into its own component — rather than a
- * single `translating` flag on the table — so each session row's in-flight
- * translate state is independent; sessions are rendered in a map and a
- * shared flag would light up every row's spinner at once.
+ * EN/PT session-title editor built on the shared `TranslatableField` +
+ * `useFieldTranslate()` (Task 3), mirroring `TrackTitleEditor` above and the
+ * edit-flow equivalent in `SessionCard` (SessionPreview.tsx). Extracted into
+ * its own component — rather than one `translating` flag on the table — so
+ * each session row's in-flight translate state is independent; sessions are
+ * rendered in a map and a shared flag would light up every row's spinner at
+ * once.
  */
 function SessionTitleEditor({ session, sIdx, onSessionChange }: SessionTitleEditorProps) {
   const translate = useTranslate();
-  const notify = useNotify();
-  const [translating, setTranslating] = useState<"titleEn" | "titlePt" | null>(null);
-
-  const translateSide = async (
-    source: "titleEn" | "titlePt",
-    target: "titleEn" | "titlePt",
-    targetReviewed: "titleEnReviewed" | "titlePtReviewed",
-    direction: TranslateDirection,
-  ) => {
-    const text = session[source].trim();
-    if (!text) return;
-    setTranslating(source);
-    try {
-      const out = await translateFields(direction, { [target]: text });
-      onSessionChange(sIdx, {
-        [target]: out[target] ?? "",
-        [targetReviewed]: false,
-      } as Partial<TableSession>);
-    } catch (e: any) {
-      notify(
-        `${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`,
-        { type: "error" },
-      );
-    } finally {
-      setTranslating(null);
-    }
-  };
+  const ft = useFieldTranslate();
 
   return (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5 }}>
-      <TextField
-        size="small"
+      <TranslatableField
         label={translate("padmakara.events.titleEn") || "Session title (EN)"}
         value={session.titleEn}
-        onChange={(e) =>
-          onSessionChange(sIdx, { titleEn: e.target.value, titleEnReviewed: true })
-        }
-        sx={{ width: "100%" }}
-        slotProps={{ inputLabel: { shrink: true } }}
+        onChange={(v) => onSessionChange(sIdx, { titleEn: v, titleEnReviewed: true })}
+        reviewed={session.titleEnReviewed}
+        onMarkReviewed={() => onSessionChange(sIdx, { titleEnReviewed: true })}
+        canTranslate={!!session.titlePt.trim()}
+        translatePending={ft.translating}
+        translateTooltip={translate("padmakara.events.translateToEn")}
+        onTranslate={async () => {
+          const out = await ft.translate(session.titlePt, "pt-to-en");
+          if (out != null) onSessionChange(sIdx, { titleEn: out, titleEnReviewed: false });
+        }}
       />
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <Button
-          size="small"
-          variant="text"
-          disabled={!session.titleEn.trim() || translating !== null}
-          startIcon={translating === "titleEn" ? <CircularProgress size={14} /> : undefined}
-          onClick={() => translateSide("titleEn", "titlePt", "titlePtReviewed", "en-to-pt")}
-        >
-          {translate("padmakara.events.translateToPt")}
-        </Button>
-        {!session.titleEnReviewed && (
-          <>
-            <Chip
-              size="small"
-              color="warning"
-              variant="outlined"
-              label={translate("padmakara.events.aiUnreviewed")}
-            />
-            <Button
-              size="small"
-              variant="text"
-              onClick={() => onSessionChange(sIdx, { titleEnReviewed: true })}
-            >
-              {translate("padmakara.events.markReviewed")}
-            </Button>
-          </>
-        )}
-      </Box>
-      <TextField
-        size="small"
+      <TranslatableField
         label={translate("padmakara.events.titlePt") || "Session title (PT)"}
         value={session.titlePt}
-        onChange={(e) =>
-          onSessionChange(sIdx, { titlePt: e.target.value, titlePtReviewed: true })
-        }
-        sx={{ width: "100%" }}
-        slotProps={{ inputLabel: { shrink: true } }}
+        onChange={(v) => onSessionChange(sIdx, { titlePt: v, titlePtReviewed: true })}
+        reviewed={session.titlePtReviewed}
+        onMarkReviewed={() => onSessionChange(sIdx, { titlePtReviewed: true })}
+        canTranslate={!!session.titleEn.trim()}
+        translatePending={ft.translating}
+        translateTooltip={translate("padmakara.events.translateToPt")}
+        onTranslate={async () => {
+          const out = await ft.translate(session.titleEn, "en-to-pt");
+          if (out != null) onSessionChange(sIdx, { titlePt: out, titlePtReviewed: false });
+        }}
       />
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <Button
-          size="small"
-          variant="text"
-          disabled={!session.titlePt.trim() || translating !== null}
-          startIcon={translating === "titlePt" ? <CircularProgress size={14} /> : undefined}
-          onClick={() => translateSide("titlePt", "titleEn", "titleEnReviewed", "pt-to-en")}
-        >
-          {translate("padmakara.events.translateToEn")}
-        </Button>
-        {!session.titlePtReviewed && (
-          <>
-            <Chip
-              size="small"
-              color="warning"
-              variant="outlined"
-              label={translate("padmakara.events.aiUnreviewed")}
-            />
-            <Button
-              size="small"
-              variant="text"
-              onClick={() => onSessionChange(sIdx, { titlePtReviewed: true })}
-            >
-              {translate("padmakara.events.markReviewed")}
-            </Button>
-          </>
-        )}
-      </Box>
     </Box>
   );
 }

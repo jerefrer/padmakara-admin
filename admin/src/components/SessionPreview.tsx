@@ -20,7 +20,6 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
-import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
@@ -37,7 +36,6 @@ import {
   formatFileSize,
   languageLabel,
 } from "../utils/trackParser";
-import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
 import { TranslatableField, useFieldTranslate } from "./TranslatableField";
@@ -202,35 +200,13 @@ const SessionCard = ({
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
   const translate = useTranslate();
-  const notify = useNotify();
   const [edit, setEdit] = useState({
     titleEn: session.titleEn,
     titlePt: session.titlePt,
     titleEnReviewed: session.titleEnReviewed,
     titlePtReviewed: session.titlePtReviewed,
   });
-  const [translating, setTranslating] = useState<string | null>(null);
-
-  const translateSide = async (
-    source: "titleEn" | "titlePt",
-    target: "titleEn" | "titlePt",
-    targetReviewed: "titleEnReviewed" | "titlePtReviewed",
-    direction: TranslateDirection,
-  ) => {
-    const text = edit[source].trim();
-    if (!text) return;
-    setTranslating(source);
-    try {
-      const out = await translateFields(direction, { [target]: text });
-      setEdit((prev) => ({ ...prev, [target]: out[target] ?? "", [targetReviewed]: false }));
-    } catch (e: any) {
-      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
-        type: "error",
-      });
-    } finally {
-      setTranslating(null);
-    }
-  };
+  const ft = useFieldTranslate();
 
   // Build date chip label with AM/PM inline
   const dateLabel = (() => {
@@ -301,55 +277,34 @@ const SessionCard = ({
 
         {editing ? (
           <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.75 }} onClick={(e) => e.stopPropagation()}>
-            <TextField
-              size="small"
-              label={translate("padmakara.events.titleEn")}
+            <TranslatableField
+              label={translate("padmakara.events.titleEn") || "Session title (EN)"}
               value={edit.titleEn}
-              onChange={(e) => setEdit((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
-              onKeyDown={(e) => e.key === "Enter" && handleSaveTitle()}
-              autoFocus
-              slotProps={{ inputLabel: { shrink: true } }}
+              onChange={(v) => setEdit((p) => ({ ...p, titleEn: v, titleEnReviewed: true }))}
+              reviewed={edit.titleEnReviewed}
+              onMarkReviewed={() => setEdit((p) => ({ ...p, titleEnReviewed: true }))}
+              canTranslate={!!edit.titlePt.trim()}
+              translatePending={ft.translating}
+              translateTooltip={translate("padmakara.events.translateToEn")}
+              onTranslate={async () => {
+                const out = await ft.translate(edit.titlePt, "pt-to-en");
+                if (out != null) setEdit((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+              }}
             />
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Button size="small" variant="text"
-                disabled={!edit.titleEn.trim() || translating !== null}
-                startIcon={translating === "titleEn" ? <CircularProgress size={14} /> : undefined}
-                onClick={() => translateSide("titleEn", "titlePt", "titlePtReviewed", "en-to-pt")}>
-                {translate("padmakara.events.translateToPt")}
-              </Button>
-              {!edit.titleEnReviewed && (
-                <>
-                  <Chip size="small" color="warning" variant="outlined" label={translate("padmakara.events.aiUnreviewed")} />
-                  <Button size="small" variant="text" onClick={() => setEdit((p) => ({ ...p, titleEnReviewed: true }))}>
-                    {translate("padmakara.events.markReviewed")}
-                  </Button>
-                </>
-              )}
-            </Box>
-            <TextField
-              size="small"
-              label={translate("padmakara.events.titlePt")}
+            <TranslatableField
+              label={translate("padmakara.events.titlePt") || "Session title (PT)"}
               value={edit.titlePt}
-              onChange={(e) => setEdit((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
-              onKeyDown={(e) => e.key === "Enter" && handleSaveTitle()}
-              slotProps={{ inputLabel: { shrink: true } }}
+              onChange={(v) => setEdit((p) => ({ ...p, titlePt: v, titlePtReviewed: true }))}
+              reviewed={edit.titlePtReviewed}
+              onMarkReviewed={() => setEdit((p) => ({ ...p, titlePtReviewed: true }))}
+              canTranslate={!!edit.titleEn.trim()}
+              translatePending={ft.translating}
+              translateTooltip={translate("padmakara.events.translateToPt")}
+              onTranslate={async () => {
+                const out = await ft.translate(edit.titleEn, "en-to-pt");
+                if (out != null) setEdit((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+              }}
             />
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Button size="small" variant="text"
-                disabled={!edit.titlePt.trim() || translating !== null}
-                startIcon={translating === "titlePt" ? <CircularProgress size={14} /> : undefined}
-                onClick={() => translateSide("titlePt", "titleEn", "titleEnReviewed", "pt-to-en")}>
-                {translate("padmakara.events.translateToEn")}
-              </Button>
-              {!edit.titlePtReviewed && (
-                <>
-                  <Chip size="small" color="warning" variant="outlined" label={translate("padmakara.events.aiUnreviewed")} />
-                  <Button size="small" variant="text" onClick={() => setEdit((p) => ({ ...p, titlePtReviewed: true }))}>
-                    {translate("padmakara.events.markReviewed")}
-                  </Button>
-                </>
-              )}
-            </Box>
           </Box>
         ) : (
           <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>
