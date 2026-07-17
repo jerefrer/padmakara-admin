@@ -114,6 +114,7 @@ export const en = {
         'or "Set the speaker to JKR on the second session"',
       ask: "Ask AI",
       thinking: "Thinking…",
+      applying: "Applying…",
       reviewTitle: "Proposed changes",
       noChanges: "The AI proposed no changes.",
       apply: "Apply changes",

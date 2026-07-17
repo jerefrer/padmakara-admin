@@ -1802,6 +1802,10 @@ export const EventCreate = () => {
         ...result.event,
         titleEnReviewed: result.event!.titleEn !== undefined ? true : f.titleEnReviewed,
         titlePtReviewed: result.event!.titlePt !== undefined ? true : f.titlePtReviewed,
+        mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? true : f.mainThemesEnReviewed,
+        mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? true : f.mainThemesPtReviewed,
+        sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? true : f.sessionThemesEnReviewed,
+        sessionThemesPtReviewed: result.event!.sessionThemesPt !== undefined ? true : f.sessionThemesPtReviewed,
       }));
     }
     const sessById = new Map(result.sessions.map((s) => [s.rowKey, s]));
@@ -2351,6 +2355,10 @@ export const EventEdit = () => {
         ...result.event,
         titleEnReviewed: result.event!.titleEn !== undefined ? true : f.titleEnReviewed,
         titlePtReviewed: result.event!.titlePt !== undefined ? true : f.titlePtReviewed,
+        mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? true : f.mainThemesEnReviewed,
+        mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? true : f.mainThemesPtReviewed,
+        sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? true : f.sessionThemesEnReviewed,
+        sessionThemesPtReviewed: result.event!.sessionThemesPt !== undefined ? true : f.sessionThemesPtReviewed,
       }));
     }
     // Session titles → immediate persist via the existing handler.

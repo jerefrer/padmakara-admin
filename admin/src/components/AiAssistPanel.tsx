@@ -135,6 +135,7 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
       const data = (await res.json()) as AiAssistResult;
       setResult({ event: data.event, sessions: data.sessions ?? [], tracks: data.tracks ?? [] });
     } catch (e) {
+      // authFetch rejects/throws only Error instances here
       notify(`${t("failed")}: ${(e as Error).message}`, { type: "error" });
     } finally {
       setBusy(false);
@@ -223,7 +224,7 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
                   disabled={applying}
                   sx={{ textTransform: "none" }}
                 >
-                  {applying ? t("thinking") : t("apply")}
+                  {applying ? t("applying") : t("apply")}
                 </Button>
                 <Button variant="text" size="small" onClick={() => setResult(null)} sx={{ textTransform: "none" }}>
                   {t("discard")}

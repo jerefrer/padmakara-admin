@@ -315,6 +315,7 @@ export const pt = {
         'ou "Definir o orador como JKR na segunda sessão"',
       ask: "Perguntar à AI",
       thinking: "A pensar…",
+      applying: "A aplicar…",
       reviewTitle: "Alterações propostas",
       noChanges: "A AI não propôs alterações.",
       apply: "Aplicar alterações",
