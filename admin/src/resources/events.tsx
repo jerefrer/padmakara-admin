@@ -59,6 +59,7 @@ import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
 import { SubtitlePanel } from "../components/SubtitlePanel";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
+import { AiAssistPanel, type AiAssistResult } from "../components/AiAssistPanel";
 import {
   SessionTrackTable,
   type TableValue,
@@ -1788,6 +1789,52 @@ export const EventCreate = () => {
     [form.eventCode, notify, translate],
   );
 
+  /**
+   * Apply an AI-assist suggestion (from `AiAssistPanel`) onto `form` +
+   * `sessions`. Builds new session/track objects but preserves each track's
+   * `.file` reference so `fileKey` — keyed off the `File` object identity via
+   * a `WeakMap` — stays stable across the update.
+   */
+  const handleAiApply = useCallback((result: AiAssistResult) => {
+    if (result.event) {
+      setForm((f) => ({
+        ...f,
+        ...result.event,
+        titleEnReviewed: result.event!.titleEn !== undefined ? true : f.titleEnReviewed,
+        titlePtReviewed: result.event!.titlePt !== undefined ? true : f.titlePtReviewed,
+      }));
+    }
+    const sessById = new Map(result.sessions.map((s) => [s.rowKey, s]));
+    const trackById = new Map(result.tracks.map((t) => [t.rowKey, t]));
+    setSessions((prev) =>
+      prev.map((s, i) => {
+        const sSug = sessById.get(`s${i}`);
+        const nextTitleEn = sSug?.titleEn ?? s.titleEn;
+        const nextTitlePt = sSug?.titlePt ?? s.titlePt;
+        return {
+          ...s,
+          titleEn: nextTitleEn,
+          titlePt: nextTitlePt,
+          titleEnReviewed: sSug?.titleEn !== undefined ? true : s.titleEnReviewed,
+          titlePtReviewed: sSug?.titlePt !== undefined ? true : s.titlePtReviewed,
+          tracks: s.tracks.map((tk) => {
+            const tSug = trackById.get(fileKey(tk.file));
+            if (!tSug) return tk;
+            let next = { ...tk };
+            if (tSug.title != null) {
+              const lang = detectTitleLanguage(tSug.title);
+              next = lang === "pt"
+                ? { ...next, titlePt: tSug.title, titlePtReviewed: true }
+                : { ...next, titleEn: tSug.title, titleEnReviewed: true };
+            }
+            if (tSug.speaker != null) next = { ...next, speaker: tSug.speaker };
+            return next;
+          }),
+        };
+      }),
+    );
+  }, []);
+
   const handleSave = async () => {
     const problems = validateImportEvent({
       eventCode: form.eventCode,
@@ -1972,13 +2019,33 @@ export const EventCreate = () => {
             transcriptCount={0}
           />
 
+          {/* AI-assist: natural-language rename/theme suggestions for the review table below */}
+          {sessions.some((s) => s.tracks.length > 0) && (
+            <AiAssistPanel
+              endpoint="/api/admin/upload/rename-tracks"
+              event={{
+                titleEn: form.titleEn, titlePt: form.titlePt,
+                mainThemesEn: form.mainThemesEn, mainThemesPt: form.mainThemesPt,
+                sessionThemesEn: form.sessionThemesEn, sessionThemesPt: form.sessionThemesPt,
+                startDate: form.startDate, endDate: form.endDate,
+              }}
+              sessions={sessions.map((s, i) => ({ rowKey: `s${i}`, titleEn: s.titleEn, titlePt: s.titlePt }))}
+              tracks={sessions.flatMap((s) => s.tracks).map((tk) => ({
+                rowKey: fileKey(tk.file),
+                originalFilename: tk.originalFilename,
+                title: tk.titleEn || tk.titlePt || tk.title,
+                speaker: tk.speaker ?? "",
+              }))}
+              onApply={handleAiApply}
+            />
+          )}
+
           {/* Review & edit the parsed tracks/sessions before saving */}
           <SessionTrackTable
             value={sessionsToTableValue(sessions)}
             onChange={(tv) => setSessions(tableValueToSessions(tv, sessions))}
             teachers={allTeachers}
             enablePractice
-            enableAiRename
             editableFilename
             trackCorrections={trackCorrections}
           />
