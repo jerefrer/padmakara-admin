@@ -51,6 +51,7 @@ import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "./TranslatableField";
+import { detectTitleLanguage } from "../utils/trackParser";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 
 /** Map keyed by a track's stable key → list of corrections applied to it. */
@@ -1000,7 +1001,7 @@ export function SessionTrackTable({
       ].map((t) => ({
         rowKey: t.key,
         originalFilename: t.uploadFilename,
-        title: t.title,
+        title: t.titleEn || t.titlePt || t.title,
         speaker: t.speaker ?? "",
       }));
       const res = await authFetch("/api/admin/upload/rename-tracks", {
@@ -1019,11 +1020,18 @@ export function SessionTrackTable({
       const applyTo = (t: TableTrack): TableTrack => {
         const sug = byKey.get(t.key);
         if (!sug) return t;
-        return {
-          ...t,
-          title: sug.title ?? t.title,
-          speaker: sug.speaker ?? t.speaker,
-        };
+        let next: TableTrack = { ...t };
+        if (sug.title != null) {
+          const lang = detectTitleLanguage(sug.title);
+          next =
+            lang === "pt"
+              ? { ...next, titlePt: sug.title, titlePtReviewed: true }
+              : { ...next, titleEn: sug.title, titleEnReviewed: true };
+        }
+        if (sug.speaker != null) {
+          next = { ...next, speaker: sug.speaker };
+        }
+        return next;
       };
       const next: TableValue = {
         sessions: v2.sessions.map((s) => ({
