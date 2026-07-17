@@ -106,6 +106,25 @@ export const en = {
       deleting: "Deleting...",
       deleteEvent: "Delete Event",
     },
+    aiAssist: {
+      heading: "AI assistant",
+      caption: "Describe a change to apply to this event, its sessions and tracks",
+      placeholder:
+        'e.g. "Title-case every track title", "Remove the speaker initials", ' +
+        'or "Set the speaker to JKR on the second session"',
+      ask: "Ask AI",
+      thinking: "Thinking…",
+      reviewTitle: "Proposed changes",
+      noChanges: "The AI proposed no changes.",
+      apply: "Apply changes",
+      discard: "Discard",
+      sectionEvent: "Event",
+      sectionSessions: "Sessions",
+      sectionTracks: "Tracks",
+      unmatchedSpeaker: "unmatched — review",
+      applied: "AI changes applied — remember to save",
+      failed: "AI request failed",
+    },
     fields: {
       nameEn: "Name (EN)",
       namePt: "Name (PT)",

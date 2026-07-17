@@ -307,6 +307,25 @@ export const pt = {
       deleting: "A eliminar...",
       deleteEvent: "Eliminar Evento",
     },
+    aiAssist: {
+      heading: "Assistente AI",
+      caption: "Descreva uma alteração a aplicar a este evento, às suas sessões e faixas",
+      placeholder:
+        'ex.: "Capitalizar todos os títulos das faixas", "Remover as iniciais do orador", ' +
+        'ou "Definir o orador como JKR na segunda sessão"',
+      ask: "Perguntar à AI",
+      thinking: "A pensar…",
+      reviewTitle: "Alterações propostas",
+      noChanges: "A AI não propôs alterações.",
+      apply: "Aplicar alterações",
+      discard: "Descartar",
+      sectionEvent: "Evento",
+      sectionSessions: "Sessões",
+      sectionTracks: "Faixas",
+      unmatchedSpeaker: "sem correspondência — reveja",
+      applied: "Alterações da AI aplicadas — não se esqueça de guardar",
+      failed: "Pedido à AI falhou",
+    },
     fields: {
       nameEn: "Nome (EN)",
       namePt: "Nome (PT)",
