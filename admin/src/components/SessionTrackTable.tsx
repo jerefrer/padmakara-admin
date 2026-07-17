@@ -47,10 +47,8 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import { useNotify, useTranslate } from "react-admin";
-import { authFetch } from "../utils/authFetch";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "./TranslatableField";
-import { detectTitleLanguage } from "../utils/trackParser";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 
 /** Map keyed by a track's stable key → list of corrections applied to it. */
@@ -138,8 +136,6 @@ interface SessionTrackTableProps {
   enableIgnore?: boolean;
   /** Show the per-track "practice" checkbox column. */
   enablePractice?: boolean;
-  /** Show the AI title-cleanup box (POSTs /api/admin/upload/rename-tracks). */
-  enableAiRename?: boolean;
   /** Allow editing each track's filename (the future S3 key). Only safe
    *  pre-upload (EventCreate); the migration flow's files already live on S3,
    *  so it leaves this off and shows the filename read-only. */
@@ -147,12 +143,6 @@ interface SessionTrackTableProps {
   /** When provided, tracks whose `key` matches get an AI-correction badge
    *  with a tooltip listing the diffs. */
   trackCorrections?: TrackCorrectionsMap;
-}
-
-interface AiSuggestion {
-  rowKey: string;
-  title?: string;
-  speaker?: string;
 }
 
 const HEADER_CELL = {
@@ -720,14 +710,11 @@ export function SessionTrackTable({
   teachers,
   enableIgnore = false,
   enablePractice = false,
-  enableAiRename = false,
   editableFilename = false,
   trackCorrections,
 }: SessionTrackTableProps) {
   const notify = useNotify();
   const [ignoredOpen, setIgnoredOpen] = useState(false);
-  const [aiInstruction, setAiInstruction] = useState("");
-  const [applyingAi, setApplyingAi] = useState(false);
   // Bulk language assignment — most events are uniform (every track TIB+ENG,
   // or every track ENG+PT), so one control sets the languages on all tracks.
   const [bulkLangs, setBulkLangs] = useState<string[]>([]);
@@ -936,7 +923,7 @@ export function SessionTrackTable({
    * translate request — the create-flow equivalent of `EventFormFields`'s
    * `translateAllTracks`, which instead calls the edit-flow's per-track
    * `onTrackUpdate`. Here the whole table is local state, so — like
-   * `applyBulkLanguages`/`handleApplyAi` above — the entire new `TableValue`
+   * `applyBulkLanguages` above — the entire new `TableValue`
    * is built in one pass from a single fresh read of `valueRef.current` and
    * applied with one `onChangeRef.current(next)` call; calling `onTrackChange`
    * once per track would silently drop all but the last update, since each
@@ -988,123 +975,12 @@ export function SessionTrackTable({
     [notify, translate],
   );
 
-  const handleApplyAi = useCallback(async () => {
-    const instruction = aiInstruction.trim();
-    if (!instruction) return;
-    setApplyingAi(true);
-    try {
-      const v = valueRef.current;
-      const rows = [
-        ...v.sessions.flatMap((s) => s.tracks),
-        ...v.ignored,
-      ].map((t) => ({
-        rowKey: t.key,
-        originalFilename: t.uploadFilename,
-        title: t.titleEn || t.titlePt || t.title,
-        speaker: t.speaker ?? "",
-      }));
-      const res = await authFetch("/api/admin/upload/rename-tracks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction, rows }),
-      });
-      if (!res.ok) {
-        throw new Error(`${res.status}: ${await res.text()}`);
-      }
-      const { suggestions } = (await res.json()) as {
-        suggestions: AiSuggestion[];
-      };
-      const byKey = new Map(suggestions.map((s) => [s.rowKey, s]));
-      const v2 = valueRef.current;
-      const applyTo = (t: TableTrack): TableTrack => {
-        const sug = byKey.get(t.key);
-        if (!sug) return t;
-        let next: TableTrack = { ...t };
-        if (sug.title != null) {
-          const lang = detectTitleLanguage(sug.title);
-          next =
-            lang === "pt"
-              ? { ...next, titlePt: sug.title, titlePtReviewed: true }
-              : { ...next, titleEn: sug.title, titleEnReviewed: true };
-        }
-        if (sug.speaker != null) {
-          next = { ...next, speaker: sug.speaker };
-        }
-        return next;
-      };
-      const next: TableValue = {
-        sessions: v2.sessions.map((s) => ({
-          ...s,
-          tracks: s.tracks.map(applyTo),
-        })),
-        ignored: v2.ignored.map(applyTo),
-      };
-      onChangeRef.current(next);
-      notify("AI suggestions applied — review before saving", { type: "info" });
-    } catch (e) {
-      notify(`AI suggestion failed: ${(e as Error).message}`, {
-        type: "error",
-      });
-    } finally {
-      setApplyingAi(false);
-    }
-  }, [aiInstruction, notify]);
-
   // Columns: # | Title/Filename | Speaker | Lang | Trans | [Prac] | Actions
   const colCount = enablePractice ? 7 : 6;
   const sessionCount = value.sessions.length;
 
   return (
     <>
-      {/* AI bulk-edit card — visually distinct from the plain form fields so
-          it reads as an AI action, not just another input. */}
-      {enableAiRename && (
-        <Paper
-          variant="outlined"
-          sx={{
-            p: 2,
-            mb: 2,
-            borderColor: "rgba(91,94,166,0.35)",
-            background:
-              "linear-gradient(135deg, rgba(91,94,166,0.07), rgba(91,94,166,0.02))",
-          }}
-        >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.25 }}>
-            <AutoAwesomeIcon sx={{ color: "primary.main", fontSize: 20 }} />
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              AI bulk edit
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Describe a change to apply across all titles below
-            </Typography>
-          </Box>
-          <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-            <TextField
-              fullWidth
-              size="small"
-              multiline
-              minRows={3}
-              maxRows={6}
-              placeholder={
-                'e.g. "Capitalise every title in Title Case" or ' +
-                '"Remove the speaker initials from the titles"'
-              }
-              value={aiInstruction}
-              onChange={(e) => setAiInstruction(e.target.value)}
-              sx={{ backgroundColor: "background.paper", borderRadius: 1 }}
-            />
-            <Button
-              variant="contained"
-              startIcon={<AutoAwesomeIcon />}
-              onClick={() => void handleApplyAi()}
-              disabled={applyingAi || aiInstruction.trim() === ""}
-              sx={{ flexShrink: 0, minWidth: 120, textTransform: "none", borderRadius: 2 }}
-            >
-              {applyingAi ? "Applying…" : "Apply"}
-            </Button>
-          </Box>
-        </Paper>
-      )}
     <Paper sx={{ mb: 3 }}>
       {/* Bulk language bar — set the language(s) on every track at once, for
           the common case where a whole event is in the same language(s). */}
