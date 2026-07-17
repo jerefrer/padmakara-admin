@@ -14,7 +14,17 @@ import { testJson } from "../../helpers.ts";
 
 vi.mock("../../../src/db/index.ts", () => ({
   db: {
-    query: { users: { findFirst: vi.fn() } },
+    query: {
+      users: { findFirst: vi.fn() },
+      teachers: {
+        findMany: vi.fn(() =>
+          Promise.resolve([
+            { abbreviation: "PWR", name: "Pema Wangyal Rinpoche" },
+            { abbreviation: "JKR", name: "Jigme Khyentse Rinpoche" },
+          ]),
+        ),
+      },
+    },
     select: vi.fn(),
   },
 }));
@@ -250,5 +260,67 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     });
 
     expect(status).toBe(403);
+  });
+
+  it("keeps an exact teacher abbreviation as-is", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "PWR" }])),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Set speaker to PWR", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
+    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+  });
+
+  it("resolves a full teacher name to its abbreviation", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "Pema Wangyal Rinpoche" }])),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Set speaker to Pema", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
+    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+  });
+
+  it("resolves a partial, differently-cased teacher name to its abbreviation", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "pema wangyal" }])),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Set speaker to pema wangyal", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
+    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+  });
+
+  it("flags an unmatched speaker", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "Some Unknown Person" }])),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "x", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0]).toMatchObject({
+      speaker: "Some Unknown Person",
+      speakerUnmatched: true,
+    });
   });
 });

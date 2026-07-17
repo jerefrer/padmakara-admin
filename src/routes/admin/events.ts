@@ -9,6 +9,7 @@ import {
   eventPlaces,
 } from "../../db/schema/retreats.ts";
 import { eventPublications } from "../../db/schema/publications.ts";
+import { teachers } from "../../db/schema/teachers.ts";
 import { createEventSchema, updateEventSchema, renameTracksSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
@@ -304,14 +305,22 @@ eventRoutes.post("/:id/rename-tracks", async (c) => {
 
   const { instruction, rows } = parsed.data;
 
+  const roster = await db.query.teachers.findMany({
+    columns: { abbreviation: true, name: true },
+  });
+
   const anthropic = new Anthropic({ apiKey });
 
   const rowsJson = JSON.stringify(rows, null, 2);
 
+  const rosterList = roster
+    .map((t) => `${t.abbreviation} — ${t.name}`)
+    .join("\n");
+
   const message = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 4096,
-    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.`,
+    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.\n\nKnown teachers (abbreviation — name):\n${rosterList}\n\nThe "speaker" field must be an existing teacher's abbreviation from this roster. If the instruction names a teacher by code or by full/partial name, map it to the matching abbreviation. Only if there is no plausible match, return the raw string.`,
     messages: [
       {
         role: "user",
@@ -334,18 +343,32 @@ eventRoutes.post("/:id/rename-tracks", async (c) => {
       .trim();
   }
 
-  let suggestions: { rowKey: string; title?: string; speaker?: string }[];
+  let suggestions: {
+    rowKey: string;
+    title?: string;
+    speaker?: string;
+    speakerUnmatched?: true;
+  }[];
   try {
     const raw: unknown = JSON.parse(responseText);
     if (!Array.isArray(raw)) throw new Error("Expected array");
     suggestions = raw.map((item: unknown) => {
       if (typeof item !== "object" || item === null) throw new Error("Bad item");
       const s = item as Record<string, unknown>;
-      const out: { rowKey: string; title?: string; speaker?: string } = {
+      const out: {
+        rowKey: string;
+        title?: string;
+        speaker?: string;
+        speakerUnmatched?: true;
+      } = {
         rowKey: String(s.rowKey ?? ""),
       };
       if (typeof s.title === "string") out.title = s.title;
-      if (typeof s.speaker === "string") out.speaker = s.speaker;
+      if (typeof s.speaker === "string") {
+        const resolved = resolveSpeaker(s.speaker, roster);
+        out.speaker = resolved.speaker;
+        if (resolved.unmatched) out.speakerUnmatched = true;
+      }
       return out;
     });
   } catch {
@@ -354,6 +377,34 @@ eventRoutes.post("/:id/rename-tracks", async (c) => {
 
   return c.json({ suggestions });
 });
+
+/**
+ * Resolve a speaker string returned by the AI to an existing teacher's
+ * abbreviation. Tries, in order: exact abbreviation match, exact name match,
+ * fuzzy contains match. Falls back to the raw string (flagged unmatched)
+ * when nothing plausible is found.
+ */
+function resolveSpeaker(
+  raw: string,
+  roster: { abbreviation: string; name: string }[],
+): { speaker: string; unmatched?: true } {
+  const q = raw.trim().toLowerCase();
+  // exact abbreviation
+  let m = roster.find((t) => t.abbreviation.toLowerCase() === q);
+  if (m) return { speaker: m.abbreviation };
+  // exact name
+  m = roster.find((t) => t.name.toLowerCase() === q);
+  if (m) return { speaker: m.abbreviation };
+  // contains / partial (name contains query or query contains name/abbr)
+  m = roster.find(
+    (t) =>
+      t.name.toLowerCase().includes(q) ||
+      q.includes(t.name.toLowerCase()) ||
+      q.includes(t.abbreviation.toLowerCase()),
+  );
+  if (m) return { speaker: m.abbreviation };
+  return { speaker: raw, unmatched: true };
+}
 
 // ── Read Along ────────────────────────────────────────────────────────
 
