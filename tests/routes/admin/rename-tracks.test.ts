@@ -43,7 +43,12 @@ vi.mock("@anthropic-ai/sdk", () => {
   return { default: MockAnthropic };
 });
 
+import { db } from "../../../src/db/index.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
+
+const mockTeachersFindMany = (db as any).query.teachers.findMany as ReturnType<
+  typeof vi.fn
+>;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -320,6 +325,52 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(status).toBe(200);
     expect((body as any).suggestions[0]).toMatchObject({
       speaker: "Some Unknown Person",
+      speakerUnmatched: true,
+    });
+  });
+
+  it("does not resolve an empty speaker to the first teacher in the roster", async () => {
+    // Regression: `"".trim()` -> `""`, and `name.includes("")` is true for
+    // every teacher, so an empty speaker used to silently resolve to
+    // whichever teacher happened to be first in the roster (PWR).
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "" }])),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "Clear the speaker", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0].speaker).toBe("");
+    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+  });
+
+  it("does not misattribute a speaker via a short abbreviation substring match", async () => {
+    // Regression: `q.includes(t.abbreviation.toLowerCase())` over-matched
+    // because real abbreviations are 2 letters (RR, CK, ST). The phrase below
+    // contains "st" (inside "history") but is not about the "ST" teacher —
+    // under the old logic this silently resolved to "ST".
+    mockTeachersFindMany.mockResolvedValueOnce([
+      { abbreviation: "PWR", name: "Pema Wangyal Rinpoche" },
+      { abbreviation: "JKR", name: "Jigme Khyentse Rinpoche" },
+      { abbreviation: "ST", name: "Sonam Thaye Rinpoche" },
+    ]);
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(
+        JSON.stringify([{ rowKey: "1-1", speaker: "History of the lineage" }]),
+      ),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ instruction: "x", rows: VALID_ROWS }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).suggestions[0]).toMatchObject({
+      speaker: "History of the lineage",
       speakerUnmatched: true,
     });
   });

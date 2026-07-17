@@ -288,7 +288,7 @@ eventRoutes.delete("/:id", async (c) => {
  * can review before committing.
  *
  * Body: { instruction: string, rows: { rowKey, originalFilename, title, speaker }[] }
- * Response: { suggestions: { rowKey, title?, speaker? }[] }
+ * Response: { suggestions: { rowKey, title?, speaker?, speakerUnmatched? }[] }
  */
 eventRoutes.post("/:id/rename-tracks", async (c) => {
   const parsed = renameTracksSchema.safeParse(
@@ -381,28 +381,38 @@ eventRoutes.post("/:id/rename-tracks", async (c) => {
 /**
  * Resolve a speaker string returned by the AI to an existing teacher's
  * abbreviation. Tries, in order: exact abbreviation match, exact name match,
- * fuzzy contains match. Falls back to the raw string (flagged unmatched)
- * when nothing plausible is found.
+ * fuzzy name-based contains match. Falls back to the raw string (flagged
+ * unmatched) when nothing plausible is found.
+ *
+ * An empty/whitespace-only string is treated as an intentional "no speaker"
+ * value, not a match attempt — matching it against every teacher (via
+ * `name.includes("")`) would silently resolve it to the first roster entry.
+ *
+ * The fuzzy pass never treats the teacher's abbreviation as a substring to
+ * search for: real abbreviations are 2 letters (RR, CK, ST, ...), so
+ * `query.includes(abbreviation)` over-matches almost any short phrase that
+ * happens to contain those two letters together.
  */
 function resolveSpeaker(
   raw: string,
   roster: { abbreviation: string; name: string }[],
 ): { speaker: string; unmatched?: true } {
   const q = raw.trim().toLowerCase();
+  if (!q) return { speaker: raw }; // empty = intentional "no speaker", not a match attempt
   // exact abbreviation
   let m = roster.find((t) => t.abbreviation.toLowerCase() === q);
   if (m) return { speaker: m.abbreviation };
-  // exact name
+  // exact full name
   m = roster.find((t) => t.name.toLowerCase() === q);
   if (m) return { speaker: m.abbreviation };
-  // contains / partial (name contains query or query contains name/abbr)
-  m = roster.find(
-    (t) =>
-      t.name.toLowerCase().includes(q) ||
-      q.includes(t.name.toLowerCase()) ||
-      q.includes(t.abbreviation.toLowerCase()),
-  );
-  if (m) return { speaker: m.abbreviation };
+  // fuzzy: name-based only (NEVER the short abbreviation as a substring), and only
+  // for queries long enough to be meaningful, to avoid short-substring false matches.
+  if (q.length >= 3) {
+    m = roster.find(
+      (t) => t.name.toLowerCase().includes(q) || q.includes(t.name.toLowerCase()),
+    );
+    if (m) return { speaker: m.abbreviation };
+  }
   return { speaker: raw, unmatched: true };
 }
 
