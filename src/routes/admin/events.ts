@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { eq, and, or, like, ilike, inArray, isNull, sql } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../../db/index.ts";
 import {
   events,
@@ -15,7 +14,7 @@ import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs } from "../../services/read-along.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
-import { resolveSpeaker, rosterPromptBlock } from "../../services/speaker-resolve.ts";
+import { renameTracks } from "../../services/ai-assist.ts";
 
 const eventRoutes = new Hono();
 
@@ -292,87 +291,18 @@ eventRoutes.delete("/:id", async (c) => {
  * Response: { suggestions: { rowKey, title?, speaker?, speakerUnmatched? }[] }
  */
 eventRoutes.post("/:id/rename-tracks", async (c) => {
-  const parsed = renameTracksSchema.safeParse(
-    await c.req.json().catch(() => null),
-  );
+  const parsed = renameTracksSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
   }
-
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw AppError.internal("ANTHROPIC_API_KEY not configured");
-  }
-
-  const { instruction, rows } = parsed.data;
+  if (!apiKey) throw AppError.internal("ANTHROPIC_API_KEY not configured");
 
   const roster = await db.query.teachers.findMany({
     columns: { abbreviation: true, name: true },
   });
-
-  const anthropic = new Anthropic({ apiKey });
-
-  const rowsJson = JSON.stringify(rows, null, 2);
-
-  const message = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 4096,
-    system: `You are helping a Buddhist retreat administrator clean up audio track titles for a content management system. You will receive a list of track rows and a plain-English instruction. Apply the instruction to the rows and return suggested edits as a JSON array. Each element has "rowKey" (unchanged) and optionally "title" and/or "speaker" with the suggested new values. Only include fields that should change. Return only the JSON array, no markdown fences, no prose.${rosterPromptBlock(roster)}`,
-    messages: [
-      {
-        role: "user",
-        content: `Instruction: ${instruction}\n\nRows:\n${rowsJson}`,
-      },
-    ],
-  });
-
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw AppError.internal("No text response from AI API");
-  }
-
-  let responseText = textBlock.text.trim();
-  // Strip markdown code fences if present
-  if (responseText.startsWith("```")) {
-    responseText = responseText
-      .replace(/^```(?:json)?\n?/, "")
-      .replace(/\n?```$/, "")
-      .trim();
-  }
-
-  let suggestions: {
-    rowKey: string;
-    title?: string;
-    speaker?: string;
-    speakerUnmatched?: true;
-  }[];
-  try {
-    const raw: unknown = JSON.parse(responseText);
-    if (!Array.isArray(raw)) throw new Error("Expected array");
-    suggestions = raw.map((item: unknown) => {
-      if (typeof item !== "object" || item === null) throw new Error("Bad item");
-      const s = item as Record<string, unknown>;
-      const out: {
-        rowKey: string;
-        title?: string;
-        speaker?: string;
-        speakerUnmatched?: true;
-      } = {
-        rowKey: String(s.rowKey ?? ""),
-      };
-      if (typeof s.title === "string") out.title = s.title;
-      if (typeof s.speaker === "string") {
-        const resolved = resolveSpeaker(s.speaker, roster);
-        out.speaker = resolved.speaker;
-        if (resolved.unmatched) out.speakerUnmatched = true;
-      }
-      return out;
-    });
-  } catch {
-    throw AppError.internal("Failed to parse AI rename response");
-  }
-
-  return c.json({ suggestions });
+  const result = await renameTracks({ ...parsed.data, roster, apiKey });
+  return c.json(result);
 });
 
 // ── Read Along ────────────────────────────────────────────────────────
