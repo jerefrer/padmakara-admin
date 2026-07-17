@@ -1176,33 +1176,6 @@ export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
 /* ───────────── Event Create ───────────── */
 
 /**
- * Detects whether `title` is exactly the deterministic "date – period"
- * default format (optionally with a "(Part N)" suffix) for the given
- * date/period — i.e. what `track-analysis.ts`'s `deterministicPrePass` seeds
- * `titleEn`/`titlePt` with before any AI translation runs (it copies
- * `titleEn` into `titlePt` verbatim — see that file). Genuine AI-authored
- * content titles won't coincidentally match this exact formatted string, so
- * this is a safe way to tell a formulaic default from real content without
- * ever misclassifying — and therefore overwriting — an AI translation.
- * Returns the part number (or `null` if none) when it matches, `undefined`
- * otherwise.
- */
-function matchesFormulaicDefaultTitle(
-  title: string,
-  date: string | null,
-  timePeriod: string | null,
-): number | null | undefined {
-  if (!date || !timePeriod) return undefined;
-  if (formatSessionTitle(date, timePeriod, null, "en") === title) return null;
-  const partMatch = title.match(/^(.*) \(Part (\d+)\)$/);
-  if (partMatch) {
-    const partNumber = parseInt(partMatch[2]!, 10);
-    if (formatSessionTitle(date, timePeriod, partNumber, "en") === title) return partNumber;
-  }
-  return undefined;
-}
-
-/**
  * Convert an AnalysisResult + ScannedFile[] into InferredSession[] and a
  * corrections map. The corrections map is keyed by corrected filename
  * (which becomes the canonical `originalFilename` stored in the DB).
@@ -1261,34 +1234,39 @@ function analysisToInferredSessions(
       } satisfies ParsedTrack;
     });
 
-    // The AI analysis normally proposes a genuine PT title alongside the EN
-    // one (see `AnalysisSession` in analyzeFolder.ts) — carry those through
-    // as-is. But when a chunk had no AI coverage, the backend's deterministic
-    // pre-pass seeds `titlePt` as an untranslated copy of `titleEn`
-    // (track-analysis.ts `deterministicPrePass`). Detect that specific
-    // "date + period" formulaic default and relocalize both fields instead of
-    // shipping an English string in the PT slot — this never touches a
-    // genuine AI-authored content title, since those won't coincidentally
-    // match the formatter's exact output.
-    const defaultPartNumber = s.titleEn === s.titlePt
-      ? matchesFormulaicDefaultTitle(s.titleEn, s.sessionDate, s.timePeriod)
-      : undefined;
-    const isFormulaicDefault = defaultPartNumber !== undefined;
+    // The AI-analysis path never authors real session titles: whenever a
+    // session carries a date or time period, `titleEn`/`titlePt` are always
+    // the deterministic date/period default (see `track-analysis.ts`
+    // `deterministicPrePass`), so regenerate both from `formatSessionTitle`
+    // directly rather than trusting whatever arrived in those fields — this
+    // is what keeps the PT title from ending up as an untranslated English
+    // date string. The canonical format needs no human review. A session
+    // with neither date nor timePeriod keeps whatever titles arrived
+    // unchanged (there's nothing deterministic to regenerate them from).
+    const hasDateOrPeriod = s.sessionDate !== null || s.timePeriod !== null;
+    let titleEn = s.titleEn;
+    let titlePt = s.titlePt;
+    let titleEnReviewed = false;
+    let titlePtReviewed = false;
+    if (hasDateOrPeriod) {
+      // Part number isn't tracked on AnalysisSession — recover it from a
+      // representative track, mirroring `inferSessions`'s `sample` pattern.
+      const sample = tracks.find((t) => !t.isTranslation) ?? tracks[0];
+      const partNumber = sample?.partNumber ?? null;
+      titleEn = formatSessionTitle(s.sessionDate, s.timePeriod, partNumber, "en");
+      titlePt = formatSessionTitle(s.sessionDate, s.timePeriod, partNumber, "pt");
+      titleEnReviewed = true;
+      titlePtReviewed = true;
+    }
 
     return {
       sessionNumber: s.sessionNumber,
       date: s.sessionDate,
       timePeriod: s.timePeriod,
-      titleEn: isFormulaicDefault
-        ? formatSessionTitle(s.sessionDate, s.timePeriod, defaultPartNumber, "en")
-        : s.titleEn,
-      titlePt: isFormulaicDefault
-        ? formatSessionTitle(s.sessionDate, s.timePeriod, defaultPartNumber, "pt")
-        : s.titlePt,
-      // Reviewed flags default false here because this input is
-      // machine-generated (AI-inferred) and requires human review before use.
-      titleEnReviewed: false,
-      titlePtReviewed: false,
+      titleEn,
+      titlePt,
+      titleEnReviewed,
+      titlePtReviewed,
       tracks,
     } satisfies InferredSession;
   });

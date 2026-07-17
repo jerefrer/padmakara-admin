@@ -123,9 +123,34 @@ const PERIOD_LABELS: Record<"en" | "pt", Record<string, string>> = {
 const MONTHS_EN = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MONTHS_PT = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
 
+/** Extract (monthIndex, day) from a session date string. Handles ISO dates
+ *  (YYYY-MM-DD) and strings containing an English month name (case-insensitive,
+ *  in either "Month Day" or "Day Month" order — the shape `formatSessionDate`
+ *  produces for non-ISO dates). Returns `null` when neither shape matches, so
+ *  the caller can fall back to reusing the string verbatim. */
+function extractMonthDay(date: string): { monthIndex: number; day: number } | null {
+  const iso = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return { monthIndex: parseInt(iso[2]!, 10) - 1, day: parseInt(iso[3]!, 10) };
+  }
+
+  const monthMatch = date.match(new RegExp(`(${MONTHS_EN.join("|")})`, "i"));
+  if (!monthMatch) return null;
+  const monthIndex = MONTHS_EN.findIndex((m) => m.toLowerCase() === monthMatch[1]!.toLowerCase());
+  if (monthIndex === -1) return null;
+
+  const dayMatch = date.match(/\b(\d{1,2})\b/);
+  if (!dayMatch) return null;
+  const day = parseInt(dayMatch[1]!, 10);
+  if (day < 1 || day > 31) return null;
+
+  return { monthIndex, day };
+}
+
 /** Localise a session's date+period default title. `date` may be an ISO date
- *  (YYYY-MM-DD) or an already-formatted string; ISO dates are localised, other
- *  strings are reused verbatim. */
+ *  (YYYY-MM-DD) or a string containing an English month name (e.g. "10 June",
+ *  "June 10") — both shapes are localised per `lang`. Any other string (no
+ *  month recognisable) is reused verbatim. */
 export function formatSessionTitle(
   date: string | null,
   timePeriod: string | null,
@@ -134,13 +159,11 @@ export function formatSessionTitle(
 ): string {
   const period = timePeriod ? PERIOD_LABELS[lang][timePeriod] ?? "" : "";
   let datePart = date ?? "";
-  const iso = date?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) {
-    const month = parseInt(iso[2]!, 10) - 1;
-    const day = parseInt(iso[3]!, 10);
+  const extracted = date ? extractMonthDay(date) : null;
+  if (extracted) {
     datePart = lang === "pt"
-      ? `${day} de ${MONTHS_PT[month]}`
-      : `${MONTHS_EN[month]} ${day}`;
+      ? `${extracted.day} de ${MONTHS_PT[extracted.monthIndex]}`
+      : `${MONTHS_EN[extracted.monthIndex]} ${extracted.day}`;
   }
   let title = datePart && period ? `${datePart} – ${period}` : (datePart || period);
   if (!title) return lang === "pt" ? "Sessão" : "Session";
