@@ -261,6 +261,8 @@ export const pt = {
       translateToEn: "→ Inglês",
       translateAllToPt: "Traduzir tudo → Português",
       translateAllToEn: "Traduzir tudo → Inglês",
+      translateAllTracksToPt: "Traduzir todas as faixas → Português",
+      translateAllTracksToEn: "Traduzir todas as faixas → Inglês",
       aiUnreviewed: "IA · por rever",
       markReviewed: "Marcar como revisto",
       translateNothing: "Nada a traduzir — os campos de destino já estão preenchidos",

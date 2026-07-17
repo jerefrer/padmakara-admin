@@ -48,6 +48,7 @@ import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import CheckIcon from "@mui/icons-material/Check";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
+import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "./TranslatableField";
 import { detectTitleLanguage } from "../utils/trackParser";
 import type { TrackCorrection } from "../utils/analyzeFolder";
@@ -372,6 +373,12 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
 interface TrackTitleEditorProps {
   track: TableTrack;
   onTrackChange: (key: string, patch: Partial<TableTrack>) => void;
+  /** True while the table-wide "Translate all tracks" batch is running —
+   *  disables this row's translate icons too, so a per-row translate can't
+   *  race the bulk fill. Only one `TrackTitleEditor` is ever mounted at a
+   *  time (the table only renders the heavy `TrackRow` for the one track
+   *  being edited), so threading this in is cheap. */
+  bulkBusy?: boolean;
 }
 
 /**
@@ -382,9 +389,10 @@ interface TrackTitleEditorProps {
  * shared flag would light up every row's spinner at once (same reasoning as
  * `SessionTitleEditor` above).
  */
-function TrackTitleEditor({ track, onTrackChange }: TrackTitleEditorProps) {
+function TrackTitleEditor({ track, onTrackChange, bulkBusy }: TrackTitleEditorProps) {
   const translate = useTranslate();
   const ft = useFieldTranslate();
+  const busy = ft.translating || !!bulkBusy;
 
   return (
     <>
@@ -395,7 +403,7 @@ function TrackTitleEditor({ track, onTrackChange }: TrackTitleEditorProps) {
         reviewed={track.titleEnReviewed}
         onMarkReviewed={() => onTrackChange(track.key, { titleEnReviewed: true })}
         canTranslate={!!track.titlePt.trim()}
-        translatePending={ft.translating}
+        translatePending={busy}
         translateTooltip={translate("padmakara.events.translateToEn")}
         onTranslate={async () => {
           const out = await ft.translate(track.titlePt, "pt-to-en");
@@ -409,7 +417,7 @@ function TrackTitleEditor({ track, onTrackChange }: TrackTitleEditorProps) {
         reviewed={track.titlePtReviewed}
         onMarkReviewed={() => onTrackChange(track.key, { titlePtReviewed: true })}
         canTranslate={!!track.titleEn.trim()}
-        translatePending={ft.translating}
+        translatePending={busy}
         translateTooltip={translate("padmakara.events.translateToPt")}
         onTranslate={async () => {
           const out = await ft.translate(track.titleEn, "en-to-pt");
@@ -436,6 +444,8 @@ interface TrackRowProps {
   editableFilename: boolean;
   /** AI corrections to flag on this row (rendered as a Tooltip-equipped chip). */
   corrections?: TrackCorrection[];
+  /** Forwarded to `TrackTitleEditor` — see its own doc comment. */
+  bulkBusy?: boolean;
 }
 
 const TrackRow = memo(function TrackRow({
@@ -451,6 +461,7 @@ const TrackRow = memo(function TrackRow({
   onStopEdit,
   editableFilename,
   corrections,
+  bulkBusy,
 }: TrackRowProps) {
   return (
     <TableRow sx={{ opacity: track.isTranslation ? 0.7 : 1 }}>
@@ -475,7 +486,7 @@ const TrackRow = memo(function TrackRow({
       <TableCell sx={{ py: 0.5 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
           <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.5 }}>
-            <TrackTitleEditor track={track} onTrackChange={onTrackChange} />
+            <TrackTitleEditor track={track} onTrackChange={onTrackChange} bulkBusy={bulkBusy} />
             {editableFilename ? (
               <TextField
                 size="small"
@@ -720,6 +731,12 @@ export function SessionTrackTable({
   // Bulk language assignment — most events are uniform (every track TIB+ENG,
   // or every track ENG+PT), so one control sets the languages on all tracks.
   const [bulkLangs, setBulkLangs] = useState<string[]>([]);
+  // Busy while "Translate all tracks" is filling every empty track title in
+  // one request — disables the two buttons themselves plus (via `bulkBusy`
+  // on `TrackRow`) the currently-editing row's own translate icons, so a
+  // per-row translate can't race the bulk fill.
+  const [tracksBulkBusy, setTracksBulkBusy] = useState(false);
+  const translate = useTranslate();
 
   // Rows are rendered read-only (plain text — cheap) by default; only the row
   // the admin is editing mounts the heavy inputs (Autocomplete, Selects, …).
@@ -914,6 +931,63 @@ export function SessionTrackTable({
     });
   }, [bulkLangs, notify]);
 
+  /**
+   * Fills every empty track title (EN or PT, across ALL sessions) in ONE
+   * translate request — the create-flow equivalent of `EventFormFields`'s
+   * `translateAllTracks`, which instead calls the edit-flow's per-track
+   * `onTrackUpdate`. Here the whole table is local state, so — like
+   * `applyBulkLanguages`/`handleApplyAi` above — the entire new `TableValue`
+   * is built in one pass from a single fresh read of `valueRef.current` and
+   * applied with one `onChangeRef.current(next)` call; calling `onTrackChange`
+   * once per track would silently drop all but the last update, since each
+   * call reads the same not-yet-re-rendered `valueRef.current`.
+   */
+  const translateAllTracks = useCallback(
+    async (direction: TranslateDirection) => {
+      const srcField: "titleEn" | "titlePt" = direction === "en-to-pt" ? "titleEn" : "titlePt";
+      const tgtField: "titleEn" | "titlePt" = direction === "en-to-pt" ? "titlePt" : "titleEn";
+      const tgtReviewedField: "titleEnReviewed" | "titlePtReviewed" =
+        tgtField === "titleEn" ? "titleEnReviewed" : "titlePtReviewed";
+
+      const v = valueRef.current;
+      const items: Record<string, string> = {};
+      for (const session of v.sessions) {
+        for (const track of session.tracks) {
+          const source = track[srcField].trim();
+          const target = track[tgtField].trim();
+          if (source && !target) items[track.key] = source;
+        }
+      }
+      if (Object.keys(items).length === 0) {
+        notify(translate("padmakara.events.translateNothing"), { type: "info" });
+        return;
+      }
+
+      setTracksBulkBusy(true);
+      try {
+        const out = await translateFields(direction, items);
+        const v2 = valueRef.current;
+        const applyTo = (t: TableTrack): TableTrack => {
+          const value = out[t.key];
+          if (value == null) return t;
+          return { ...t, [tgtField]: value, [tgtReviewedField]: false };
+        };
+        const next: TableValue = {
+          sessions: v2.sessions.map((s) => ({ ...s, tracks: s.tracks.map(applyTo) })),
+          ignored: v2.ignored.map(applyTo),
+        };
+        onChangeRef.current(next);
+      } catch (e: any) {
+        notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
+          type: "error",
+        });
+      } finally {
+        setTracksBulkBusy(false);
+      }
+    },
+    [notify, translate],
+  );
+
   const handleApplyAi = useCallback(async () => {
     const instruction = aiInstruction.trim();
     if (!instruction) return;
@@ -1082,6 +1156,38 @@ export function SessionTrackTable({
           Apply to all
         </Button>
       </Box>
+      {/* Translate-all-tracks bar — fills every empty EN/PT track title
+          across every session in one request. */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          px: 2,
+          py: 1.25,
+          borderBottom: "1px solid rgba(0,0,0,0.08)",
+          flexWrap: "wrap",
+        }}
+      >
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={tracksBulkBusy}
+          onClick={() => void translateAllTracks("en-to-pt")}
+          sx={{ textTransform: "none" }}
+        >
+          {translate("padmakara.events.translateAllTracksToPt")}
+        </Button>
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={tracksBulkBusy}
+          onClick={() => void translateAllTracks("pt-to-en")}
+          sx={{ textTransform: "none" }}
+        >
+          {translate("padmakara.events.translateAllTracksToEn")}
+        </Button>
+      </Box>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
           <TableHead>
@@ -1196,6 +1302,7 @@ export function SessionTrackTable({
                       onStopEdit={stopEdit}
                       editableFilename={editableFilename}
                       corrections={trackCorrections?.get(track.key)}
+                      bulkBusy={tracksBulkBusy}
                     />
                   ) : (
                     <ReadonlyTrackRow

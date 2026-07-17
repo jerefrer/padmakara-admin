@@ -60,6 +60,8 @@ export const en = {
       translateToEn: "→ English",
       translateAllToPt: "Translate all → Portuguese",
       translateAllToEn: "Translate all → English",
+      translateAllTracksToPt: "Translate all tracks → Portuguese",
+      translateAllTracksToEn: "Translate all tracks → English",
       aiUnreviewed: "AI · unreviewed",
       markReviewed: "Mark reviewed",
       translateNothing: "Nothing to translate — target fields already filled",

@@ -609,58 +609,150 @@ export const EventFormFields = ({
     };
 
   const notify = useNotify();
-  // Which field (or "all") is currently being translated — drives spinners/disabled.
-  const [translating, setTranslating] = useState<string | null>(null);
+  // Busy while a multi-field batch translate is running — either the global
+  // "Translate all" (event fields + session titles) or "Translate all tracks"
+  // (edit-view only). Shared with `ft` (the per-field TranslatableField
+  // translator) below via `busy`, so every translate control in this form —
+  // per-field icons included — disables together regardless of which one
+  // triggered the in-flight request.
+  const [bulkBusy, setBulkBusy] = useState(false);
   const ft = useFieldTranslate();
+  const busy = ft.translating || bulkBusy;
 
+  /**
+   * Fills every empty target across the event's title/themes AND each
+   * session's title in ONE translate request — the 3 event-level fields plus
+   * one entry per session with a translatable title. Track titles are NOT
+   * reachable here: in EventCreate, tracks live in SessionTrackTable's own
+   * `sessions` state (this component is rendered with `sessions={[]}`); in
+   * EventEdit they're covered by the sibling `translateAllTracks` below,
+   * which owns `onTrackUpdate` instead.
+   */
   const translateAllMissing = async (direction: TranslateDirection) => {
-    // [sourceField, targetField, targetReviewedField]
-    const pairs: Array<[keyof EventFormData, keyof EventFormData, keyof EventFormData]> =
+    // [sourceField, targetField] for the 3 event-level fields.
+    const eventPairs: Array<[keyof EventFormData, keyof EventFormData]> =
       direction === "en-to-pt"
         ? [
-            ["titleEn", "titlePt", "titlePtReviewed"],
-            ["mainThemesEn", "mainThemesPt", "mainThemesPtReviewed"],
-            ["sessionThemesEn", "sessionThemesPt", "sessionThemesPtReviewed"],
+            ["titleEn", "titlePt"],
+            ["mainThemesEn", "mainThemesPt"],
+            ["sessionThemesEn", "sessionThemesPt"],
           ]
         : [
-            ["titlePt", "titleEn", "titleEnReviewed"],
-            ["mainThemesPt", "mainThemesEn", "mainThemesEnReviewed"],
-            ["sessionThemesPt", "sessionThemesEn", "sessionThemesEnReviewed"],
+            ["titlePt", "titleEn"],
+            ["mainThemesPt", "mainThemesEn"],
+            ["sessionThemesPt", "sessionThemesEn"],
           ];
+    const srcSessionField = direction === "en-to-pt" ? "titleEn" : "titlePt";
+    const tgtSessionField = direction === "en-to-pt" ? "titlePt" : "titleEn";
+
     const items: Record<string, string> = {};
-    const targetOf: Record<string, keyof EventFormData> = {};
-    const reviewedOf: Record<string, keyof EventFormData> = {};
-    for (const [src, tgt, rev] of pairs) {
+    for (const [src, tgt] of eventPairs) {
       const source = String(form[src] ?? "").trim();
       const target = String(form[tgt] ?? "").trim();
-      if (source && !target) {
-        const k = tgt as string;
-        items[k] = source;
-        targetOf[k] = tgt;
-        reviewedOf[k] = rev;
-      }
+      if (source && !target) items[`event:${tgt}`] = source;
     }
+    sessions.forEach((s, i) => {
+      const source = String(s[srcSessionField] ?? "").trim();
+      const target = String(s[tgtSessionField] ?? "").trim();
+      if (source && !target) items[`session:${i}:${tgtSessionField}`] = source;
+    });
+
     if (Object.keys(items).length === 0) {
       notify(translate("padmakara.events.translateNothing"), { type: "info" });
       return;
     }
-    setTranslating("all");
+    setBulkBusy(true);
     try {
       const out = await translateFields(direction, items);
       setForm((prev) => {
         const next = { ...prev };
-        for (const key of Object.keys(out)) {
-          (next as any)[targetOf[key]] = out[key];
-          (next as any)[reviewedOf[key]] = false;
+        for (const [, tgt] of eventPairs) {
+          const key = `event:${tgt}`;
+          if (out[key] != null) {
+            // `tgt` is one of the 3 known EventFormData text-field keys (typed
+            // as `keyof EventFormData` above), but it's picked at runtime from
+            // `eventPairs`, so TS can't narrow the assignment without `any`.
+            (next as any)[tgt] = out[key];
+            (next as any)[`${tgt}Reviewed`] = false;
+          }
         }
         return next;
+      });
+      sessions.forEach((_, i) => {
+        const key = `session:${i}:${tgtSessionField}`;
+        if (out[key] != null) {
+          // The computed property keys (`titleEn`/`titlePt` + their
+          // `...Reviewed` companion, chosen by `direction`) are provably one
+          // of the two valid pairs, but TS can't verify a dynamic key against
+          // `Partial<InferredSession>` at this call site.
+          onSessionTitleChange(i, {
+            [tgtSessionField]: out[key],
+            [`${tgtSessionField}Reviewed`]: false,
+          } as Partial<InferredSession>);
+        }
       });
     } catch (e: any) {
       notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
         type: "error",
       });
     } finally {
-      setTranslating(null);
+      setBulkBusy(false);
+    }
+  };
+
+  /**
+   * Edit-view only: fills every empty track title across ALL sessions in one
+   * translate request, distributing results through the same `onTrackUpdate`
+   * a manual per-track edit uses (so each fill persists via the normal
+   * dataProvider.update path). Not shown in EventCreate — tracks there live
+   * in SessionTrackTable's own state and get their own button (see that
+   * component's `translateAllTracks`).
+   */
+  const translateAllTracks = async (direction: TranslateDirection) => {
+    if (!onTrackUpdate) return;
+    const srcField: "titleEn" | "titlePt" = direction === "en-to-pt" ? "titleEn" : "titlePt";
+    const tgtField: "titleEn" | "titlePt" = direction === "en-to-pt" ? "titlePt" : "titleEn";
+    const tgtReviewedField = tgtField === "titleEn" ? "titleEnReviewed" : "titlePtReviewed";
+
+    const targets: Array<{ trackId: number; source: string }> = [];
+    for (const session of sessions) {
+      for (const track of session.tracks) {
+        if (!track.id) continue;
+        const source = String(track[srcField] ?? "").trim();
+        const target = String(track[tgtField] ?? "").trim();
+        if (source && !target) targets.push({ trackId: track.id, source });
+      }
+    }
+    if (targets.length === 0) {
+      notify(translate("padmakara.events.translateNothing"), { type: "info" });
+      return;
+    }
+
+    const items: Record<string, string> = {};
+    for (const t of targets) items[String(t.trackId)] = t.source;
+
+    setBulkBusy(true);
+    try {
+      const out = await translateFields(direction, items);
+      await Promise.all(
+        targets
+          .filter((t) => out[String(t.trackId)] != null)
+          .map((t) =>
+            // Same dynamic-key situation as `translateAllMissing` above —
+            // `tgtField`/`tgtReviewedField` are one of the two valid pairs,
+            // but the key is computed at runtime so TS can't check it here.
+            onTrackUpdate(t.trackId, {
+              [tgtField]: out[String(t.trackId)],
+              [tgtReviewedField]: false,
+            } as Partial<ParsedTrack>),
+          ),
+      );
+    } catch (e: any) {
+      notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
+        type: "error",
+      });
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -735,11 +827,11 @@ export const EventFormFields = ({
       {/* ── Title ── */}
       <Paper sx={{ p: 3, mb: 2 }}>
         <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
-          <Button size="small" variant="outlined" disabled={translating !== null}
+          <Button size="small" variant="outlined" disabled={busy}
             onClick={() => translateAllMissing("en-to-pt")}>
             {translate("padmakara.events.translateAllToPt")}
           </Button>
-          <Button size="small" variant="outlined" disabled={translating !== null}
+          <Button size="small" variant="outlined" disabled={busy}
             onClick={() => translateAllMissing("pt-to-en")}>
             {translate("padmakara.events.translateAllToEn")}
           </Button>
@@ -753,7 +845,7 @@ export const EventFormFields = ({
               reviewed={form.titleEnReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, titleEnReviewed: true }))}
               canTranslate={!!String(form.titlePt ?? "").trim()}
-              translatePending={ft.translating}
+              translatePending={busy}
               translateTooltip={translate("padmakara.events.translateToEn")}
               onTranslate={async () => {
                 const out = await ft.translate(String(form.titlePt ?? ""), "pt-to-en");
@@ -771,7 +863,7 @@ export const EventFormFields = ({
               reviewed={form.titlePtReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, titlePtReviewed: true }))}
               canTranslate={!!String(form.titleEn ?? "").trim()}
-              translatePending={ft.translating}
+              translatePending={busy}
               translateTooltip={translate("padmakara.events.translateToPt")}
               onTranslate={async () => {
                 const out = await ft.translate(String(form.titleEn ?? ""), "en-to-pt");
@@ -957,7 +1049,7 @@ export const EventFormFields = ({
               reviewed={form.mainThemesEnReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, mainThemesEnReviewed: true }))}
               canTranslate={!!String(form.mainThemesPt ?? "").trim()}
-              translatePending={ft.translating}
+              translatePending={busy}
               translateTooltip={translate("padmakara.events.translateToEn")}
               onTranslate={async () => {
                 const out = await ft.translate(String(form.mainThemesPt ?? ""), "pt-to-en");
@@ -976,7 +1068,7 @@ export const EventFormFields = ({
               reviewed={form.mainThemesPtReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, mainThemesPtReviewed: true }))}
               canTranslate={!!String(form.mainThemesEn ?? "").trim()}
-              translatePending={ft.translating}
+              translatePending={busy}
               translateTooltip={translate("padmakara.events.translateToPt")}
               onTranslate={async () => {
                 const out = await ft.translate(String(form.mainThemesEn ?? ""), "en-to-pt");
@@ -995,7 +1087,7 @@ export const EventFormFields = ({
               reviewed={form.sessionThemesEnReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, sessionThemesEnReviewed: true }))}
               canTranslate={!!String(form.sessionThemesPt ?? "").trim()}
-              translatePending={ft.translating}
+              translatePending={busy}
               translateTooltip={translate("padmakara.events.translateToEn")}
               onTranslate={async () => {
                 const out = await ft.translate(String(form.sessionThemesPt ?? ""), "pt-to-en");
@@ -1014,7 +1106,7 @@ export const EventFormFields = ({
               reviewed={form.sessionThemesPtReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, sessionThemesPtReviewed: true }))}
               canTranslate={!!String(form.sessionThemesEn ?? "").trim()}
-              translatePending={ft.translating}
+              translatePending={busy}
               translateTooltip={translate("padmakara.events.translateToPt")}
               onTranslate={async () => {
                 const out = await ft.translate(String(form.sessionThemesEn ?? ""), "en-to-pt");
@@ -1070,6 +1162,22 @@ export const EventFormFields = ({
           {/* Sessions (with their session-level tracks) */}
           {sessions.length > 0 && (
             <Box sx={{ mb: 3 }}>
+              {/* Edit-view only — onTrackUpdate is the persist path for
+                  already-saved tracks; EventCreate doesn't pass it (its
+                  tracks live in SessionTrackTable's own state and get the
+                  equivalent button there instead). */}
+              {onTrackUpdate && (
+                <Box sx={{ display: "flex", gap: 1, mb: 1.5 }}>
+                  <Button size="small" variant="outlined" disabled={busy}
+                    onClick={() => translateAllTracks("en-to-pt")}>
+                    {translate("padmakara.events.translateAllTracksToPt")}
+                  </Button>
+                  <Button size="small" variant="outlined" disabled={busy}
+                    onClick={() => translateAllTracks("pt-to-en")}>
+                    {translate("padmakara.events.translateAllTracksToEn")}
+                  </Button>
+                </Box>
+              )}
               <SessionPreview
                 sessions={sessions}
                 onSessionTitleChange={onSessionTitleChange}
