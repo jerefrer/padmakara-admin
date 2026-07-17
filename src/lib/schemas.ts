@@ -313,10 +313,32 @@ export const inferSessionsSchema = z.object({
   filenames: z.array(safeFilenameSchema).min(1),
 });
 
-// AI rename-tracks (6.4)
-export const renameTracksSchema = z.object({
+// AI assist (event + sessions + tracks)
+const aiEventFieldsSchema = z.object({
+  titleEn: z.string().max(500).optional(),
+  titlePt: z.string().max(500).optional(),
+  mainThemesEn: z.string().max(5000).optional(),
+  mainThemesPt: z.string().max(5000).optional(),
+  sessionThemesEn: z.string().max(5000).optional(),
+  sessionThemesPt: z.string().max(5000).optional(),
+  startDate: z.string().max(20).optional(),
+  endDate: z.string().max(20).optional(),
+});
+
+export const aiAssistSchema = z.object({
   instruction: z.string().min(1).max(2000),
-  rows: z
+  event: aiEventFieldsSchema.optional(),
+  sessions: z
+    .array(
+      z.object({
+        rowKey: z.string().min(1).max(100),
+        titleEn: z.string().max(500).optional(),
+        titlePt: z.string().max(500).optional(),
+      }),
+    )
+    .max(200)
+    .optional(),
+  tracks: z
     .array(
       z.object({
         rowKey: z.string().min(1).max(100),

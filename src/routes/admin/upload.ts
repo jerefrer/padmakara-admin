@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { db } from "../../db/index.ts";
 import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key } from "../../services/s3.ts";
 import { parseTrackFilename, inferSessions } from "../../services/track-parser.ts";
-import { presignUploadSchema, presignTranscriptSchema, inferSessionsSchema, renameTracksSchema } from "../../lib/schemas.ts";
+import { presignUploadSchema, presignTranscriptSchema, inferSessionsSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import {
   createVideo,
   deleteVideo,
@@ -10,7 +10,7 @@ import {
   buildTusCredentials,
 } from "../../services/bunny.ts";
 import { AppError } from "../../lib/errors.ts";
-import { renameTracks } from "../../services/ai-assist.ts";
+import { aiAssistEvent } from "../../services/ai-assist.ts";
 
 const uploadRoutes = new Hono();
 
@@ -140,10 +140,10 @@ uploadRoutes.delete("/bunny/:videoId", async (c) => {
  *
  * Stateless variant of the rename-tracks AI endpoint for the EventCreate flow
  * (before an event ID exists). Accepts the same body and returns the same
- * { suggestions } shape as POST /admin/events/:id/rename-tracks.
+ * { event?, sessions, tracks } shape as POST /admin/events/:id/rename-tracks.
  */
 uploadRoutes.post("/rename-tracks", async (c) => {
-  const parsed = renameTracksSchema.safeParse(await c.req.json().catch(() => null));
+  const parsed = aiAssistSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
   }
@@ -153,7 +153,7 @@ uploadRoutes.post("/rename-tracks", async (c) => {
   const roster = await db.query.teachers.findMany({
     columns: { abbreviation: true, name: true },
   });
-  const result = await renameTracks({ ...parsed.data, roster, apiKey });
+  const result = await aiAssistEvent({ ...parsed.data, roster, apiKey });
   return c.json(result);
 });
 

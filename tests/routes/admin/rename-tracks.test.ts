@@ -60,7 +60,7 @@ function makeAnthropicResponse(jsonText: string) {
   return { content: [{ type: "text", text: jsonText }] };
 }
 
-const VALID_ROWS = [
+const VALID_TRACKS = [
   {
     rowKey: "1-1",
     originalFilename: "001 JKR - Opening teachings.mp3",
@@ -89,13 +89,13 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     process.env = OLD_ENV;
   });
 
-  it("returns AI suggestions for a valid request", async () => {
-    const suggestions = [
+  it("returns AI track suggestions for a valid request", async () => {
+    const trackSuggestions = [
       { rowKey: "1-1", title: "Opening Teachings" },
       { rowKey: "1-2", title: "Prayers", speaker: "KPS" },
     ];
     mockMessagesCreate.mockResolvedValueOnce(
-      makeAnthropicResponse(JSON.stringify(suggestions)),
+      makeAnthropicResponse(JSON.stringify({ tracks: trackSuggestions })),
     );
 
     const token = await adminToken();
@@ -106,19 +106,78 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           instruction: "Capitalise each word in the title",
-          rows: VALID_ROWS,
+          tracks: VALID_TRACKS,
         }),
       },
     );
 
     expect(status).toBe(200);
-    expect(body).toMatchObject({ suggestions });
+    expect((body as any).tracks).toMatchObject(trackSuggestions);
+    expect((body as any).sessions).toEqual([]);
+    expect((body as any).event).toBeUndefined();
     expect(mockMessagesCreate).toHaveBeenCalledOnce();
   });
 
-  it("strips markdown code fences wrapping the JSON array", async () => {
-    const suggestions = [{ rowKey: "1-1", title: "Opening Teachings" }];
-    const withFences = "```json\n" + JSON.stringify(suggestions) + "\n```";
+  it("returns event field suggestions for an event-focused instruction", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(
+        JSON.stringify({ event: { titleEn: "Spring Retreat 2025" }, tracks: [] }),
+      ),
+    );
+
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          instruction: "Rename the event title to Spring Retreat 2025",
+          event: { titleEn: "spring retreat" },
+          tracks: VALID_TRACKS,
+        }),
+      },
+    );
+
+    expect(status).toBe(200);
+    expect((body as any).event).toEqual({ titleEn: "Spring Retreat 2025" });
+    expect((body as any).sessions).toEqual([]);
+  });
+
+  it("returns session title suggestions for a session-focused instruction", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(
+        JSON.stringify({
+          sessions: [{ rowKey: "s0", titleEn: "Morning Session" }],
+          tracks: [],
+        }),
+      ),
+    );
+
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          instruction: "Title-case the session titles",
+          sessions: [{ rowKey: "s0", titleEn: "morning session" }],
+          tracks: VALID_TRACKS,
+        }),
+      },
+    );
+
+    expect(status).toBe(200);
+    expect((body as any).sessions).toEqual([
+      { rowKey: "s0", titleEn: "Morning Session" },
+    ]);
+  });
+
+  it("strips markdown code fences wrapping the JSON object", async () => {
+    const trackSuggestions = [{ rowKey: "1-1", title: "Opening Teachings" }];
+    const withFences =
+      "```json\n" + JSON.stringify({ tracks: trackSuggestions }) + "\n```";
     mockMessagesCreate.mockResolvedValueOnce(makeAnthropicResponse(withFences));
 
     const token = await adminToken();
@@ -127,12 +186,12 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ instruction: "Clean up", rows: VALID_ROWS }),
+        body: JSON.stringify({ instruction: "Clean up", tracks: VALID_TRACKS }),
       },
     );
 
     expect(status).toBe(200);
-    expect((body as any).suggestions).toEqual(suggestions);
+    expect((body as any).tracks).toEqual(trackSuggestions);
   });
 
   it("returns 400 VALIDATION_ERROR when instruction is missing", async () => {
@@ -142,7 +201,7 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ rows: VALID_ROWS }),
+        body: JSON.stringify({ tracks: VALID_TRACKS }),
       },
     );
 
@@ -151,7 +210,7 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 
-  it("returns 400 VALIDATION_ERROR when rows array is missing", async () => {
+  it("returns 400 VALIDATION_ERROR when tracks array is missing", async () => {
     const token = await adminToken();
     const { status, body } = await testJson(
       "/api/admin/events/42/rename-tracks",
@@ -167,14 +226,14 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 
-  it("returns 400 VALIDATION_ERROR when rows array is empty", async () => {
+  it("returns 400 VALIDATION_ERROR when tracks array is empty", async () => {
     const token = await adminToken();
     const { status, body } = await testJson(
       "/api/admin/events/42/rename-tracks",
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ instruction: "Fix titles", rows: [] }),
+        body: JSON.stringify({ instruction: "Fix titles", tracks: [] }),
       },
     );
 
@@ -206,7 +265,7 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     const { status } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "Fix titles", tracks: VALID_TRACKS }),
     });
 
     expect(status).toBe(500);
@@ -222,22 +281,22 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     const { status } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "Fix titles", tracks: VALID_TRACKS }),
     });
 
     expect(status).toBe(500);
   });
 
-  it("returns 500 when AI response is valid JSON but not an array", async () => {
+  it("returns 500 when AI response is valid JSON but is an array, not an object", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
-      makeAnthropicResponse(JSON.stringify({ rowKey: "1-1", title: "Oops" })),
+      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", title: "Oops" }])),
     );
 
     const token = await adminToken();
     const { status } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "Fix titles", tracks: VALID_TRACKS }),
     });
 
     expect(status).toBe(500);
@@ -246,7 +305,7 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
   it("returns 401 without an auth token", async () => {
     const { status } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
-      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "Fix titles", tracks: VALID_TRACKS }),
     });
 
     expect(status).toBe(401);
@@ -261,7 +320,7 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     const { status } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "Fix titles", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "Fix titles", tracks: VALID_TRACKS }),
     });
 
     expect(status).toBe(403);
@@ -269,61 +328,74 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
 
   it("keeps an exact teacher abbreviation as-is", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
-      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "PWR" }])),
+      makeAnthropicResponse(
+        JSON.stringify({ tracks: [{ rowKey: "1-1", speaker: "PWR" }] }),
+      ),
     );
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "Set speaker to PWR", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "Set speaker to PWR", tracks: VALID_TRACKS }),
     });
     expect(status).toBe(200);
-    expect((body as any).suggestions[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
-    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+    expect((body as any).tracks[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
+    expect((body as any).tracks[0].speakerUnmatched).toBeUndefined();
   });
 
   it("resolves a full teacher name to its abbreviation", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
-      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "Pema Wangyal Rinpoche" }])),
+      makeAnthropicResponse(
+        JSON.stringify({
+          tracks: [{ rowKey: "1-1", speaker: "Pema Wangyal Rinpoche" }],
+        }),
+      ),
     );
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "Set speaker to Pema", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "Set speaker to Pema", tracks: VALID_TRACKS }),
     });
     expect(status).toBe(200);
-    expect((body as any).suggestions[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
-    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+    expect((body as any).tracks[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
+    expect((body as any).tracks[0].speakerUnmatched).toBeUndefined();
   });
 
   it("resolves a partial, differently-cased teacher name to its abbreviation", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
-      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "pema wangyal" }])),
+      makeAnthropicResponse(
+        JSON.stringify({ tracks: [{ rowKey: "1-1", speaker: "pema wangyal" }] }),
+      ),
     );
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "Set speaker to pema wangyal", rows: VALID_ROWS }),
+      body: JSON.stringify({
+        instruction: "Set speaker to pema wangyal",
+        tracks: VALID_TRACKS,
+      }),
     });
     expect(status).toBe(200);
-    expect((body as any).suggestions[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
-    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+    expect((body as any).tracks[0]).toMatchObject({ rowKey: "1-1", speaker: "PWR" });
+    expect((body as any).tracks[0].speakerUnmatched).toBeUndefined();
   });
 
   it("flags an unmatched speaker", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
-      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "Some Unknown Person" }])),
+      makeAnthropicResponse(
+        JSON.stringify({ tracks: [{ rowKey: "1-1", speaker: "Some Unknown Person" }] }),
+      ),
     );
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "x", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "x", tracks: VALID_TRACKS }),
     });
     expect(status).toBe(200);
-    expect((body as any).suggestions[0]).toMatchObject({
+    expect((body as any).tracks[0]).toMatchObject({
       speaker: "Some Unknown Person",
       speakerUnmatched: true,
     });
@@ -334,17 +406,17 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     // every teacher, so an empty speaker used to silently resolve to
     // whichever teacher happened to be first in the roster (PWR).
     mockMessagesCreate.mockResolvedValueOnce(
-      makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", speaker: "" }])),
+      makeAnthropicResponse(JSON.stringify({ tracks: [{ rowKey: "1-1", speaker: "" }] })),
     );
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "Clear the speaker", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "Clear the speaker", tracks: VALID_TRACKS }),
     });
     expect(status).toBe(200);
-    expect((body as any).suggestions[0].speaker).toBe("");
-    expect((body as any).suggestions[0].speakerUnmatched).toBeUndefined();
+    expect((body as any).tracks[0].speaker).toBe("");
+    expect((body as any).tracks[0].speakerUnmatched).toBeUndefined();
   });
 
   it("does not misattribute a speaker via a short abbreviation substring match", async () => {
@@ -359,17 +431,19 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     ]);
     mockMessagesCreate.mockResolvedValueOnce(
       makeAnthropicResponse(
-        JSON.stringify([{ rowKey: "1-1", speaker: "History of the lineage" }]),
+        JSON.stringify({
+          tracks: [{ rowKey: "1-1", speaker: "History of the lineage" }],
+        }),
       ),
     );
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ instruction: "x", rows: VALID_ROWS }),
+      body: JSON.stringify({ instruction: "x", tracks: VALID_TRACKS }),
     });
     expect(status).toBe(200);
-    expect((body as any).suggestions[0]).toMatchObject({
+    expect((body as any).tracks[0]).toMatchObject({
       speaker: "History of the lineage",
       speakerUnmatched: true,
     });

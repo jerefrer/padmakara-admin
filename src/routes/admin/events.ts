@@ -9,12 +9,12 @@ import {
 } from "../../db/schema/retreats.ts";
 import { eventPublications } from "../../db/schema/publications.ts";
 import { teachers } from "../../db/schema/teachers.ts";
-import { createEventSchema, updateEventSchema, renameTracksSchema } from "../../lib/schemas.ts";
+import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs } from "../../services/read-along.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
-import { renameTracks } from "../../services/ai-assist.ts";
+import { aiAssistEvent } from "../../services/ai-assist.ts";
 
 const eventRoutes = new Hono();
 
@@ -287,11 +287,11 @@ eventRoutes.delete("/:id", async (c) => {
  * caller applies the suggestions to the editable rename-preview table and
  * can review before committing.
  *
- * Body: { instruction: string, rows: { rowKey, originalFilename, title, speaker }[] }
- * Response: { suggestions: { rowKey, title?, speaker?, speakerUnmatched? }[] }
+ * Body: { instruction: string, event?, sessions?, tracks: { rowKey, originalFilename, title, speaker }[] }
+ * Response: { event?, sessions: { rowKey, titleEn?, titlePt? }[], tracks: { rowKey, title?, speaker?, speakerUnmatched? }[] }
  */
 eventRoutes.post("/:id/rename-tracks", async (c) => {
-  const parsed = renameTracksSchema.safeParse(await c.req.json().catch(() => null));
+  const parsed = aiAssistSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
   }
@@ -301,7 +301,7 @@ eventRoutes.post("/:id/rename-tracks", async (c) => {
   const roster = await db.query.teachers.findMany({
     columns: { abbreviation: true, name: true },
   });
-  const result = await renameTracks({ ...parsed.data, roster, apiKey });
+  const result = await aiAssistEvent({ ...parsed.data, roster, apiKey });
   return c.json(result);
 });
 
