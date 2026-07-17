@@ -35,11 +35,26 @@ interface AiAssistPanelProps {
 
 interface DiffRow { label: string; from: string; to: string; unmatched?: boolean; }
 
+// Every AiAssistEventFields key already has a human-readable label in
+// padmakara.events.* (the event details form uses the same fields), so the
+// diff review reuses those instead of rendering raw camelCase field names.
+const EVENT_FIELD_LABEL_KEYS: Record<keyof AiAssistEventFields, string> = {
+  titleEn: "padmakara.events.titleEn",
+  titlePt: "padmakara.events.titlePt",
+  mainThemesEn: "padmakara.events.mainThemesEn",
+  mainThemesPt: "padmakara.events.mainThemesPt",
+  sessionThemesEn: "padmakara.events.sessionThemesEn",
+  sessionThemesPt: "padmakara.events.sessionThemesPt",
+  startDate: "padmakara.events.startDate",
+  endDate: "padmakara.events.endDate",
+};
+
 export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: AiAssistPanelProps) {
   const translate = useTranslate();
   const notify = useNotify();
   const [instruction, setInstruction] = useState("");
   const [busy, setBusy] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<AiAssistResult | null>(null);
 
   const t = (k: string) => translate(`padmakara.aiAssist.${k}`);
@@ -55,12 +70,16 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
 
   const eventDiffs = useMemo<DiffRow[]>(() => {
     if (!result?.event) return [];
+    // Object.keys() widens to string[]; AiAssistEventFields has no other own
+    // keys, so every runtime key is guaranteed to be one of its keyof.
     return (Object.keys(result.event) as (keyof AiAssistEventFields)[]).map((k) => ({
-      label: k,
+      label: translate(EVENT_FIELD_LABEL_KEYS[k]),
       from: event[k] ?? "",
+      // Non-null: the early return above guarantees result.event is defined;
+      // TS can't carry that narrowing through this .map() callback closure.
       to: result.event![k] ?? "",
     }));
-  }, [result, event]);
+  }, [result, event, translate]);
 
   const sessionDiffs = useMemo<DiffRow[]>(() => {
     if (!result) return [];
@@ -78,11 +97,24 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
     return result.tracks.flatMap((tr) => {
       const cur = trackByKey.get(tr.rowKey);
       const rows: DiffRow[] = [];
-      if (tr.title !== undefined) rows.push({ label: cur?.title ?? tr.rowKey, from: cur?.title ?? "", to: tr.title });
-      if (tr.speaker !== undefined) rows.push({ label: "speaker", from: cur?.speaker ?? "", to: tr.speaker, unmatched: tr.speakerUnmatched });
+      if (tr.title !== undefined) {
+        rows.push({
+          label: cur?.title || cur?.originalFilename || tr.rowKey,
+          from: cur?.title ?? "",
+          to: tr.title,
+        });
+      }
+      if (tr.speaker !== undefined) {
+        rows.push({
+          label: translate("padmakara.fields.speaker"),
+          from: cur?.speaker ?? "",
+          to: tr.speaker,
+          unmatched: tr.speakerUnmatched,
+        });
+      }
       return rows;
     });
-  }, [result, trackByKey]);
+  }, [result, trackByKey, translate]);
 
   const totalChanges = eventDiffs.length + sessionDiffs.length + trackDiffs.length;
 
@@ -98,6 +130,8 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
         body: JSON.stringify({ instruction: text, event, sessions, tracks }),
       });
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      // Trusting the shape here: the rename-tracks endpoint's contract
+      // (Tasks 1-2) guarantees { event?, sessions, tracks } on success.
       const data = (await res.json()) as AiAssistResult;
       setResult({ event: data.event, sessions: data.sessions ?? [], tracks: data.tracks ?? [] });
     } catch (e) {
@@ -108,11 +142,16 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
   };
 
   const handleApply = async () => {
-    if (!result) return;
-    await onApply(result);
-    setResult(null);
-    setInstruction("");
-    notify(t("applied"), { type: "info" });
+    if (!result || applying) return;
+    setApplying(true);
+    try {
+      await onApply(result);
+      setResult(null);
+      setInstruction("");
+      notify(t("applied"), { type: "info" });
+    } finally {
+      setApplying(false);
+    }
   };
 
   const renderDiffs = (title: string, rows: DiffRow[]) =>
@@ -178,8 +217,13 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
               {renderDiffs(t("sectionSessions"), sessionDiffs)}
               {renderDiffs(t("sectionTracks"), trackDiffs)}
               <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
-                <Button variant="contained" size="small" onClick={() => void handleApply()} sx={{ textTransform: "none" }}>
-                  {t("apply")}
+                <Button
+                  variant="contained" size="small"
+                  onClick={() => void handleApply()}
+                  disabled={applying}
+                  sx={{ textTransform: "none" }}
+                >
+                  {applying ? t("thinking") : t("apply")}
                 </Button>
                 <Button variant="text" size="small" onClick={() => setResult(null)} sx={{ textTransform: "none" }}>
                   {t("discard")}

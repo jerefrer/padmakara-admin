@@ -348,6 +348,7 @@ export const pt = {
       lastActivity: "Última Atividade",
       groupMemberships: "Membros do Grupo",
       group: "Grupo",
+      speaker: "Orador",
     },
     users: {
       roleUser: "Utilizador",

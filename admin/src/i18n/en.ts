@@ -147,6 +147,7 @@ export const en = {
       lastActivity: "Last Activity",
       groupMemberships: "Group Memberships",
       group: "Group",
+      speaker: "Speaker",
     },
     users: {
       roleUser: "User",
