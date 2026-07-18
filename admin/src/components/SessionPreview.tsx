@@ -200,12 +200,15 @@ const SessionCard = ({
   const [expanded, setExpanded] = useState(true);
   const [editing, setEditing] = useState(false);
   const translate = useTranslate();
-  const [edit, setEdit] = useState({
+  // Seed from the CURRENT session; re-seeded when Edit opens so an AI-assist
+  // apply that changed the session titles underneath us is reflected.
+  const seedFromSession = () => ({
     titleEn: session.titleEn,
     titlePt: session.titlePt,
     titleEnReviewed: session.titleEnReviewed,
     titlePtReviewed: session.titlePtReviewed,
   });
+  const [edit, setEdit] = useState(seedFromSession);
   const ft = useFieldTranslate();
 
   // Build date chip label with AM/PM inline
@@ -329,6 +332,7 @@ const SessionCard = ({
               size="small"
               onClick={(e) => {
                 e.stopPropagation();
+                setEdit(seedFromSession());
                 setEditing(true);
               }}
               sx={{ opacity: 0.4, "&:hover": { opacity: 1 } }}
@@ -691,7 +695,11 @@ const TrackRow = ({
   const [editing, setEditing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [editValues, setEditValues] = useState({
+  // Seed the edit form from the CURRENT track. Used for the initial state, on
+  // cancel, and — crucially — each time Edit is opened, so a track whose
+  // titleEn/titlePt changed underneath us (e.g. an AI-assist apply) shows the
+  // fresh values instead of the stale mount-time snapshot.
+  const seedFromTrack = () => ({
     title: track.title || "",
     titleEn: track.titleEn ?? "",
     titlePt: track.titlePt ?? "",
@@ -705,6 +713,7 @@ const TrackRow = ({
     isTranslation: track.isTranslation || false,
     speaker: track.speaker || "",
   });
+  const [editValues, setEditValues] = useState(seedFromTrack);
   const [saving, setSaving] = useState(false);
   const ft = useFieldTranslate();
 
@@ -735,20 +744,7 @@ const TrackRow = ({
   };
 
   const handleCancel = () => {
-    setEditValues({
-      title: track.title || "",
-      titleEn: track.titleEn ?? "",
-      titlePt: track.titlePt ?? "",
-      titleEnReviewed: track.titleEnReviewed ?? true,
-      titlePtReviewed: track.titlePtReviewed ?? true,
-      originalFilename: track.originalFilename || "",
-      languages: track.languages && track.languages.length > 0
-        ? [...track.languages]
-        : [track.originalLanguage || track.language || "en"],
-      isPractice: track.isPractice || false,
-      isTranslation: track.isTranslation || false,
-      speaker: track.speaker || "",
-    });
+    setEditValues(seedFromTrack());
     setEditing(false);
   };
 
@@ -1161,7 +1157,7 @@ const TrackRow = ({
       {onTrackUpdate && (
         <IconButton
           size="small"
-          onClick={() => setEditing(true)}
+          onClick={() => { setEditValues(seedFromTrack()); setEditing(true); }}
           sx={{ opacity: 0.4, "&:hover": { opacity: 1 } }}
         >
           <EditIcon sx={{ fontSize: 14 }} />
