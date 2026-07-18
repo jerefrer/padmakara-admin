@@ -7,10 +7,6 @@ import Chip from "@mui/material/Chip";
 import LinearProgress from "@mui/material/LinearProgress";
 import Tooltip from "@mui/material/Tooltip";
 import Divider from "@mui/material/Divider";
-import FormControl from "@mui/material/FormControl";
-import InputLabel from "@mui/material/InputLabel";
-import Select from "@mui/material/Select";
-import MenuItem from "@mui/material/MenuItem";
 import ClosedCaptionIcon from "@mui/icons-material/ClosedCaption";
 import DownloadIcon from "@mui/icons-material/Download";
 import TranslateIcon from "@mui/icons-material/Translate";
@@ -43,16 +39,6 @@ interface SessionSubtitle {
   bunnyUploadedAt: string | null;
   createdAt: string;
   updatedAt: string;
-}
-
-interface TranslationModel {
-  id: string;
-  label: string;
-}
-
-interface ModelsData {
-  models: TranslationModel[];
-  default: string;
 }
 
 const TERMINAL_STATUSES = new Set(["completed", "failed"]);
@@ -104,33 +90,8 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
   const [translatingLang, setTranslatingLang] = useState<string | null>(null);
   const [replacingLang, setReplacingLang] = useState<string | null>(null);
 
-  // Translation model state
-  const [modelsData, setModelsData] = useState<ModelsData | null>(null);
-  const [selectedModel, setSelectedModel] = useState<string>("");
-
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTerminalCount = useRef<number>(0);
-
-  // Load available translation models once on mount.
-  useEffect(() => {
-    authFetch("/api/admin/translation-models")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: unknown) => {
-        if (
-          data &&
-          typeof data === "object" &&
-          "models" in data &&
-          "default" in data
-        ) {
-          const typed = data as ModelsData;
-          setModelsData(typed);
-          setSelectedModel(typed.default);
-        }
-      })
-      .catch(() => {
-        // Non-critical — user can still use default model.
-      });
-  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -226,7 +187,9 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model: selectedModel }),
+          // Model is fixed to Opus server-side (DEFAULT_TRANSLATE_MODEL);
+          // no per-panel choice.
+          body: JSON.stringify({}),
         },
       );
       if (!res.ok) {
@@ -286,17 +249,37 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
     jobs.some((j) => j.language === lang && !TERMINAL_STATUSES.has(j.status));
 
   return (
-    <Paper sx={{ p: 3, mb: 2 }}>
+    <Paper
+      sx={{
+        p: 3,
+        mb: 2,
+        borderLeft: "4px solid",
+        borderLeftColor: "primary.main",
+      }}
+    >
+      {/* Header — the day / video this card belongs to is the headline so
+          stacked cards read as distinct per-day units, not one long list. */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 0.5 }}>
         <ClosedCaptionIcon color="primary" />
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
-          {translate("padmakara.subtitles.title")}
-          {videoLabel && (
-            <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1, fontWeight: 400 }}>
-              — {videoLabel}
+        <Box sx={{ minWidth: 0 }}>
+          {videoLabel ? (
+            <>
+              <Typography
+                variant="overline"
+                sx={{ display: "block", color: "primary.main", fontWeight: 700, lineHeight: 1.4 }}
+              >
+                {translate("padmakara.subtitles.title")}
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                {videoLabel}
+              </Typography>
+            </>
+          ) : (
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {translate("padmakara.subtitles.title")}
             </Typography>
           )}
-        </Typography>
+        </Box>
       </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {translate("padmakara.subtitles.description")}
@@ -356,31 +339,6 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
         {translate("padmakara.subtitles.translate")}
       </Typography>
-
-      {/* Model selector */}
-      {modelsData && modelsData.models.length > 0 && (
-        <Box sx={{ mb: 1.5 }}>
-          <Tooltip title={translate("padmakara.subtitles.modelHint")}>
-            <FormControl size="small" sx={{ minWidth: 320 }}>
-              <InputLabel id="translate-model-label">
-                {translate("padmakara.subtitles.model")}
-              </InputLabel>
-              <Select
-                labelId="translate-model-label"
-                value={selectedModel}
-                label={translate("padmakara.subtitles.model")}
-                onChange={(e) => setSelectedModel(String(e.target.value))}
-              >
-                {modelsData.models.map((m) => (
-                  <MenuItem key={m.id} value={m.id}>
-                    {m.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Tooltip>
-        </Box>
-      )}
 
       {!hasEnSource && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
