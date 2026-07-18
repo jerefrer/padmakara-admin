@@ -1825,11 +1825,13 @@ export const EventCreate = () => {
             const tSug = trackById.get(fileKey(tk.file));
             if (!tSug) return tk;
             let next = { ...tk };
-            if (tSug.title != null) {
-              const lang = detectTitleLanguage(tSug.title);
-              next = lang === "pt"
-                ? { ...next, titlePt: tSug.title, titlePtReviewed: true }
-                : { ...next, titleEn: tSug.title, titleEnReviewed: true };
+            // AI-generated title fields go straight into titleEn/titlePt —
+            // reviewed=false since the admin hasn't confirmed the AI's wording.
+            if (tSug.titleEn !== undefined) {
+              next = { ...next, titleEn: tSug.titleEn, titleEnReviewed: false };
+            }
+            if (tSug.titlePt !== undefined) {
+              next = { ...next, titlePt: tSug.titlePt, titlePtReviewed: false };
             }
             if (tSug.speaker != null) next = { ...next, speaker: tSug.speaker };
             return next;
@@ -2038,6 +2040,8 @@ export const EventCreate = () => {
                 rowKey: fileKey(tk.file),
                 originalFilename: tk.originalFilename,
                 title: tk.titleEn || tk.titlePt || tk.title,
+                titleEn: tk.titleEn ?? "",
+                titlePt: tk.titlePt ?? "",
                 speaker: tk.speaker ?? "",
               }))}
               onApply={handleAiApply}
@@ -2116,26 +2120,33 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
     titleEnReviewed: s.titleEnReviewed ?? true,
     titlePtReviewed: s.titlePtReviewed ?? true,
     videos: (s.videos || []) as SessionVideo[],
-    tracks: (s.tracks || []).map((t: any) => ({
-      id: t.id,
-      trackNumber: t.trackNumber,
-      title: t.title,
-      titleEn: t.titleEn ?? "",
-      titlePt: t.titlePt ?? "",
-      titleEnReviewed: t.titleEnReviewed ?? true,
-      titlePtReviewed: t.titlePtReviewed ?? true,
-      speaker: t.speaker || null,
-      languages: t.languages || [t.originalLanguage || "en"],
-      originalLanguage: t.originalLanguage || "en",
-      isTranslation: t.isTranslation,
-      originalFilename: t.originalFilename || "",
-      file: { name: t.originalFilename || t.title, size: t.fileSizeBytes || 0 } as File,
-      date: s.sessionDate || null,
-      timePeriod: s.timePeriod || null,
-      partNumber: null,
-      isPractice: t.isPractice || false,
-      fileFormat: t.fileFormat || null,
-    })).sort((a: any, b: any) => {
+    tracks: (s.tracks || []).map((t: any) => {
+      // Old tracks predate the EN/PT split: their only title lives in the
+      // base `title` column. Surface it into whichever language field the
+      // detector guesses so opening the event doesn't show a blank title
+      // for a track that already has one (see ai-assist bilingual fix).
+      const _lang = detectTitleLanguage(t.title || "");
+      return {
+        id: t.id,
+        trackNumber: t.trackNumber,
+        title: t.title,
+        titleEn: t.titleEn || (_lang === "en" ? (t.title || "") : ""),
+        titlePt: t.titlePt || (_lang === "pt" ? (t.title || "") : ""),
+        titleEnReviewed: t.titleEnReviewed ?? true,
+        titlePtReviewed: t.titlePtReviewed ?? true,
+        speaker: t.speaker || null,
+        languages: t.languages || [t.originalLanguage || "en"],
+        originalLanguage: t.originalLanguage || "en",
+        isTranslation: t.isTranslation,
+        originalFilename: t.originalFilename || "",
+        file: { name: t.originalFilename || t.title, size: t.fileSizeBytes || 0 } as File,
+        date: s.sessionDate || null,
+        timePeriod: s.timePeriod || null,
+        partNumber: null,
+        isPractice: t.isPractice || false,
+        fileFormat: t.fileFormat || null,
+      };
+    }).sort((a: any, b: any) => {
       if (a.trackNumber !== b.trackNumber) return a.trackNumber - b.trackNumber;
       const transOrd = (a.isTranslation ? 1 : 0) - (b.isTranslation ? 1 : 0);
       if (transOrd !== 0) return transOrd;
@@ -2370,16 +2381,15 @@ export const EventEdit = () => {
       if (s.titlePt !== undefined) { patch.titlePt = s.titlePt; patch.titlePtReviewed = true; }
       if (Object.keys(patch).length) await handleSessionTitleChange(idx, patch, { silent: true });
     }
-    // Tracks → immediate persist via the existing handler.
+    // Tracks → immediate persist via the existing handler. AI-generated
+    // title fields go straight into titleEn/titlePt — reviewed=false since
+    // the admin hasn't confirmed the AI's wording.
     for (const tr of result.tracks) {
       const trackId = Number(tr.rowKey);
       if (!Number.isFinite(trackId)) continue;
       const updates: Record<string, unknown> = {};
-      if (tr.title != null) {
-        const lang = detectTitleLanguage(tr.title);
-        if (lang === "pt") { updates.titlePt = tr.title; updates.titlePtReviewed = true; }
-        else { updates.titleEn = tr.title; updates.titleEnReviewed = true; }
-      }
+      if (tr.titleEn !== undefined) { updates.titleEn = tr.titleEn; updates.titleEnReviewed = false; }
+      if (tr.titlePt !== undefined) { updates.titlePt = tr.titlePt; updates.titlePtReviewed = false; }
       if (tr.speaker != null) updates.speaker = tr.speaker;
       if (Object.keys(updates).length) await handleTrackUpdate(trackId, updates, { silent: true });
     }
@@ -2813,6 +2823,8 @@ export const EventEdit = () => {
             rowKey: String(tk.id),
             originalFilename: tk.originalFilename ?? "",
             title: tk.titleEn || tk.titlePt || tk.title,
+            titleEn: tk.titleEn ?? "",
+            titlePt: tk.titlePt ?? "",
             speaker: tk.speaker ?? "",
           }))}
           onApply={handleAiApply}

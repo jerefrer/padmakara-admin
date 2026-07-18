@@ -10,12 +10,15 @@ export interface RenameTrackRow {
   rowKey: string;
   originalFilename: string;
   title: string;
+  titleEn?: string;
+  titlePt?: string;
   speaker?: string | null;
 }
 
 export interface RenameSuggestion {
   rowKey: string;
-  title?: string;
+  titleEn?: string;
+  titlePt?: string;
   speaker?: string;
   speakerUnmatched?: true;
 }
@@ -66,8 +69,14 @@ const ASSIST_SYSTEM_PROMPT =
   "should change. Dates must be ISO YYYY-MM-DD.\n" +
   '- "sessions": an array of { rowKey, titleEn?, titlePt? } for sessions that ' +
   "should change (rowKey unchanged).\n" +
-  '- "tracks": an array of { rowKey, title?, speaker? } for tracks that should ' +
-  "change (rowKey unchanged).\n" +
+  '- "tracks": an array of { rowKey, titleEn?, titlePt?, speaker? } for tracks ' +
+  "that should change (rowKey unchanged). Each track has titleEn and titlePt " +
+  "— the title shown for that interface language, which may be empty — plus " +
+  "title, the track's current/original title; for older tracks titleEn and " +
+  "titlePt are often both empty and title is the only title filled in " +
+  "(usually English). To fill in or translate a track's title, set titleEn " +
+  "and/or titlePt (derive the translation from title when titleEn/titlePt " +
+  "are empty).\n" +
   "IMPORTANT: only suggest changes to event or session fields when the " +
   "instruction explicitly asks about the event or the sessions. If the " +
   "instruction is only about track titles or speakers, return just the " +
@@ -138,7 +147,8 @@ export async function aiAssistEvent(args: {
           if (typeof item !== "object" || item === null) return [];
           const s = item as Record<string, unknown>;
           const sug: RenameSuggestion = { rowKey: String(s.rowKey ?? "") };
-          if (typeof s.title === "string") sug.title = s.title;
+          if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
+          if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
           if (typeof s.speaker === "string") {
             const resolved = resolveSpeaker(s.speaker, roster);
             sug.speaker = resolved.speaker;

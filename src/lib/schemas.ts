@@ -344,6 +344,8 @@ export const aiAssistSchema = z.object({
         rowKey: z.string().min(1).max(100),
         originalFilename: z.string().max(500),
         title: z.string().max(500),
+        titleEn: z.string().max(500).optional(),
+        titlePt: z.string().max(500).optional(),
         speaker: z.string().max(100).optional().nullable(),
       }),
     )

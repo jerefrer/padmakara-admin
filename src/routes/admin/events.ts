@@ -287,8 +287,8 @@ eventRoutes.delete("/:id", async (c) => {
  * caller applies the suggestions to the editable rename-preview table and
  * can review before committing.
  *
- * Body: { instruction: string, event?, sessions?, tracks: { rowKey, originalFilename, title, speaker }[] }
- * Response: { event?, sessions: { rowKey, titleEn?, titlePt? }[], tracks: { rowKey, title?, speaker?, speakerUnmatched? }[] }
+ * Body: { instruction: string, event?, sessions?, tracks: { rowKey, originalFilename, title, titleEn?, titlePt?, speaker }[] }
+ * Response: { event?, sessions: { rowKey, titleEn?, titlePt? }[], tracks: { rowKey, titleEn?, titlePt?, speaker?, speakerUnmatched? }[] }
  */
 eventRoutes.post("/:id/rename-tracks", async (c) => {
   const parsed = aiAssistSchema.safeParse(await c.req.json().catch(() => null));

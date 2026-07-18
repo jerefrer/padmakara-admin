@@ -91,8 +91,8 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
 
   it("returns AI track suggestions for a valid request", async () => {
     const trackSuggestions = [
-      { rowKey: "1-1", title: "Opening Teachings" },
-      { rowKey: "1-2", title: "Prayers", speaker: "KPS" },
+      { rowKey: "1-1", titleEn: "Opening Teachings" },
+      { rowKey: "1-2", titleEn: "Prayers", speaker: "KPS" },
     ];
     mockMessagesCreate.mockResolvedValueOnce(
       makeAnthropicResponse(JSON.stringify({ tracks: trackSuggestions })),
@@ -175,7 +175,7 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
   });
 
   it("strips markdown code fences wrapping the JSON object", async () => {
-    const trackSuggestions = [{ rowKey: "1-1", title: "Opening Teachings" }];
+    const trackSuggestions = [{ rowKey: "1-1", titleEn: "Opening Teachings" }];
     const withFences =
       "```json\n" + JSON.stringify({ tracks: trackSuggestions }) + "\n```";
     mockMessagesCreate.mockResolvedValueOnce(makeAnthropicResponse(withFences));

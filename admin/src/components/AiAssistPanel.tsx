@@ -17,13 +17,14 @@ export interface AiAssistEventFields {
   startDate?: string; endDate?: string;
 }
 export interface AiAssistTrack {
-  rowKey: string; originalFilename: string; title: string; speaker?: string | null;
+  rowKey: string; originalFilename: string; title: string;
+  titleEn?: string; titlePt?: string; speaker?: string | null;
 }
 export interface AiAssistSession { rowKey: string; titleEn?: string; titlePt?: string; }
 export interface AiAssistResult {
   event?: AiAssistEventFields;
   sessions: Array<{ rowKey: string; titleEn?: string; titlePt?: string }>;
-  tracks: Array<{ rowKey: string; title?: string; speaker?: string; speakerUnmatched?: true }>;
+  tracks: Array<{ rowKey: string; titleEn?: string; titlePt?: string; speaker?: string; speakerUnmatched?: true }>;
 }
 interface AiAssistPanelProps {
   event: AiAssistEventFields;
@@ -96,12 +97,20 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
     if (!result) return [];
     return result.tracks.flatMap((tr) => {
       const cur = trackByKey.get(tr.rowKey);
+      const trackLabel = cur?.title || cur?.originalFilename || tr.rowKey;
       const rows: DiffRow[] = [];
-      if (tr.title !== undefined) {
+      if (tr.titleEn !== undefined) {
         rows.push({
-          label: cur?.title || cur?.originalFilename || tr.rowKey,
-          from: cur?.title ?? "",
-          to: tr.title,
+          label: `${trackLabel} · EN`,
+          from: cur?.titleEn ?? "",
+          to: tr.titleEn,
+        });
+      }
+      if (tr.titlePt !== undefined) {
+        rows.push({
+          label: `${trackLabel} · PT`,
+          from: cur?.titlePt ?? "",
+          to: tr.titlePt,
         });
       }
       if (tr.speaker !== undefined) {

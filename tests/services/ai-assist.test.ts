@@ -25,16 +25,30 @@ function aiReply(obj: unknown) {
 describe("aiAssistEvent", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns only track suggestions for a track-only instruction", async () => {
+  it("returns bilingual track title suggestions for a track-only instruction", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
-      aiReply({ tracks: [{ rowKey: "t1", title: "Opening" }] }),
+      aiReply({ tracks: [
+        { rowKey: "t1", titleEn: "Dedication of merit", titlePt: "Dedicação de mérito" },
+      ] }),
     );
     const out = await aiAssistEvent({
-      instruction: "Title case", tracks: TRACKS, roster: ROSTER, apiKey: "k",
+      instruction: "Fill in English and Portuguese titles", tracks: TRACKS, roster: ROSTER, apiKey: "k",
     });
-    expect(out.tracks).toEqual([{ rowKey: "t1", title: "Opening" }]);
+    expect(out.tracks).toEqual([
+      { rowKey: "t1", titleEn: "Dedication of merit", titlePt: "Dedicação de mérito" },
+    ]);
     expect(out.sessions).toEqual([]);
     expect(out.event).toBeUndefined();
+  });
+
+  it("returns a partial track suggestion with only titlePt when just a translation is requested", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "t1", titlePt: "Praticar a calma mental" }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Translate the track titles to Portuguese", tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([{ rowKey: "t1", titlePt: "Praticar a calma mental" }]);
   });
 
   it("returns event field suggestions when the instruction asks about the event", async () => {
@@ -86,12 +100,12 @@ describe("aiAssistEvent", () => {
 
   it("strips markdown fences around the JSON object", async () => {
     mockMessagesCreate.mockResolvedValueOnce({
-      content: [{ type: "text", text: "```json\n" + JSON.stringify({ tracks: [{ rowKey: "t1", title: "X" }] }) + "\n```" }],
+      content: [{ type: "text", text: "```json\n" + JSON.stringify({ tracks: [{ rowKey: "t1", titleEn: "X" }] }) + "\n```" }],
     });
     const out = await aiAssistEvent({
       instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k",
     });
-    expect(out.tracks).toEqual([{ rowKey: "t1", title: "X" }]);
+    expect(out.tracks).toEqual([{ rowKey: "t1", titleEn: "X" }]);
   });
 
   it("throws when the AI response is not valid JSON", async () => {
