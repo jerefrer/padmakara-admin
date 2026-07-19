@@ -75,6 +75,7 @@ import { validateImportEvent } from "../utils/eventValidation";
 import {
   uploadTracks,
   uploadTranscript,
+  SpeedTracker,
   type UploadItem,
   type UploadProgress as UploadProgressData,
 } from "../utils/uploadManager";
@@ -2558,6 +2559,7 @@ export const EventEdit = () => {
     (sessionId: number, file: File) => {
       const position = sessions.find((s) => s.id === sessionId)?.videos?.length ?? 0;
       const signal: { cancelled: boolean; abort?: () => void } = { cancelled: false };
+      const speedTracker = new SpeedTracker();
       cancelUploadRef.current = () => {
         signal.cancelled = true;
         signal.abort?.();
@@ -2583,12 +2585,14 @@ export const EventEdit = () => {
         file,
         signal,
         onProgress: (loaded, total) => {
+          speedTracker.record(loaded);
           setUploadProgress((p) => p && {
             ...p,
             phase: "uploading",
             bytesUploaded: loaded,
             bytesTotal: total,
             fileProgress: total > 0 ? loaded / total : 0,
+            speed: speedTracker.getSpeed(),
             files: p.files.map((f) =>
               f.filename === file.name ? { ...f, status: "uploading", progress: total > 0 ? loaded / total : 0 } : f,
             ),

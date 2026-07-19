@@ -196,7 +196,7 @@ async function updateTrackS3Key(
 }
 
 // Rolling speed calculator: average over last N samples
-class SpeedTracker {
+export class SpeedTracker {
   private samples: { time: number; bytes: number }[] = [];
   private windowMs = 5000;
 
