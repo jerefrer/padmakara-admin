@@ -539,6 +539,16 @@ interface EventFormProps {
   onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   onFeaturedToggle?: () => void;
   onStatusChange?: (newStatus: string) => void;
+  /** Create-flow only: the live preview state behind SessionTrackTable (the
+   *  `sessions` prop is empty there), so the auto-translate bar can count and
+   *  fill those session/track titles too instead of reporting "all done". */
+  previewSessions?: InferredSession[];
+  /** Create-flow only: functional-updater setter for `previewSessions`. Fills
+   *  are applied in one wholesale pass against the freshest state so each
+   *  track keeps its `File` reference (the table's row identity). */
+  onPreviewSessionsChange?: (
+    updater: (prev: InferredSession[]) => InferredSession[],
+  ) => void;
   trackCount: number;
   transcriptCount: number;
   /** When true the event-code field is read-only (the legacy-import screen,
@@ -618,6 +628,7 @@ export const EventFormFields = ({
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onSessionVideoUpload, onSessionVideoDelete,
+  previewSessions, onPreviewSessionsChange,
   onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
 }: EventFormProps) => {
@@ -664,9 +675,8 @@ export const EventFormFields = ({
     for (const s of sessions) {
       if (String(s[srcField] ?? "").trim() && !String(s[tgtField] ?? "").trim()) sessionTitles++;
     }
-    // Track titles are only fillable in the edit view, where `onTrackUpdate`
-    // is the persist path (EventCreate's tracks live in SessionTrackTable's
-    // own state and keep their own translate button there).
+    // Edit view: tracks are persisted rows, updated one-by-one via
+    // `onTrackUpdate`.
     let trackTitles = 0;
     if (onTrackUpdate) {
       for (const s of sessions) {
@@ -674,6 +684,15 @@ export const EventFormFields = ({
           if (!t.id) continue;
           if (String(t[srcField] ?? "").trim() && !String(t[tgtField] ?? "").trim()) trackTitles++;
         }
+      }
+    }
+    // Create flow: sessions and tracks live in the SessionTrackTable preview
+    // state (`sessions` is empty there) — count them the same way so the bar
+    // never claims "everything is translated" while track titles are missing.
+    for (const s of previewSessions ?? []) {
+      if (String(s[srcField] ?? "").trim() && !String(s[tgtField] ?? "").trim()) sessionTitles++;
+      for (const t of s.tracks) {
+        if (String(t[srcField] ?? "").trim() && !String(t[tgtField] ?? "").trim()) trackTitles++;
       }
     }
     return {
@@ -721,6 +740,20 @@ export const EventFormFields = ({
       }
     }
     for (const t of trackTargets) items[`track:${t.trackId}`] = t.source;
+
+    // Create flow: preview sessions/tracks are keyed by index — applied below
+    // in one wholesale `onPreviewSessionsChange` pass, mirroring how
+    // SessionTrackTable's own bulk translate builds a single new TableValue.
+    (previewSessions ?? []).forEach((s, si) => {
+      const source = String(s[srcField] ?? "").trim();
+      const target = String(s[tgtField] ?? "").trim();
+      if (source && !target) items[`psession:${si}`] = source;
+      s.tracks.forEach((t, ti) => {
+        const tSource = String(t[srcField] ?? "").trim();
+        const tTarget = String(t[tgtField] ?? "").trim();
+        if (tSource && !tTarget) items[`ptrack:${si}:${ti}`] = tSource;
+      });
+    });
 
     if (Object.keys(items).length === 0) {
       notify(translate("padmakara.events.translateNothing"), { type: "info" });
@@ -780,8 +813,38 @@ export const EventFormFields = ({
           ),
         ),
       ]);
+      // Create flow: fold every returned psession:/ptrack: fill into the
+      // preview state in ONE updater pass. Spreads keep each track's `File`
+      // reference, which is the table's stable row identity.
+      let appliedPreview = 0;
+      for (const key of Object.keys(out)) {
+        if ((key.startsWith("psession:") || key.startsWith("ptrack:")) && out[key] != null) {
+          appliedPreview++;
+        }
+      }
+      if (appliedPreview > 0 && onPreviewSessionsChange) {
+        onPreviewSessionsChange((prev) =>
+          prev.map((s, si) => {
+            const sVal = out[`psession:${si}`];
+            const tracks = s.tracks.map((t, ti) => {
+              const v = out[`ptrack:${si}:${ti}`];
+              if (v == null) return t;
+              // Same dynamic-key cast the edit-flow track path uses above.
+              return { ...t, [tgtField]: v, [tgtReviewedField]: false } as ParsedTrack;
+            });
+            if (sVal == null) return { ...s, tracks };
+            return {
+              ...s,
+              tracks,
+              [tgtField]: sVal,
+              [tgtReviewedField]: false,
+            } as InferredSession;
+          }),
+        );
+      }
+
       const failureCount = results.filter((r) => r.status === "rejected").length;
-      const applied = appliedEvent + results.length - failureCount;
+      const applied = appliedEvent + appliedPreview + results.length - failureCount;
       refresh();
       if (failureCount > 0) {
         notify(`Failed to update ${failureCount} title(s)`, { type: "error" });
@@ -896,8 +959,9 @@ export const EventFormFields = ({
       </Box>
 
       {/* ── Auto-translate bar — the one place that fills every empty EN/PT
-             target (event fields, session titles and, in edit view, track
-             titles), with a live count of what a click will do ── */}
+             target (event fields, session titles and track titles — persisted
+             rows in the edit view, preview state in the create flow), with a
+             live count of what a click will do ── */}
       <Box
         sx={{
           display: "flex",
@@ -957,13 +1021,13 @@ export const EventFormFields = ({
               onChange={(v) => setForm((p) => ({ ...p, titleEn: v, titleEnReviewed: true }))}
               reviewed={form.titleEnReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, titleEnReviewed: true }))}
-              canTranslate={!!String(form.titlePt ?? "").trim()}
+              canTranslate={!!String(form.titleEn ?? "").trim()}
               translatePending={busy}
-              direction="pt-to-en"
-              translateTooltip={translate("padmakara.events.translateToEn")}
+              direction="en-to-pt"
+              translateTooltip={translate("padmakara.events.translateToPt")}
               onTranslate={async () => {
-                const out = await ft.translate(String(form.titlePt ?? ""), "pt-to-en");
-                if (out != null) setForm((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+                const out = await ft.translate(String(form.titleEn ?? ""), "en-to-pt");
+                if (out != null) setForm((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
               }}
               required
               placeholder="2025 Spring Retreat"
@@ -976,13 +1040,13 @@ export const EventFormFields = ({
               onChange={(v) => setForm((p) => ({ ...p, titlePt: v, titlePtReviewed: true }))}
               reviewed={form.titlePtReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, titlePtReviewed: true }))}
-              canTranslate={!!String(form.titleEn ?? "").trim()}
+              canTranslate={!!String(form.titlePt ?? "").trim()}
               translatePending={busy}
-              direction="en-to-pt"
-              translateTooltip={translate("padmakara.events.translateToPt")}
+              direction="pt-to-en"
+              translateTooltip={translate("padmakara.events.translateToEn")}
               onTranslate={async () => {
-                const out = await ft.translate(String(form.titleEn ?? ""), "en-to-pt");
-                if (out != null) setForm((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+                const out = await ft.translate(String(form.titlePt ?? ""), "pt-to-en");
+                if (out != null) setForm((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
               }}
               placeholder="Retiro de Primavera 2025"
             />
@@ -1163,13 +1227,13 @@ export const EventFormFields = ({
               onChange={(v) => setForm((p) => ({ ...p, mainThemesEn: v, mainThemesEnReviewed: true }))}
               reviewed={form.mainThemesEnReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, mainThemesEnReviewed: true }))}
-              canTranslate={!!String(form.mainThemesPt ?? "").trim()}
+              canTranslate={!!String(form.mainThemesEn ?? "").trim()}
               translatePending={busy}
-              direction="pt-to-en"
-              translateTooltip={translate("padmakara.events.translateToEn")}
+              direction="en-to-pt"
+              translateTooltip={translate("padmakara.events.translateToPt")}
               onTranslate={async () => {
-                const out = await ft.translate(String(form.mainThemesPt ?? ""), "pt-to-en");
-                if (out != null) setForm((p) => ({ ...p, mainThemesEn: out, mainThemesEnReviewed: false }));
+                const out = await ft.translate(String(form.mainThemesEn ?? ""), "en-to-pt");
+                if (out != null) setForm((p) => ({ ...p, mainThemesPt: out, mainThemesPtReviewed: false }));
               }}
               multiline
               minRows={syncedRows(form.mainThemesEn, form.mainThemesPt)}
@@ -1183,13 +1247,13 @@ export const EventFormFields = ({
               onChange={(v) => setForm((p) => ({ ...p, mainThemesPt: v, mainThemesPtReviewed: true }))}
               reviewed={form.mainThemesPtReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, mainThemesPtReviewed: true }))}
-              canTranslate={!!String(form.mainThemesEn ?? "").trim()}
+              canTranslate={!!String(form.mainThemesPt ?? "").trim()}
               translatePending={busy}
-              direction="en-to-pt"
-              translateTooltip={translate("padmakara.events.translateToPt")}
+              direction="pt-to-en"
+              translateTooltip={translate("padmakara.events.translateToEn")}
               onTranslate={async () => {
-                const out = await ft.translate(String(form.mainThemesEn ?? ""), "en-to-pt");
-                if (out != null) setForm((p) => ({ ...p, mainThemesPt: out, mainThemesPtReviewed: false }));
+                const out = await ft.translate(String(form.mainThemesPt ?? ""), "pt-to-en");
+                if (out != null) setForm((p) => ({ ...p, mainThemesEn: out, mainThemesEnReviewed: false }));
               }}
               multiline
               minRows={syncedRows(form.mainThemesEn, form.mainThemesPt)}
@@ -1203,13 +1267,13 @@ export const EventFormFields = ({
               onChange={(v) => setForm((p) => ({ ...p, sessionThemesEn: v, sessionThemesEnReviewed: true }))}
               reviewed={form.sessionThemesEnReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, sessionThemesEnReviewed: true }))}
-              canTranslate={!!String(form.sessionThemesPt ?? "").trim()}
+              canTranslate={!!String(form.sessionThemesEn ?? "").trim()}
               translatePending={busy}
-              direction="pt-to-en"
-              translateTooltip={translate("padmakara.events.translateToEn")}
+              direction="en-to-pt"
+              translateTooltip={translate("padmakara.events.translateToPt")}
               onTranslate={async () => {
-                const out = await ft.translate(String(form.sessionThemesPt ?? ""), "pt-to-en");
-                if (out != null) setForm((p) => ({ ...p, sessionThemesEn: out, sessionThemesEnReviewed: false }));
+                const out = await ft.translate(String(form.sessionThemesEn ?? ""), "en-to-pt");
+                if (out != null) setForm((p) => ({ ...p, sessionThemesPt: out, sessionThemesPtReviewed: false }));
               }}
               multiline
               minRows={syncedRows(form.sessionThemesEn, form.sessionThemesPt)}
@@ -1223,13 +1287,13 @@ export const EventFormFields = ({
               onChange={(v) => setForm((p) => ({ ...p, sessionThemesPt: v, sessionThemesPtReviewed: true }))}
               reviewed={form.sessionThemesPtReviewed}
               onMarkReviewed={() => setForm((p) => ({ ...p, sessionThemesPtReviewed: true }))}
-              canTranslate={!!String(form.sessionThemesEn ?? "").trim()}
+              canTranslate={!!String(form.sessionThemesPt ?? "").trim()}
               translatePending={busy}
-              direction="en-to-pt"
-              translateTooltip={translate("padmakara.events.translateToPt")}
+              direction="pt-to-en"
+              translateTooltip={translate("padmakara.events.translateToEn")}
               onTranslate={async () => {
-                const out = await ft.translate(String(form.sessionThemesEn ?? ""), "en-to-pt");
-                if (out != null) setForm((p) => ({ ...p, sessionThemesPt: out, sessionThemesPtReviewed: false }));
+                const out = await ft.translate(String(form.sessionThemesPt ?? ""), "pt-to-en");
+                if (out != null) setForm((p) => ({ ...p, sessionThemesEn: out, sessionThemesEnReviewed: false }));
               }}
               multiline
               minRows={syncedRows(form.sessionThemesEn, form.sessionThemesPt)}
@@ -2073,6 +2137,8 @@ export const EventCreate = () => {
             allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
             allEventTypes={allEventTypes} allAudiences={allAudiences}
             sessions={[]} transcripts={[]} eventFiles={[]} onSessionTitleChange={handleSessionTitleChange}
+            previewSessions={sessions}
+            onPreviewSessionsChange={setSessions}
             trackCount={0}
             transcriptCount={0}
           />

@@ -399,14 +399,15 @@ const SessionCard = ({
               {!edit.titleEnReviewed && (
                 <AiReviewChip onClick={() => setEdit((p) => ({ ...p, titleEnReviewed: true }))} />
               )}
+              {/* Chip lives on the SOURCE field: this EN text fills the PT sibling. */}
               <TranslateDirChip
-                direction="pt-to-en"
-                disabled={!edit.titlePt.trim()}
+                direction="en-to-pt"
+                disabled={!edit.titleEn.trim()}
                 pending={ft.translating}
-                tooltip={translate("padmakara.events.translateToEn")}
+                tooltip={translate("padmakara.events.translateToPt")}
                 onClick={async () => {
-                  const out = await ft.translate(edit.titlePt, "pt-to-en");
-                  if (out != null) setEdit((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+                  const out = await ft.translate(edit.titleEn, "en-to-pt");
+                  if (out != null) setEdit((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
                 }}
               />
             </Box>
@@ -424,13 +425,13 @@ const SessionCard = ({
                 <AiReviewChip onClick={() => setEdit((p) => ({ ...p, titlePtReviewed: true }))} />
               )}
               <TranslateDirChip
-                direction="en-to-pt"
-                disabled={!edit.titleEn.trim()}
+                direction="pt-to-en"
+                disabled={!edit.titlePt.trim()}
                 pending={ft.translating}
-                tooltip={translate("padmakara.events.translateToPt")}
+                tooltip={translate("padmakara.events.translateToEn")}
                 onClick={async () => {
-                  const out = await ft.translate(edit.titleEn, "en-to-pt");
-                  if (out != null) setEdit((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+                  const out = await ft.translate(edit.titlePt, "pt-to-en");
+                  if (out != null) setEdit((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
                 }}
               />
             </Box>
@@ -1022,14 +1023,15 @@ const TrackRow = ({
           {!editValues.titleEnReviewed && (
             <AiReviewChip onClick={() => setEditValues((p) => ({ ...p, titleEnReviewed: true }))} />
           )}
+          {/* Chip lives on the SOURCE field: this EN text fills the PT sibling. */}
           <TranslateDirChip
-            direction="pt-to-en"
-            disabled={!editValues.titlePt.trim()}
+            direction="en-to-pt"
+            disabled={!editValues.titleEn.trim()}
             pending={ft.translating}
-            tooltip={translate("padmakara.events.translateToEn")}
+            tooltip={translate("padmakara.events.translateToPt")}
             onClick={async () => {
-              const out = await ft.translate(editValues.titlePt, "pt-to-en");
-              if (out != null) setEditValues((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+              const out = await ft.translate(editValues.titleEn, "en-to-pt");
+              if (out != null) setEditValues((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
             }}
           />
         </Box>
@@ -1050,13 +1052,13 @@ const TrackRow = ({
             <AiReviewChip onClick={() => setEditValues((p) => ({ ...p, titlePtReviewed: true }))} />
           )}
           <TranslateDirChip
-            direction="en-to-pt"
-            disabled={!editValues.titleEn.trim()}
+            direction="pt-to-en"
+            disabled={!editValues.titlePt.trim()}
             pending={ft.translating}
-            tooltip={translate("padmakara.events.translateToPt")}
+            tooltip={translate("padmakara.events.translateToEn")}
             onClick={async () => {
-              const out = await ft.translate(editValues.titleEn, "en-to-pt");
-              if (out != null) setEditValues((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+              const out = await ft.translate(editValues.titlePt, "pt-to-en");
+              if (out != null) setEditValues((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
             }}
           />
         </Box>
