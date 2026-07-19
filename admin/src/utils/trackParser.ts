@@ -28,15 +28,20 @@ export interface ParsedTrack {
   mediaType: TrackMediaType;
 }
 
-/** A single video attached to a session (a session may have several, ordered by position). */
-export interface SessionVideo {
+/** A single video attached to an event (event-wide, ordered by position — no
+ *  longer scoped to a session). */
+export interface EventVideo {
   id: number;
-  sessionId: number;
+  eventId: number;
   bunnyVideoId: string;
   position: number;
-  title: string | null;
+  titleEn: string | null;
+  titlePt: string | null;
+  videoDate: string | null;
   durationSeconds: number | null;
   posterUrl: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface InferredSession {
@@ -49,9 +54,6 @@ export interface InferredSession {
   titleEnReviewed: boolean;
   titlePtReviewed: boolean;
   tracks: ParsedTrack[];
-  /** Videos attached to this session, ordered by position. Empty/undefined for
-   *  audio-only sessions or sessions not yet loaded from the DB. */
-  videos?: SessionVideo[];
 }
 
 const LANGUAGE_MAP: Record<string, string> = {

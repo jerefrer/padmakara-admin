@@ -7,7 +7,7 @@ vi.mock("../../src/db/index.ts", () => ({
     query: {
       tracks: { findFirst: vi.fn() },
       sessions: { findFirst: vi.fn() },
-      sessionVideos: { findFirst: vi.fn() },
+      eventVideos: { findFirst: vi.fn() },
       transcripts: { findFirst: vi.fn() },
       users: { findFirst: vi.fn() },
       userEventAttendance: { findFirst: vi.fn() },
@@ -61,38 +61,32 @@ function makeTrackWithEvent(overrides: Record<string, any> = {}) {
   };
 }
 
-function makeSessionVideo(overrides: Record<string, any> = {}) {
+function makeEventVideo(overrides: Record<string, any> = {}) {
   return {
     id: 3,
-    sessionId: 7,
+    eventId: 1,
     bunnyVideoId: VIDEO_GUID,
     position: 0,
-    title: null,
+    titleEn: null,
     durationSeconds: 1800,
     posterUrl: null,
-    session: {
-      id: 7,
-      eventId: 1,
-      titleEn: "Day 1 Morning",
-      sessionNumber: 1,
-      event: {
-        id: 1,
-        status: "published",
-        audience: { slug: "free-anyone" },
-        audienceId: 1,
-      },
+    event: {
+      id: 1,
+      status: "published",
+      audience: { slug: "free-anyone" },
+      audienceId: 1,
     },
     ...overrides,
   };
 }
 
-describe("GET /api/media/video/:sessionVideoId", () => {
+describe("GET /api/media/video/:videoId", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("returns signed playback URLs for a session_video on a public event", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(makeSessionVideo());
+  it("returns signed playback URLs for an event_video on a public event", async () => {
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(makeEventVideo());
 
     const { status, body } = await testJson(`/api/media/video/3`);
 
@@ -109,8 +103,8 @@ describe("GET /api/media/video/:sessionVideoId", () => {
   });
 
   it("uses the cached posterUrl as thumbnail when present", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(
-      makeSessionVideo({ posterUrl: "https://cdn.example/custom-poster.jpg" }),
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(
+      makeEventVideo({ posterUrl: "https://cdn.example/custom-poster.jpg" }),
     );
 
     const { status, body } = await testJson(`/api/media/video/3`);
@@ -119,21 +113,17 @@ describe("GET /api/media/video/:sessionVideoId", () => {
     expect(body.thumbnail).toBe("https://cdn.example/custom-poster.jpg");
   });
 
-  it("returns 404 when the session_video does not exist", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(null);
+  it("returns 404 when the event_video does not exist", async () => {
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(null);
 
     const { status } = await testJson(`/api/media/video/9999`);
     expect(status).toBe(404);
   });
 
   it("returns 401 when accessing a video on a non-public event without auth", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(
-      makeSessionVideo({
-        session: {
-          id: 7,
-          eventId: 1,
-          event: { id: 1, status: "published", audience: { slug: "free-subscribers" }, audienceId: 2 },
-        },
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(
+      makeEventVideo({
+        event: { id: 1, status: "published", audience: { slug: "free-subscribers" }, audienceId: 2 },
       }),
     );
 
@@ -142,7 +132,7 @@ describe("GET /api/media/video/:sessionVideoId", () => {
   });
 });
 
-describe("GET /api/media/video/:sessionVideoId/download", () => {
+describe("GET /api/media/video/:videoId/download", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -162,7 +152,7 @@ describe("GET /api/media/video/:sessionVideoId/download", () => {
   }
 
   it("returns a token-signed MP4 URL at the requested quality when available", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(makeSessionVideo());
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(makeEventVideo());
     mockMeta();
 
     const { status, body } = await testJson(`/api/media/video/3/download?quality=480p`);
@@ -175,7 +165,7 @@ describe("GET /api/media/video/:sessionVideoId/download", () => {
   });
 
   it("defaults to 720p when quality is omitted", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(makeSessionVideo());
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(makeEventVideo());
     mockMeta();
 
     const { status, body } = await testJson(`/api/media/video/3/download`);
@@ -185,7 +175,7 @@ describe("GET /api/media/video/:sessionVideoId/download", () => {
   });
 
   it("falls back to the highest available variant when source is below requested", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(makeSessionVideo());
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(makeEventVideo());
     mockMeta("240p,360p,480p");
 
     const { status, body } = await testJson(`/api/media/video/3/download?quality=720p`);
@@ -197,7 +187,7 @@ describe("GET /api/media/video/:sessionVideoId/download", () => {
   });
 
   it("never upgrades quality above what was requested", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(makeSessionVideo());
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(makeEventVideo());
     mockMeta();
 
     const { status, body } = await testJson(`/api/media/video/3/download?quality=480p`);
@@ -206,7 +196,7 @@ describe("GET /api/media/video/:sessionVideoId/download", () => {
   });
 
   it("returns 404 when no MP4 variants exist", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(makeSessionVideo());
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(makeEventVideo());
     mockMeta(null);
 
     const { status } = await testJson(`/api/media/video/3/download?quality=720p`);
@@ -216,12 +206,12 @@ describe("GET /api/media/video/:sessionVideoId/download", () => {
   it("rejects unknown quality with 400", async () => {
     const { status } = await testJson(`/api/media/video/3/download?quality=4k`);
     expect(status).toBe(400);
-    expect(mockDb.query.sessionVideos.findFirst).not.toHaveBeenCalled();
+    expect(mockDb.query.eventVideos.findFirst).not.toHaveBeenCalled();
     expect(mockGetVideoMeta).not.toHaveBeenCalled();
   });
 
-  it("returns 404 when the session_video does not exist", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(null);
+  it("returns 404 when the event_video does not exist", async () => {
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(null);
 
     const { status } = await testJson(`/api/media/video/9999/download`);
     expect(status).toBe(404);
@@ -229,13 +219,9 @@ describe("GET /api/media/video/:sessionVideoId/download", () => {
   });
 
   it("returns 401 for non-public events without auth", async () => {
-    mockDb.query.sessionVideos.findFirst.mockResolvedValueOnce(
-      makeSessionVideo({
-        session: {
-          id: 7,
-          eventId: 1,
-          event: { id: 1, status: "published", audience: { slug: "free-subscribers" }, audienceId: 2 },
-        },
+    mockDb.query.eventVideos.findFirst.mockResolvedValueOnce(
+      makeEventVideo({
+        event: { id: 1, status: "published", audience: { slug: "free-subscribers" }, audienceId: 2 },
       }),
     );
 

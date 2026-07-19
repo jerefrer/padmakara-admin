@@ -15,7 +15,7 @@ export {
   eventPlacesRelations,
 } from "./retreats.ts";
 export { sessions, sessionsRelations } from "./sessions.ts";
-export { sessionVideos, sessionVideosRelations } from "./session-videos.ts";
+export { eventVideos, eventVideosRelations } from "./event-videos.ts";
 export { tracks, tracksRelations } from "./tracks.ts";
 export { transcripts, transcriptsRelations } from "./transcripts.ts";
 export { eventFiles, eventFilesRelations } from "./event-files.ts";
@@ -61,7 +61,7 @@ export {
   trackBookmarksRelations,
 } from "./user-content.ts";
 
-// Video progress (session-level, distinct from track-level userProgress)
+// Video progress (per event-video, distinct from track-level userProgress)
 export {
   videoProgress,
   videoProgressRelations,
@@ -79,15 +79,15 @@ export {
   readAlongJobsRelations,
 } from "./read-along-jobs.ts";
 
-// Subtitle jobs and session subtitles
+// Subtitle jobs and per-video subtitles
 export {
   subtitleJobs,
   subtitleJobsRelations,
 } from "./subtitle-jobs.ts";
 export {
-  sessionSubtitles,
-  sessionSubtitlesRelations,
-} from "./session-subtitles.ts";
+  videoSubtitles,
+  videoSubtitlesRelations,
+} from "./video-subtitles.ts";
 
 // Sync versioning
 export { syncVersions } from "./sync-versions.ts";

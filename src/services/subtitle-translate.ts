@@ -186,10 +186,9 @@ export async function translateSentences(
 
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { sessions } from "../db/schema/sessions.js";
-import { sessionVideos } from "../db/schema/session-videos.js";
+import { eventVideos } from "../db/schema/event-videos.js";
 import { events } from "../db/schema/retreats.js";
-import { sessionSubtitles } from "../db/schema/session-subtitles.js";
+import { videoSubtitles } from "../db/schema/video-subtitles.js";
 import { subtitleJobs } from "../db/schema/subtitle-jobs.js";
 import { getObjectText, putObject } from "./s3.js";
 import { addCaption } from "./bunny-captions.js";
@@ -198,22 +197,21 @@ import { isAllowedModel } from "./translation-models.js";
 const LABELS: Record<string, string> = { pt: "Português", es: "Español", fr: "Français" };
 
 export async function translateSubtitles(
-  sessionVideoId: number,
+  videoId: number,
   targetLang: string,
   model: string,
 ): Promise<{ s3Key: string; jobId: string }> {
   if (!isAllowedModel(model)) throw new Error(`Model not allowed: ${model}`);
 
-  const video = await db.query.sessionVideos.findFirst({
-    where: eq(sessionVideos.id, sessionVideoId),
+  const video = await db.query.eventVideos.findFirst({
+    where: eq(eventVideos.id, videoId),
   });
-  if (!video) throw new Error("Session video not found");
+  if (!video) throw new Error("Event video not found");
 
   const [job] = await db
     .insert(subtitleJobs)
     .values({
-      sessionId: video.sessionId,
-      sessionVideoId,
+      videoId,
       language: targetLang,
       model,
       status: "processing",
@@ -224,13 +222,10 @@ export async function translateSubtitles(
   if (!job) throw new Error("Failed to create subtitle job");
 
   try {
-    const session = await db.query.sessions.findFirst({ where: eq(sessions.id, video.sessionId) });
-    if (!session) throw new Error("Session not found");
-
-    const source = await db.query.sessionSubtitles.findFirst({
+    const source = await db.query.videoSubtitles.findFirst({
       where: and(
-        eq(sessionSubtitles.sessionVideoId, sessionVideoId),
-        eq(sessionSubtitles.language, "en"),
+        eq(videoSubtitles.videoId, videoId),
+        eq(videoSubtitles.language, "en"),
       ),
     });
     if (!source) throw new Error("No English source subtitles to translate");
@@ -247,17 +242,16 @@ export async function translateSubtitles(
     sentences.forEach((s, i) => outCues.push(...recueSentence(s, translations[i] ?? s.text)));
     const vtt = serializeVtt(outCues);
 
-    const event = await db.query.events.findFirst({ where: eq(events.id, session.eventId) });
+    const event = await db.query.events.findFirst({ where: eq(events.id, video.eventId) });
     if (!event) throw new Error("Event not found");
 
-    const s3Key = `events/${event.eventCode}/subtitles/s${session.sessionNumber}/v${sessionVideoId}/${targetLang}.vtt`;
+    const s3Key = `events/${event.eventCode}/subtitles/v${videoId}/${targetLang}.vtt`;
     await putObject(s3Key, Buffer.from(vtt), "text/vtt");
 
     await db
-      .insert(sessionSubtitles)
+      .insert(videoSubtitles)
       .values({
-        sessionId: video.sessionId,
-        sessionVideoId,
+        videoId,
         language: targetLang,
         label: LABELS[targetLang] ?? targetLang,
         s3Key,
@@ -265,19 +259,19 @@ export async function translateSubtitles(
         source: "auto",
       })
       .onConflictDoUpdate({
-        target: [sessionSubtitles.sessionVideoId, sessionSubtitles.language],
+        target: [videoSubtitles.videoId, videoSubtitles.language],
         set: { s3Key, source: "auto", stale: false, updatedAt: new Date() },
       });
 
     if (video.bunnyVideoId) {
       await addCaption(video.bunnyVideoId, targetLang, LABELS[targetLang] ?? targetLang, vtt);
       await db
-        .update(sessionSubtitles)
+        .update(videoSubtitles)
         .set({ bunnyUploadedAt: new Date() })
         .where(
           and(
-            eq(sessionSubtitles.sessionVideoId, sessionVideoId),
-            eq(sessionSubtitles.language, targetLang),
+            eq(videoSubtitles.videoId, videoId),
+            eq(videoSubtitles.language, targetLang),
           ),
         );
     }
@@ -287,12 +281,12 @@ export async function translateSubtitles(
     // video's other translations stale since the source just changed.
     if (targetLang === "en") {
       await db
-        .update(sessionSubtitles)
+        .update(videoSubtitles)
         .set({ stale: true, updatedAt: new Date() })
         .where(
           and(
-            eq(sessionSubtitles.sessionVideoId, sessionVideoId),
-            eq(sessionSubtitles.origin, "translation"),
+            eq(videoSubtitles.videoId, videoId),
+            eq(videoSubtitles.origin, "translation"),
           ),
         );
     }

@@ -102,9 +102,9 @@ async function deleteBunnyVideo(videoId: string): Promise<void> {
 }
 
 interface UploadVideoOpts {
-  /** ID of the session that the video belongs to. The video becomes one of that session's recordings. */
-  sessionId: number;
-  /** 0-based position among the session's videos (order they play in). */
+  /** ID of the event that the video belongs to. Videos are event-wide, not scoped to a session. */
+  eventId: number;
+  /** 0-based position among the event's videos (order they play in). */
   position: number;
   title: string;
   file: File;
@@ -118,7 +118,7 @@ interface UploadVideoOpts {
 
 /**
  * Upload a single video file end-to-end: create Bunny video → TUS upload →
- * create the `session_videos` row → poll transcoding for UI feedback.
+ * create the `event_videos` row → poll transcoding for UI feedback.
  *
  * The row is created IMMEDIATELY after the upload completes — not after
  * transcoding. Transcoding takes longer than the poll's 30-min timeout for
@@ -130,7 +130,7 @@ interface UploadVideoOpts {
  * cancelling) removes the row again.
  */
 export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
-  const { sessionId, position, title, file, signal, onProgress, onTranscodingStart, onTranscodeStatus } = opts;
+  const { eventId, position, title, file, signal, onProgress, onTranscodingStart, onTranscodeStatus } = opts;
 
   // 1. Create the Bunny video record.
   const creds = await createBunnyVideo(title);
@@ -173,16 +173,16 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
       upload.start();
     });
 
-    // 3. Create the session_videos row now that the bytes are all on Bunny.
+    // 3. Create the event_videos row now that the bytes are all on Bunny.
     //    No duration/poster — the webhook backfills `durationSeconds`, and
     //    the media endpoint signs thumbnail URLs on the fly.
-    const res = await authFetch(`${API_URL}/session-videos`, {
+    const res = await authFetch(`${API_URL}/videos`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, bunnyVideoId: creds.videoId, position }),
+      body: JSON.stringify({ eventId, bunnyVideoId: creds.videoId, position, titleEn: title ?? null }),
     });
     if (!res.ok) {
-      throw new Error(`Create session video failed (${res.status}): ${await res.text()}`);
+      throw new Error(`Create event video failed (${res.status}): ${await res.text()}`);
     }
     rowId = ((await res.json()) as { id: number }).id;
     orphanVideoId = null; // row exists — the video is no longer an orphan
@@ -201,7 +201,7 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
       // Genuinely unusable (or the admin aborted): remove the row — the
       // DELETE endpoint also removes the Bunny video when unreferenced.
       if (rowId !== null) {
-        await authFetch(`${API_URL}/session-videos/${rowId}`, { method: "DELETE" }).catch(() => {});
+        await authFetch(`${API_URL}/videos/${rowId}`, { method: "DELETE" }).catch(() => {});
       }
       throw err;
     }

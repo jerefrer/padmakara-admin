@@ -11,7 +11,6 @@ import {
 import { relations } from "drizzle-orm";
 import { events } from "./retreats.ts";
 import { tracks } from "./tracks.ts";
-import { sessionVideos } from "./session-videos.ts";
 
 export const sessions = pgTable(
   "sessions",
@@ -41,5 +40,4 @@ export const sessionsRelations = relations(sessions, ({ one, many }) => ({
     references: [events.id],
   }),
   tracks: many(tracks),
-  videos: many(sessionVideos),
 }));

@@ -9,9 +9,9 @@ import Typography from "@mui/material/Typography";
 import { useEffect, useState } from "react";
 import { authFetch } from "../utils/authFetch";
 
-type MediaSource =
+export type MediaSource =
   | { kind: "track"; trackId: number; mediaType: "audio" | "video" }
-  | { kind: "session-video"; sessionVideoId: number };
+  | { kind: "video"; videoId: number };
 
 interface MediaPreviewDialogProps {
   open: boolean;
@@ -33,8 +33,8 @@ async function fetchMedia(source: MediaSource): Promise<ResolvedMedia> {
     return { url: json.url, mediaType: source.mediaType };
   }
 
-  // Session video — Bunny iframe is the simplest reliable player here.
-  const res = await authFetch(`/api/media/video/${source.sessionVideoId}`);
+  // Event video — Bunny iframe is the simplest reliable player here.
+  const res = await authFetch(`/api/media/video/${source.videoId}`);
   if (!res.ok) throw new Error(`Failed to load video (${res.status})`);
   const json = (await res.json()) as { iframe: string };
   return { url: json.iframe, mediaType: "iframe" };

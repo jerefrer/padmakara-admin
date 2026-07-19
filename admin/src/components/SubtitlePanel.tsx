@@ -29,7 +29,7 @@ interface SubtitleJob {
 
 interface SessionSubtitle {
   id: number;
-  sessionId: number;
+  videoId: number;
   language: string;
   label: string;
   s3Key: string;
@@ -73,11 +73,11 @@ function formatTimestamp(iso: string | null): string {
 }
 
 interface Props {
-  sessionVideoId: number;
+  videoId: number;
   videoLabel?: string;
 }
 
-export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
+export const SubtitlePanel = ({ videoId, videoLabel }: Props) => {
   const translate = useTranslate();
   const notify = useNotify();
   const refresh = useRefresh();
@@ -95,7 +95,7 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await authFetch(`/api/admin/session-videos/${sessionVideoId}/subtitles`);
+      const res = await authFetch(`/api/admin/videos/${videoId}/subtitles`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as { jobs: SubtitleJob[]; subtitles: SessionSubtitle[] };
       setJobs(data.jobs ?? []);
@@ -113,7 +113,7 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
     } finally {
       setLoading(false);
     }
-  }, [sessionVideoId, refresh]);
+  }, [videoId, refresh]);
 
   useEffect(() => {
     fetchData();
@@ -138,7 +138,7 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      const res = await authFetch(`/api/admin/session-videos/${sessionVideoId}/subtitles`, {
+      const res = await authFetch(`/api/admin/videos/${videoId}/subtitles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -161,7 +161,7 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
   const handleDownload = async (lang: string) => {
     setDownloadingLang(lang);
     try {
-      const res = await authFetch(`/api/admin/session-videos/${sessionVideoId}/subtitles/${lang}/download`);
+      const res = await authFetch(`/api/admin/videos/${videoId}/subtitles/${lang}/download`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
       const blob = new Blob([text], { type: "text/vtt" });
@@ -183,7 +183,7 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
     setTranslatingLang(lang);
     try {
       const res = await authFetch(
-        `/api/admin/session-videos/${sessionVideoId}/subtitles/${lang}/translate`,
+        `/api/admin/videos/${videoId}/subtitles/${lang}/translate`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -219,7 +219,7 @@ export const SubtitlePanel = ({ sessionVideoId, videoLabel }: Props) => {
         return;
       }
       const res = await authFetch(
-        `/api/admin/session-videos/${sessionVideoId}/subtitles/${lang}`,
+        `/api/admin/videos/${videoId}/subtitles/${lang}`,
         {
           method: "PUT",
           headers: { "Content-Type": "text/vtt" },

@@ -11,17 +11,17 @@ vi.mock("../../../src/db/index.ts", () => {
   const mockUpdate = vi.fn(() => ({ set: mockSet }));
   const mockValues = vi.fn(() => ({ returning: mockReturning }));
   const mockInsert = vi.fn(() => ({ values: mockValues }));
-  const mockFindFirstSessionVideo = vi.fn(() => Promise.resolve(null));
-  const mockFindFirstSession = vi.fn(() => Promise.resolve(null));
-  const mockFindManySessionVideo = vi.fn(() => Promise.resolve([]));
+  const mockFindFirstEventVideo = vi.fn(() => Promise.resolve(null));
+  const mockFindFirstEvent = vi.fn(() => Promise.resolve(null));
+  const mockFindManyEventVideo = vi.fn(() => Promise.resolve([]));
   return {
     db: {
       delete: mockDelete,
       update: mockUpdate,
       insert: mockInsert,
       query: {
-        sessionVideos: { findFirst: mockFindFirstSessionVideo, findMany: mockFindManySessionVideo },
-        sessions: { findFirst: mockFindFirstSession },
+        eventVideos: { findFirst: mockFindFirstEventVideo, findMany: mockFindManyEventVideo },
+        events: { findFirst: mockFindFirstEvent },
       },
       _delete: mockDelete,
       _update: mockUpdate,
@@ -29,9 +29,9 @@ vi.mock("../../../src/db/index.ts", () => {
       _values: mockValues,
       _where: mockWhere,
       _returning: mockReturning,
-      _findFirstSessionVideo: mockFindFirstSessionVideo,
-      _findFirstSession: mockFindFirstSession,
-      _findManySessionVideo: mockFindManySessionVideo,
+      _findFirstEventVideo: mockFindFirstEventVideo,
+      _findFirstEvent: mockFindFirstEvent,
+      _findManyEventVideo: mockFindManyEventVideo,
     },
   };
 });
@@ -51,8 +51,7 @@ vi.mock("../../../src/services/subtitles.ts", () => ({
       jobId: "job-1",
       batchJobId: "batch-1",
       status: "submitted",
-      sessionId: 7,
-      sessionVideoId: 3,
+      videoId: 3,
       language: "en",
       trackCount: 2,
     }),
@@ -62,7 +61,7 @@ vi.mock("../../../src/services/subtitles.ts", () => ({
 }));
 
 vi.mock("../../../src/services/subtitle-translate.ts", () => ({
-  translateSubtitles: vi.fn(() => Promise.resolve({ s3Key: "events/E/subtitles/s1/v3/pt.vtt", jobId: "job-2" })),
+  translateSubtitles: vi.fn(() => Promise.resolve({ s3Key: "events/E/subtitles/v3/pt.vtt", jobId: "job-2" })),
 }));
 
 vi.mock("../../../src/services/bunny-captions.ts", () => ({
@@ -85,9 +84,9 @@ import { submitSubtitleJob } from "../../../src/services/subtitles.ts";
 
 const mockReturning = (db as any)._returning as ReturnType<typeof vi.fn>;
 const mockValues = (db as any)._values as ReturnType<typeof vi.fn>;
-const mockFindFirstSessionVideo = (db as any)._findFirstSessionVideo as ReturnType<typeof vi.fn>;
-const mockFindFirstSession = (db as any)._findFirstSession as ReturnType<typeof vi.fn>;
-const mockFindManySessionVideo = (db as any)._findManySessionVideo as ReturnType<typeof vi.fn>;
+const mockFindFirstEventVideo = (db as any)._findFirstEventVideo as ReturnType<typeof vi.fn>;
+const mockFindFirstEvent = (db as any)._findFirstEvent as ReturnType<typeof vi.fn>;
+const mockFindManyEventVideo = (db as any)._findManyEventVideo as ReturnType<typeof vi.fn>;
 const mockDeleteVideo = deleteVideo as ReturnType<typeof vi.fn>;
 const mockFetchVideo = fetchVideo as ReturnType<typeof vi.fn>;
 const mockPresign = generatePresignedDownloadUrl as ReturnType<typeof vi.fn>;
@@ -96,20 +95,19 @@ async function adminToken() {
   return createAccessToken({ sub: 1, email: "admin@test.com", role: "admin" });
 }
 
-describe("DELETE /api/admin/session-videos/:id", () => {
+describe("DELETE /api/admin/videos/:id", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindFirstSession.mockResolvedValue({ id: 7, eventId: 1 });
   });
 
   it("deletes the row and the Bunny video when no other row references the GUID", async () => {
     mockReturning.mockResolvedValueOnce([
-      { id: 3, sessionId: 7, bunnyVideoId: "guid-a", position: 0 },
+      { id: 3, eventId: 7, bunnyVideoId: "guid-a", position: 0 },
     ]);
-    mockFindFirstSessionVideo.mockResolvedValueOnce(null); // no other row shares the GUID
+    mockFindFirstEventVideo.mockResolvedValueOnce(null); // no other row shares the GUID
 
     const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/session-videos/3", {
+    const { status, body } = await testJson("/api/admin/videos/3", {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -121,12 +119,12 @@ describe("DELETE /api/admin/session-videos/:id", () => {
 
   it("skips Bunny cleanup when another row still references the GUID", async () => {
     mockReturning.mockResolvedValueOnce([
-      { id: 4, sessionId: 7, bunnyVideoId: "guid-shared", position: 1 },
+      { id: 4, eventId: 7, bunnyVideoId: "guid-shared", position: 1 },
     ]);
-    mockFindFirstSessionVideo.mockResolvedValueOnce({ id: 5, sessionId: 8, bunnyVideoId: "guid-shared" });
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 8, bunnyVideoId: "guid-shared" });
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/session-videos/4", {
+    const { status } = await testJson("/api/admin/videos/4", {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -135,11 +133,11 @@ describe("DELETE /api/admin/session-videos/:id", () => {
     expect(mockDeleteVideo).not.toHaveBeenCalled();
   });
 
-  it("returns 404 when the session_video does not exist", async () => {
+  it("returns 404 when the event_video does not exist", async () => {
     mockReturning.mockResolvedValueOnce([]);
 
     const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/session-videos/999", {
+    const { status, body } = await testJson("/api/admin/videos/999", {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -150,7 +148,7 @@ describe("DELETE /api/admin/session-videos/:id", () => {
   });
 
   it("returns 401 without an auth token", async () => {
-    const { status } = await testJson("/api/admin/session-videos/3", {
+    const { status } = await testJson("/api/admin/videos/3", {
       method: "DELETE",
     });
     expect(status).toBe(401);
@@ -158,7 +156,7 @@ describe("DELETE /api/admin/session-videos/:id", () => {
 
   it("returns 403 for non-admin users", async () => {
     const token = await createAccessToken({ sub: 2, email: "u@test.com", role: "user" });
-    const { status } = await testJson("/api/admin/session-videos/3", {
+    const { status } = await testJson("/api/admin/videos/3", {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -166,57 +164,56 @@ describe("DELETE /api/admin/session-videos/:id", () => {
   });
 });
 
-describe("POST /api/admin/session-videos", () => {
+describe("POST /api/admin/videos", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindFirstSession.mockResolvedValue({ id: 7, eventId: 1 });
   });
 
-  it("creates a session_video row", async () => {
+  it("creates an event_video row", async () => {
     mockReturning.mockResolvedValueOnce([
-      { id: 10, sessionId: 7, bunnyVideoId: "new-guid", position: 0, title: null },
+      { id: 10, eventId: 7, bunnyVideoId: "new-guid", position: 0, titleEn: null },
     ]);
 
     const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/session-videos", {
+    const { status, body } = await testJson("/api/admin/videos", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 7, bunnyVideoId: "new-guid" }),
+      body: JSON.stringify({ eventId: 7, bunnyVideoId: "new-guid" }),
     });
 
     expect(status).toBe(201);
-    expect(body).toMatchObject({ id: 10, sessionId: 7, bunnyVideoId: "new-guid" });
+    expect(body).toMatchObject({ id: 10, eventId: 7, bunnyVideoId: "new-guid" });
   });
 
   it("returns 400 for an invalid payload", async () => {
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/session-videos", {
+    const { status } = await testJson("/api/admin/videos", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 7 }), // missing bunnyVideoId
+      body: JSON.stringify({ eventId: 7 }), // missing bunnyVideoId
     });
     expect(status).toBe(400);
   });
 });
 
-describe("POST /api/admin/session-videos/import-url", () => {
+describe("POST /api/admin/videos/import-url", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindFirstSession.mockResolvedValue({ id: 7, eventId: 1 });
-    mockFindManySessionVideo.mockResolvedValue([]);
+    mockFindFirstEvent.mockResolvedValue({ id: 7, eventCode: "E7" });
+    mockFindManyEventVideo.mockResolvedValue([]);
     mockFetchVideo.mockResolvedValue({ guid: "fetched-guid" });
   });
 
   it("imports from a generic public URL, deriving the title from the filename", async () => {
     mockReturning.mockResolvedValueOnce([
-      { id: 20, sessionId: 7, bunnyVideoId: "fetched-guid", position: 0, title: "dharma talk" },
+      { id: 20, eventId: 7, bunnyVideoId: "fetched-guid", position: 0, titleEn: "dharma talk" },
     ]);
 
     const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/session-videos/import-url", {
+    const { status, body } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 7, url: "https://example.com/videos/dharma%20talk.mp4" }),
+      body: JSON.stringify({ eventId: 7, url: "https://example.com/videos/dharma%20talk.mp4" }),
     });
 
     expect(status).toBe(201);
@@ -227,25 +224,25 @@ describe("POST /api/admin/session-videos/import-url", () => {
     );
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: 7,
+        eventId: 7,
         bunnyVideoId: "fetched-guid",
         position: 0,
-        title: "dharma talk",
+        titleEn: "dharma talk",
       }),
     );
   });
 
   it("appends after existing videos (next position)", async () => {
-    mockFindManySessionVideo.mockResolvedValue([{ position: 0 }, { position: 1 }]);
+    mockFindManyEventVideo.mockResolvedValue([{ position: 0 }, { position: 1 }]);
     mockReturning.mockResolvedValueOnce([
-      { id: 21, sessionId: 7, bunnyVideoId: "fetched-guid", position: 2, title: null },
+      { id: 21, eventId: 7, bunnyVideoId: "fetched-guid", position: 2, titleEn: null },
     ]);
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/session-videos/import-url", {
+    const { status } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 7, url: "https://example.com/v.mp4" }),
+      body: JSON.stringify({ eventId: 7, url: "https://example.com/v.mp4" }),
     });
 
     expect(status).toBe(201);
@@ -255,15 +252,15 @@ describe("POST /api/admin/session-videos/import-url", () => {
   it("normalizes a Google Drive share link before handing it to Bunny", async () => {
     const driveId = "1AbC-dEf_9xYz1234567890abcdefghijklm";
     mockReturning.mockResolvedValueOnce([
-      { id: 22, sessionId: 7, bunnyVideoId: "fetched-guid", position: 0, title: null },
+      { id: 22, eventId: 7, bunnyVideoId: "fetched-guid", position: 0, titleEn: null },
     ]);
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/session-videos/import-url", {
+    const { status } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        sessionId: 7,
+        eventId: 7,
         url: `https://drive.google.com/file/d/${driveId}/view?usp=sharing`,
       }),
     });
@@ -275,37 +272,37 @@ describe("POST /api/admin/session-videos/import-url", () => {
     );
     // No filename available from a Drive share link → row title stays null
     // so the admin panel derives "Part N".
-    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ title: null }));
+    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ titleEn: null }));
   });
 
   it("uses the provided title when given", async () => {
     mockReturning.mockResolvedValueOnce([
-      { id: 23, sessionId: 7, bunnyVideoId: "fetched-guid", position: 0, title: "Part 3" },
+      { id: 23, eventId: 7, bunnyVideoId: "fetched-guid", position: 0, titleEn: "Part 3" },
     ]);
 
     const token = await adminToken();
-    await testJson("/api/admin/session-videos/import-url", {
+    await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 7, url: "https://example.com/v.mp4", title: "Part 3" }),
+      body: JSON.stringify({ eventId: 7, url: "https://example.com/v.mp4", title: "Part 3" }),
     });
 
     expect(mockFetchVideo).toHaveBeenCalledWith("https://example.com/v.mp4", "Part 3");
-    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ title: "Part 3" }));
+    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ titleEn: "Part 3" }));
   });
 
   it("presigns URLs that point at the app's own private S3 bucket", async () => {
     mockPresign.mockResolvedValue("https://presigned.example/signed-url");
     mockReturning.mockResolvedValueOnce([
-      { id: 24, sessionId: 7, bunnyVideoId: "fetched-guid", position: 0, title: "video" },
+      { id: 24, eventId: 7, bunnyVideoId: "fetched-guid", position: 0, titleEn: "video" },
     ]);
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/session-videos/import-url", {
+    const { status } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        sessionId: 7,
+        eventId: 7,
         url: "https://padmakara-pt-app.s3.eu-west-3.amazonaws.com/Videos_for_app_testing/2025-04-JKR-CCA/2025-04-14-JKR-Mind_Training-Morning-CCA.mp4",
       }),
     });
@@ -327,10 +324,10 @@ describe("POST /api/admin/session-videos/import-url", () => {
     );
 
     const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/session-videos/import-url", {
+    const { status, body } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 7, url: "https://example.com/private.mp4" }),
+      body: JSON.stringify({ eventId: 7, url: "https://example.com/private.mp4" }),
     });
 
     expect(status).toBe(502);
@@ -340,10 +337,10 @@ describe("POST /api/admin/session-videos/import-url", () => {
 
   it("returns 400 for an invalid URL", async () => {
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/session-videos/import-url", {
+    const { status } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 7, url: "not a url" }),
+      body: JSON.stringify({ eventId: 7, url: "not a url" }),
     });
     expect(status).toBe(400);
     expect(mockFetchVideo).not.toHaveBeenCalled();
@@ -351,11 +348,11 @@ describe("POST /api/admin/session-videos/import-url", () => {
 
   it("returns 400 for a Drive folder link", async () => {
     const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/session-videos/import-url", {
+    const { status, body } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
-        sessionId: 7,
+        eventId: 7,
         url: "https://drive.google.com/drive/folders/1AbC-dEf_9xYz1234567890abcdefghijklm",
       }),
     });
@@ -363,56 +360,55 @@ describe("POST /api/admin/session-videos/import-url", () => {
     expect(body.code).toBe("DRIVE_FOLDER_LINK");
   });
 
-  it("returns 404 when the session does not exist", async () => {
-    mockFindFirstSession.mockResolvedValue(null);
+  it("returns 404 when the event does not exist", async () => {
+    mockFindFirstEvent.mockResolvedValue(null);
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/session-videos/import-url", {
+    const { status } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 99, url: "https://example.com/v.mp4" }),
+      body: JSON.stringify({ eventId: 99, url: "https://example.com/v.mp4" }),
     });
     expect(status).toBe(404);
     expect(mockFetchVideo).not.toHaveBeenCalled();
   });
 
   it("returns 401 without an auth token", async () => {
-    const { status } = await testJson("/api/admin/session-videos/import-url", {
+    const { status } = await testJson("/api/admin/videos/import-url", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: 7, url: "https://example.com/v.mp4" }),
+      body: JSON.stringify({ eventId: 7, url: "https://example.com/v.mp4" }),
     });
     expect(status).toBe(401);
   });
 });
 
-describe("PATCH /api/admin/session-videos/:id", () => {
+describe("PATCH /api/admin/videos/:id", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindFirstSession.mockResolvedValue({ id: 7, eventId: 1 });
   });
 
-  it("updates position and title", async () => {
+  it("updates position and titleEn", async () => {
     mockReturning.mockResolvedValueOnce([
-      { id: 3, sessionId: 7, bunnyVideoId: "guid-a", position: 1, title: "Part 2" },
+      { id: 3, eventId: 7, bunnyVideoId: "guid-a", position: 1, titleEn: "Part 2" },
     ]);
 
     const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/session-videos/3", {
+    const { status, body } = await testJson("/api/admin/videos/3", {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ position: 1, title: "Part 2" }),
+      body: JSON.stringify({ position: 1, titleEn: "Part 2" }),
     });
 
     expect(status).toBe(200);
-    expect(body).toMatchObject({ id: 3, position: 1, title: "Part 2" });
+    expect(body).toMatchObject({ id: 3, position: 1, titleEn: "Part 2" });
   });
 
   it("returns 404 when the row does not exist", async () => {
     mockReturning.mockResolvedValueOnce([]);
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/session-videos/999", {
+    const { status } = await testJson("/api/admin/videos/999", {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ position: 1 }),
@@ -421,16 +417,16 @@ describe("PATCH /api/admin/session-videos/:id", () => {
   });
 });
 
-describe("POST /api/admin/session-videos/:videoId/subtitles", () => {
+describe("POST /api/admin/videos/:videoId/subtitles", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("calls submitSubtitleJob with the session_video id", async () => {
+  it("calls submitSubtitleJob with the event_video id", async () => {
     const mockSubmit = submitSubtitleJob as ReturnType<typeof vi.fn>;
 
     const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/session-videos/3/subtitles", {
+    const { status, body } = await testJson("/api/admin/videos/3/subtitles", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ language: "en", whisperModel: "turbo" }),
@@ -438,6 +434,6 @@ describe("POST /api/admin/session-videos/:videoId/subtitles", () => {
 
     expect(status).toBe(202);
     expect(mockSubmit).toHaveBeenCalledWith(3, { language: "en", whisperModel: "turbo" });
-    expect(body).toMatchObject({ jobId: "job-1", sessionVideoId: 3 });
+    expect(body).toMatchObject({ jobId: "job-1", videoId: 3 });
   });
 });

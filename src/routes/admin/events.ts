@@ -133,10 +133,10 @@ eventRoutes.get("/:id", async (c) => {
       sessions: {
         with: {
           tracks: true,
-          videos: { orderBy: (v: any, { asc }: any) => [asc(v.position)] },
         },
         orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
       },
+      videos: { orderBy: (v: any, { asc }: any) => [asc(v.position)] },
       transcripts: true,
       eventFiles: true,
       eventTeachers: { with: { teacher: true } },

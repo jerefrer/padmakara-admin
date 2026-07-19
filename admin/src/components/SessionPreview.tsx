@@ -1,5 +1,3 @@
-import AddIcon from "@mui/icons-material/Add";
-import AddLinkIcon from "@mui/icons-material/AddLink";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
@@ -9,23 +7,15 @@ import DownloadIcon from "@mui/icons-material/Download";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import MovieIcon from "@mui/icons-material/Movie";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SelfImprovementIcon from "@mui/icons-material/SelfImprovement";
 import TranslateIcon from "@mui/icons-material/Translate";
 import VideoFileIcon from "@mui/icons-material/VideoFile";
 import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
-import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
-import TextField from "@mui/material/TextField";
 import InputBase from "@mui/material/InputBase";
 import Paper from "@mui/material/Paper";
 import Tooltip from "@mui/material/Tooltip";
@@ -36,7 +26,6 @@ import { authFetch } from "../utils/authFetch";
 import {
   type InferredSession,
   type ParsedTrack,
-  type SessionVideo,
   formatFileSize,
   languageLabel,
 } from "../utils/trackParser";
@@ -57,9 +46,7 @@ import {
 /** Map keyed by track's originalFilename → list of corrections applied to it. */
 export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
 
-type PreviewSource =
-  | { kind: "track"; trackId: number; mediaType: "audio" | "video" }
-  | { kind: "session-video"; sessionVideoId: number };
+type PreviewSource = { kind: "track"; trackId: number; mediaType: "audio" | "video" };
 
 interface PreviewState {
   source: PreviewSource;
@@ -105,13 +92,6 @@ interface SessionPreviewProps {
   /** Edit-mode only: deletes the track row + its S3 audio (and read-along
    *  JSON). Confirmation is handled by the row before this fires. */
   onTrackDelete?: (trackId: number) => Promise<void>;
-  /** Edit-mode only: triggered when admin picks a new video file for a session. */
-  onSessionVideoUpload?: (sessionId: number, file: File) => void;
-  /** Edit-mode only: imports a video from a pasted URL (Drive link or any
-   *  public direct URL). Rejects with a user-facing message on failure. */
-  onSessionVideoImportUrl?: (sessionId: number, url: string, title?: string) => Promise<void>;
-  /** Edit-mode only: deletes one attached video by its session_videos row id. */
-  onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   /** When provided, tracks whose originalFilename has an entry will get an
    *  AI-correction badge and an expandable diff panel. Existing callers that
@@ -124,9 +104,6 @@ export const SessionPreview = ({
   onSessionTitleChange,
   onTrackUpdate,
   onTrackDelete,
-  onSessionVideoUpload,
-  onSessionVideoImportUrl,
-  onSessionVideoDelete,
   allTeachers,
   trackCorrections,
 }: SessionPreviewProps) => {
@@ -160,9 +137,6 @@ export const SessionPreview = ({
               onTitleChange={(patch) => onSessionTitleChange(idx, patch)}
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
-              onSessionVideoUpload={onSessionVideoUpload}
-              onSessionVideoImportUrl={onSessionVideoImportUrl}
-              onSessionVideoDelete={onSessionVideoDelete}
               allTeachers={allTeachers}
               trackCorrections={trackCorrections}
               onPreview={setPreview}
@@ -189,9 +163,6 @@ interface SessionCardProps {
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
-  onSessionVideoUpload?: (sessionId: number, file: File) => void;
-  onSessionVideoImportUrl?: (sessionId: number, url: string, title?: string) => Promise<void>;
-  onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   trackCorrections?: TrackCorrectionsMap;
   onPreview: (state: PreviewState) => void;
@@ -203,9 +174,6 @@ const SessionCard = ({
   onTitleChange,
   onTrackUpdate,
   onTrackDelete,
-  onSessionVideoUpload,
-  onSessionVideoImportUrl,
-  onSessionVideoDelete,
   allTeachers,
   trackCorrections,
   onPreview,
@@ -423,31 +391,6 @@ const SessionCard = ({
         )}
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          {/* Video presence badge — shown when this session has at least one
-              attached video. Single video: show its duration. Multiple: show
-              a count instead of listing every duration inline. */}
-          {(session.videos?.length ?? 0) > 0 && (
-            <Chip
-              icon={<MovieIcon sx={{ fontSize: "12px !important" }} />}
-              label={
-                session.videos!.length > 1
-                  ? translate("padmakara.session.videoCount", { count: session.videos!.length }) ||
-                    `${session.videos!.length} videos`
-                  : session.videos![0]!.durationSeconds
-                    ? formatDuration(session.videos![0]!.durationSeconds!)
-                    : translate("padmakara.session.video") || "Video"
-              }
-              size="small"
-              sx={{
-                height: 24,
-                backgroundColor: "rgba(220, 53, 69, 0.08)",
-                color: "#b91c1c",
-                "& .MuiChip-label": { fontSize: "0.7rem", px: 0.8, fontWeight: 600 },
-                "& .MuiChip-icon": { color: "#b91c1c" },
-              }}
-            />
-          )}
-
           {/* Date chip with AM/PM inline */}
           {dateLabel && (
             <Chip
@@ -495,19 +438,6 @@ const SessionCard = ({
       {/* Track list */}
       <Collapse in={expanded}>
         <Box>
-          {/* Video section — only meaningful in edit mode where session.id exists. */}
-          {session.id && (onSessionVideoUpload || onSessionVideoImportUrl || onSessionVideoDelete) && (
-            <SessionVideosSection
-              sessionId={session.id}
-              videos={session.videos ?? []}
-              onUpload={onSessionVideoUpload}
-              onImportUrl={onSessionVideoImportUrl}
-              onDelete={onSessionVideoDelete}
-              hasFollowingTracks={session.tracks.length > 0}
-              sessionTitle={session.titleEn}
-              onPreview={onPreview}
-            />
-          )}
           {session.tracks.map((track, tidx) => (
             <TrackRow
               key={tidx}
@@ -530,334 +460,6 @@ const SessionCard = ({
         </Box>
       </Collapse>
     </Paper>
-  );
-};
-
-/* ───────── Session-level video row (edit mode only) ───────── */
-
-function formatDuration(seconds: number): string {
-  if (!seconds) return "—";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
-interface SessionVideosSectionProps {
-  sessionId: number;
-  /** Videos for this session, ordered by position (backend already orders
-   *  these — no client re-sort needed). */
-  videos: SessionVideo[];
-  onUpload?: (sessionId: number, file: File) => void;
-  onImportUrl?: (sessionId: number, url: string, title?: string) => Promise<void>;
-  onDelete?: (sessionVideoId: number) => Promise<void>;
-  hasFollowingTracks: boolean;
-  sessionTitle: string;
-  onPreview: (state: PreviewState) => void;
-}
-
-interface ImportVideoUrlDialogProps {
-  open: boolean;
-  onClose: () => void;
-  /** Rejects with a user-facing message shown inside the dialog. */
-  onImport: (url: string, title?: string) => Promise<void>;
-}
-
-/**
- * Small form for importing a video from a pasted URL — a Google Drive share
- * link or any public direct link. The actual download happens on Bunny's
- * side; on success the dialog closes and the parent refreshes the list.
- */
-const ImportVideoUrlDialog = ({ open, onClose, onImport }: ImportVideoUrlDialogProps) => {
-  const translate = useTranslate();
-  const [url, setUrl] = useState("");
-  const [title, setTitle] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleClose = () => {
-    if (submitting) return;
-    setUrl("");
-    setTitle("");
-    setError(null);
-    onClose();
-  };
-
-  const handleImport = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      await onImport(url.trim(), title.trim() || undefined);
-      setUrl("");
-      setTitle("");
-      onClose();
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontWeight: 600 }}>
-        {translate("padmakara.session.videoImportUrlTitle") || "Import video from URL"}
-      </DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {translate("padmakara.session.videoImportUrlHelp") ||
-            "Paste a Google Drive share link or a direct link to a public video file."}
-        </Typography>
-        <TextField
-          autoFocus
-          fullWidth
-          size="small"
-          label={translate("padmakara.session.videoImportUrlField") || "Video URL"}
-          placeholder="https://drive.google.com/file/d/…"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          disabled={submitting}
-          sx={{ mb: 2 }}
-        />
-        <TextField
-          fullWidth
-          size="small"
-          label={translate("padmakara.session.videoImportTitleField") || "Title (optional)"}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          disabled={submitting}
-        />
-        {error && (
-          <Typography variant="body2" color="error" sx={{ mt: 1.5 }}>
-            {error}
-          </Typography>
-        )}
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={handleClose} disabled={submitting} color="inherit" sx={{ textTransform: "none" }}>
-          {translate("ra.action.cancel") || "Cancel"}
-        </Button>
-        <Button
-          onClick={handleImport}
-          disabled={submitting || !url.trim()}
-          variant="contained"
-          startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <AddLinkIcon sx={{ fontSize: 16 }} />}
-          sx={{ textTransform: "none" }}
-        >
-          {submitting
-            ? translate("padmakara.session.videoImportImporting") || "Importing…"
-            : translate("padmakara.session.videoImportStart") || "Import"}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-};
-
-/**
- * Renders one row per video attached to a session (a session may have
- * several now), plus an "Add video" affordance below the list. Replaces the
- * old single-video row — there is no per-video "Replace" action; to swap a
- * video an admin deletes it and adds a new one.
- */
-const SessionVideosSection = ({
-  sessionId,
-  videos,
-  onUpload,
-  onImportUrl,
-  onDelete,
-  hasFollowingTracks,
-  sessionTitle,
-  onPreview,
-}: SessionVideosSectionProps) => {
-  const translate = useTranslate();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-
-  const triggerPicker = () => fileInputRef.current?.click();
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // reset so picking the same file again still fires
-    if (file && onUpload) onUpload(sessionId, file);
-  };
-
-  return (
-    <Box
-      sx={{
-        borderBottom: hasFollowingTracks ? "1px dashed rgba(0,0,0,0.06)" : "none",
-        "& > *:not(:last-child)": {
-          borderBottom: "1px dashed rgba(0,0,0,0.06)",
-        },
-      }}
-    >
-      {videos.map((video) => (
-        <SessionVideoRow
-          key={video.id}
-          video={video}
-          sessionTitle={sessionTitle}
-          showPartLabel={videos.length > 1}
-          onDelete={onDelete}
-          onPreview={onPreview}
-        />
-      ))}
-
-      {/* Empty state / add-video row */}
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          gap: 1,
-          px: 2,
-          py: 1.25,
-        }}
-      >
-        {videos.length === 0 && (
-          <>
-            <Box sx={{ color: "text.disabled", display: "flex" }}>
-              <VideoFileIcon sx={{ fontSize: 18 }} />
-            </Box>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.85rem", fontStyle: "italic" }}>
-              {translate("padmakara.session.videoNone") || "No video recording"}
-            </Typography>
-          </>
-        )}
-        <Box sx={{ flex: 1 }} />
-        {onImportUrl && (
-          <Button
-            size="small"
-            startIcon={<AddLinkIcon sx={{ fontSize: 16 }} />}
-            onClick={() => setImportOpen(true)}
-            sx={{ textTransform: "none", fontSize: "0.75rem" }}
-          >
-            {translate("padmakara.session.videoImportUrl") || "Import from URL"}
-          </Button>
-        )}
-        {onUpload && (
-          <Button
-            size="small"
-            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-            onClick={triggerPicker}
-            sx={{ textTransform: "none", fontSize: "0.75rem" }}
-          >
-            {translate("padmakara.session.videoAdd") || "Add video"}
-          </Button>
-        )}
-      </Box>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="video/*,.mp4,.mov,.m4v,.mkv,.webm"
-        style={{ display: "none" }}
-        onChange={handleFileChange}
-      />
-
-      {onImportUrl && (
-        <ImportVideoUrlDialog
-          open={importOpen}
-          onClose={() => setImportOpen(false)}
-          onImport={(url, title) => onImportUrl(sessionId, url, title)}
-        />
-      )}
-    </Box>
-  );
-};
-
-interface SessionVideoRowProps {
-  video: SessionVideo;
-  sessionTitle: string;
-  /** True when the session has 2+ videos — shows a "Part N" label so rows
-   *  are distinguishable. */
-  showPartLabel: boolean;
-  onDelete?: (sessionVideoId: number) => Promise<void>;
-  onPreview: (state: PreviewState) => void;
-}
-
-const SessionVideoRow = ({
-  video,
-  sessionTitle,
-  showPartLabel,
-  onDelete,
-  onPreview,
-}: SessionVideoRowProps) => {
-  const translate = useTranslate();
-  const [deleting, setDeleting] = useState(false);
-
-  const handleDelete = async () => {
-    if (!onDelete) return;
-    if (!window.confirm(translate("padmakara.session.videoDeleteConfirm") || "Detach this video and delete it from Bunny? This cannot be undone.")) {
-      return;
-    }
-    setDeleting(true);
-    try {
-      await onDelete(video.id);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const partLabel = `${translate("padmakara.session.part") || "Part"} ${video.position + 1}`;
-  const previewTitle = video.title ?? (showPartLabel ? `${sessionTitle} — ${partLabel}` : sessionTitle);
-
-  // Common row styling — matches TrackRow's visual weight without copying its
-  // semantics. Sits inside the Collapse, above the track list.
-  return (
-    <Box
-      sx={{
-        display: "flex",
-        alignItems: "center",
-        gap: 1,
-        px: 2,
-        py: 1.25,
-        backgroundColor: "rgba(220, 53, 69, 0.025)",
-      }}
-    >
-      <Box sx={{ color: "#b91c1c", display: "flex" }}>
-        <MovieIcon sx={{ fontSize: 18 }} />
-      </Box>
-
-      <Typography variant="body2" sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
-        {video.title ?? (showPartLabel ? partLabel : translate("padmakara.session.videoAttached") || "Video recording attached")}
-      </Typography>
-      <Chip
-        label={video.durationSeconds ? formatDuration(video.durationSeconds) : translate("padmakara.session.videoTranscoding") || "Transcoding…"}
-        size="small"
-        variant="outlined"
-        sx={{ height: 22, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
-      />
-      <Typography variant="caption" color="text.secondary" sx={{ ml: 1, fontFamily: "monospace" }}>
-        {video.bunnyVideoId.slice(0, 8)}
-      </Typography>
-      <Box sx={{ flex: 1 }} />
-      <IconButton
-        size="small"
-        onClick={() =>
-          onPreview({
-            source: { kind: "session-video", sessionVideoId: video.id },
-            title: previewTitle,
-          })
-        }
-        sx={{ color: "#b91c1c" }}
-        title={translate("padmakara.session.videoPlay") || "Play"}
-      >
-        <PlayArrowIcon sx={{ fontSize: 20 }} />
-      </IconButton>
-      {onDelete && (
-        <Button
-          size="small"
-          color="error"
-          startIcon={<DeleteOutlineIcon sx={{ fontSize: 14 }} />}
-          onClick={handleDelete}
-          disabled={deleting}
-          sx={{ textTransform: "none", fontSize: "0.75rem" }}
-        >
-          {deleting
-            ? translate("padmakara.session.videoDeleting") || "Removing…"
-            : translate("padmakara.session.videoDelete") || "Delete"}
-        </Button>
-      )}
-    </Box>
   );
 };
 

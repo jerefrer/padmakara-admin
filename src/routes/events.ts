@@ -64,6 +64,9 @@ const eventWith = {
   eventRetreatGroups: { with: { retreatGroup: true } },
   eventPlaces: { with: { place: true } },
   eventPublications: { with: { publication: true } },
+  videos: {
+    orderBy: (v: any, { asc }: any) => [asc(v.position)],
+  },
 } as const;
 
 const eventWithSessions = {
@@ -73,9 +76,6 @@ const eventWithSessions = {
     with: {
       tracks: {
         orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
-      },
-      videos: {
-        orderBy: (v: any, { asc }: any) => [asc(v.position)],
       },
     },
   },

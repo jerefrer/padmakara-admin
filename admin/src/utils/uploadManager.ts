@@ -70,7 +70,8 @@ export async function uploadTranscript(
  * An audio upload item — one file becomes one track on a session.
  *
  * Videos use a different shape (`UploadVideoItem`) because a video doesn't
- * become a track; it attaches to the session itself.
+ * become a track; it attaches to the event itself (event-wide, not scoped to
+ * a session).
  */
 export interface UploadItem {
   trackId: number;
@@ -81,12 +82,12 @@ export interface UploadItem {
   /** Display title used as the Bunny video name. Defaults to filename. */
   title?: string;
   /**
-   * For video items: the database session ID to attach the Bunny video to.
+   * For video items: the database event ID to attach the Bunny video to.
    * The audio path uses sessionNumber + presigned-URL flow; the video path
-   * needs the session row's primary key to create the `session_videos` row.
+   * needs the event's primary key to create the `event_videos` row.
    */
-  sessionId?: number;
-  /** For video items: 0-based position among the session's videos. */
+  eventId?: number;
+  /** For video items: 0-based position among the event's videos. */
   position?: number;
 }
 
@@ -381,13 +382,13 @@ export function uploadTracks(
         files: fileStatuses,
       });
 
-      if (typeof item.sessionId !== "number") {
+      if (typeof item.eventId !== "number") {
         throw new Error(
-          `Video upload requires a sessionId on the upload item (filename: ${item.filename})`,
+          `Video upload requires an eventId on the upload item (filename: ${item.filename})`,
         );
       }
       await uploadVideoFile({
-        sessionId: item.sessionId,
+        eventId: item.eventId,
         position: item.position ?? 0,
         title: item.title ?? item.filename,
         file: item.file,

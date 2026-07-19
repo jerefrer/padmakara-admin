@@ -34,3 +34,17 @@
 **Revisit if:** the Bunny library/pull zone is ever recreated (re-apply the config above), or if stricter enforcement is wanted (shorten the MAT TTL below 4h so a lapsed subscriber's in-flight token expires sooner).
 
 ---
+
+## 2026-07-20 — Videos decoupled from sessions (event-level videos)
+
+**Chosen:** Videos belong to the **event**, not to a session. `session_videos` → `event_videos` (`event_id` FK, `title_en`/`title_pt`, optional `video_date`, event-wide `position`). `video_progress` re-keyed to `(user_id, video_id)`. `session_subtitles` → `video_subtitles` keyed by `video_id` only; `subtitle_jobs` likewise. Admin uploads/imports attach to the event; the app renders an event-level video grid.
+
+**Alternatives:** (a) keep session coupling and only fix labels — rejected, the model still misrepresents reality (one recording often spans several sessions; progress shared between a session's videos; offline limited to one file/session). (b) optional nullable `session_id` — rejected as YAGNI; nothing consumed the link except title derivation.
+
+**Why:** User decision: the team produces recordings per morning/day, not per session; forcing per-session attachment produced wrong labels and awkward progress semantics with no compensating benefit. The AWS Batch subtitle container only uses `SESSION_ID`/`SESSION_NUMBER` for logs and a temporary S3 key (webhook re-homes by job row), so the pipeline decouples without an image rebuild — we now pass the video id and the union of the event's track numbers (`TRACK_NUMBERS`), which is more correct for multi-session videos since the transcript PDF is already event-level.
+
+**Trade-offs:** Admins now name videos (migration backfills titles from the old session: time-period label + Part N). Old mobile binaries stop seeing videos (graceful — `sessions[].videos` disappears, tab hides) until an app update. Offline videos re-download once (local file re-keyed `video-{id}.mp4`); local resume positions reset, server-side positions migrated to each session's first video.
+
+**Revisit if:** a real feature needs a video↔session link (e.g. jump from a session's transcript to the matching video timestamp) — add a join table then, not a FK on videos.
+
+---

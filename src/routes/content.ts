@@ -3,7 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { userProgress, bookmarks, eventBookmarks, trackBookmarks } from "../db/schema/user-content.ts";
 import { videoProgress } from "../db/schema/video-progress.ts";
-import { sessions } from "../db/schema/sessions.ts";
+import { eventVideos } from "../db/schema/event-videos.ts";
 import { tracks } from "../db/schema/tracks.ts";
 import { events } from "../db/schema/retreats.ts";
 import {
@@ -185,7 +185,7 @@ contentRoutes.get("/last-played", async (c) => {
   });
 });
 
-// --- Video Progress (session-scoped, cross-device) ---
+// --- Video Progress (event-video-scoped, cross-device) ---
 
 const updateVideoProgressSchema = z.object({
   positionSeconds: z.number().int().min(0),
@@ -194,21 +194,21 @@ const updateVideoProgressSchema = z.object({
 });
 
 /**
- * Resolve the session's parent event with audience info, then run the
- * standard checkEventAccess gate. Throws 403/404 as appropriate. Used by
+ * Resolve the event_video's parent event with audience info, then run the
+ * standard checkEventAccess gate. Throws 401/403/404 as appropriate. Used by
  * both video-progress endpoints to make sure the user can actually access
- * this session's content before they get to read or write progress for it.
+ * this video's content before they get to read or write progress for it.
  */
-async function authorizeVideoSessionAccess(c: any, sessionId: number) {
+async function authorizeVideoAccess(c: any, videoId: number) {
   const authUser = getUser(c);
-  const session = await db.query.sessions.findFirst({
-    where: eq(sessions.id, sessionId),
+  const video = await db.query.eventVideos.findFirst({
+    where: eq(eventVideos.id, videoId),
     with: { event: { with: { audience: true } } },
   });
-  if (!session) throw AppError.notFound("Session not found");
-  if (!session.event) {
-    // Orphaned session — fall through and trust auth, no audience to check.
-    return { user: authUser, sessionRow: session };
+  if (!video) throw AppError.notFound("Video not found");
+  if (!video.event) {
+    // Orphaned video — fall through and trust auth, no audience to check.
+    return { user: authUser, video };
   }
   // Build a UserForAccess shape from the DB user record (cached lookup).
   const fullUser = await db.query.users.findFirst({ where: eq(users.id, authUser.id) });
@@ -219,26 +219,26 @@ async function authorizeVideoSessionAccess(c: any, sessionId: number) {
     subscriptionStatus: fullUser.subscriptionStatus,
     subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
   };
-  const access = await checkEventAccess(userForAccess, session.event);
+  const access = await checkEventAccess(userForAccess, video.event);
   if (!access.allowed) {
     if (access.reason === "AUTH_REQUIRED") throw AppError.unauthorized();
     throw AppError.forbidden("Access denied");
   }
-  return { user: authUser, sessionRow: session };
+  return { user: authUser, video };
 }
 
 /**
- * GET /api/content/video-progress/:sessionId — return the user's saved
- * watched-position for this session's video, or zero if none.
+ * GET /api/content/video-progress/:videoId — return the user's saved
+ * watched-position for this event_video, or zero if none.
  */
-contentRoutes.get("/video-progress/:sessionId", async (c) => {
-  const sessionId = parseInt(c.req.param("sessionId"), 10);
-  const { user } = await authorizeVideoSessionAccess(c, sessionId);
+contentRoutes.get("/video-progress/:videoId", async (c) => {
+  const videoId = parseInt(c.req.param("videoId"), 10);
+  const { user } = await authorizeVideoAccess(c, videoId);
 
   const progress = await db.query.videoProgress.findFirst({
     where: and(
       eq(videoProgress.userId, user.id),
-      eq(videoProgress.sessionId, sessionId),
+      eq(videoProgress.videoId, videoId),
     ),
   });
 
@@ -259,13 +259,13 @@ contentRoutes.get("/video-progress/:sessionId", async (c) => {
 });
 
 /**
- * POST /api/content/video-progress/:sessionId — upsert the user's
+ * POST /api/content/video-progress/:videoId — upsert the user's
  * watched-position. Last-write-wins by `updated_at`. Throttled by the
  * client to one save per ~5s.
  */
-contentRoutes.post("/video-progress/:sessionId", async (c) => {
-  const sessionId = parseInt(c.req.param("sessionId"), 10);
-  const { user } = await authorizeVideoSessionAccess(c, sessionId);
+contentRoutes.post("/video-progress/:videoId", async (c) => {
+  const videoId = parseInt(c.req.param("videoId"), 10);
+  const { user } = await authorizeVideoAccess(c, videoId);
   const body = await c.req.json();
   const data = updateVideoProgressSchema.parse(body);
 
@@ -275,7 +275,7 @@ contentRoutes.post("/video-progress/:sessionId", async (c) => {
   const existing = await db.query.videoProgress.findFirst({
     where: and(
       eq(videoProgress.userId, user.id),
-      eq(videoProgress.sessionId, sessionId),
+      eq(videoProgress.videoId, videoId),
     ),
   });
 
@@ -298,7 +298,7 @@ contentRoutes.post("/video-progress/:sessionId", async (c) => {
     .insert(videoProgress)
     .values({
       userId: user.id,
-      sessionId,
+      videoId,
       positionSeconds: data.positionSeconds,
       durationSeconds: data.durationSeconds ?? null,
       completedAt,

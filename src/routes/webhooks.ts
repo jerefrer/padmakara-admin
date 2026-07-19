@@ -4,11 +4,10 @@ import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { readAlongJobs } from "../db/schema/read-along-jobs.ts";
 import { tracks } from "../db/schema/tracks.ts";
-import { sessionVideos } from "../db/schema/session-videos.ts";
-import { sessions } from "../db/schema/sessions.ts";
+import { eventVideos } from "../db/schema/event-videos.ts";
 import { events } from "../db/schema/retreats.ts";
 import { subtitleJobs } from "../db/schema/subtitle-jobs.ts";
-import { sessionSubtitles } from "../db/schema/session-subtitles.ts";
+import { videoSubtitles } from "../db/schema/video-subtitles.ts";
 import { config } from "../config.ts";
 import { getVideoMeta } from "../services/bunny.ts";
 import { addCaption } from "../services/bunny-captions.ts";
@@ -157,21 +156,21 @@ webhookRoutes.post("/bunny", async (c) => {
 
   // Only act on terminal states. Intermediate transitions are noise.
   if (status === 4) {
-    // Finished — fetch metadata and update the matching session_video row.
-    // A session can have several recordings; each is its own session_videos
+    // Finished — fetch metadata and update the matching event_video row.
+    // An event can have several recordings; each is its own event_videos
     // row keyed by its Bunny GUID.
     try {
       const meta = await getVideoMeta(videoGuid);
       const duration = Math.round(meta.length || 0);
       const result = await db
-        .update(sessionVideos)
+        .update(eventVideos)
         .set({ durationSeconds: duration, updatedAt: new Date() })
-        .where(eq(sessionVideos.bunnyVideoId, videoGuid))
-        .returning({ id: sessionVideos.id });
+        .where(eq(eventVideos.bunnyVideoId, videoGuid))
+        .returning({ id: eventVideos.id });
       if (result.length === 0) {
-        console.warn(`[webhook] No session_video found for Bunny video ${videoGuid} (orphan or admin still saving)`);
+        console.warn(`[webhook] No event_video found for Bunny video ${videoGuid} (orphan or admin still saving)`);
       } else {
-        console.log(`[webhook] Updated session_video ${result[0]!.id} durationSeconds=${duration}s`);
+        console.log(`[webhook] Updated event_video ${result[0]!.id} durationSeconds=${duration}s`);
       }
     } catch (err) {
       console.error(`[webhook] Failed to fetch metadata for ${videoGuid}:`, err);
@@ -190,10 +189,10 @@ webhookRoutes.post("/bunny", async (c) => {
  *
  * Called by the AWS Batch container when a subtitle/caption job finishes
  * (or fails). Validates HMAC-SHA256 signature, updates the subtitleJobs
- * record, and — on success — attributes the job to its session_video via
+ * record, and — on success — attributes the job to its event_video via
  * the job row (not the payload, which may be stale), re-homes the
  * container's scratch VTT to the canonical backend-owned per-video S3 key,
- * upserts sessionSubtitles, and uploads the VTT to Bunny captions.
+ * upserts videoSubtitles, and uploads the VTT to Bunny captions.
  *
  * No auth middleware — public endpoint, HMAC-authenticated.
  */
@@ -243,53 +242,44 @@ webhookRoutes.post("/subtitles", async (c) => {
     .where(eq(subtitleJobs.id, jobId));
 
   if (status === "completed" && s3Key) {
-    // Trust the job row for attribution — the payload's sessionId may be
-    // absent or stale. The job row is the source of truth for which
-    // session_video this job belongs to.
+    // Trust the job row for attribution — the payload's sessionId (if any)
+    // is ignored entirely and may be absent or stale. The job row is the
+    // source of truth for which event_video this job belongs to.
     const job = await db.query.subtitleJobs.findFirst({
       where: eq(subtitleJobs.id, jobId),
     });
-    if (!job || !job.sessionVideoId) {
-      console.warn(`[webhook] Subtitle job ${jobId} has no session_video attribution — skipping re-home`);
+    if (!job || !job.videoId) {
+      console.warn(`[webhook] Subtitle job ${jobId} has no event_video attribution — skipping re-home`);
       return c.json({ ok: true });
     }
 
-    const video = await db.query.sessionVideos.findFirst({
-      where: eq(sessionVideos.id, job.sessionVideoId),
+    const video = await db.query.eventVideos.findFirst({
+      where: eq(eventVideos.id, job.videoId),
     });
     if (!video) {
-      console.warn(`[webhook] Subtitle job ${jobId} references missing session_video ${job.sessionVideoId}`);
-      return c.json({ ok: true });
-    }
-
-    const session = await db.query.sessions.findFirst({
-      where: eq(sessions.id, video.sessionId),
-    });
-    if (!session) {
-      console.warn(`[webhook] Subtitle job ${jobId} references missing session ${video.sessionId}`);
+      console.warn(`[webhook] Subtitle job ${jobId} references missing event_video ${job.videoId}`);
       return c.json({ ok: true });
     }
 
     const event = await db.query.events.findFirst({
-      where: eq(events.id, session.eventId),
+      where: eq(events.id, video.eventId),
     });
     if (!event) {
-      console.warn(`[webhook] Subtitle job ${jobId} references missing event ${session.eventId}`);
+      console.warn(`[webhook] Subtitle job ${jobId} references missing event ${video.eventId}`);
       return c.json({ ok: true });
     }
 
     // Re-home the container's scratch VTT to the canonical, backend-owned
     // per-video S3 key.
     const vtt = await getObjectText(s3Key);
-    const canonicalKey = `events/${event.eventCode}/subtitles/s${session.sessionNumber}/v${video.id}/${language}.vtt`;
+    const canonicalKey = `events/${event.eventCode}/subtitles/v${video.id}/${language}.vtt`;
     await putObject(canonicalKey, Buffer.from(vtt), "text/vtt");
 
-    // Upsert the session subtitle row (unique on sessionVideoId + language)
+    // Upsert the video subtitle row (unique on videoId + language)
     await db
-      .insert(sessionSubtitles)
+      .insert(videoSubtitles)
       .values({
-        sessionId: job.sessionId,
-        sessionVideoId: video.id,
+        videoId: video.id,
         language,
         label: label ?? language,
         s3Key: canonicalKey,
@@ -297,7 +287,7 @@ webhookRoutes.post("/subtitles", async (c) => {
         source: "auto",
       })
       .onConflictDoUpdate({
-        target: [sessionSubtitles.sessionVideoId, sessionSubtitles.language],
+        target: [videoSubtitles.videoId, videoSubtitles.language],
         set: {
           s3Key: canonicalKey,
           label: label ?? language,
@@ -310,12 +300,12 @@ webhookRoutes.post("/subtitles", async (c) => {
     if (video.bunnyVideoId) {
       await addCaption(video.bunnyVideoId, language, label ?? language, vtt);
       await db
-        .update(sessionSubtitles)
+        .update(videoSubtitles)
         .set({ bunnyUploadedAt: new Date() })
         .where(
           and(
-            eq(sessionSubtitles.sessionVideoId, video.id),
-            eq(sessionSubtitles.language, language),
+            eq(videoSubtitles.videoId, video.id),
+            eq(videoSubtitles.language, language),
           ),
         );
     }

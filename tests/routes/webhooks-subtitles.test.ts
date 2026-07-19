@@ -12,8 +12,7 @@ const {
   mockInsertValues,
   mockInsertOnConflict,
   mockFindFirstSubtitleJob,
-  mockFindFirstSessionVideo,
-  mockFindFirstSession,
+  mockFindFirstEventVideo,
   mockFindFirstEvent,
 } = vi.hoisted(() => {
   // insert chain: insert().values().onConflictDoUpdate()
@@ -28,8 +27,7 @@ const {
 
   // query.* findFirst — typed broadly so mockResolvedValueOnce can take any shape
   const mockFindFirstSubtitleJob = vi.fn<() => Promise<unknown>>(() => Promise.resolve(null));
-  const mockFindFirstSessionVideo = vi.fn<() => Promise<unknown>>(() => Promise.resolve(null));
-  const mockFindFirstSession = vi.fn<() => Promise<unknown>>(() => Promise.resolve(null));
+  const mockFindFirstEventVideo = vi.fn<() => Promise<unknown>>(() => Promise.resolve(null));
   const mockFindFirstEvent = vi.fn<() => Promise<unknown>>(() => Promise.resolve(null));
 
   return {
@@ -40,8 +38,7 @@ const {
     mockInsertValues,
     mockInsertOnConflict,
     mockFindFirstSubtitleJob,
-    mockFindFirstSessionVideo,
-    mockFindFirstSession,
+    mockFindFirstEventVideo,
     mockFindFirstEvent,
   };
 });
@@ -52,8 +49,7 @@ vi.mock("../../src/db/index.ts", () => ({
     insert: mockInsert,
     query: {
       subtitleJobs: { findFirst: mockFindFirstSubtitleJob },
-      sessionVideos: { findFirst: mockFindFirstSessionVideo },
-      sessions: { findFirst: mockFindFirstSession },
+      eventVideos: { findFirst: mockFindFirstEventVideo },
       events: { findFirst: mockFindFirstEvent },
     },
   },
@@ -119,7 +115,7 @@ describe("POST /api/webhooks/subtitles — signature verification", () => {
   });
 });
 
-describe("POST /api/webhooks/subtitles — session_video re-homing", () => {
+describe("POST /api/webhooks/subtitles — event_video re-homing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -133,16 +129,14 @@ describe("POST /api/webhooks/subtitles — session_video re-homing", () => {
 
     mockFindFirstSubtitleJob.mockResolvedValueOnce({
       id: "job-1",
-      sessionId: 1,
-      sessionVideoId: 5,
+      videoId: 5,
     });
-    mockFindFirstSessionVideo.mockResolvedValueOnce({
+    mockFindFirstEventVideo.mockResolvedValueOnce({
       id: 5,
-      sessionId: 1,
+      eventId: 1,
       bunnyVideoId: "vid-abc",
       position: 0,
     });
-    mockFindFirstSession.mockResolvedValueOnce({ id: 1, eventId: 1, sessionNumber: 2 });
     mockFindFirstEvent.mockResolvedValueOnce({ id: 1, eventCode: "E1" });
     mockGetObjectText.mockResolvedValueOnce("WEBVTT\n\n00:00.000 --> 00:01.000\nHello");
 
@@ -162,7 +156,7 @@ describe("POST /api/webhooks/subtitles — session_video re-homing", () => {
     expect(res.status).toBe(200);
     expect(mockGetObjectText).toHaveBeenCalledWith("scratch/job-1/en.vtt");
     expect(mockPutObject).toHaveBeenCalledWith(
-      "events/E1/subtitles/s2/v5/en.vtt",
+      "events/E1/subtitles/v5/en.vtt",
       expect.anything(),
       "text/vtt",
     );
@@ -174,7 +168,7 @@ describe("POST /api/webhooks/subtitles — session_video re-homing", () => {
     );
   });
 
-  it("skips re-homing when the job has no session_video attribution", async () => {
+  it("skips re-homing when the job has no event_video attribution", async () => {
     const { addCaption } = await import("../../src/services/bunny-captions.ts");
     const { putObject } = await import("../../src/services/s3.ts");
     const mockAddCaption = addCaption as ReturnType<typeof vi.fn>;
@@ -182,8 +176,7 @@ describe("POST /api/webhooks/subtitles — session_video re-homing", () => {
 
     mockFindFirstSubtitleJob.mockResolvedValueOnce({
       id: "job-4",
-      sessionId: 1,
-      sessionVideoId: null,
+      videoId: null,
     });
 
     const body = {
@@ -201,7 +194,7 @@ describe("POST /api/webhooks/subtitles — session_video re-homing", () => {
     expect(mockAddCaption).not.toHaveBeenCalled();
   });
 
-  it("skips Bunny upload but still re-homes when the session_video has no bunnyVideoId", async () => {
+  it("skips Bunny upload but still re-homes when the event_video has no bunnyVideoId", async () => {
     const { addCaption } = await import("../../src/services/bunny-captions.ts");
     const { putObject } = await import("../../src/services/s3.ts");
     const mockAddCaption = addCaption as ReturnType<typeof vi.fn>;
@@ -209,16 +202,14 @@ describe("POST /api/webhooks/subtitles — session_video re-homing", () => {
 
     mockFindFirstSubtitleJob.mockResolvedValueOnce({
       id: "job-5",
-      sessionId: 1,
-      sessionVideoId: 6,
+      videoId: 6,
     });
-    mockFindFirstSessionVideo.mockResolvedValueOnce({
+    mockFindFirstEventVideo.mockResolvedValueOnce({
       id: 6,
-      sessionId: 1,
+      eventId: 1,
       bunnyVideoId: "",
       position: 1,
     });
-    mockFindFirstSession.mockResolvedValueOnce({ id: 1, eventId: 1, sessionNumber: 2 });
     mockFindFirstEvent.mockResolvedValueOnce({ id: 1, eventCode: "E1" });
 
     const body = {

@@ -1,10 +1,16 @@
 /**
- * Import S3-hosted videos into Bunny Stream + session_videos.
+ * Import S3-hosted videos into Bunny Stream + event_videos.
  *
  * Replaces the obsolete Google-Drive ingestion script (import-drive-videos.ts).
  * The team's curated videos live in the `padmakara-pt-app` S3 bucket (not the
- * app's own `padmakara-content` bucket), one video per session, e.g.:
+ * app's own `padmakara-content` bucket), one video per session recording, e.g.:
  *   https://padmakara-pt-app.s3.eu-west-3.amazonaws.com/Videos_for_app_testing/2009-06-TGR-LIS/2009-06-21-TGR-LIS.mp4
+ *
+ * Videos are stored per EVENT, not per session — the `--event <eventId>` CLI
+ * arg already fixes the event for the whole run. The `sessions` table lookup
+ * below is retained purely as a validation/metadata step: it confirms the
+ * mapping entry's date/period actually matches a session that belongs to
+ * this event, and it supplies `videoDate` + a title hint for the inserted row.
  *
  * Usage:
  *   bun src/scripts/import-s3-videos.ts --event <eventId> --input <mapping.json> [--dry-run]
@@ -18,21 +24,22 @@
  *   ]
  *
  * Behavior:
- *   1. Per entry, resolve the target `sessions` row:
+ *   1. Per entry, resolve a matching `sessions` row (validation + metadata
+ *      only):
  *        - `sessionId` given → use it directly.
  *        - else determine `date` (entry.date, or parsed from the URL's
  *          filename via parseVideoName) and `period` (entry.period, or
  *          parsed). Match `sessions` where eventId = <event> AND
  *          sessionDate = date AND (if period known) timePeriod = period.
  *          Zero or multiple matches → recorded as UNRESOLVED (skipped).
- *   2. `position` = current count of session_videos rows for that session
- *      (so re-runs / appends are ordered), computed once per session per run.
+ *   2. `position` = current count of event_videos rows for the event
+ *      (so re-runs / appends are ordered), computed once per event per run.
  *   3. Parses the S3 URL (`parseS3Url`), presigns a 6h GET on the API's own
  *      AWS creds (confirmed to have read access to padmakara-pt-app), and
  *      hands the presigned URL to Bunny's fetchVideo().
- *   4. Inserts a session_videos row:
- *        { sessionId, bunnyVideoId: guid, position, title }
- *      title is the capitalized period ("Morning"/"Afternoon") or null.
+ *   4. Inserts an event_videos row:
+ *        { eventId, bunnyVideoId: guid, position, titleEn, videoDate }
+ *      titleEn is the capitalized period ("Morning"/"Afternoon") or null.
  *
  *   --dry-run prints the url → { sessionId, date, period, position }
  *   resolution table (and UNRESOLVED rows) and exits without presigning,
@@ -52,7 +59,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
 import { sessions } from "../db/schema/sessions.ts";
-import { sessionVideos } from "../db/schema/session-videos.ts";
+import { eventVideos } from "../db/schema/event-videos.ts";
 import { fetchVideo } from "../services/bunny.ts";
 import { config } from "../config.ts";
 
@@ -187,18 +194,18 @@ async function resolveEntry(entry: MappingEntry, eventId: number): Promise<Resol
 const positionCounters = new Map<number, number>();
 
 /**
- * Next 0-based position for a session's video list, computed once per
- * session per run (starting from the current DB row count) so repeated
- * entries for the same session in one run are ordered sequentially. Read-only
- * — safe to call during --dry-run.
+ * Next 0-based position for an EVENT's video list, computed once per event
+ * per run (starting from the current DB row count) so repeated entries in
+ * one run are ordered sequentially. Read-only — safe to call during
+ * --dry-run.
  */
-async function nextPosition(sessionId: number): Promise<number> {
-  if (!positionCounters.has(sessionId)) {
-    const existing = await db.select().from(sessionVideos).where(eq(sessionVideos.sessionId, sessionId));
-    positionCounters.set(sessionId, existing.length);
+async function nextPosition(eventId: number): Promise<number> {
+  if (!positionCounters.has(eventId)) {
+    const existing = await db.select().from(eventVideos).where(eq(eventVideos.eventId, eventId));
+    positionCounters.set(eventId, existing.length);
   }
-  const position = positionCounters.get(sessionId)!;
-  positionCounters.set(sessionId, position + 1);
+  const position = positionCounters.get(eventId)!;
+  positionCounters.set(eventId, position + 1);
   return position;
 }
 
@@ -281,7 +288,7 @@ async function main(): Promise<void> {
       console.log(`  UNRESOLVED ${entry.url} — ${resolved.reason}`);
       continue;
     }
-    const position = await nextPosition(resolved.session.id);
+    const position = await nextPosition(eventId);
     planRows.push({
       url: entry.url,
       sessionId: resolved.session.id,
@@ -315,13 +322,14 @@ async function main(): Promise<void> {
     console.log(`\nPulling "${row.url}" into Bunny as "${title}"…`);
     const { guid } = await fetchVideo(presignedUrl, title);
 
-    await db.insert(sessionVideos).values({
-      sessionId: row.sessionId,
+    await db.insert(eventVideos).values({
+      eventId,
       bunnyVideoId: guid,
       position: row.position,
-      title: row.period ? capitalize(row.period) : null,
+      titleEn: row.period ? capitalize(row.period) : null,
+      videoDate: row.date,
     });
-    console.log(`  OK: guid=${guid} → session_videos row (sessionId=${row.sessionId}, position=${row.position})`);
+    console.log(`  OK: guid=${guid} → event_videos row (eventId=${eventId}, position=${row.position}, session=${row.sessionId})`);
     created++;
   }
 

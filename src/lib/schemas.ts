@@ -175,27 +175,31 @@ export const createSessionSchema = z.object({
 
 export const updateSessionSchema = createSessionSchema.partial();
 
-// Session videos — one row per Bunny Stream recording attached to a session.
-export const createSessionVideoSchema = z.object({
-  sessionId: z.number().int(),
+// Event videos — one row per Bunny Stream recording attached to an event.
+export const createEventVideoSchema = z.object({
+  eventId: z.number().int(),
   bunnyVideoId: z.string().min(1),
   position: z.number().int().min(0).optional().default(0),
-  title: z.string().max(200).optional().nullable(),
+  titleEn: z.string().max(200).optional().nullable(),
+  titlePt: z.string().max(200).optional().nullable(),
+  videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
-export const updateSessionVideoSchema = z.object({
+export const updateEventVideoSchema = z.object({
   position: z.number().int().min(0).optional(),
-  title: z.string().max(200).optional().nullable(),
+  titleEn: z.string().max(200).optional().nullable(),
+  titlePt: z.string().max(200).optional().nullable(),
+  videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
 // Import a video by URL (Google Drive share link or any public direct URL).
-export const importSessionVideoUrlSchema = z.object({
-  sessionId: z.number().int(),
+export const importEventVideoUrlSchema = z.object({
+  eventId: z.number().int(),
   url: z.string().min(1).max(2000),
   title: z.string().trim().min(1).max(200).optional(),
 });
 
-// Tracks (audio only — video lives on the parent session)
+// Tracks (audio only — video lives on the parent event)
 export const createTrackSchema = z.object({
   sessionId: z.number().int(),
   title: z.string().min(1).max(200),

@@ -57,6 +57,7 @@ import { TrackDropZone } from "../components/TrackDropZone";
 import { TrackAnalysisDropZone } from "../components/TrackAnalysisDropZone";
 import { AnalysisReport } from "../components/AnalysisReport";
 import { SessionPreview } from "../components/SessionPreview";
+import { EventVideosSection } from "../components/EventVideosSection";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
@@ -87,7 +88,7 @@ import { TranslatableField, useFieldTranslate } from "../components/Translatable
 import {
   type ParsedTrack,
   type InferredSession,
-  type SessionVideo,
+  type EventVideo,
   type FolderMetadata,
   inferSessions,
   applyFolderSpeakerFallback,
@@ -566,11 +567,17 @@ interface EventFormProps {
     opts?: { silent?: boolean },
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
-  onSessionVideoUpload?: (sessionId: number, file: File) => void;
+  /** Event-level videos, ordered by position. Only present in edit mode — a
+   *  video needs a real event id to attach to, so the create wizard has none
+   *  of this until after the event is saved. */
+  videos?: EventVideo[];
+  /** Functional-updater setter for `videos` — EventVideosSection performs its
+   *  own PATCH/DELETE network calls and syncs the result back through this. */
+  onVideosChange?: (updater: (prev: EventVideo[]) => EventVideo[]) => void;
+  /** Edit-mode only: triggered when admin picks a new video file for the event. */
+  onVideoUpload?: (file: File) => void;
   /** Imports a video from a pasted URL (Drive share link or public direct URL). */
-  onSessionVideoImportUrl?: (sessionId: number, url: string, title?: string) => Promise<void>;
-  /** Deletes one attached video by its session_videos row id. */
-  onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
+  onVideoImportUrl?: (url: string, title?: string) => Promise<void>;
   onFeaturedToggle?: () => void;
   onStatusChange?: (newStatus: string) => void;
   /** Create-flow only: the live preview state behind SessionTrackTable (the
@@ -661,7 +668,7 @@ export const EventFormFields = ({
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, onTrackDelete,
-  onSessionVideoUpload, onSessionVideoImportUrl, onSessionVideoDelete,
+  videos, onVideosChange, onVideoUpload, onVideoImportUrl,
   previewSessions, onPreviewSessionsChange,
   onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
@@ -1361,6 +1368,16 @@ export const EventFormFields = ({
         />
       </Paper>
 
+      {/* ── Event-level videos (edit mode only — needs a real event id) ── */}
+      {onVideosChange && onVideoUpload && onVideoImportUrl && (
+        <EventVideosSection
+          videos={videos ?? []}
+          onVideosChange={onVideosChange}
+          onUpload={onVideoUpload}
+          onImportUrl={onVideoImportUrl}
+        />
+      )}
+
       {/* ── Section 2: Content ── */}
       {(sessions.length > 0 || transcripts.length > 0 || eventFiles.length > 0) && (
         <>
@@ -1395,9 +1412,6 @@ export const EventFormFields = ({
                 onSessionTitleChange={onSessionTitleChange}
                 onTrackUpdate={onTrackUpdate}
                 onTrackDelete={onTrackDelete}
-                onSessionVideoUpload={onSessionVideoUpload}
-                onSessionVideoImportUrl={onSessionVideoImportUrl}
-                onSessionVideoDelete={onSessionVideoDelete}
                 allTeachers={allTeachers}
               />
             </Box>
@@ -2040,6 +2054,10 @@ export const EventCreate = () => {
       });
 
       const uploadItems: UploadItem[] = [];
+      // Videos attach to the event itself now, not to a session — position is
+      // an event-wide running count across every session's tracks, not reset
+      // per session. A brand-new event always starts with zero videos.
+      let videoPositionForEvent = 0;
 
       for (const session of sessions) {
         const { data: createdSession } = await dataProvider.create("sessions", {
@@ -2054,26 +2072,23 @@ export const EventCreate = () => {
             timePeriod: session.timePeriod || null,
           },
         });
-        let videoPositionForSession = 0;
         for (const track of session.tracks) {
           if (track.mediaType === "video") {
-            // Videos attach to the session as their own session_videos rows —
-            // no track row is created. The uploader creates that row once
-            // Bunny finishes transcoding. New sessions always start with zero
-            // videos, so position is just this session's running count.
+            // No track row is created for a video — the uploader creates the
+            // `event_videos` row once Bunny finishes transcoding.
             uploadItems.push({
               // trackId is unused on the video path; satisfy the type with -1.
               trackId: -1,
-              sessionId: createdSession.id,
+              eventId: event.id,
               sessionNumber: session.sessionNumber,
               file: track.file,
               filename: track.originalFilename,
               mediaType: "video",
-              // Videos have no titleEn/titlePt split (session_videos carries a
-              // single `title`) — prefer whichever language field the admin
+              // Videos have no titleEn/titlePt split (event_videos carries a
+              // single `titleEn`) — prefer whichever language field the admin
               // edited in the review table, same as the tracks payload below.
               title: track.titleEn || track.titlePt || track.title,
-              position: videoPositionForSession++,
+              position: videoPositionForEvent++,
             });
             continue;
           }
@@ -2285,7 +2300,6 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
     titlePt: s.titlePt || (s.titleEn ? formatSessionTitle(s.sessionDate || null, s.timePeriod || null, null, "pt") : ""),
     titleEnReviewed: s.titleEnReviewed ?? true,
     titlePtReviewed: s.titlePtReviewed ?? true,
-    videos: (s.videos || []) as SessionVideo[],
     tracks: (s.tracks || []).map((t: any) => {
       // Old tracks predate the EN/PT split: their only title lives in the
       // base `title` column. Surface it into whichever language field the
@@ -2338,6 +2352,7 @@ export const EventEdit = () => {
 
   const [form, setForm] = useState<EventFormData>({ ...EMPTY_FORM });
   const [sessions, setSessions] = useState<InferredSession[]>([]);
+  const [videos, setVideos] = useState<EventVideo[]>([]);
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -2411,6 +2426,14 @@ export const EventEdit = () => {
       setSessions(toInferredSessions(event.sessions));
     }
   }, [event?.sessions]);
+
+  // Same race-condition guard as sessions above — a cached event fetched
+  // before `videos` populates shouldn't wipe out a later, fuller response.
+  useEffect(() => {
+    if (event?.videos) {
+      setVideos(event.videos as EventVideo[]);
+    }
+  }, [event?.videos]);
 
   const handleSessionTitleChange = useCallback(
     (idx: number, patch: Partial<InferredSession>, opts?: { silent?: boolean }) => {
@@ -2604,11 +2627,13 @@ export const EventEdit = () => {
   // Single-video upload from the edit page. Drives the same UploadProgress
   // overlay used by the create wizard so progress + transcoding feedback look
   // identical. The promise resolves once Bunny finishes transcoding and a new
-  // `session_videos` row exists for this session (a session may now have
-  // several videos — this adds one more, at the next available position).
-  const handleSessionVideoUpload = useCallback(
-    (sessionId: number, file: File) => {
-      const position = sessions.find((s) => s.id === sessionId)?.videos?.length ?? 0;
+  // `event_videos` row exists for this event (this adds one more, at the
+  // next available event-wide position).
+  const handleVideoUpload = useCallback(
+    (file: File) => {
+      if (!id) return;
+      const eventIdNum = Number(id);
+      const position = videos.length;
       const signal: { cancelled: boolean; abort?: () => void } = { cancelled: false };
       const speedTracker = new SpeedTracker();
       cancelUploadRef.current = () => {
@@ -2630,7 +2655,7 @@ export const EventEdit = () => {
       setUploadProgress(baseProgress);
 
       uploadVideoFile({
-        sessionId,
+        eventId: eventIdNum,
         position,
         title: file.name.replace(/\.[^.]+$/, ""),
         file,
@@ -2675,7 +2700,7 @@ export const EventEdit = () => {
               f.filename === file.name ? { ...f, status: "done", progress: 1 } : f,
             ),
           });
-          notify(translate("padmakara.session.videoUploadSuccess") || "Video uploaded", { type: "success" });
+          notify(translate("padmakara.videos.uploadSuccess") || "Video uploaded", { type: "success" });
           refresh();
           // Auto-dismiss the success panel after a beat so the admin returns to the list.
           setTimeout(() => setUploadProgress(null), 1500);
@@ -2698,19 +2723,20 @@ export const EventEdit = () => {
           cancelUploadRef.current = null;
         });
     },
-    [notify, refresh, translate, sessions],
+    [notify, refresh, translate, id, videos],
   );
 
   // Import a video from a pasted URL (Google Drive share link or any public
   // direct URL). The download + transcoding happen on Bunny's servers; the
   // row is created immediately and the webhook backfills duration later.
   // Throws with a user-facing message so the dialog can display it inline.
-  const handleSessionVideoImportUrl = useCallback(
-    async (sessionId: number, url: string, title?: string) => {
-      const res = await authFetch(`/api/admin/session-videos/import-url`, {
+  const handleVideoImportUrl = useCallback(
+    async (url: string, title?: string) => {
+      if (!id) return;
+      const res = await authFetch(`/api/admin/videos/import-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, url, ...(title ? { title } : {}) }),
+        body: JSON.stringify({ eventId: Number(id), url, ...(title ? { title } : {}) }),
       });
       if (!res.ok) {
         let message = `Import failed (${res.status})`;
@@ -2723,37 +2749,13 @@ export const EventEdit = () => {
         throw new Error(message);
       }
       notify(
-        translate("padmakara.session.videoImportStarted") ||
+        translate("padmakara.videos.importStarted") ||
           "Import started — the video will appear once processing finishes",
         { type: "success" },
       );
       refresh();
     },
-    [notify, refresh, translate],
-  );
-
-  const handleSessionVideoDelete = useCallback(
-    async (sessionVideoId: number) => {
-      try {
-        const res = await authFetch(`/api/admin/session-videos/${sessionVideoId}`, { method: "DELETE" });
-        if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
-        setSessions((prev) =>
-          prev.map((s) => ({
-            ...s,
-            videos: (s.videos ?? []).filter((v) => v.id !== sessionVideoId),
-          })),
-        );
-        notify(translate("padmakara.session.videoDeleted") || "Video removed", { type: "success" });
-        refresh();
-      } catch (error: any) {
-        notify("padmakara.common.videoRemoveFailed", {
-          type: "error",
-          messageArgs: { message: error?.message || String(error) },
-        });
-        throw error;
-      }
-    },
-    [notify, refresh, translate],
+    [notify, refresh, translate, id],
   );
 
   // 6.1 — Transcript upload handler for EventEdit
@@ -2825,6 +2827,9 @@ export const EventEdit = () => {
         let nextSessionNumber = maxExisting + 1;
 
         const uploadItems: UploadItem[] = [];
+        // Videos attach to the event, not the session — position continues
+        // from however many videos the event already has.
+        let videoPositionForEvent = videos.length;
 
         for (const session of inferredNewSessions) {
           const sessionNumber = existingSessionNumbers.has(session.sessionNumber)
@@ -2841,18 +2846,17 @@ export const EventEdit = () => {
             },
           });
 
-          let videoPositionForSession = 0;
           for (const track of session.tracks) {
             if (track.mediaType === "video") {
               uploadItems.push({
                 trackId: -1,
-                sessionId: createdSession.id,
+                eventId: Number(id),
                 sessionNumber,
                 file: track.file,
                 filename: track.originalFilename,
                 mediaType: "video",
                 title: track.title,
-                position: videoPositionForSession++,
+                position: videoPositionForEvent++,
               });
               continue;
             }
@@ -2910,7 +2914,7 @@ export const EventEdit = () => {
         setAddTracksUploading(false);
       }
     },
-    [form.eventCode, id, sessions, dataProvider, notify, refresh],
+    [form.eventCode, id, sessions, videos, dataProvider, notify, refresh],
   );
 
   const handleFeaturedToggle = useCallback(async () => {
@@ -3022,9 +3026,10 @@ export const EventEdit = () => {
         sessions={sessions} transcripts={event?.transcripts || []} eventFiles={event?.eventFiles || []} onSessionTitleChange={handleSessionTitleChange}
         onTrackUpdate={handleTrackUpdate}
         onTrackDelete={handleTrackDelete}
-        onSessionVideoUpload={handleSessionVideoUpload}
-        onSessionVideoImportUrl={handleSessionVideoImportUrl}
-        onSessionVideoDelete={handleSessionVideoDelete}
+        videos={videos}
+        onVideosChange={setVideos}
+        onVideoUpload={handleVideoUpload}
+        onVideoImportUrl={handleVideoImportUrl}
         onFeaturedToggle={handleFeaturedToggle}
         onStatusChange={handleStatusChange}
         trackCount={trackCount}
@@ -3085,19 +3090,18 @@ export const EventEdit = () => {
         <ReadAlongPanel eventId={Number(event.id)} />
       )}
 
-      {sessions.flatMap((s) =>
-        (s.videos ?? []).map((v) => (
-          <SubtitlePanel
-            key={v.id}
-            sessionVideoId={v.id}
-            videoLabel={
-              (s.videos?.length ?? 0) > 1
-                ? `${s.titleEn ?? ""} — ${v.title ?? `${translate("padmakara.session.part") || "Part"} ${v.position + 1}`}`
-                : (s.titleEn ?? "")
-            }
-          />
-        )),
-      )}
+      {videos.map((v) => (
+        <SubtitlePanel
+          key={v.id}
+          videoId={v.id}
+          videoLabel={
+            v.titleEn ||
+            v.titlePt ||
+            translate("padmakara.videos.part", { number: v.position + 1 }) ||
+            `Part ${v.position + 1}`
+          }
+        />
+      ))}
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>

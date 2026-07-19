@@ -37,7 +37,6 @@ sessionRoutes.get("/", async (c) => {
       offset,
       with: {
         tracks: true,
-        videos: { orderBy: (v: any, { asc }: any) => [asc(v.position)] },
       },
     }),
     countRows(sessions, where),
@@ -52,7 +51,6 @@ sessionRoutes.get("/:id", async (c) => {
     where: eq(sessions.id, id),
     with: {
       tracks: true,
-      videos: { orderBy: (v: any, { asc }: any) => [asc(v.position)] },
     },
   });
   if (!session) throw AppError.notFound("Session not found");
@@ -95,11 +93,10 @@ sessionRoutes.put("/:id", async (c) => {
   return c.json(session);
 });
 
-// Note: Bunny video cleanup no longer happens here — videos are managed via
-// the dedicated /admin/session-videos CRUD, which does its own ref-counted
-// deletion against session_videos.bunnyVideoId. Deleting a session cascades
-// its session_videos rows at the DB level (ON DELETE CASCADE); their Bunny
-// assets are not cleaned up by this handler.
+// Note: Videos no longer belong to sessions — they are managed at the event
+// level via the dedicated /admin/videos CRUD, which does its own ref-counted
+// Bunny deletion against event_videos.bunnyVideoId. Deleting a session has no
+// effect on event_videos rows.
 sessionRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const [session] = await db
@@ -118,8 +115,8 @@ sessionRoutes.delete("/:id", async (c) => {
   return c.json(session);
 });
 
-// Subtitle management moved to /admin/session-videos/:videoId/subtitles* —
-// subtitles are now generated and stored per session_video, not per session.
-// See src/routes/admin/session-videos.ts.
+// Subtitle management moved to /admin/videos/:videoId/subtitles* — subtitles
+// are now generated and stored per event_video, not per session.
+// See src/routes/admin/videos.ts.
 
 export { sessionRoutes };

@@ -218,6 +218,13 @@
       "when": 1810950400000,
       "tag": "0030_track_title_translations",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1811036800000,
+      "tag": "0031_event_videos",
+      "breakpoints": true
     }
   ]
 }

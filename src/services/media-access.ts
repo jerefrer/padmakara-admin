@@ -1,12 +1,12 @@
 /**
  * Media Access Token (MAT) — short-lived signed token granting playback
- * access to a single session_video (recording) for a single user.
+ * access to a single event_video (recording) for a single user.
  *
  * Flow:
- *   1. Client calls /api/media/video/:sessionVideoId with their auth JWT.
+ *   1. Client calls /api/media/video/:videoId with their auth JWT.
  *   2. Backend verifies audience access, then issues a MAT scoped to:
  *        - userId (sub)
- *        - sessionVideoId (svid)
+ *        - videoId (svid) — claim name kept as "svid" for stability
  *        - bunnyVideoId (gid) — locks the token to one Bunny video
  *        - expiry (exp) — typically 4h
  *   3. Client appends ?mat=<token> to every HLS-proxy request.
@@ -32,7 +32,7 @@ const DEFAULT_TTL_SECONDS = 4 * 60 * 60;
 export interface MatPayload {
   /** User id at issuance time. Stored for audit; the proxy doesn't re-check group membership. */
   sub: number;
-  /** session_video id this token unlocks. The proxy rejects requests for any other sessionVideoId. */
+  /** event_video id this token unlocks. The proxy rejects requests for any other videoId. */
   svid: number;
   /** Bunny video GUID locked at issuance — independent of any later edits. */
   gid: string;
@@ -44,7 +44,7 @@ export interface MatPayload {
 
 export async function issueMat(args: {
   userId: number;
-  sessionVideoId: number;
+  videoId: number;
   bunnyVideoId: string;
   ttlSeconds?: number;
 }): Promise<{ token: string; expiresAt: number }> {
@@ -52,7 +52,7 @@ export async function issueMat(args: {
   const expiresAt = Math.floor(Date.now() / 1000) + ttl;
   const token = await new jose.SignJWT({
     sub: String(args.userId),
-    svid: args.sessionVideoId,
+    svid: args.videoId,
     gid: args.bunnyVideoId,
   })
     .setProtectedHeader({ alg: "HS256" })

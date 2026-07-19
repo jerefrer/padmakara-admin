@@ -11,7 +11,7 @@ describe("captionUploadBody", () => {
 });
 
 // ---------------------------------------------------------------------------
-// submitSubtitleJob — per session_video (mocked db, AWS Batch, bunny)
+// submitSubtitleJob — per event_video (mocked db, AWS Batch, bunny)
 // ---------------------------------------------------------------------------
 
 const {
@@ -20,9 +20,9 @@ const {
   mockUpdateWhere,
   mockUpdateSet,
   mockUpdate,
-  mockFindFirstSessionVideo,
-  mockFindFirstSession,
+  mockFindFirstEventVideo,
   mockFindFirstEvent,
+  mockFindManySessions,
   mockFindManyTracks,
 } = vi.hoisted(() => {
   const mockSend = vi.fn((_command?: unknown) => Promise.resolve({ jobId: "batch-job-1" }));
@@ -30,15 +30,13 @@ const {
   const mockUpdateWhere = vi.fn(() => Promise.resolve());
   const mockUpdateSet = vi.fn(() => ({ where: mockUpdateWhere }));
   const mockUpdate = vi.fn(() => ({ set: mockUpdateSet }));
-  const mockFindFirstSessionVideo = vi.fn<
-    () => Promise<{ id: number; sessionId: number; bunnyVideoId: string; position: number } | null>
-  >(() => Promise.resolve({ id: 5, sessionId: 1, bunnyVideoId: "vid-abc", position: 0 }));
-  const mockFindFirstSession = vi.fn(() =>
-    Promise.resolve({ id: 1, eventId: 1, sessionNumber: 2 }),
-  );
+  const mockFindFirstEventVideo = vi.fn<
+    () => Promise<{ id: number; eventId: number; bunnyVideoId: string; position: number } | null>
+  >(() => Promise.resolve({ id: 5, eventId: 1, bunnyVideoId: "vid-abc", position: 0 }));
   const mockFindFirstEvent = vi.fn(() => Promise.resolve({ id: 1, eventCode: "E1" }));
+  const mockFindManySessions = vi.fn(() => Promise.resolve([{ id: 1 }, { id: 2 }]));
   const mockFindManyTracks = vi.fn(() =>
-    Promise.resolve([{ trackNumber: 2 }, { trackNumber: 1 }]),
+    Promise.resolve([{ trackNumber: 2 }, { trackNumber: 1 }, { trackNumber: 2 }]),
   );
   return {
     mockSend,
@@ -46,9 +44,9 @@ const {
     mockUpdateWhere,
     mockUpdateSet,
     mockUpdate,
-    mockFindFirstSessionVideo,
-    mockFindFirstSession,
+    mockFindFirstEventVideo,
     mockFindFirstEvent,
+    mockFindManySessions,
     mockFindManyTracks,
   };
 });
@@ -74,9 +72,9 @@ vi.mock("../../src/db/index.ts", () => ({
     })),
     update: mockUpdate,
     query: {
-      sessionVideos: { findFirst: mockFindFirstSessionVideo },
-      sessions: { findFirst: mockFindFirstSession },
+      eventVideos: { findFirst: mockFindFirstEventVideo },
       events: { findFirst: mockFindFirstEvent },
+      sessions: { findMany: mockFindManySessions },
       tracks: { findMany: mockFindManyTracks },
     },
   },
@@ -92,27 +90,26 @@ vi.mock("../../src/services/bunny.ts", () => ({
 describe("submitSubtitleJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFindFirstSessionVideo.mockResolvedValue({
+    mockFindFirstEventVideo.mockResolvedValue({
       id: 5,
-      sessionId: 1,
+      eventId: 1,
       bunnyVideoId: "vid-abc",
       position: 0,
     });
-    mockFindFirstSession.mockResolvedValue({ id: 1, eventId: 1, sessionNumber: 2 });
     mockFindFirstEvent.mockResolvedValue({ id: 1, eventCode: "E1" });
-    mockFindManyTracks.mockResolvedValue([{ trackNumber: 2 }, { trackNumber: 1 }]);
+    mockFindManySessions.mockResolvedValue([{ id: 1 }, { id: 2 }]);
+    mockFindManyTracks.mockResolvedValue([{ trackNumber: 2 }, { trackNumber: 1 }, { trackNumber: 2 }]);
     mockInsertReturning.mockResolvedValue([{ id: "job-1" }]);
     mockSend.mockResolvedValue({ jobId: "batch-job-1" });
   });
 
-  it("inserts a job carrying sessionVideoId and passes SESSION_VIDEO_ID + VIDEO_AUDIO_URL to Batch", async () => {
+  it("inserts a job carrying videoId and passes SESSION_VIDEO_ID + VIDEO_AUDIO_URL to Batch", async () => {
     const { submitSubtitleJob } = await import("../../src/services/subtitles.ts");
     const { buildMp4DownloadUrl } = await import("../../src/services/bunny.ts");
 
     const result = await submitSubtitleJob(5, { language: "en" });
 
-    expect(result.sessionId).toBe(1);
-    expect(result.sessionVideoId).toBe(5);
+    expect(result.videoId).toBe(5);
     expect(result.jobId).toBe("job-1");
     expect(buildMp4DownloadUrl).toHaveBeenCalledWith("vid-abc", "240p");
 
@@ -124,14 +121,22 @@ describe("submitSubtitleJob", () => {
       command.input.containerOverrides.environment.map((e) => [e.name, e.value]),
     );
     expect(env.SESSION_VIDEO_ID).toBe("5");
-    expect(env.SESSION_ID).toBe("1");
+    expect(env.SESSION_ID).toBe("5");
+    expect(env.SESSION_NUMBER).toBe("v5");
     expect(env.VIDEO_AUDIO_URL).toBe("https://cdn.example/vid-abc-240p.mp4");
+    // Deduped + sorted union of trackNumber across all of the event's tracks.
     expect(env.TRACK_NUMBERS).toBe("1,2");
   });
 
-  it("throws when the session_video does not exist", async () => {
-    mockFindFirstSessionVideo.mockResolvedValueOnce(null);
+  it("throws when the event_video does not exist", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce(null);
     const { submitSubtitleJob } = await import("../../src/services/subtitles.ts");
-    await expect(submitSubtitleJob(999)).rejects.toThrow("Session video not found");
+    await expect(submitSubtitleJob(999)).rejects.toThrow("Event video not found");
+  });
+
+  it("throws when the event has no tracks to align against", async () => {
+    mockFindManyTracks.mockResolvedValueOnce([]);
+    const { submitSubtitleJob } = await import("../../src/services/subtitles.ts");
+    await expect(submitSubtitleJob(5)).rejects.toThrow("Event has no tracks to align against");
   });
 });

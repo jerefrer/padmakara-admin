@@ -127,10 +127,10 @@ groupRoutes.get("/:id/events", async (c) => {
           tracks: {
             orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
           },
-          videos: {
-            orderBy: (v: any, { asc }: any) => [asc(v.position)],
-          },
         },
+      },
+      videos: {
+        orderBy: (v: any, { asc }: any) => [asc(v.position)],
       },
     },
   });
