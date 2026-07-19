@@ -415,19 +415,19 @@ export const EventList = () => {
         />
 
         <ReferenceArrayField source="groupIds" reference="groups" label={translate("padmakara.events.retreatGroups")} sortable={false}>
-          <SingleFieldList>
+          <SingleFieldList linkType={false}>
             <ChipField source="abbreviation" size="small" />
           </SingleFieldList>
         </ReferenceArrayField>
 
         <ReferenceArrayField source="teacherIds" reference="teachers" label={translate("padmakara.events.teachers")} sortable={false}>
-          <SingleFieldList>
+          <SingleFieldList linkType={false}>
             <ChipField source="abbreviation" size="small" />
           </SingleFieldList>
         </ReferenceArrayField>
 
         <ReferenceArrayField source="audienceIds" reference="audiences" label={translate("padmakara.events.audience")} sortable={false}>
-          <SingleFieldList>
+          <SingleFieldList linkType={false}>
             <LocaleNameChip />
           </SingleFieldList>
         </ReferenceArrayField>
