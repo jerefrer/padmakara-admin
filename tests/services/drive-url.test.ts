@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   parseDriveFileId,
+  parseOwnS3Key,
   resolveVideoSourceUrl,
   validateDriveFile,
 } from "../../src/services/drive-url.ts";
@@ -40,6 +41,47 @@ describe("parseDriveFileId", () => {
 
   it("returns null for a Drive folder link", () => {
     expect(parseDriveFileId(`https://drive.google.com/drive/folders/${ID}`)).toBeNull();
+  });
+});
+
+describe("parseOwnS3Key", () => {
+  const BUCKET = "padmakara-pt-app";
+
+  it("extracts the key from a virtual-hosted-style URL with region", () => {
+    expect(
+      parseOwnS3Key(
+        "https://padmakara-pt-app.s3.eu-west-3.amazonaws.com/Videos_for_app_testing/2025-04-JKR-CCA/video.mp4",
+        BUCKET,
+      ),
+    ).toBe("Videos_for_app_testing/2025-04-JKR-CCA/video.mp4");
+  });
+
+  it("extracts the key from a virtual-hosted-style URL without region", () => {
+    expect(parseOwnS3Key("https://padmakara-pt-app.s3.amazonaws.com/a/b.mp4", BUCKET)).toBe(
+      "a/b.mp4",
+    );
+  });
+
+  it("extracts the key from a path-style URL", () => {
+    expect(
+      parseOwnS3Key("https://s3.eu-west-3.amazonaws.com/padmakara-pt-app/a/b.mp4", BUCKET),
+    ).toBe("a/b.mp4");
+  });
+
+  it("decodes URL-encoded characters in the key", () => {
+    expect(
+      parseOwnS3Key("https://padmakara-pt-app.s3.eu-west-3.amazonaws.com/dir/my%20video.mp4", BUCKET),
+    ).toBe("dir/my video.mp4");
+  });
+
+  it("returns null for a different bucket", () => {
+    expect(
+      parseOwnS3Key("https://other-bucket.s3.eu-west-3.amazonaws.com/a/b.mp4", BUCKET),
+    ).toBeNull();
+  });
+
+  it("returns null for non-S3 URLs", () => {
+    expect(parseOwnS3Key("https://example.com/a/b.mp4", BUCKET)).toBeNull();
   });
 });
 

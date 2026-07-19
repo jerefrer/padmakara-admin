@@ -69,8 +69,17 @@ vi.mock("../../../src/services/bunny-captions.ts", () => ({
   addCaption: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../../../src/services/s3.ts", () => ({
+  getObjectText: vi.fn(() => Promise.resolve("")),
+  putObject: vi.fn(() => Promise.resolve()),
+  generatePresignedDownloadUrl: vi.fn(() =>
+    Promise.resolve("https://presigned.example/signed-url"),
+  ),
+}));
+
 import { db } from "../../../src/db/index.ts";
 import { deleteVideo, fetchVideo } from "../../../src/services/bunny.ts";
+import { generatePresignedDownloadUrl } from "../../../src/services/s3.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
 import { submitSubtitleJob } from "../../../src/services/subtitles.ts";
 
@@ -81,6 +90,7 @@ const mockFindFirstSession = (db as any)._findFirstSession as ReturnType<typeof 
 const mockFindManySessionVideo = (db as any)._findManySessionVideo as ReturnType<typeof vi.fn>;
 const mockDeleteVideo = deleteVideo as ReturnType<typeof vi.fn>;
 const mockFetchVideo = fetchVideo as ReturnType<typeof vi.fn>;
+const mockPresign = generatePresignedDownloadUrl as ReturnType<typeof vi.fn>;
 
 async function adminToken() {
   return createAccessToken({ sub: 1, email: "admin@test.com", role: "admin" });
@@ -282,6 +292,50 @@ describe("POST /api/admin/session-videos/import-url", () => {
 
     expect(mockFetchVideo).toHaveBeenCalledWith("https://example.com/v.mp4", "Part 3");
     expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ title: "Part 3" }));
+  });
+
+  it("presigns URLs that point at the app's own private S3 bucket", async () => {
+    mockPresign.mockResolvedValue("https://presigned.example/signed-url");
+    mockReturning.mockResolvedValueOnce([
+      { id: 24, sessionId: 7, bunnyVideoId: "fetched-guid", position: 0, title: "video" },
+    ]);
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: 7,
+        url: "https://padmakara-pt-app.s3.eu-west-3.amazonaws.com/Videos_for_app_testing/2025-04-JKR-CCA/2025-04-14-JKR-Mind_Training-Morning-CCA.mp4",
+      }),
+    });
+
+    expect(status).toBe(201);
+    expect(mockPresign).toHaveBeenCalledWith(
+      "Videos_for_app_testing/2025-04-JKR-CCA/2025-04-14-JKR-Mind_Training-Morning-CCA.mp4",
+      12 * 3600,
+    );
+    expect(mockFetchVideo).toHaveBeenCalledWith(
+      "https://presigned.example/signed-url",
+      "2025-04-14-JKR-Mind_Training-Morning-CCA",
+    );
+  });
+
+  it("returns 502 with a clear message when Bunny cannot fetch the URL", async () => {
+    mockFetchVideo.mockRejectedValueOnce(
+      new Error('Bunny fetch 403: {"success":false,"message":"Origin returned HTTP 403 (Forbidden)."}'),
+    );
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: 7, url: "https://example.com/private.mp4" }),
+    });
+
+    expect(status).toBe(502);
+    expect(body.code).toBe("BUNNY_FETCH_FAILED");
+    expect(body.error).toMatch(/publicly downloadable/i);
   });
 
   it("returns 400 for an invalid URL", async () => {

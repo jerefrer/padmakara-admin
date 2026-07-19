@@ -71,6 +71,43 @@ export function parseDriveFileId(rawUrl: string): string | null {
 }
 
 /**
+ * Extract the object key when the URL points at the app's OWN S3 bucket.
+ * The bucket is private, so a raw S3 URL 403s for Bunny's fetcher — the
+ * caller must presign the key server-side before handing it over.
+ *
+ * Handles virtual-hosted style ({bucket}.s3[.region].amazonaws.com/{key})
+ * and path style (s3.{region}.amazonaws.com/{bucket}/{key}).
+ * Returns null for anything that isn't this app's bucket.
+ */
+export function parseOwnS3Key(
+  rawUrl: string,
+  bucket: string = config.aws.s3Bucket,
+): string | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (!bucket) return null;
+
+  // Virtual-hosted style: {bucket}.s3.{region}.amazonaws.com or {bucket}.s3.amazonaws.com
+  if (new RegExp(`^${bucket}\\.s3(\\.[a-z0-9-]+)?\\.amazonaws\\.com$`).test(url.hostname)) {
+    return decodeURIComponent(url.pathname.replace(/^\//, "")) || null;
+  }
+
+  // Path style: s3.{region}.amazonaws.com/{bucket}/{key}
+  if (/^s3(\.[a-z0-9-]+)?\.amazonaws\.com$/.test(url.hostname)) {
+    const prefix = `/${bucket}/`;
+    if (url.pathname.startsWith(prefix)) {
+      return decodeURIComponent(url.pathname.slice(prefix.length)) || null;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Resolve an admin-pasted URL to a Bunny-fetchable direct-download URL.
  * Throws AppError.badRequest for anything that can't work (bad URL, wrong
  * scheme, Drive folder link).

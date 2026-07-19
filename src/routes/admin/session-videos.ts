@@ -13,7 +13,12 @@ import {
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
 import { deleteVideo, fetchVideo } from "../../services/bunny.ts";
-import { resolveVideoSourceUrl, validateDriveFile } from "../../services/drive-url.ts";
+import {
+  parseOwnS3Key,
+  resolveVideoSourceUrl,
+  validateDriveFile,
+} from "../../services/drive-url.ts";
+import { generatePresignedDownloadUrl } from "../../services/s3.ts";
 import { config } from "../../config.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 import {
@@ -102,6 +107,15 @@ sessionVideoRoutes.post("/import-url", async (c) => {
 
   const resolved = resolveVideoSourceUrl(body.url);
 
+  // URLs pointing at our own (private) S3 bucket can't be fetched raw —
+  // presign the key so Bunny's downloader gets access. 12h leaves plenty of
+  // headroom for Bunny's fetch queue.
+  let sourceUrl = resolved.sourceUrl;
+  const ownS3Key = parseOwnS3Key(body.url);
+  if (ownS3Key) {
+    sourceUrl = await generatePresignedDownloadUrl(ownS3Key, 12 * 3600);
+  }
+
   // Row title: explicit title > Drive filename > URL filename > null
   // (null → the admin panel derives "Part N" from position).
   let title = body.title ?? null;
@@ -124,7 +138,19 @@ sessionVideoRoutes.post("/import-url", async (c) => {
   });
   const position = existing.reduce((max, v) => Math.max(max, v.position + 1), 0);
 
-  const { guid } = await fetchVideo(resolved.sourceUrl, title ?? "Imported video");
+  let guid: string;
+  try {
+    ({ guid } = await fetchVideo(sourceUrl, title ?? "Imported video"));
+  } catch (err) {
+    // Bunny rejected the fetch (private origin, 404, unsupported redirect…).
+    // Surface it as an actionable admin-facing error instead of a bare 500.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new AppError(
+      502,
+      `Bunny could not fetch the video from this URL — check that it is publicly downloadable. (${detail})`,
+      "BUNNY_FETCH_FAILED",
+    );
+  }
 
   const [video] = await db
     .insert(sessionVideos)
