@@ -64,6 +64,25 @@ describe("parseTrackFilename", () => {
       expect(result.originalLanguage).toBe("pt");
       expect(result.title).toBe("Questao sobre compaixao");
     });
+
+    it("parses fully underscore-separated TRAD track as Portuguese translation", () => {
+      const result = parseTrackFilename("001_TRAD_Conferencia.mp3");
+      expect(result.trackNumber).toBe(1);
+      expect(result.isTranslation).toBe(true);
+      expect(result.languages).toEqual(["pt"]);
+      expect(result.originalLanguage).toBe("pt");
+      expect(result.title).toBe("Conferencia");
+      expect(result.speaker).toBeNull();
+    });
+
+    it("parses fully underscore-separated speaker track as English original", () => {
+      const result = parseTrackFilename("001_YMR_Conference.mp3");
+      expect(result.trackNumber).toBe(1);
+      expect(result.speaker).toBe("YMR");
+      expect(result.isTranslation).toBe(false);
+      expect(result.languages).toEqual(["en"]);
+      expect(result.title).toBe("Conference");
+    });
   });
 
   describe("Pattern 3: Language tags in brackets", () => {

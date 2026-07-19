@@ -256,10 +256,10 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     }
 
     // Fallback: all-caps abbreviation followed directly by title (no separator)
-    // e.g., "001 JKR How to relate to our mind"
+    // e.g., "001 JKR How to relate to our mind" or "001_YMR_Conference"
     // Case-sensitive: only matches UPPERCASE tokens to avoid capturing title words
     if (!speaker) {
-      const directMatch = baseName.match(/^\d+[_\s-]+([A-Z]{2,5})\s+/);
+      const directMatch = baseName.match(/^\d+[_\s-]+([A-Z]{2,5})[\s_]+/);
       if (directMatch) {
         const sp = directMatch[1]!;
         if (!NON_TEACHER_TOKENS.has(sp)) {
@@ -271,7 +271,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   }
 
   // Check if this is a standalone translation track (TRAD marker, not in combo)
-  if (!hasTradCombo && /(?:^|\s|_)TRAD(?:\s|$|-)/i.test(baseName)) {
+  if (!hasTradCombo && /(?:^|\s|_)TRAD(?:[\s_-]|$)/i.test(baseName)) {
     isTranslation = true;
     originalLanguage = "pt"; // TRAD tracks are Portuguese translations
     languages = ["pt"]; // TRAD is always Portuguese in this corpus
@@ -357,13 +357,13 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   if (speakerPattern) {
     title = title
       .replace(new RegExp(`^${speakerPattern}\\s+-\\s+`, "i"), "")
-      .replace(new RegExp(`^${speakerPattern}[\\s-]+`, "i"), "");
+      .replace(new RegExp(`^${speakerPattern}[\\s_-]+`, "i"), "");
   }
 
   // Remove TRAD marker
   title = title
     .replace(/^TRAD\s+-\s+/i, "")
-    .replace(/^TRAD\s+/i, "")
+    .replace(/^TRAD[\s_]+/i, "")
     // Remove language tag in brackets — single ([ENG]), descriptive
     // ([ENG - Audio]), and multi-language ([TIB+ENG], [TIB+ENG+POR]) forms.
     .replace(/\[[A-Z]+(?:[+&/,][A-Z]+)*(?:\s*-\s*[^\]]+)?\]\s*/i, "")
