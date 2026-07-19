@@ -10,6 +10,7 @@ import {
   buildTrackS3Key,
   generatePresignedDownloadUrl,
 } from "./s3.ts";
+import { buildConventionFilename } from "./track-filename.ts";
 
 const ZIP_EXPIRY_HOURS = 24;
 
@@ -29,8 +30,13 @@ interface TrackInfo {
   title: string;
   s3Key: string;
   trackNumber: number;
+  speaker: string | null;
+  languages: string[];
+  isTranslation: boolean;
   sessionTitle: string;
   sessionDate: string;
+  timePeriod: string | null;
+  partNumber: number | null;
 }
 
 /**
@@ -115,8 +121,13 @@ export async function generateRetreatZip(
             title: track.title,
             s3Key: track.s3Key,
             trackNumber: track.trackNumber,
+            speaker: track.speaker,
+            languages: track.languages,
+            isTranslation: track.isTranslation,
             sessionTitle: session.titleEn || `Session ${session.sessionNumber}`,
             sessionDate: session.sessionDate || "",
+            timePeriod: session.timePeriod,
+            partNumber: session.partNumber,
           });
         }
       }
@@ -175,9 +186,26 @@ export async function generateRetreatZip(
         console.log(`[ZIP] Processing track ${processedCount + 1}/${trackList.length}: ${track.title}`);
 
         // Download track from S3 as a stream and append it to the archive.
-        // Format: {SessionDate} - {SessionTitle}/Track {TrackNumber} - {Title}.mp3
+        // Entries live in one folder per session and are named after the
+        // import naming convention (docs/NAMING-CONVENTIONS.md), rebuilt from
+        // the CURRENT metadata — so a downloaded ZIP is re-importable as-is.
         const trackStream = await getObjectStream(track.s3Key);
-        const zipEntryName = `${track.sessionDate} - ${track.sessionTitle}/Track ${track.trackNumber} - ${track.title}.mp3`;
+        const filename = buildConventionFilename(
+          {
+            trackNumber: track.trackNumber,
+            title: track.title,
+            speaker: track.speaker,
+            languages: track.languages,
+            isTranslation: track.isTranslation,
+            s3Key: track.s3Key,
+          },
+          {
+            sessionDate: track.sessionDate || null,
+            timePeriod: track.timePeriod,
+            partNumber: track.partNumber,
+          },
+        );
+        const zipEntryName = `${track.sessionDate} - ${track.sessionTitle}/${filename}`;
         await appendTrack(archive, trackStream, zipEntryName);
 
         processedCount++;

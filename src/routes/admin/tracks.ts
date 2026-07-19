@@ -8,6 +8,7 @@ import { createTrackSchema, updateTrackSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
+import { buildConventionFilename } from "../../services/track-filename.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 
 const trackRoutes = new Hono();
@@ -101,8 +102,9 @@ trackRoutes.put("/:id", async (c) => {
  * GET /:id/download-url — Returns a short-lived presigned S3 URL that
  * forces the browser to download the audio file (Content-Disposition:
  * attachment) so admins can grab a track without going through the AWS
- * console. The filename defaults to the track's title (sanitised) plus
- * the original file extension.
+ * console. The filename follows the import naming convention
+ * (docs/NAMING-CONVENTIONS.md), rebuilt from current metadata, so a
+ * downloaded track can be re-imported as-is.
  */
 trackRoutes.get("/:id/download-url", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
@@ -110,11 +112,24 @@ trackRoutes.get("/:id/download-url", async (c) => {
   if (!track) throw AppError.notFound("Track not found");
   if (!track.s3Key) throw AppError.badRequest("Track has no audio file", "NO_S3_KEY");
 
-  const ext = track.s3Key.includes(".") ? track.s3Key.split(".").pop() : "mp3";
-  const safeTitle = (track.title || `track-${track.id}`)
-    .replace(/[\\/:*?"<>|]/g, "")
-    .trim() || `track-${track.id}`;
-  const filename = `${safeTitle}.${ext}`;
+  const session = await db.query.sessions.findFirst({
+    where: eq(sessions.id, track.sessionId),
+  });
+  const filename = buildConventionFilename(
+    {
+      trackNumber: track.trackNumber,
+      title: track.title || `track-${track.id}`,
+      speaker: track.speaker,
+      languages: track.languages,
+      isTranslation: track.isTranslation,
+      s3Key: track.s3Key,
+    },
+    {
+      sessionDate: session?.sessionDate ?? null,
+      timePeriod: session?.timePeriod ?? null,
+      partNumber: session?.partNumber ?? null,
+    },
+  );
 
   const url = await generatePresignedAttachmentUrl(track.s3Key, filename, 600);
   return c.json({ url, filename, expiresIn: 600 });
