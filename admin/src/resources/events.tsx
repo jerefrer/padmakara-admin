@@ -535,6 +535,8 @@ interface EventFormProps {
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
+  /** Imports a video from a pasted URL (Drive share link or public direct URL). */
+  onSessionVideoImportUrl?: (sessionId: number, url: string, title?: string) => Promise<void>;
   /** Deletes one attached video by its session_videos row id. */
   onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   onFeaturedToggle?: () => void;
@@ -627,7 +629,7 @@ export const EventFormFields = ({
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, onTrackDelete,
-  onSessionVideoUpload, onSessionVideoDelete,
+  onSessionVideoUpload, onSessionVideoImportUrl, onSessionVideoDelete,
   previewSessions, onPreviewSessionsChange,
   onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
@@ -1355,6 +1357,7 @@ export const EventFormFields = ({
                 onTrackUpdate={onTrackUpdate}
                 onTrackDelete={onTrackDelete}
                 onSessionVideoUpload={onSessionVideoUpload}
+                onSessionVideoImportUrl={onSessionVideoImportUrl}
                 onSessionVideoDelete={onSessionVideoDelete}
                 allTeachers={allTeachers}
               />
@@ -2640,6 +2643,37 @@ export const EventEdit = () => {
     [notify, refresh, translate, sessions],
   );
 
+  // Import a video from a pasted URL (Google Drive share link or any public
+  // direct URL). The download + transcoding happen on Bunny's servers; the
+  // row is created immediately and the webhook backfills duration later.
+  // Throws with a user-facing message so the dialog can display it inline.
+  const handleSessionVideoImportUrl = useCallback(
+    async (sessionId: number, url: string, title?: string) => {
+      const res = await authFetch(`/api/admin/session-videos/import-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, url, ...(title ? { title } : {}) }),
+      });
+      if (!res.ok) {
+        let message = `Import failed (${res.status})`;
+        try {
+          const data = await res.json();
+          if (typeof data?.error === "string") message = data.error;
+        } catch {
+          // Non-JSON error body — keep the generic message.
+        }
+        throw new Error(message);
+      }
+      notify(
+        translate("padmakara.session.videoImportStarted") ||
+          "Import started — the video will appear once processing finishes",
+        { type: "success" },
+      );
+      refresh();
+    },
+    [notify, refresh, translate],
+  );
+
   const handleSessionVideoDelete = useCallback(
     async (sessionVideoId: number) => {
       try {
@@ -2917,6 +2951,7 @@ export const EventEdit = () => {
         onTrackUpdate={handleTrackUpdate}
         onTrackDelete={handleTrackDelete}
         onSessionVideoUpload={handleSessionVideoUpload}
+        onSessionVideoImportUrl={handleSessionVideoImportUrl}
         onSessionVideoDelete={handleSessionVideoDelete}
         onFeaturedToggle={handleFeaturedToggle}
         onStatusChange={handleStatusChange}

@@ -87,6 +87,15 @@ export const config = {
   importer: {
     zipExtractorFn: env("IMPORT_ZIP_EXTRACTOR_FN", "padmakara-zip-extractor"),
   },
+
+  google: {
+    /**
+     * Optional Drive API key used to validate and resolve public Google
+     * Drive links pasted by admins (video import-from-URL). When blank, the
+     * import still works via the undocumented usercontent download URL.
+     */
+    apiKey: env("GOOGLE_API_KEY", ""),
+  },
 } as const;
 
 type ProductionConfigInput = {

@@ -1,4 +1,5 @@
 import AddIcon from "@mui/icons-material/Add";
+import AddLinkIcon from "@mui/icons-material/AddLink";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
@@ -17,8 +18,14 @@ import VideoFileIcon from "@mui/icons-material/VideoFile";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
 import InputBase from "@mui/material/InputBase";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -101,6 +108,9 @@ interface SessionPreviewProps {
   onTrackDelete?: (trackId: number) => Promise<void>;
   /** Edit-mode only: triggered when admin picks a new video file for a session. */
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
+  /** Edit-mode only: imports a video from a pasted URL (Drive link or any
+   *  public direct URL). Rejects with a user-facing message on failure. */
+  onSessionVideoImportUrl?: (sessionId: number, url: string, title?: string) => Promise<void>;
   /** Edit-mode only: deletes one attached video by its session_videos row id. */
   onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
@@ -116,6 +126,7 @@ export const SessionPreview = ({
   onTrackUpdate,
   onTrackDelete,
   onSessionVideoUpload,
+  onSessionVideoImportUrl,
   onSessionVideoDelete,
   allTeachers,
   trackCorrections,
@@ -151,6 +162,7 @@ export const SessionPreview = ({
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
               onSessionVideoUpload={onSessionVideoUpload}
+              onSessionVideoImportUrl={onSessionVideoImportUrl}
               onSessionVideoDelete={onSessionVideoDelete}
               allTeachers={allTeachers}
               trackCorrections={trackCorrections}
@@ -179,6 +191,7 @@ interface SessionCardProps {
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
   onSessionVideoUpload?: (sessionId: number, file: File) => void;
+  onSessionVideoImportUrl?: (sessionId: number, url: string, title?: string) => Promise<void>;
   onSessionVideoDelete?: (sessionVideoId: number) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   trackCorrections?: TrackCorrectionsMap;
@@ -192,6 +205,7 @@ const SessionCard = ({
   onTrackUpdate,
   onTrackDelete,
   onSessionVideoUpload,
+  onSessionVideoImportUrl,
   onSessionVideoDelete,
   allTeachers,
   trackCorrections,
@@ -483,11 +497,12 @@ const SessionCard = ({
       <Collapse in={expanded}>
         <Box>
           {/* Video section — only meaningful in edit mode where session.id exists. */}
-          {session.id && (onSessionVideoUpload || onSessionVideoDelete) && (
+          {session.id && (onSessionVideoUpload || onSessionVideoImportUrl || onSessionVideoDelete) && (
             <SessionVideosSection
               sessionId={session.id}
               videos={session.videos ?? []}
               onUpload={onSessionVideoUpload}
+              onImportUrl={onSessionVideoImportUrl}
               onDelete={onSessionVideoDelete}
               hasFollowingTracks={session.tracks.length > 0}
               sessionTitle={session.titleEn}
@@ -536,11 +551,109 @@ interface SessionVideosSectionProps {
    *  these — no client re-sort needed). */
   videos: SessionVideo[];
   onUpload?: (sessionId: number, file: File) => void;
+  onImportUrl?: (sessionId: number, url: string, title?: string) => Promise<void>;
   onDelete?: (sessionVideoId: number) => Promise<void>;
   hasFollowingTracks: boolean;
   sessionTitle: string;
   onPreview: (state: PreviewState) => void;
 }
+
+interface ImportVideoUrlDialogProps {
+  open: boolean;
+  onClose: () => void;
+  /** Rejects with a user-facing message shown inside the dialog. */
+  onImport: (url: string, title?: string) => Promise<void>;
+}
+
+/**
+ * Small form for importing a video from a pasted URL — a Google Drive share
+ * link or any public direct link. The actual download happens on Bunny's
+ * side; on success the dialog closes and the parent refreshes the list.
+ */
+const ImportVideoUrlDialog = ({ open, onClose, onImport }: ImportVideoUrlDialogProps) => {
+  const translate = useTranslate();
+  const [url, setUrl] = useState("");
+  const [title, setTitle] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleClose = () => {
+    if (submitting) return;
+    setUrl("");
+    setTitle("");
+    setError(null);
+    onClose();
+  };
+
+  const handleImport = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onImport(url.trim(), title.trim() || undefined);
+      setUrl("");
+      setTitle("");
+      onClose();
+    } catch (e: any) {
+      setError(e?.message || String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ fontWeight: 600 }}>
+        {translate("padmakara.session.videoImportUrlTitle") || "Import video from URL"}
+      </DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {translate("padmakara.session.videoImportUrlHelp") ||
+            "Paste a Google Drive share link or a direct link to a public video file."}
+        </Typography>
+        <TextField
+          autoFocus
+          fullWidth
+          size="small"
+          label={translate("padmakara.session.videoImportUrlField") || "Video URL"}
+          placeholder="https://drive.google.com/file/d/…"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          disabled={submitting}
+          sx={{ mb: 2 }}
+        />
+        <TextField
+          fullWidth
+          size="small"
+          label={translate("padmakara.session.videoImportTitleField") || "Title (optional)"}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          disabled={submitting}
+        />
+        {error && (
+          <Typography variant="body2" color="error" sx={{ mt: 1.5 }}>
+            {error}
+          </Typography>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={handleClose} disabled={submitting} color="inherit" sx={{ textTransform: "none" }}>
+          {translate("ra.action.cancel") || "Cancel"}
+        </Button>
+        <Button
+          onClick={handleImport}
+          disabled={submitting || !url.trim()}
+          variant="contained"
+          startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <AddLinkIcon sx={{ fontSize: 16 }} />}
+          sx={{ textTransform: "none" }}
+        >
+          {submitting
+            ? translate("padmakara.session.videoImportImporting") || "Importing…"
+            : translate("padmakara.session.videoImportStart") || "Import"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
 
 /**
  * Renders one row per video attached to a session (a session may have
@@ -552,6 +665,7 @@ const SessionVideosSection = ({
   sessionId,
   videos,
   onUpload,
+  onImportUrl,
   onDelete,
   hasFollowingTracks,
   sessionTitle,
@@ -559,6 +673,7 @@ const SessionVideosSection = ({
 }: SessionVideosSectionProps) => {
   const translate = useTranslate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const triggerPicker = () => fileInputRef.current?.click();
 
@@ -609,6 +724,16 @@ const SessionVideosSection = ({
           </>
         )}
         <Box sx={{ flex: 1 }} />
+        {onImportUrl && (
+          <Button
+            size="small"
+            startIcon={<AddLinkIcon sx={{ fontSize: 16 }} />}
+            onClick={() => setImportOpen(true)}
+            sx={{ textTransform: "none", fontSize: "0.75rem" }}
+          >
+            {translate("padmakara.session.videoImportUrl") || "Import from URL"}
+          </Button>
+        )}
         {onUpload && (
           <Button
             size="small"
@@ -628,6 +753,14 @@ const SessionVideosSection = ({
         style={{ display: "none" }}
         onChange={handleFileChange}
       />
+
+      {onImportUrl && (
+        <ImportVideoUrlDialog
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onImport={(url, title) => onImportUrl(sessionId, url, title)}
+        />
+      )}
     </Box>
   );
 };

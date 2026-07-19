@@ -467,6 +467,15 @@ export const pt = {
       videoDeleted: "Vídeo removido",
       videoDeleteConfirm: "Remover este vídeo e apagá-lo da Bunny? Esta ação não pode ser desfeita.",
       videoUploadSuccess: "Vídeo carregado com sucesso",
+      videoImportUrl: "Importar de URL",
+      videoImportUrlTitle: "Importar vídeo a partir de URL",
+      videoImportUrlHelp:
+        "Cole um link de partilha do Google Drive (o ficheiro deve estar partilhado como \"Qualquer pessoa com o link\") ou um link direto para um ficheiro de vídeo público. O vídeo é descarregado e processado em segundo plano.",
+      videoImportUrlField: "URL do vídeo",
+      videoImportTitleField: "Título (opcional)",
+      videoImportStart: "Importar",
+      videoImportImporting: "A importar…",
+      videoImportStarted: "Importação iniciada — o vídeo aparecerá quando o processamento terminar",
     },
     readAlong: {
       title: "Alinhamento Read-Along",

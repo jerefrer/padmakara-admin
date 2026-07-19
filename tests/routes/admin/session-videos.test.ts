@@ -26,16 +26,19 @@ vi.mock("../../../src/db/index.ts", () => {
       _delete: mockDelete,
       _update: mockUpdate,
       _insert: mockInsert,
+      _values: mockValues,
       _where: mockWhere,
       _returning: mockReturning,
       _findFirstSessionVideo: mockFindFirstSessionVideo,
       _findFirstSession: mockFindFirstSession,
+      _findManySessionVideo: mockFindManySessionVideo,
     },
   };
 });
 
 vi.mock("../../../src/services/bunny.ts", () => ({
   deleteVideo: vi.fn(() => Promise.resolve()),
+  fetchVideo: vi.fn(() => Promise.resolve({ guid: "fetched-guid" })),
 }));
 
 vi.mock("../../../src/services/sync-versions.ts", () => ({
@@ -67,14 +70,17 @@ vi.mock("../../../src/services/bunny-captions.ts", () => ({
 }));
 
 import { db } from "../../../src/db/index.ts";
-import { deleteVideo } from "../../../src/services/bunny.ts";
+import { deleteVideo, fetchVideo } from "../../../src/services/bunny.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
 import { submitSubtitleJob } from "../../../src/services/subtitles.ts";
 
 const mockReturning = (db as any)._returning as ReturnType<typeof vi.fn>;
+const mockValues = (db as any)._values as ReturnType<typeof vi.fn>;
 const mockFindFirstSessionVideo = (db as any)._findFirstSessionVideo as ReturnType<typeof vi.fn>;
 const mockFindFirstSession = (db as any)._findFirstSession as ReturnType<typeof vi.fn>;
+const mockFindManySessionVideo = (db as any)._findManySessionVideo as ReturnType<typeof vi.fn>;
 const mockDeleteVideo = deleteVideo as ReturnType<typeof vi.fn>;
+const mockFetchVideo = fetchVideo as ReturnType<typeof vi.fn>;
 
 async function adminToken() {
   return createAccessToken({ sub: 1, email: "admin@test.com", role: "admin" });
@@ -180,6 +186,149 @@ describe("POST /api/admin/session-videos", () => {
       body: JSON.stringify({ sessionId: 7 }), // missing bunnyVideoId
     });
     expect(status).toBe(400);
+  });
+});
+
+describe("POST /api/admin/session-videos/import-url", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindFirstSession.mockResolvedValue({ id: 7, eventId: 1 });
+    mockFindManySessionVideo.mockResolvedValue([]);
+    mockFetchVideo.mockResolvedValue({ guid: "fetched-guid" });
+  });
+
+  it("imports from a generic public URL, deriving the title from the filename", async () => {
+    mockReturning.mockResolvedValueOnce([
+      { id: 20, sessionId: 7, bunnyVideoId: "fetched-guid", position: 0, title: "dharma talk" },
+    ]);
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: 7, url: "https://example.com/videos/dharma%20talk.mp4" }),
+    });
+
+    expect(status).toBe(201);
+    expect(body).toMatchObject({ id: 20, bunnyVideoId: "fetched-guid" });
+    expect(mockFetchVideo).toHaveBeenCalledWith(
+      "https://example.com/videos/dharma%20talk.mp4",
+      "dharma talk",
+    );
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 7,
+        bunnyVideoId: "fetched-guid",
+        position: 0,
+        title: "dharma talk",
+      }),
+    );
+  });
+
+  it("appends after existing videos (next position)", async () => {
+    mockFindManySessionVideo.mockResolvedValue([{ position: 0 }, { position: 1 }]);
+    mockReturning.mockResolvedValueOnce([
+      { id: 21, sessionId: 7, bunnyVideoId: "fetched-guid", position: 2, title: null },
+    ]);
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: 7, url: "https://example.com/v.mp4" }),
+    });
+
+    expect(status).toBe(201);
+    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ position: 2 }));
+  });
+
+  it("normalizes a Google Drive share link before handing it to Bunny", async () => {
+    const driveId = "1AbC-dEf_9xYz1234567890abcdefghijklm";
+    mockReturning.mockResolvedValueOnce([
+      { id: 22, sessionId: 7, bunnyVideoId: "fetched-guid", position: 0, title: null },
+    ]);
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: 7,
+        url: `https://drive.google.com/file/d/${driveId}/view?usp=sharing`,
+      }),
+    });
+
+    expect(status).toBe(201);
+    expect(mockFetchVideo).toHaveBeenCalledWith(
+      `https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`,
+      "Imported video",
+    );
+    // No filename available from a Drive share link → row title stays null
+    // so the admin panel derives "Part N".
+    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ title: null }));
+  });
+
+  it("uses the provided title when given", async () => {
+    mockReturning.mockResolvedValueOnce([
+      { id: 23, sessionId: 7, bunnyVideoId: "fetched-guid", position: 0, title: "Part 3" },
+    ]);
+
+    const token = await adminToken();
+    await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: 7, url: "https://example.com/v.mp4", title: "Part 3" }),
+    });
+
+    expect(mockFetchVideo).toHaveBeenCalledWith("https://example.com/v.mp4", "Part 3");
+    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ title: "Part 3" }));
+  });
+
+  it("returns 400 for an invalid URL", async () => {
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: 7, url: "not a url" }),
+    });
+    expect(status).toBe(400);
+    expect(mockFetchVideo).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for a Drive folder link", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId: 7,
+        url: "https://drive.google.com/drive/folders/1AbC-dEf_9xYz1234567890abcdefghijklm",
+      }),
+    });
+    expect(status).toBe(400);
+    expect(body.code).toBe("DRIVE_FOLDER_LINK");
+  });
+
+  it("returns 404 when the session does not exist", async () => {
+    mockFindFirstSession.mockResolvedValue(null);
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: 99, url: "https://example.com/v.mp4" }),
+    });
+    expect(status).toBe(404);
+    expect(mockFetchVideo).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 without an auth token", async () => {
+    const { status } = await testJson("/api/admin/session-videos/import-url", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: 7, url: "https://example.com/v.mp4" }),
+    });
+    expect(status).toBe(401);
   });
 });
 

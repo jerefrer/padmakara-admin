@@ -266,6 +266,15 @@ export const en = {
       videoDeleted: "Video removed",
       videoDeleteConfirm: "Detach this video and delete it from Bunny? This cannot be undone.",
       videoUploadSuccess: "Video uploaded successfully",
+      videoImportUrl: "Import from URL",
+      videoImportUrlTitle: "Import video from URL",
+      videoImportUrlHelp:
+        "Paste a Google Drive share link (the file must be shared as \"Anyone with the link\") or a direct link to a public video file. The video is downloaded and processed in the background.",
+      videoImportUrlField: "Video URL",
+      videoImportTitleField: "Title (optional)",
+      videoImportStart: "Import",
+      videoImportImporting: "Importing…",
+      videoImportStarted: "Import started — the video will appear once processing finishes",
     },
     readAlong: {
       title: "Read-Along Alignment",

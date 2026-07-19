@@ -188,6 +188,13 @@ export const updateSessionVideoSchema = z.object({
   title: z.string().max(200).optional().nullable(),
 });
 
+// Import a video by URL (Google Drive share link or any public direct URL).
+export const importSessionVideoUrlSchema = z.object({
+  sessionId: z.number().int(),
+  url: z.string().min(1).max(2000),
+  title: z.string().trim().min(1).max(200).optional(),
+});
+
 // Tracks (audio only — video lives on the parent session)
 export const createTrackSchema = z.object({
   sessionId: z.number().int(),

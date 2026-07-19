@@ -5,10 +5,16 @@ import { sessionVideos } from "../../db/schema/session-videos.ts";
 import { sessions } from "../../db/schema/sessions.ts";
 import { events } from "../../db/schema/retreats.ts";
 import { sessionSubtitles } from "../../db/schema/session-subtitles.ts";
-import { createSessionVideoSchema, updateSessionVideoSchema } from "../../lib/schemas.ts";
+import {
+  createSessionVideoSchema,
+  updateSessionVideoSchema,
+  importSessionVideoUrlSchema,
+} from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
-import { deleteVideo } from "../../services/bunny.ts";
+import { deleteVideo, fetchVideo } from "../../services/bunny.ts";
+import { resolveVideoSourceUrl, validateDriveFile } from "../../services/drive-url.ts";
+import { config } from "../../config.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 import {
   submitSubtitleJob,
@@ -74,6 +80,56 @@ sessionVideoRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const data = createSessionVideoSchema.parse(body);
   const [video] = await db.insert(sessionVideos).values(data).returning();
+  await touchParentEvent(video!.sessionId);
+  return c.json(video!, 201);
+});
+
+/**
+ * POST /import-url — import a video from a pasted URL.
+ *
+ * Accepts a Google Drive share link (rewritten to a direct-download URL —
+ * the file must be shared as "Anyone with the link") or any public http(s)
+ * URL pointing directly at a video file. The download itself happens on
+ * Bunny's servers via their /videos/fetch API; this endpoint just creates
+ * the Bunny video and the session_videos row. Transcoding progress arrives
+ * later through the Bunny webhook (which also backfills durationSeconds).
+ */
+sessionVideoRoutes.post("/import-url", async (c) => {
+  const body = importSessionVideoUrlSchema.parse(await c.req.json());
+
+  const session = await db.query.sessions.findFirst({ where: eq(sessions.id, body.sessionId) });
+  if (!session) throw AppError.notFound("Session not found");
+
+  const resolved = resolveVideoSourceUrl(body.url);
+
+  // Row title: explicit title > Drive filename > URL filename > null
+  // (null → the admin panel derives "Part N" from position).
+  let title = body.title ?? null;
+  if (resolved.driveFileId) {
+    if (config.google.apiKey) {
+      // Validates existence + public sharing up front so the admin gets an
+      // immediate, actionable error instead of a silent Bunny fetch failure.
+      const meta = await validateDriveFile(resolved.driveFileId);
+      if (!title) title = meta.name.replace(/\.[^.]+$/, "");
+    }
+  } else if (!title) {
+    const lastSegment = decodeURIComponent(
+      new URL(body.url).pathname.split("/").filter(Boolean).pop() ?? "",
+    );
+    if (lastSegment) title = lastSegment.replace(/\.[^.]+$/, "") || null;
+  }
+
+  const existing = await db.query.sessionVideos.findMany({
+    where: eq(sessionVideos.sessionId, body.sessionId),
+  });
+  const position = existing.reduce((max, v) => Math.max(max, v.position + 1), 0);
+
+  const { guid } = await fetchVideo(resolved.sourceUrl, title ?? "Imported video");
+
+  const [video] = await db
+    .insert(sessionVideos)
+    .values({ sessionId: body.sessionId, bunnyVideoId: guid, position, title })
+    .returning();
   await touchParentEvent(video!.sessionId);
   return c.json(video!, 201);
 });
