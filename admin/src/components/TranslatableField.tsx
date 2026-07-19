@@ -69,8 +69,9 @@ export const AiReviewChip = ({ onClick }: { onClick: () => void }) => {
 
 /**
  * Directional translate control: a small "PT → EN" / "EN → PT" chip with an
- * AI sparkles icon. The direction is readable without hovering — the tooltip
- * adds the detail (source language, replaces the field).
+ * AI sparkles icon. It sits on the SOURCE field and fills the sibling-language
+ * field — the direction is readable without hovering, the tooltip adds the
+ * detail (which field gets filled).
  */
 export const TranslateDirChip = ({
   direction,
@@ -81,7 +82,7 @@ export const TranslateDirChip = ({
 }: {
   direction: TranslateDirection;
   onClick: () => void;
-  /** True when the source (sibling-language) field is empty. */
+  /** True when this field (the translation source) is empty. */
   disabled?: boolean;
   pending?: boolean;
   tooltip: string;
@@ -122,13 +123,15 @@ export interface TranslatableFieldProps {
   onChange: (value: string) => void;
   reviewed: boolean;
   onMarkReviewed: () => void;
-  /** Runs the translation and sets value + reviewed=false on success. */
+  /** Translates THIS field's text and fills the sibling-language field
+   *  (setting its value + reviewed=false) on success. */
   onTranslate: () => void;
   /** Disables the translate button while any translation is in flight. */
   translatePending: boolean;
-  /** False when the source (sibling-language) field is empty. */
+  /** False when this field (the translation source) is empty. */
   canTranslate: boolean;
-  /** Fill direction of THIS field, e.g. "pt-to-en" on the English field. */
+  /** Direction this field's text is translated in, e.g. "en-to-pt" on the
+   *  English field. */
   direction: TranslateDirection;
   label: string;
   /** Tooltip on the translate chip — the localized detail of what it does. */
@@ -140,10 +143,11 @@ export interface TranslatableFieldProps {
 }
 
 /**
- * One quiet text field with two corner chips: a directional "PT → EN" /
- * "EN → PT" translate chip (AI sparkles icon), and — only while the value is
- * an unreviewed AI translation — an amber "AI · review ✓" chip that marks it
- * reviewed on click.
+ * One quiet text field with two corner chips: a directional translate chip
+ * (AI sparkles icon) that translates THIS field's text into its
+ * sibling-language field, and — only while the value is an unreviewed AI
+ * translation — an amber "AI · review ✓" chip that marks it reviewed on
+ * click.
  */
 export function TranslatableField({
   value,

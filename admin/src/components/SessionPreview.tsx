@@ -38,6 +38,15 @@ import {
 import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
+import {
+  DEFAULT_LANG_CHIP,
+  LANG_CHIP_COLORS,
+  LANGUAGE_CODES,
+  LangTag,
+  clickToEditSx,
+  quietInputSx,
+  toggleChipSx,
+} from "./inlineEditKit";
 
 /** Map keyed by track's originalFilename → list of corrections applied to it. */
 export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
@@ -50,65 +59,6 @@ interface PreviewState {
   source: PreviewSource;
   title: string;
 }
-
-const LANG_CHIP_COLORS: Record<string, { bg: string; text: string }> = {
-  en: { bg: "#eff6ff", text: "#1d4ed8" },
-  pt: { bg: "#f0fdf4", text: "#15803d" },
-  fr: { bg: "#faf5ff", text: "#7e22ce" },
-  tib: { bg: "#fffbeb", text: "#b45309" },
-};
-const DEFAULT_LANG_CHIP = { bg: "rgba(91,94,166,0.06)", text: "text.primary" };
-
-const LANGUAGE_OPTIONS = ["en", "pt", "fr", "tib"];
-
-/** Small "EN" / "PT" tag that labels a quiet inline input with the same
- *  color vocabulary as the language chips in view mode. */
-const LangTag = ({ code }: { code: string }) => {
-  const lc = LANG_CHIP_COLORS[code] || DEFAULT_LANG_CHIP;
-  return (
-    <Box
-      sx={{
-        height: 20,
-        px: 0.9,
-        borderRadius: 10,
-        backgroundColor: lc.bg,
-        color: lc.text,
-        fontSize: "0.65rem",
-        fontWeight: 700,
-        display: "flex",
-        alignItems: "center",
-        flexShrink: 0,
-      }}
-    >
-      {code.toUpperCase()}
-    </Box>
-  );
-};
-
-/** Quiet inline input used by the click-to-edit title editors — sized to sit
- *  in a list row without breaking its rhythm. */
-const quietInputSx = {
-  flex: 1,
-  fontSize: "0.85rem",
-  px: 1,
-  py: 0.25,
-  borderRadius: 1.5,
-  backgroundColor: "rgba(91,94,166,0.06)",
-  border: "1px solid transparent",
-  "&.Mui-focused": {
-    backgroundColor: "background.paper",
-    borderColor: "primary.main",
-    boxShadow: "0 0 0 2px rgba(91,94,166,0.15)",
-  },
-  "& input": { p: 0 },
-} as const;
-
-/** Dashed-underline hover affordance shared by the click-to-edit titles. */
-const clickToEditSx = {
-  cursor: "text",
-  borderBottom: "1px dashed transparent",
-  "&:hover": { borderBottomColor: "rgba(91,94,166,0.5)" },
-} as const;
 
 type FileType = "video" | "transcript" | "audio" | "other";
 
@@ -1100,7 +1050,7 @@ const TrackRow = ({
             ))}
           </Menu>
 
-          {LANGUAGE_OPTIONS.map((lang) => {
+          {LANGUAGE_CODES.map((lang) => {
             const active = editValues.languages.includes(lang);
             const lc = LANG_CHIP_COLORS[lang] || DEFAULT_LANG_CHIP;
             return (
@@ -1118,19 +1068,7 @@ const TrackRow = ({
                     return { ...p, languages: [...p.languages, lang] };
                   })
                 }
-                sx={{
-                  height: 20,
-                  fontWeight: 600,
-                  "& .MuiChip-label": { px: 0.6, fontSize: "0.65rem" },
-                  ...(active
-                    ? {
-                        backgroundColor: lc.bg,
-                        color: lc.text,
-                        boxShadow: "inset 0 0 0 1.5px currentColor",
-                        "&:hover": { backgroundColor: lc.bg },
-                      }
-                    : { backgroundColor: "rgba(0,0,0,0.04)", color: "text.disabled" }),
-                }}
+                sx={toggleChipSx(active, lc)}
               />
             );
           })}
@@ -1140,48 +1078,14 @@ const TrackRow = ({
             icon={<SelfImprovementIcon sx={{ fontSize: "12px !important" }} />}
             label="Practice"
             onClick={() => setEditValues((p) => ({ ...p, isPractice: !p.isPractice }))}
-            sx={{
-              height: 20,
-              fontWeight: 600,
-              "& .MuiChip-label": { px: 0.6, fontSize: "0.65rem" },
-              ...(editValues.isPractice
-                ? {
-                    backgroundColor: "rgba(156,39,176,0.1)",
-                    color: "#9c27b0",
-                    boxShadow: "inset 0 0 0 1.5px currentColor",
-                    "& .MuiChip-icon": { color: "#9c27b0" },
-                    "&:hover": { backgroundColor: "rgba(156,39,176,0.1)" },
-                  }
-                : {
-                    backgroundColor: "rgba(0,0,0,0.04)",
-                    color: "text.disabled",
-                    "& .MuiChip-icon": { color: "text.disabled" },
-                  }),
-            }}
+            sx={toggleChipSx(editValues.isPractice, { bg: "rgba(156,39,176,0.1)", text: "#9c27b0" })}
           />
           <Chip
             size="small"
             icon={<TranslateIcon sx={{ fontSize: "12px !important" }} />}
             label={translate("padmakara.session.translation")}
             onClick={() => setEditValues((p) => ({ ...p, isTranslation: !p.isTranslation }))}
-            sx={{
-              height: 20,
-              fontWeight: 600,
-              "& .MuiChip-label": { px: 0.6, fontSize: "0.65rem" },
-              ...(editValues.isTranslation
-                ? {
-                    backgroundColor: "rgba(212,168,83,0.12)",
-                    color: "secondary.dark",
-                    boxShadow: "inset 0 0 0 1.5px currentColor",
-                    "& .MuiChip-icon": { color: "secondary.dark" },
-                    "&:hover": { backgroundColor: "rgba(212,168,83,0.12)" },
-                  }
-                : {
-                    backgroundColor: "rgba(0,0,0,0.04)",
-                    color: "text.disabled",
-                    "& .MuiChip-icon": { color: "text.disabled" },
-                  }),
-            }}
+            sx={toggleChipSx(editValues.isTranslation, { bg: "rgba(212,168,83,0.12)", text: "#8a6a1f" })}
           />
 
           <Box sx={{ flex: 1 }} />

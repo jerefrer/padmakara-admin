@@ -12,14 +12,14 @@
  *   - Edits use *path-shallow* immutable updates — only the affected session
  *     and the affected track get new object identities; every other track
  *     keeps its reference.
- *   - `TrackRow` is `memo()`-wrapped, so a track whose props are reference-
- *     equal to the previous render is skipped entirely.
+ *   - `ReadonlyTrackRow` is `memo()`-wrapped, so a track whose props are
+ *     reference-equal to the previous render is skipped entirely; the heavy
+ *     `EditingTrackRow` is only ever mounted for the one track being edited.
  *   - This only pays off when the parent feeds the table identity-stable
  *     props — see the adapters on each screen, which cache per source track.
  */
 
 import {
-  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -31,24 +31,30 @@ import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import Select from "@mui/material/Select";
+import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Checkbox from "@mui/material/Checkbox";
 import Collapse from "@mui/material/Collapse";
-import Autocomplete from "@mui/material/Autocomplete";
+import InputBase from "@mui/material/InputBase";
 import Tooltip from "@mui/material/Tooltip";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
-import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
-import CheckIcon from "@mui/icons-material/Check";
+import SelfImprovementIcon from "@mui/icons-material/SelfImprovement";
+import TranslateIcon from "@mui/icons-material/Translate";
 import { useNotify, useTranslate } from "react-admin";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
-import { TranslatableField, useFieldTranslate } from "./TranslatableField";
+import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
+import {
+  DEFAULT_LANG_CHIP,
+  LANG_CHIP_COLORS,
+  LANGUAGE_CODES,
+  LangTag,
+  clickToEditSx,
+  quietInputSx,
+  toggleChipSx,
+} from "./inlineEditKit";
+import { languageLabel } from "../utils/trackParser";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 
 /** Map keyed by a track's stable key → list of corrections applied to it. */
@@ -145,66 +151,11 @@ interface SessionTrackTableProps {
   trackCorrections?: TrackCorrectionsMap;
 }
 
-const HEADER_CELL = {
-  fontWeight: 600,
-  fontSize: "0.72rem",
-  color: "text.secondary",
-} as const;
-
-
-// --- Module-level Autocomplete helpers (stable identity across renders) -----
-
-// The speaker is stored as an abbreviation but shown as the full name.
-const getTeacherLabel = (option: Teacher | string): string =>
-  typeof option === "string" ? option : option.name;
-
 /** Resolve a stored speaker abbreviation to the teacher's full name for display. */
 const teacherDisplayName = (teachers: Teacher[], abbr: string | null): string => {
   if (!abbr) return "";
   return teachers.find((t) => t.abbreviation === abbr)?.name ?? abbr;
 };
-
-const isTeacherEqualToValue = (
-  option: Teacher,
-  val: Teacher | string,
-): boolean =>
-  typeof val === "string" ? option.abbreviation === val : option.id === val.id;
-
-const filterTeacherOptions = (
-  opts: Teacher[],
-  state: { inputValue: string },
-): Teacher[] => {
-  const q = state.inputValue.trim().toLowerCase();
-  if (!q) return opts;
-  return opts.filter(
-    (o) =>
-      o.abbreviation.toLowerCase().includes(q) ||
-      o.name.toLowerCase().includes(q),
-  );
-};
-
-const renderTeacherOption = (
-  props: React.HTMLAttributes<HTMLLIElement> & { key?: React.Key },
-  option: Teacher,
-) => (
-  <li {...props} key={option.id}>
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        lineHeight: 1.15,
-        py: 0.25,
-      }}
-    >
-      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-        {option.abbreviation}
-      </Typography>
-      <Typography variant="caption" sx={{ color: "text.secondary" }}>
-        {option.name}
-      </Typography>
-    </Box>
-  </li>
-);
 
 /** The ✨ correction badge + rich diff tooltip, shared by both row modes. */
 function CorrectionsBadge({ corrections }: { corrections: TrackCorrection[] }) {
@@ -290,139 +241,127 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
   corrections,
   onEdit,
 }: ReadonlyTrackRowProps) {
-  const cell = { py: 0.75 } as const;
-  const mark = (on: boolean) =>
-    on ? <CheckIcon fontSize="small" sx={{ color: "success.main" }} /> : null;
   return (
-    <TableRow
-      hover
-      sx={{ opacity: track.isTranslation ? 0.7 : 1, cursor: "pointer" }}
+    <Box
       onClick={() => onEdit(track.key)}
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+        px: 2,
+        py: 0.75,
+        borderBottom: "1px solid rgba(0,0,0,0.04)",
+        cursor: "pointer",
+        opacity: track.isTranslation ? 0.75 : 1,
+        "&:hover": { backgroundColor: "rgba(91,94,166,0.02)" },
+      }}
     >
-      <TableCell sx={{ ...cell, pl: 2, width: 50 }}>{track.trackNumber}</TableCell>
-      {/* Title (top) + filename (below), stacked so the filename has full width */}
-      <TableCell sx={cell}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="body2">{track.titleEn || track.titlePt || track.title}</Typography>
-            <Typography
-              variant="caption"
-              sx={{
-                fontFamily: "monospace",
-                fontSize: "0.65rem",
-                color: "text.secondary",
-                display: "block",
-                wordBreak: "break-all",
-              }}
-            >
-              {track.uploadFilename}
-            </Typography>
-          </Box>
-          <CorrectionsBadge corrections={corrections ?? []} />
-        </Box>
-      </TableCell>
-      <TableCell sx={{ ...cell, width: 150, textAlign: "center" }}>
-        {track.speaker ? (
-          <Typography variant="body2" color="text.secondary">
-            {teacherDisplayName(teachers, track.speaker)}
-          </Typography>
-        ) : null}
-      </TableCell>
-      <TableCell sx={{ ...cell, width: 90, textAlign: "center" }}>
-        <Typography variant="caption" color="text.secondary">
-          {formatLanguages(track.languages)}
-        </Typography>
-      </TableCell>
-      <TableCell sx={{ ...cell, width: 100, textAlign: "center" }}>
-        {mark(track.isTranslation)}
-      </TableCell>
-      {enablePractice && (
-        <TableCell sx={{ ...cell, width: 90, textAlign: "center" }}>
-          {mark(track.isPractice)}
-        </TableCell>
-      )}
-      <TableCell sx={{ ...cell }}>
-        <Button
-          size="small"
-          startIcon={<EditOutlinedIcon />}
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(track.key);
+      <Typography
+        variant="caption"
+        sx={{
+          width: 24,
+          textAlign: "right",
+          color: "text.secondary",
+          fontFamily: "monospace",
+          fontWeight: 600,
+          flexShrink: 0,
+        }}
+      >
+        {String(track.trackNumber).padStart(2, "0")}
+      </Typography>
+      {/* Title (click-to-edit) + upload filename underneath — the filename is
+          the future S3 key, so it stays visible pre-upload. */}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography
+          variant="body2"
+          noWrap
+          sx={{
+            display: "inline-block",
+            maxWidth: "100%",
+            verticalAlign: "middle",
+            fontWeight: track.isTranslation ? 400 : 500,
+            ...clickToEditSx,
           }}
-          sx={{ textTransform: "none" }}
         >
-          Edit
-        </Button>
-      </TableCell>
-    </TableRow>
+          {track.titleEn || track.titlePt || track.title}
+        </Typography>
+        <Typography
+          variant="caption"
+          title={track.uploadFilename}
+          sx={{
+            fontFamily: "monospace",
+            fontSize: "0.62rem",
+            color: "text.disabled",
+            display: "block",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {track.uploadFilename}
+        </Typography>
+      </Box>
+      <CorrectionsBadge corrections={corrections ?? []} />
+      {enablePractice && track.isPractice && (
+        <Chip
+          icon={<SelfImprovementIcon sx={{ fontSize: "12px !important" }} />}
+          label="Practice"
+          size="small"
+          sx={{
+            height: 20,
+            backgroundColor: "rgba(156,39,176,0.1)",
+            color: "#9c27b0",
+            "& .MuiChip-label": { fontSize: "0.65rem", px: 0.5, fontWeight: 600 },
+            "& .MuiChip-icon": { color: "#9c27b0" },
+          }}
+        />
+      )}
+      {track.isTranslation && (
+        <Chip
+          icon={<TranslateIcon sx={{ fontSize: "12px !important" }} />}
+          label="Translation"
+          size="small"
+          sx={{
+            height: 20,
+            backgroundColor: "rgba(212,168,83,0.12)",
+            color: "#8a6a1f",
+            "& .MuiChip-label": { fontSize: "0.65rem", px: 0.5 },
+            "& .MuiChip-icon": { color: "#8a6a1f" },
+          }}
+        />
+      )}
+      {track.speaker && (
+        <Chip
+          label={track.speaker}
+          title={teacherDisplayName(teachers, track.speaker)}
+          size="small"
+          variant="outlined"
+          sx={{ height: 20, "& .MuiChip-label": { fontSize: "0.65rem", px: 0.5, fontWeight: 600 } }}
+        />
+      )}
+      {(track.languages.length ? track.languages : ["en"]).map((lang) => {
+        const lc = LANG_CHIP_COLORS[lang.toLowerCase()] || DEFAULT_LANG_CHIP;
+        return (
+          <Chip
+            key={lang}
+            label={languageLabel(lang)}
+            size="small"
+            sx={{
+              height: 20,
+              backgroundColor: lc.bg,
+              color: lc.text,
+              "& .MuiChip-label": { fontSize: "0.65rem", px: 0.5, fontWeight: 600 },
+            }}
+          />
+        );
+      })}
+    </Box>
   );
 });
 
-// --- Track title EN/PT editor (table-cell version) --------------------------
+// --- Editing row (heavy; only one is ever mounted at a time) ----------------
 
-interface TrackTitleEditorProps {
-  track: TableTrack;
-  onTrackChange: (key: string, patch: Partial<TableTrack>) => void;
-  /** True while the table-wide "Translate all tracks" batch is running —
-   *  disables this row's translate icons too, so a per-row translate can't
-   *  race the bulk fill. Only one `TrackTitleEditor` is ever mounted at a
-   *  time (the table only renders the heavy `TrackRow` for the one track
-   *  being edited), so threading this in is cheap. */
-  bulkBusy?: boolean;
-}
-
-/**
- * EN/PT track-title editor built on the shared `TranslatableField` +
- * `useFieldTranslate()` (Task 3). Extracted into its own component — rather
- * than one `translating` flag on the table — so each row's in-flight
- * translate state is independent; rows are rendered in a `.map()` and a
- * shared flag would light up every row's spinner at once (same reasoning as
- * `SessionTitleEditor` above).
- */
-function TrackTitleEditor({ track, onTrackChange, bulkBusy }: TrackTitleEditorProps) {
-  const translate = useTranslate();
-  const ft = useFieldTranslate();
-  const busy = ft.translating || !!bulkBusy;
-
-  return (
-    <>
-      <TranslatableField
-        label={translate("padmakara.events.titleEn") || "Title (English)"}
-        value={track.titleEn}
-        onChange={(v) => onTrackChange(track.key, { titleEn: v, titleEnReviewed: true })}
-        reviewed={track.titleEnReviewed}
-        onMarkReviewed={() => onTrackChange(track.key, { titleEnReviewed: true })}
-        canTranslate={!!track.titlePt.trim()}
-        translatePending={busy}
-        direction="pt-to-en"
-        translateTooltip={translate("padmakara.events.translateToEn")}
-        onTranslate={async () => {
-          const out = await ft.translate(track.titlePt, "pt-to-en");
-          if (out != null) onTrackChange(track.key, { titleEn: out, titleEnReviewed: false });
-        }}
-      />
-      <TranslatableField
-        label={translate("padmakara.events.titlePt") || "Title (Portuguese)"}
-        value={track.titlePt}
-        onChange={(v) => onTrackChange(track.key, { titlePt: v, titlePtReviewed: true })}
-        reviewed={track.titlePtReviewed}
-        onMarkReviewed={() => onTrackChange(track.key, { titlePtReviewed: true })}
-        canTranslate={!!track.titleEn.trim()}
-        translatePending={busy}
-        direction="en-to-pt"
-        translateTooltip={translate("padmakara.events.translateToPt")}
-        onTranslate={async () => {
-          const out = await ft.translate(track.titleEn, "en-to-pt");
-          if (out != null) onTrackChange(track.key, { titlePt: out, titlePtReviewed: false });
-        }}
-      />
-    </>
-  );
-}
-
-// --- Memoised per-track row (editable) --------------------------------------
-
-interface TrackRowProps {
+interface EditingTrackRowProps {
   track: TableTrack;
   sessionIdx: number;
   sessionCount: number;
@@ -433,14 +372,26 @@ interface TrackRowProps {
   onMoveTrack: (key: string, toSessionIdx: number) => void;
   onIgnoreTrack: (key: string) => void;
   onStopEdit: () => void;
+  /** Save this row, then move the editor to the previous/next track. */
+  onNavigate: (delta: -1 | 1) => void;
   editableFilename: boolean;
   /** AI corrections to flag on this row (rendered as a Tooltip-equipped chip). */
   corrections?: TrackCorrection[];
-  /** Forwarded to `TrackTitleEditor` — see its own doc comment. */
+  /** True while the table-wide "fill translations" batch is running —
+   *  disables this row's translate chips too, so a per-row translate can't
+   *  race the bulk fill. */
   bulkBusy?: boolean;
 }
 
-const TrackRow = memo(function TrackRow({
+/**
+ * The same compact inline editor as the edit flow's TrackRow
+ * (SessionPreview.tsx): quiet EN/PT title inputs, toggleable metadata chips,
+ * Enter/blur saves, Esc discards, ↑/↓ saves and moves to the adjacent track.
+ * Edits accumulate in a local draft and are committed as ONE field-diffed
+ * patch on close, so a "fill translations" batch landing mid-edit is never
+ * clobbered by stale untouched fields.
+ */
+function EditingTrackRow({
   track,
   sessionIdx,
   sessionCount,
@@ -451,257 +402,494 @@ const TrackRow = memo(function TrackRow({
   onMoveTrack,
   onIgnoreTrack,
   onStopEdit,
+  onNavigate,
   editableFilename,
   corrections,
   bulkBusy,
-}: TrackRowProps) {
+}: EditingTrackRowProps) {
+  const translate = useTranslate();
+  const ft = useFieldTranslate();
+  const busy = ft.translating || !!bulkBusy;
+
+  // Seed once on mount — the component only mounts while this row is the one
+  // being edited.
+  const seedRef = useRef<TableTrack>({ ...track, languages: [...track.languages] });
+  const seed = seedRef.current;
+  const [draft, setDraft] = useState<TableTrack>(seed);
+  const [speakerMenuAnchor, setSpeakerMenuAnchor] = useState<null | HTMLElement>(null);
+  const [moveMenuAnchor, setMoveMenuAnchor] = useState<null | HTMLElement>(null);
+  // Set once the editor's outcome is decided (save, cancel or navigate) so a
+  // trailing blur can't double-commit.
+  const doneRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const buildPatch = (): Partial<TableTrack> => {
+    const patch: Partial<TableTrack> = {};
+    if (draft.trackNumber !== seed.trackNumber) patch.trackNumber = draft.trackNumber;
+    if (draft.uploadFilename !== seed.uploadFilename) patch.uploadFilename = draft.uploadFilename;
+    if (draft.titleEn !== seed.titleEn) patch.titleEn = draft.titleEn;
+    if (draft.titlePt !== seed.titlePt) patch.titlePt = draft.titlePt;
+    if (draft.titleEnReviewed !== seed.titleEnReviewed) patch.titleEnReviewed = draft.titleEnReviewed;
+    if (draft.titlePtReviewed !== seed.titlePtReviewed) patch.titlePtReviewed = draft.titlePtReviewed;
+    if (draft.speaker !== seed.speaker) patch.speaker = draft.speaker;
+    if (draft.languages.join(",") !== seed.languages.join(",")) {
+      patch.languages = draft.languages;
+      patch.originalLanguage = draft.languages[0]!;
+    }
+    if (draft.isTranslation !== seed.isTranslation) patch.isTranslation = draft.isTranslation;
+    if (draft.isPractice !== seed.isPractice) patch.isPractice = draft.isPractice;
+    return patch;
+  };
+
+  const commit = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    const patch = buildPatch();
+    if (Object.keys(patch).length > 0) onTrackChange(track.key, patch);
+  };
+
+  const saveAndClose = () => {
+    commit();
+    onStopEdit();
+  };
+
+  const cancelEdit = () => {
+    doneRef.current = true;
+    onStopEdit();
+  };
+
+  const saveAndNavigate = (delta: -1 | 1) => {
+    commit();
+    onNavigate(delta);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveAndClose();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      saveAndNavigate(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      saveAndNavigate(-1);
+    }
+  };
+
+  const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    // Menus render in portals — focus moving into them must not close the
+    // editor.
+    if (speakerMenuAnchor || moveMenuAnchor) return;
+    if (e.relatedTarget && containerRef.current?.contains(e.relatedTarget as Node)) return;
+    saveAndClose();
+  };
+
   return (
-    <TableRow sx={{ opacity: track.isTranslation ? 0.7 : 1 }}>
-      {/* # (editable) */}
-      <TableCell sx={{ pl: 2, py: 0.5, width: 50 }}>
-        <TextField
+    <Box
+      ref={containerRef}
+      onBlur={handleContainerBlur}
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 0.6,
+        px: 2,
+        py: 1,
+        borderBottom: "1px solid rgba(0,0,0,0.04)",
+        backgroundColor: "rgba(91,94,166,0.03)",
+      }}
+    >
+      {/* EN title line — with the editable track number at the left */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <InputBase
           type="number"
-          size="small"
-          variant="standard"
-          value={track.trackNumber}
+          value={draft.trackNumber}
           onChange={(e) =>
-            onTrackChange(track.key, {
-              trackNumber: Number.parseInt(e.target.value, 10) || 0,
-            })
+            setDraft((p) => ({ ...p, trackNumber: Number.parseInt(e.target.value, 10) || 0 }))
           }
-          sx={{ width: 50 }}
-        />
-      </TableCell>
-
-      {/* Title (top) + filename (below), stacked so both inputs are full width;
-          the corrections badge sits to the right, centred across the two. */}
-      <TableCell sx={{ py: 0.5 }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.5 }}>
-            <TrackTitleEditor track={track} onTrackChange={onTrackChange} bulkBusy={bulkBusy} />
-            {editableFilename ? (
-              <TextField
-                size="small"
-                variant="standard"
-                fullWidth
-                label="Filename"
-                value={track.uploadFilename}
-                title={track.uploadFilename}
-                onChange={(e) =>
-                  onTrackChange(track.key, { uploadFilename: e.target.value })
-                }
-                slotProps={{ inputLabel: { shrink: true } }}
-                InputProps={{
-                  sx: { fontFamily: "monospace", fontSize: "0.72rem", color: "text.secondary" },
-                }}
-              />
-            ) : (
-              <Typography
-                variant="caption"
-                title={track.uploadFilename}
-                sx={{
-                  fontFamily: "monospace",
-                  fontSize: "0.65rem",
-                  color: "text.secondary",
-                  display: "block",
-                  wordBreak: "break-all",
-                }}
-              >
-                {track.uploadFilename}
-              </Typography>
-            )}
-          </Box>
-          <CorrectionsBadge corrections={corrections ?? []} />
-        </Box>
-      </TableCell>
-
-      {/* Speaker — searchable by abbreviation OR full name. */}
-      <TableCell sx={{ py: 0.5, width: 150 }}>
-        <Autocomplete
-          freeSolo
-          size="small"
-          options={teachers}
-          // Show the full name; the stored value stays the abbreviation.
-          value={teachers.find((t) => t.abbreviation === track.speaker) ?? track.speaker ?? ""}
-          getOptionLabel={getTeacherLabel}
-          isOptionEqualToValue={isTeacherEqualToValue}
-          filterOptions={filterTeacherOptions}
-          renderOption={renderTeacherOption}
-          // Commit on selection / Enter (not on every keystroke). A free-typed
-          // value is resolved to a known teacher by name or abbreviation.
-          onChange={(_, v) => {
-            if (v == null) {
-              onTrackChange(track.key, { speaker: null });
-              return;
-            }
-            if (typeof v === "string") {
-              const q = v.trim().toLowerCase();
-              const match = teachers.find(
-                (t) => t.abbreviation.toLowerCase() === q || t.name.toLowerCase() === q,
-              );
-              onTrackChange(track.key, { speaker: match ? match.abbreviation : v || null });
-              return;
-            }
-            onTrackChange(track.key, { speaker: v.abbreviation });
+          onKeyDown={(e) => {
+            // Keep ↑/↓ as number stepping here; Enter/Esc still close.
+            if (e.key === "Enter" || e.key === "Escape") handleKeyDown(e);
           }}
-          renderInput={(params) => <TextField {...params} variant="standard" />}
-        />
-      </TableCell>
-
-      {/* Lang — multi-select: a single file can carry several languages
-          (e.g. TIB+ENG). originalLanguage tracks the first (source) language. */}
-      <TableCell sx={{ py: 0.5, width: 110 }}>
-        <Select
-          multiple
-          size="small"
-          variant="standard"
-          value={track.languages.length ? track.languages : ["en"]}
-          onChange={(e) => {
-            const val = e.target.value;
-            const raw = typeof val === "string" ? val.split(",") : val;
-            const langs = sortLanguages(raw.filter(Boolean));
-            const next = langs.length ? langs : ["en"];
-            onTrackChange(track.key, {
-              languages: next,
-              originalLanguage: next[0]!,
-            });
+          sx={{
+            ...quietInputSx,
+            flex: "0 0 auto",
+            width: 48,
+            "& input": { p: 0, textAlign: "right", fontFamily: "monospace", fontSize: "0.75rem" },
           }}
-          renderValue={(selected) => formatLanguages(selected as string[])}
-          sx={{ width: "100%" }}
+        />
+        <LangTag code="en" />
+        <InputBase
+          autoFocus
+          fullWidth
+          value={draft.titleEn}
+          placeholder={translate("padmakara.events.titleEn")}
+          onChange={(e) => setDraft((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
+          onKeyDown={handleKeyDown}
+          sx={quietInputSx}
+        />
+        {!draft.titleEnReviewed && (
+          <AiReviewChip onClick={() => setDraft((p) => ({ ...p, titleEnReviewed: true }))} />
+        )}
+        {/* Chip lives on the SOURCE field: this EN text fills the PT sibling. */}
+        <TranslateDirChip
+          direction="en-to-pt"
+          disabled={!draft.titleEn.trim()}
+          pending={busy}
+          tooltip={translate("padmakara.events.translateToPt")}
+          onClick={async () => {
+            const out = await ft.translate(draft.titleEn, "en-to-pt");
+            if (out != null) setDraft((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+          }}
+        />
+      </Box>
+
+      {/* PT title line */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box sx={{ width: 48, flexShrink: 0 }} />
+        <LangTag code="pt" />
+        <InputBase
+          fullWidth
+          value={draft.titlePt}
+          placeholder={translate("padmakara.events.titlePt")}
+          onChange={(e) => setDraft((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
+          onKeyDown={handleKeyDown}
+          sx={quietInputSx}
+        />
+        {!draft.titlePtReviewed && (
+          <AiReviewChip onClick={() => setDraft((p) => ({ ...p, titlePtReviewed: true }))} />
+        )}
+        <TranslateDirChip
+          direction="pt-to-en"
+          disabled={!draft.titlePt.trim()}
+          pending={busy}
+          tooltip={translate("padmakara.events.translateToEn")}
+          onClick={async () => {
+            const out = await ft.translate(draft.titlePt, "pt-to-en");
+            if (out != null) setDraft((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+          }}
+        />
+      </Box>
+
+      {/* Upload filename — the future S3 key; editable only pre-upload. */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Box sx={{ width: 48, flexShrink: 0 }} />
+        <Typography variant="caption" sx={{ color: "text.disabled", flexShrink: 0 }}>
+          file:
+        </Typography>
+        {editableFilename ? (
+          <InputBase
+            fullWidth
+            value={draft.uploadFilename}
+            title={draft.uploadFilename}
+            onChange={(e) => setDraft((p) => ({ ...p, uploadFilename: e.target.value }))}
+            onKeyDown={handleKeyDown}
+            sx={{
+              ...quietInputSx,
+              "& input": { p: 0, fontFamily: "monospace", fontSize: "0.7rem", color: "text.secondary" },
+            }}
+          />
+        ) : (
+          <Typography
+            variant="caption"
+            title={draft.uploadFilename}
+            sx={{
+              fontFamily: "monospace",
+              fontSize: "0.7rem",
+              color: "text.secondary",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {draft.uploadFilename}
+          </Typography>
+        )}
+        <CorrectionsBadge corrections={corrections ?? []} />
+      </Box>
+
+      {/* Metadata line — the same chips as view mode, made toggleable */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", pl: "58px" }}>
+        <Chip
+          size="small"
+          variant="outlined"
+          label={`${draft.speaker || translate("padmakara.tracks.speaker")} ▾`}
+          title={teacherDisplayName(teachers, draft.speaker)}
+          onClick={(e) => setSpeakerMenuAnchor(e.currentTarget)}
+          sx={{ height: 20, fontWeight: 600, "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" } }}
+        />
+        <Menu
+          anchorEl={speakerMenuAnchor}
+          open={Boolean(speakerMenuAnchor)}
+          onClose={() => setSpeakerMenuAnchor(null)}
         >
-          {LANGUAGE_OPTIONS.map((o) => (
-            <MenuItem key={o.value} value={o.value}>
-              <Checkbox checked={track.languages.includes(o.value)} size="small" sx={{ py: 0 }} />
-              {o.label}
+          <MenuItem
+            selected={!draft.speaker}
+            onClick={() => {
+              setDraft((p) => ({ ...p, speaker: null }));
+              setSpeakerMenuAnchor(null);
+            }}
+          >
+            {translate("padmakara.tracks.noSpeaker")}
+          </MenuItem>
+          {teachers.map((t) => (
+            <MenuItem
+              key={t.id}
+              selected={t.abbreviation === draft.speaker}
+              onClick={() => {
+                setDraft((p) => ({ ...p, speaker: t.abbreviation }));
+                setSpeakerMenuAnchor(null);
+              }}
+            >
+              {t.name} ({t.abbreviation})
             </MenuItem>
           ))}
-        </Select>
-      </TableCell>
+        </Menu>
 
-      {/* Translation */}
-      <TableCell sx={{ py: 0.5, width: 100, textAlign: "center" }}>
-        <Checkbox
-          size="small"
-          checked={track.isTranslation}
-          onChange={(e) =>
-            onTrackChange(track.key, { isTranslation: e.target.checked })
-          }
-          sx={{ p: 0.5 }}
-        />
-      </TableCell>
-
-      {/* Practice */}
-      {enablePractice && (
-        <TableCell sx={{ py: 0.5, width: 90, textAlign: "center" }}>
-          <Checkbox
-            size="small"
-            checked={track.isPractice}
-            onChange={(e) =>
-              onTrackChange(track.key, { isPractice: e.target.checked })
-            }
-            sx={{ p: 0.5 }}
-          />
-        </TableCell>
-      )}
-
-      {/* Actions: move-to-session + ignore */}
-      <TableCell sx={{ py: 0.5, width: enableIgnore ? 250 : 170 }}>
-        <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
-          <Select
-            size="small"
-            variant="standard"
-            value={sessionIdx}
-            onChange={(e) =>
-              onMoveTrack(track.key, Number(e.target.value))
-            }
-            inputProps={{ "aria-label": "Move track to session" }}
-            sx={{ flex: 1, fontSize: "0.78rem" }}
-          >
-            {Array.from({ length: sessionCount }, (_, i) => (
-              <MenuItem key={i} value={i}>
-                {i === sessionIdx
-                  ? "— this session —"
-                  : `→ Session ${i + 1}`}
-              </MenuItem>
-            ))}
-          </Select>
-          {enableIgnore && (
-            <Button
+        {LANGUAGE_CODES.map((lang) => {
+          const active = draft.languages.includes(lang);
+          const lc = LANG_CHIP_COLORS[lang] || DEFAULT_LANG_CHIP;
+          return (
+            <Chip
+              key={lang}
               size="small"
-              color="warning"
-              onClick={() => onIgnoreTrack(track.key)}
+              label={languageLabel(lang)}
+              onClick={() =>
+                setDraft((p) => {
+                  const has = p.languages.includes(lang);
+                  // Keep at least one language selected; keep canonical order
+                  // so originalLanguage (the first) is the source language.
+                  if (has && p.languages.length === 1) return p;
+                  const langs = sortLanguages(
+                    has ? p.languages.filter((l) => l !== lang) : [...p.languages, lang],
+                  );
+                  return { ...p, languages: langs, originalLanguage: langs[0]! };
+                })
+              }
+              sx={toggleChipSx(active, lc)}
+            />
+          );
+        })}
+
+        <Chip
+          size="small"
+          icon={<TranslateIcon sx={{ fontSize: "12px !important" }} />}
+          label="Translation"
+          onClick={() => setDraft((p) => ({ ...p, isTranslation: !p.isTranslation }))}
+          sx={toggleChipSx(draft.isTranslation, { bg: "rgba(212,168,83,0.12)", text: "#8a6a1f" })}
+        />
+        {enablePractice && (
+          <Chip
+            size="small"
+            icon={<SelfImprovementIcon sx={{ fontSize: "12px !important" }} />}
+            label="Practice"
+            onClick={() => setDraft((p) => ({ ...p, isPractice: !p.isPractice }))}
+            sx={toggleChipSx(draft.isPractice, { bg: "rgba(156,39,176,0.1)", text: "#9c27b0" })}
+          />
+        )}
+
+        {sessionCount > 1 && (
+          <>
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`→ Session ▾`}
+              onClick={(e) => setMoveMenuAnchor(e.currentTarget)}
+              sx={{ height: 20, fontWeight: 600, "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" } }}
+            />
+            <Menu
+              anchorEl={moveMenuAnchor}
+              open={Boolean(moveMenuAnchor)}
+              onClose={() => setMoveMenuAnchor(null)}
             >
-              Ignore
-            </Button>
-          )}
+              {Array.from({ length: sessionCount }, (_, i) => (
+                <MenuItem
+                  key={i}
+                  disabled={i === sessionIdx}
+                  onClick={() => {
+                    setMoveMenuAnchor(null);
+                    commit();
+                    onMoveTrack(track.key, i);
+                    onStopEdit();
+                  }}
+                >
+                  {i === sessionIdx ? `Session ${i + 1} (current)` : `Session ${i + 1}`}
+                </MenuItem>
+              ))}
+            </Menu>
+          </>
+        )}
+        {enableIgnore && (
           <Button
             size="small"
-            variant="contained"
-            startIcon={<CheckIcon />}
-            onClick={onStopEdit}
-            sx={{ textTransform: "none" }}
+            color="warning"
+            onClick={() => {
+              commit();
+              onIgnoreTrack(track.key);
+              onStopEdit();
+            }}
+            sx={{ textTransform: "none", fontSize: "0.7rem", py: 0 }}
           >
-            Done
+            Ignore
           </Button>
-        </Box>
-      </TableCell>
-    </TableRow>
+        )}
+
+        <Box sx={{ flex: 1 }} />
+        <Typography variant="caption" sx={{ color: "text.disabled", fontSize: "0.65rem" }}>
+          {translate("padmakara.tracks.editKeyHint")}
+        </Typography>
+      </Box>
+    </Box>
   );
-});
+}
 
-// --- Session title EN/PT editor ---------------------------------------------
 
-interface SessionTitleEditorProps {
+// --- Session title (click-to-edit, mirrors SessionCard in SessionPreview) ----
+
+interface SessionTitleBlockProps {
   session: TableSession;
   sIdx: number;
   onSessionChange: (sessionIdx: number, patch: Partial<TableSession>) => void;
 }
 
 /**
- * EN/PT session-title editor built on the shared `TranslatableField` +
- * `useFieldTranslate()` (Task 3), mirroring `TrackTitleEditor` above and the
- * edit-flow equivalent in `SessionCard` (SessionPreview.tsx). Extracted into
- * its own component — rather than one `translating` flag on the table — so
- * each session row's in-flight translate state is independent; sessions are
- * rendered in a map and a shared flag would light up every row's spinner at
- * once.
+ * Click-to-edit EN/PT session title, mirroring the edit-flow equivalent in
+ * `SessionCard` (SessionPreview.tsx): the title reads as plain text until
+ * clicked, then two quiet inputs open in place. Enter/blur saves (dirty
+ * fields only), Esc discards.
  */
-function SessionTitleEditor({ session, sIdx, onSessionChange }: SessionTitleEditorProps) {
+function SessionTitleBlock({ session, sIdx, onSessionChange }: SessionTitleBlockProps) {
   const translate = useTranslate();
   const ft = useFieldTranslate();
+  const [editing, setEditing] = useState(false);
+  const seedFromSession = () => ({
+    titleEn: session.titleEn,
+    titlePt: session.titlePt,
+    titleEnReviewed: session.titleEnReviewed,
+    titlePtReviewed: session.titlePtReviewed,
+  });
+  const [draft, setDraft] = useState(seedFromSession);
+  const doneRef = useRef(false);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+
+  const openEditor = () => {
+    setDraft(seedFromSession());
+    doneRef.current = false;
+    setEditing(true);
+  };
+
+  const save = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    const patch: Partial<TableSession> = {};
+    if (draft.titleEn !== session.titleEn) patch.titleEn = draft.titleEn;
+    if (draft.titlePt !== session.titlePt) patch.titlePt = draft.titlePt;
+    if (draft.titleEnReviewed !== session.titleEnReviewed) patch.titleEnReviewed = draft.titleEnReviewed;
+    if (draft.titlePtReviewed !== session.titlePtReviewed) patch.titlePtReviewed = draft.titlePtReviewed;
+    if (Object.keys(patch).length > 0) onSessionChange(sIdx, patch);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    doneRef.current = true;
+    setEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      save();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancel();
+    }
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (e.relatedTarget && boxRef.current?.contains(e.relatedTarget as Node)) return;
+    save();
+  };
+
+  if (!editing) {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography
+          variant="body2"
+          noWrap
+          title={translate("padmakara.tracks.clickToEdit")}
+          onClick={openEditor}
+          sx={{
+            fontWeight: 600,
+            display: "inline-block",
+            maxWidth: "100%",
+            verticalAlign: "middle",
+            ...clickToEditSx,
+          }}
+        >
+          {session.titleEn || session.titlePt || `Session ${sIdx + 1}`}
+        </Typography>
+      </Box>
+    );
+  }
 
   return (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5 }}>
-      <TranslatableField
-        label={translate("padmakara.events.titleEn") || "Session title (EN)"}
-        value={session.titleEn}
-        onChange={(v) => onSessionChange(sIdx, { titleEn: v, titleEnReviewed: true })}
-        reviewed={session.titleEnReviewed}
-        onMarkReviewed={() => onSessionChange(sIdx, { titleEnReviewed: true })}
-        canTranslate={!!session.titlePt.trim()}
-        translatePending={ft.translating}
-        direction="pt-to-en"
-        translateTooltip={translate("padmakara.events.translateToEn")}
-        onTranslate={async () => {
-          const out = await ft.translate(session.titlePt, "pt-to-en");
-          if (out != null) onSessionChange(sIdx, { titleEn: out, titleEnReviewed: false });
-        }}
-      />
-      <TranslatableField
-        label={translate("padmakara.events.titlePt") || "Session title (PT)"}
-        value={session.titlePt}
-        onChange={(v) => onSessionChange(sIdx, { titlePt: v, titlePtReviewed: true })}
-        reviewed={session.titlePtReviewed}
-        onMarkReviewed={() => onSessionChange(sIdx, { titlePtReviewed: true })}
-        canTranslate={!!session.titleEn.trim()}
-        translatePending={ft.translating}
-        direction="en-to-pt"
-        translateTooltip={translate("padmakara.events.translateToPt")}
-        onTranslate={async () => {
-          const out = await ft.translate(session.titleEn, "en-to-pt");
-          if (out != null) onSessionChange(sIdx, { titlePt: out, titlePtReviewed: false });
-        }}
-      />
+    <Box
+      ref={boxRef}
+      onBlur={handleBlur}
+      sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5 }}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <LangTag code="en" />
+        <InputBase
+          autoFocus
+          fullWidth
+          value={draft.titleEn}
+          placeholder={translate("padmakara.events.titleEn")}
+          onChange={(e) => setDraft((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
+          onKeyDown={handleKeyDown}
+          sx={quietInputSx}
+        />
+        {!draft.titleEnReviewed && (
+          <AiReviewChip onClick={() => setDraft((p) => ({ ...p, titleEnReviewed: true }))} />
+        )}
+        {/* Chip lives on the SOURCE field: this EN text fills the PT sibling. */}
+        <TranslateDirChip
+          direction="en-to-pt"
+          disabled={!draft.titleEn.trim()}
+          pending={ft.translating}
+          tooltip={translate("padmakara.events.translateToPt")}
+          onClick={async () => {
+            const out = await ft.translate(draft.titleEn, "en-to-pt");
+            if (out != null) setDraft((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+          }}
+        />
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <LangTag code="pt" />
+        <InputBase
+          fullWidth
+          value={draft.titlePt}
+          placeholder={translate("padmakara.events.titlePt")}
+          onChange={(e) => setDraft((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
+          onKeyDown={handleKeyDown}
+          sx={quietInputSx}
+        />
+        {!draft.titlePtReviewed && (
+          <AiReviewChip onClick={() => setDraft((p) => ({ ...p, titlePtReviewed: true }))} />
+        )}
+        <TranslateDirChip
+          direction="pt-to-en"
+          disabled={!draft.titlePt.trim()}
+          pending={ft.translating}
+          tooltip={translate("padmakara.events.translateToEn")}
+          onClick={async () => {
+            const out = await ft.translate(draft.titlePt, "pt-to-en");
+            if (out != null) setDraft((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+          }}
+        />
+      </Box>
     </Box>
   );
 }
@@ -722,9 +910,9 @@ export function SessionTrackTable({
   // Bulk language assignment — most events are uniform (every track TIB+ENG,
   // or every track ENG+PT), so one control sets the languages on all tracks.
   const [bulkLangs, setBulkLangs] = useState<string[]>([]);
-  // Busy while "Translate all tracks" is filling every empty track title in
-  // one request — disables the two buttons themselves plus (via `bulkBusy`
-  // on `TrackRow`) the currently-editing row's own translate icons, so a
+  // Busy while the auto-translate bar is filling every empty title in one
+  // request — disables the bar's buttons plus (via `bulkBusy` on
+  // `EditingTrackRow`) the currently-editing row's own translate chips, so a
   // per-row translate can't race the bulk fill.
   const [tracksBulkBusy, setTracksBulkBusy] = useState(false);
   const translate = useTranslate();
@@ -748,6 +936,21 @@ export function SessionTrackTable({
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  /** Move the inline editor to the adjacent track of the same session (the
+   *  row commits itself before calling this). Closes at the boundaries. */
+  const navigateEdit = useCallback((fromKey: string, delta: -1 | 1) => {
+    const v = valueRef.current;
+    for (const s of v.sessions) {
+      const j = s.tracks.findIndex((t) => t.key === fromKey);
+      if (j >= 0) {
+        const next = s.tracks[j + delta];
+        setEditingKey(next ? next.key : null);
+        return;
+      }
+    }
+    setEditingKey(null);
+  }, []);
 
   /** Patch one track by key — only the affected session and track get fresh
    *  object identities; every other track keeps its reference. */
@@ -923,17 +1126,16 @@ export function SessionTrackTable({
   }, [bulkLangs, notify]);
 
   /**
-   * Fills every empty track title (EN or PT, across ALL sessions) in ONE
-   * translate request — the create-flow equivalent of `EventFormFields`'s
-   * `translateAllTracks`, which instead calls the edit-flow's per-track
-   * `onTrackUpdate`. Here the whole table is local state, so — like
-   * `applyBulkLanguages` above — the entire new `TableValue`
+   * Fills every empty EN/PT title in the table — session titles AND track
+   * titles across every session — in ONE translate request, the create-flow
+   * twin of `EventFormFields`'s `fillMissing`. Here the whole table is local
+   * state, so — like `applyBulkLanguages` above — the entire new `TableValue`
    * is built in one pass from a single fresh read of `valueRef.current` and
-   * applied with one `onChangeRef.current(next)` call; calling `onTrackChange`
-   * once per track would silently drop all but the last update, since each
-   * call reads the same not-yet-re-rendered `valueRef.current`.
+   * applied with one `onChangeRef.current(next)` call; per-item patch calls
+   * would silently drop all but the last update, since each call reads the
+   * same not-yet-re-rendered `valueRef.current`.
    */
-  const translateAllTracks = useCallback(
+  const fillMissingTranslations = useCallback(
     async (direction: TranslateDirection) => {
       const srcField: "titleEn" | "titlePt" = direction === "en-to-pt" ? "titleEn" : "titlePt";
       const tgtField: "titleEn" | "titlePt" = direction === "en-to-pt" ? "titlePt" : "titleEn";
@@ -942,13 +1144,15 @@ export function SessionTrackTable({
 
       const v = valueRef.current;
       const items: Record<string, string> = {};
-      for (const session of v.sessions) {
+      v.sessions.forEach((session, i) => {
+        if (session[srcField].trim() && !session[tgtField].trim()) {
+          items[`session:${i}`] = session[srcField].trim();
+        }
         for (const track of session.tracks) {
           const source = track[srcField].trim();
-          const target = track[tgtField].trim();
-          if (source && !target) items[track.key] = source;
+          if (source && !track[tgtField].trim()) items[`track:${track.key}`] = source;
         }
-      }
+      });
       if (Object.keys(items).length === 0) {
         notify(translate("padmakara.events.translateNothing"), { type: "info" });
         return;
@@ -958,14 +1162,19 @@ export function SessionTrackTable({
       try {
         const out = await translateFields(direction, items);
         const v2 = valueRef.current;
-        const applyTo = (t: TableTrack): TableTrack => {
-          const value = out[t.key];
-          if (value == null) return t;
-          return { ...t, [tgtField]: value, [tgtReviewedField]: false };
+        const applyTrack = (t: TableTrack): TableTrack => {
+          const filled = out[`track:${t.key}`];
+          if (filled == null) return t;
+          return { ...t, [tgtField]: filled, [tgtReviewedField]: false };
         };
         const next: TableValue = {
-          sessions: v2.sessions.map((s) => ({ ...s, tracks: s.tracks.map(applyTo) })),
-          ignored: v2.ignored.map(applyTo),
+          sessions: v2.sessions.map((s, i) => {
+            const filled = out[`session:${i}`];
+            const base =
+              filled != null ? { ...s, [tgtField]: filled, [tgtReviewedField]: false } : s;
+            return { ...base, tracks: base.tracks.map(applyTrack) };
+          }),
+          ignored: v2.ignored.map(applyTrack),
         };
         onChangeRef.current(next);
       } catch (e: any) {
@@ -979,9 +1188,48 @@ export function SessionTrackTable({
     [notify, translate],
   );
 
-  // Columns: # | Title/Filename | Speaker | Lang | Trans | [Prac] | Actions
-  const colCount = enablePractice ? 7 : 6;
   const sessionCount = value.sessions.length;
+
+  // Live counts for the auto-translate bar — the same selection
+  // `fillMissingTranslations` acts on, so the buttons announce exactly what a
+  // click will do.
+  const missingCounts = (direction: TranslateDirection) => {
+    const srcField: "titleEn" | "titlePt" = direction === "en-to-pt" ? "titleEn" : "titlePt";
+    const tgtField: "titleEn" | "titlePt" = direction === "en-to-pt" ? "titlePt" : "titleEn";
+    let sessionTitles = 0;
+    let trackTitles = 0;
+    for (const s of value.sessions) {
+      if (s[srcField].trim() && !s[tgtField].trim()) sessionTitles++;
+      for (const t of s.tracks) {
+        if (t[srcField].trim() && !t[tgtField].trim()) trackTitles++;
+      }
+    }
+    return { sessionTitles, trackTitles, total: sessionTitles + trackTitles };
+  };
+  const missingPt = missingCounts("en-to-pt");
+  const missingEn = missingCounts("pt-to-en");
+  const breakdownLabel = (m: ReturnType<typeof missingCounts>) =>
+    [
+      m.sessionTitles > 0
+        ? translate("padmakara.events.countSessionTitles", { smart_count: m.sessionTitles })
+        : null,
+      m.trackTitles > 0
+        ? translate("padmakara.events.countTrackTitles", { smart_count: m.trackTitles })
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  const missingSummary =
+    [
+      missingPt.total > 0
+        ? `${translate("padmakara.events.missingInPt")}: ${breakdownLabel(missingPt)}`
+        : null,
+      missingEn.total > 0
+        ? `${translate("padmakara.events.missingInEn")}: ${breakdownLabel(missingEn)}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" — ") || translate("padmakara.events.autoTranslateDone");
 
   return (
     <>
@@ -1036,8 +1284,9 @@ export function SessionTrackTable({
           Apply to all
         </Button>
       </Box>
-      {/* Translate-all-tracks bar — fills every empty EN/PT track title
-          across every session in one request. */}
+      {/* Auto-translate bar — fills every empty EN/PT session/track title in
+          one request, with a live count of what a click will do (mirrors the
+          edit form's bar). */}
       <Box
         sx={{
           display: "flex",
@@ -1049,156 +1298,157 @@ export function SessionTrackTable({
           flexWrap: "wrap",
         }}
       >
+        <TranslateIcon sx={{ color: "primary.main", fontSize: 20 }} />
+        <Box sx={{ flex: 1, minWidth: 220 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            {translate("padmakara.events.autoTranslateTitle")}
+          </Typography>
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {missingSummary}
+          </Typography>
+        </Box>
         <Button
           size="small"
-          variant="outlined"
-          disabled={tracksBulkBusy}
-          onClick={() => void translateAllTracks("en-to-pt")}
-          sx={{ textTransform: "none" }}
+          variant={missingPt.total > 0 ? "contained" : "outlined"}
+          disableElevation
+          disabled={tracksBulkBusy || missingPt.total === 0}
+          startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
+          onClick={() => void fillMissingTranslations("en-to-pt")}
         >
-          {translate("padmakara.events.translateAllTracksToPt")}
+          {missingPt.total > 0
+            ? `${translate("padmakara.events.fillPt")} (${missingPt.total})`
+            : translate("padmakara.events.ptComplete")}
         </Button>
         <Button
           size="small"
-          variant="outlined"
-          disabled={tracksBulkBusy}
-          onClick={() => void translateAllTracks("pt-to-en")}
-          sx={{ textTransform: "none" }}
+          variant={missingEn.total > 0 ? "contained" : "outlined"}
+          disableElevation
+          disabled={tracksBulkBusy || missingEn.total === 0}
+          startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
+          onClick={() => void fillMissingTranslations("pt-to-en")}
         >
-          {translate("padmakara.events.translateAllTracksToEn")}
+          {missingEn.total > 0
+            ? `${translate("padmakara.events.fillEn")} (${missingEn.total})`
+            : translate("padmakara.events.enComplete")}
         </Button>
       </Box>
-      <Box sx={{ overflowX: "auto" }}>
-        <Table size="small">
-          <TableHead>
-            <TableRow sx={{ backgroundColor: "rgba(0,0,0,0.02)" }}>
-              <TableCell sx={{ ...HEADER_CELL, width: 50, pl: 2 }}>#</TableCell>
-              <TableCell sx={HEADER_CELL}>Title / Filename</TableCell>
-              <TableCell sx={{ ...HEADER_CELL, width: 150, textAlign: "center" }}>
-                Speaker
-              </TableCell>
-              <TableCell sx={{ ...HEADER_CELL, width: 90, textAlign: "center" }}>
-                Language
-              </TableCell>
-              <TableCell sx={{ ...HEADER_CELL, width: 100, textAlign: "center" }}>
-                Translation
-              </TableCell>
-              {enablePractice && (
-                <TableCell sx={{ ...HEADER_CELL, width: 90, textAlign: "center" }}>
-                  Practice
-                </TableCell>
-              )}
-              <TableCell
-                sx={{ ...HEADER_CELL, width: enableIgnore ? 250 : 170 }}
+
+      {/* One card per session — same visual language as the edit view. */}
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+        {value.sessions.map((session, sIdx) => (
+          <Paper
+            key={sIdx}
+            variant="outlined"
+            sx={{ borderRadius: 2.5, overflow: "hidden", border: "1px solid rgba(0,0,0,0.08)" }}
+          >
+            {/* Session header: pill + click-to-edit title + date/period */}
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1.5,
+                px: 2,
+                py: 1.25,
+                backgroundColor: "rgba(0,0,0,0.015)",
+                borderBottom: "1px solid rgba(0,0,0,0.06)",
+              }}
+            >
+              <Box
+                sx={{
+                  height: 28,
+                  px: 1.5,
+                  borderRadius: 14,
+                  backgroundColor: "primary.main",
+                  color: "white",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  flexShrink: 0,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Session {sIdx + 1}
+              </Box>
+              <SessionTitleBlock
+                session={session}
+                sIdx={sIdx}
+                onSessionChange={onSessionChange}
               />
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {value.sessions.map((session, sIdx) => (
-              <Fragment key={sIdx}>
-                {/* Editable session header (inline — a few per table, not the hot path). */}
-                <TableRow>
-                  <TableCell
-                    colSpan={colCount}
-                    sx={{
-                      backgroundColor: "rgba(91,94,166,0.06)",
-                      borderBottom: "1px solid rgba(91,94,166,0.12)",
-                      py: 1,
-                    }}
-                  >
-                    <Box
-                      sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}
-                    >
-                      <Chip
-                        label={`Session ${sIdx + 1}`}
-                        size="small"
-                        color="primary"
-                        variant="outlined"
-                        sx={{ mt: 0.75 }}
-                      />
-                      <SessionTitleEditor
-                        session={session}
-                        sIdx={sIdx}
-                        onSessionChange={onSessionChange}
-                      />
-                      <TextField
-                        size="small"
-                        type="date"
-                        label="Date"
-                        value={session.sessionDate ?? ""}
-                        onChange={(e) =>
-                          onSessionChange(sIdx, {
-                            sessionDate: e.target.value || null,
-                          })
-                        }
-                        sx={{ width: 165, mt: 0.25 }}
-                        slotProps={{ inputLabel: { shrink: true } }}
-                      />
-                      <Select
-                        size="small"
-                        value={session.timePeriod ?? "morning"}
-                        onChange={(e) =>
-                          onSessionChange(sIdx, {
-                            timePeriod: String(e.target.value),
-                          })
-                        }
-                        sx={{ width: 135, mt: 0.25 }}
-                      >
-                        {TIME_PERIODS.map((p) => (
-                          <MenuItem key={p} value={p}>
-                            {p}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </Box>
-                  </TableCell>
-                </TableRow>
+              <TextField
+                size="small"
+                type="date"
+                label="Date"
+                value={session.sessionDate ?? ""}
+                onChange={(e) =>
+                  onSessionChange(sIdx, {
+                    sessionDate: e.target.value || null,
+                  })
+                }
+                sx={{ width: 165, flexShrink: 0 }}
+                slotProps={{ inputLabel: { shrink: true } }}
+              />
+              <Select
+                size="small"
+                value={session.timePeriod ?? "morning"}
+                onChange={(e) =>
+                  onSessionChange(sIdx, {
+                    timePeriod: String(e.target.value),
+                  })
+                }
+                sx={{ width: 130, flexShrink: 0 }}
+              >
+                {TIME_PERIODS.map((p) => (
+                  <MenuItem key={p} value={p}>
+                    {p}
+                  </MenuItem>
+                ))}
+              </Select>
+            </Box>
 
-                {session.tracks.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={colCount}>
-                      <Typography variant="caption" color="text.secondary">
-                        No tracks — move tracks here, or this empty session is
-                        dropped on save.
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
+            {session.tracks.length === 0 && (
+              <Box sx={{ px: 2, py: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  No tracks — move tracks here, or this empty session is
+                  dropped on save.
+                </Typography>
+              </Box>
+            )}
 
-                {session.tracks.map((track) =>
-                  // Guard against a null/absent key matching the null default.
-                  editingKey != null && editingKey === track.key ? (
-                    <TrackRow
-                      key={track.key}
-                      track={track}
-                      sessionIdx={sIdx}
-                      sessionCount={sessionCount}
-                      teachers={teachers}
-                      enableIgnore={enableIgnore}
-                      enablePractice={enablePractice}
-                      onTrackChange={onTrackChange}
-                      onMoveTrack={onMoveTrack}
-                      onIgnoreTrack={onIgnoreTrack}
-                      onStopEdit={stopEdit}
-                      editableFilename={editableFilename}
-                      corrections={trackCorrections?.get(track.key)}
-                      bulkBusy={tracksBulkBusy}
-                    />
-                  ) : (
-                    <ReadonlyTrackRow
-                      key={track.key}
-                      track={track}
-                      teachers={teachers}
-                      enablePractice={enablePractice}
-                      corrections={trackCorrections?.get(track.key)}
-                      onEdit={startEdit}
-                    />
-                  ),
-                )}
-              </Fragment>
-            ))}
-          </TableBody>
-        </Table>
+            {session.tracks.map((track) =>
+              // Guard against a null/absent key matching the null default.
+              editingKey != null && editingKey === track.key ? (
+                <EditingTrackRow
+                  key={track.key}
+                  track={track}
+                  sessionIdx={sIdx}
+                  sessionCount={sessionCount}
+                  teachers={teachers}
+                  enableIgnore={enableIgnore}
+                  enablePractice={enablePractice}
+                  onTrackChange={onTrackChange}
+                  onMoveTrack={onMoveTrack}
+                  onIgnoreTrack={onIgnoreTrack}
+                  onStopEdit={stopEdit}
+                  onNavigate={(delta) => navigateEdit(track.key, delta)}
+                  editableFilename={editableFilename}
+                  corrections={trackCorrections?.get(track.key)}
+                  bulkBusy={tracksBulkBusy}
+                />
+              ) : (
+                <ReadonlyTrackRow
+                  key={track.key}
+                  track={track}
+                  teachers={teachers}
+                  enablePractice={enablePractice}
+                  corrections={trackCorrections?.get(track.key)}
+                  onEdit={startEdit}
+                />
+              ),
+            )}
+          </Paper>
+        ))}
       </Box>
 
       <Box sx={{ px: 2, py: 1.5 }}>
