@@ -41,6 +41,7 @@ const authFetch = (url: string, options: RequestInit = {}) =>
 
 const StatusChip = () => {
   const record = useRecordContext();
+  const translate = useTranslate();
   if (!record) return null;
   const colorMap: Record<string, "warning" | "success" | "error" | "default"> = {
     pending: "warning",
@@ -49,7 +50,7 @@ const StatusChip = () => {
   };
   return (
     <Chip
-      label={record.status}
+      label={translate(`padmakara.approvals.status.${record.status}`, { _: record.status })}
       size="small"
       color={colorMap[record.status] ?? "default"}
       sx={{ fontWeight: 600, textTransform: "capitalize" }}
@@ -78,7 +79,7 @@ const ApprovalActions = () => {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to approve");
+        throw new Error(data.error || translate("padmakara.approvals.approveFailed"));
       }
       notify(translate("padmakara.approvals.approvedNotify"), { type: "success" });
       refresh();
@@ -98,7 +99,7 @@ const ApprovalActions = () => {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to reject");
+        throw new Error(data.error || translate("padmakara.approvals.rejectFailed"));
       }
       notify(translate("padmakara.approvals.rejectedNotify"), { type: "success" });
       setRejectOpen(false);

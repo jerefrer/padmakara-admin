@@ -14,6 +14,7 @@ import {
   DateTimeInput,
   EditButton,
   useTranslate,
+  useLocaleState,
   useRecordContext,
   useRefresh,
   useNotify,
@@ -64,7 +65,7 @@ export const UserList = () => {
         <TextField source="dharmaName" label={translate("padmakara.fields.dharmaName")} />
         <TextField source="role" label={translate("padmakara.fields.role")} />
         <BooleanField source="isActive" label={translate("padmakara.fields.isActive")} />
-        <TextField source="subscriptionStatus" label="Subscription" />
+        <TextField source="subscriptionStatus" label={translate("padmakara.users.subscription")} />
         <DateField source="lastActivity" label={translate("padmakara.fields.lastActivity")} showTime />
         <EditButton />
       </Datagrid>
@@ -76,6 +77,8 @@ export const UserList = () => {
 
 function GroupCheckboxes() {
   const record = useRecordContext();
+  const translate = useTranslate();
+  const [locale] = useLocaleState();
   const refresh = useRefresh();
   const notify = useNotify();
   const [allGroups, setAllGroups] = useState<any[]>([]);
@@ -90,7 +93,7 @@ function GroupCheckboxes() {
     authFetch(`${API_URL}/groups?_start=0&_end=100&_sort=displayOrder&_order=ASC`)
       .then((r) => r.json())
       .then(setAllGroups)
-      .catch(() => notify("Failed to load groups", { type: "error" }))
+      .catch(() => notify(translate("padmakara.users.loadGroupsFailed"), { type: "error" }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -111,7 +114,7 @@ function GroupCheckboxes() {
         }
         refresh();
       } catch {
-        notify("Failed to update group membership", { type: "error" });
+        notify(translate("padmakara.users.updateGroupMembershipFailed"), { type: "error" });
       } finally {
         setBusy(null);
       }
@@ -121,7 +124,11 @@ function GroupCheckboxes() {
 
   if (loading) return <CircularProgress size={20} />;
   if (allGroups.length === 0) {
-    return <Typography variant="body2" color="text.secondary">No groups defined</Typography>;
+    return (
+      <Typography variant="body2" color="text.secondary">
+        {translate("padmakara.users.noGroupsDefined")}
+      </Typography>
+    );
   }
 
   return (
@@ -137,7 +144,10 @@ function GroupCheckboxes() {
               size="small"
             />
           }
-          label={g.nameEn || `Group #${g.id}`}
+          label={
+            (locale === "pt" && g.namePt ? g.namePt : g.nameEn) ||
+            translate("padmakara.users.groupFallback", { id: g.id })
+          }
         />
       ))}
     </Box>
@@ -150,6 +160,7 @@ type AttendanceSortField = "title" | "startDate" | "eventType" | "status";
 type SortDir = "asc" | "desc";
 
 const StatusChip = ({ status }: { status: string }) => {
+  const translate = useTranslate();
   const colorMap: Record<string, "success" | "warning" | "default"> = {
     published: "success",
     draft: "warning",
@@ -157,7 +168,7 @@ const StatusChip = ({ status }: { status: string }) => {
   };
   return (
     <Chip
-      label={status}
+      label={translate(`padmakara.events.${status}`, { _: status })}
       size="small"
       color={colorMap[status] ?? "default"}
       sx={{ fontWeight: 600, textTransform: "capitalize", color: "#fff" }}
@@ -167,6 +178,8 @@ const StatusChip = ({ status }: { status: string }) => {
 
 function EventAttendance() {
   const record = useRecordContext();
+  const translate = useTranslate();
+  const [locale] = useLocaleState();
   const refresh = useRefresh();
   const notify = useNotify();
   const [allEvents, setAllEvents] = useState<any[]>([]);
@@ -187,7 +200,7 @@ function EventAttendance() {
     authFetch(`${API_URL}/events?_start=0&_end=500&_sort=startDate&_order=DESC`)
       .then((r) => r.json())
       .then(setAllEvents)
-      .catch(() => notify("Failed to load events", { type: "error" }))
+      .catch(() => notify(translate("padmakara.users.loadEventsFailed"), { type: "error" }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -208,7 +221,7 @@ function EventAttendance() {
         }
         refresh();
       } catch {
-        notify("Failed to update event attendance", { type: "error" });
+        notify(translate("padmakara.users.updateAttendanceFailed"), { type: "error" });
       } finally {
         setBusy(null);
       }
@@ -229,10 +242,15 @@ function EventAttendance() {
   const eventTypes = useMemo(() => {
     const map = new Map<number, string>();
     for (const e of allEvents) {
-      if (e.eventType) map.set(e.eventType.id, e.eventType.nameEn);
+      if (e.eventType) {
+        map.set(
+          e.eventType.id,
+          locale === "pt" && e.eventType.namePt ? e.eventType.namePt : e.eventType.nameEn,
+        );
+      }
     }
     return Array.from(map, ([id, name]) => ({ id, name }));
-  }, [allEvents]);
+  }, [allEvents, locale]);
 
   // Filter and sort
   const filtered = useMemo(() => {
@@ -288,7 +306,7 @@ function EventAttendance() {
         <MuiTextField
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search events..."
+          placeholder={translate("padmakara.users.searchEventsPlaceholder")}
           variant="outlined"
           size="small"
           sx={{ minWidth: 200, flex: 1 }}
@@ -301,30 +319,30 @@ function EventAttendance() {
           size="small"
           sx={{ minWidth: 160 }}
           renderInput={(params) => (
-            <MuiTextField {...params} placeholder="Event Type" variant="outlined" />
+            <MuiTextField {...params} placeholder={translate("padmakara.events.eventType")} variant="outlined" />
           )}
         />
         <Autocomplete
           options={[
-            { id: "draft", label: "Draft" },
-            { id: "published", label: "Published" },
-            { id: "archived", label: "Archived" },
+            { id: "draft", label: translate("padmakara.events.draft") },
+            { id: "published", label: translate("padmakara.events.published") },
+            { id: "archived", label: translate("padmakara.events.archived") },
           ]}
           getOptionLabel={(o) => o.label}
           value={
             filterStatus
-              ? { id: filterStatus, label: filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1) }
+              ? { id: filterStatus, label: translate(`padmakara.events.${filterStatus}`) }
               : null
           }
           onChange={(_, v) => setFilterStatus(v?.id ?? null)}
           size="small"
           sx={{ minWidth: 130 }}
           renderInput={(params) => (
-            <MuiTextField {...params} placeholder="Status" variant="outlined" />
+            <MuiTextField {...params} placeholder={translate("padmakara.events.status")} variant="outlined" />
           )}
         />
         <Chip
-          label={`${attendedCount} / ${allEvents.length} attended`}
+          label={translate("padmakara.users.attendedCount", { attended: attendedCount, total: allEvents.length })}
           size="small"
           variant="outlined"
           sx={{ alignSelf: "center" }}
@@ -338,7 +356,7 @@ function EventAttendance() {
             <TableRow>
               <TableCell padding="checkbox" sx={{ width: 42 }}>
                 <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                  Att.
+                  {translate("padmakara.users.colAtt")}
                 </Typography>
               </TableCell>
               <TableCell sortDirection={sortField === "title" ? sortDir : false}>
@@ -347,7 +365,7 @@ function EventAttendance() {
                   direction={sortField === "title" ? sortDir : "asc"}
                   onClick={() => handleSort("title")}
                 >
-                  Event
+                  {translate("padmakara.users.colEvent")}
                 </TableSortLabel>
               </TableCell>
               <TableCell sortDirection={sortField === "eventType" ? sortDir : false}>
@@ -356,18 +374,18 @@ function EventAttendance() {
                   direction={sortField === "eventType" ? sortDir : "asc"}
                   onClick={() => handleSort("eventType")}
                 >
-                  Type
+                  {translate("padmakara.users.colType")}
                 </TableSortLabel>
               </TableCell>
-              <TableCell>Groups</TableCell>
-              <TableCell>Teachers</TableCell>
+              <TableCell>{translate("padmakara.users.colGroups")}</TableCell>
+              <TableCell>{translate("padmakara.events.teachers")}</TableCell>
               <TableCell sortDirection={sortField === "startDate" ? sortDir : false} sx={{ whiteSpace: "nowrap" }}>
                 <TableSortLabel
                   active={sortField === "startDate"}
                   direction={sortField === "startDate" ? sortDir : "desc"}
                   onClick={() => handleSort("startDate")}
                 >
-                  Date
+                  {translate("padmakara.users.colDate")}
                 </TableSortLabel>
               </TableCell>
               <TableCell sortDirection={sortField === "status" ? sortDir : false}>
@@ -376,7 +394,7 @@ function EventAttendance() {
                   direction={sortField === "status" ? sortDir : "asc"}
                   onClick={() => handleSort("status")}
                 >
-                  Status
+                  {translate("padmakara.events.status")}
                 </TableSortLabel>
               </TableCell>
             </TableRow>
@@ -411,13 +429,20 @@ function EventAttendance() {
                         {event.eventCode}
                       </Typography>
                       <Typography variant="body2" sx={{ fontSize: "0.8rem" }}>
-                        {event.titleEn}
+                        {locale === "pt" && event.titlePt ? event.titlePt : event.titleEn}
                       </Typography>
                     </Box>
                   </TableCell>
                   <TableCell>
                     {event.eventType ? (
-                      <Chip label={event.eventType.nameEn} size="small" />
+                      <Chip
+                        label={
+                          locale === "pt" && event.eventType.namePt
+                            ? event.eventType.namePt
+                            : event.eventType.nameEn
+                        }
+                        size="small"
+                      />
                     ) : (
                       "—"
                     )}
@@ -427,7 +452,12 @@ function EventAttendance() {
                       {(event.eventRetreatGroups || []).map((eg: any) => (
                         <Chip
                           key={eg.retreatGroupId}
-                          label={eg.retreatGroup?.abbreviation || eg.retreatGroup?.nameEn}
+                          label={
+                            eg.retreatGroup?.abbreviation ||
+                            (locale === "pt" && eg.retreatGroup?.namePt
+                              ? eg.retreatGroup.namePt
+                              : eg.retreatGroup?.nameEn)
+                          }
                           size="small"
                           variant="outlined"
                         />
@@ -448,7 +478,7 @@ function EventAttendance() {
                   </TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap", fontSize: "0.8rem" }}>
                     {event.startDate
-                      ? new Date(event.startDate).toLocaleDateString("en-GB", {
+                      ? new Date(event.startDate).toLocaleDateString(locale === "pt" ? "pt-PT" : "en-GB", {
                           day: "numeric",
                           month: "short",
                           year: "numeric",
@@ -464,7 +494,7 @@ function EventAttendance() {
             {filtered.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} align="center" sx={{ py: 3, color: "text.secondary" }}>
-                  No events found
+                  {translate("padmakara.users.noEventsFound")}
                 </TableCell>
               </TableRow>
             )}
@@ -534,48 +564,58 @@ export const UserEdit = () => {
         >
           {/* Subscription column */}
           <Box sx={{ flex: "1 1 400px", minWidth: 0 }}>
-            <SectionTitle>Subscription</SectionTitle>
+            <SectionTitle>{translate("padmakara.users.subscription")}</SectionTitle>
             <Stack spacing={2}>
               <Stack direction="row" spacing={2}>
                 <SelectInput
                   source="subscriptionStatus"
-                  label="Status"
+                  label={translate("padmakara.users.subscriptionStatusLabel")}
                   choices={[
-                    { id: "none", name: "None" },
-                    { id: "active", name: "Active" },
-                    { id: "expired", name: "Expired" },
+                    { id: "none", name: translate("padmakara.users.subscriptionNone") },
+                    { id: "active", name: translate("padmakara.users.subscriptionActive") },
+                    { id: "expired", name: translate("padmakara.users.subscriptionExpired") },
                   ]}
                   sx={{ flex: 1 }}
                 />
                 <SelectInput
                   source="subscriptionSource"
-                  label="Source"
+                  label={translate("padmakara.users.subscriptionSourceLabel")}
                   choices={[
-                    { id: "easypay", name: "Easypay" },
-                    { id: "cash", name: "Cash" },
-                    { id: "admin", name: "Admin" },
-                    { id: "bank_transfer", name: "Bank Transfer" },
+                    { id: "easypay", name: translate("padmakara.users.sourceEasypay") },
+                    { id: "cash", name: translate("padmakara.users.sourceCash") },
+                    { id: "admin", name: translate("padmakara.users.sourceAdmin") },
+                    { id: "bank_transfer", name: translate("padmakara.users.sourceBankTransfer") },
                   ]}
                   parse={(v: string) => v || null}
-                  emptyText="Not set"
+                  emptyText={translate("padmakara.common.notSet")}
                   sx={{ flex: 1 }}
                 />
               </Stack>
-              <DateTimeInput source="subscriptionExpiresAt" label="Expires At" fullWidth />
-              <TextInput source="subscriptionNotes" label="Notes" multiline minRows={3} fullWidth />
+              <DateTimeInput
+                source="subscriptionExpiresAt"
+                label={translate("padmakara.users.subscriptionExpiresAtLabel")}
+                fullWidth
+              />
+              <TextInput
+                source="subscriptionNotes"
+                label={translate("padmakara.users.subscriptionNotesLabel")}
+                multiline
+                minRows={3}
+                fullWidth
+              />
             </Stack>
           </Box>
 
           {/* Groups column */}
           <Box sx={{ flex: "0 0 auto", minWidth: 180 }}>
-            <SectionTitle>Groups</SectionTitle>
+            <SectionTitle>{translate("padmakara.users.groups")}</SectionTitle>
             <GroupCheckboxes />
           </Box>
         </Box>
 
         {/* ─── Event Attendance ──────────────────────── */}
         <Divider sx={{ width: "100%", my: 1 }} />
-        <SectionTitle>Event Attendance</SectionTitle>
+        <SectionTitle>{translate("padmakara.users.eventAttendance")}</SectionTitle>
         <EventAttendance />
       </SimpleForm>
     </Edit>

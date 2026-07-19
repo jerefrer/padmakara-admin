@@ -7,6 +7,7 @@ import {
   TextInput,
   required,
   useTranslate,
+  useLocaleState,
   SaveButton,
   Toolbar,
   useNotify,
@@ -48,6 +49,12 @@ interface LinkedEvent {
   titleEn: string;
   titlePt: string | null;
   startDate: string | null;
+}
+
+/** Locale-aware text for a bilingual EN/PT pair — PT when the UI is in
+ *  Portuguese and a PT value exists, else EN. */
+function localeText(en: string, pt: string | null | undefined, locale: string): string {
+  return locale === "pt" && pt ? pt : en;
 }
 
 export const GroupList = () => {
@@ -108,7 +115,7 @@ export const GroupEdit = () => {
         <TextInput source="slug" label={translate("padmakara.fields.slug")} validate={required()} />
         <TextInput source="description" label={translate("padmakara.fields.description")} multiline />
         <GroupImageUpload />
-        <TextInput source="logoUrl" label={translate("padmakara.fields.logoUrl")} helperText="Legacy field — replaced by Avatar above" />
+        <TextInput source="logoUrl" label={translate("padmakara.fields.logoUrl")} helperText={translate("padmakara.groups.logoUrlHelper")} />
       </SimpleForm>
     </Edit>
   );
@@ -142,6 +149,7 @@ const DeleteGroupDialog = ({
   group: GroupRecord;
 }) => {
   const translate = useTranslate();
+  const [locale] = useLocaleState();
   const notify = useNotify();
   const redirect = useRedirect();
   const dataProvider = useDataProvider();
@@ -207,7 +215,7 @@ const DeleteGroupDialog = ({
       notify(translate("padmakara.groups.deletedSuccess"), { type: "success" });
       redirect("list", "groups");
     } catch (error: any) {
-      notify(`Error: ${error.message}`, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
     } finally {
       setDeleting(false);
       onClose();
@@ -258,7 +266,7 @@ const DeleteGroupDialog = ({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {evt.eventCode} — {evt.titleEn}
+                  {evt.eventCode} — {localeText(evt.titleEn, evt.titlePt, locale)}
                 </Typography>
               ))}
               {linkedEvents!.length > 50 && (
@@ -287,7 +295,7 @@ const DeleteGroupDialog = ({
               </MenuItem>
               {otherGroups.map((g) => (
                 <MenuItem key={g.id} value={String(g.id)}>
-                  {g.nameEn}
+                  {localeText(g.nameEn, g.namePt, locale)}
                 </MenuItem>
               ))}
             </Select>

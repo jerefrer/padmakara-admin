@@ -52,7 +52,7 @@ export const Menu = () => {
       {/* Content section */}
       <SectionLabel>{translate("padmakara.menu.content")}</SectionLabel>
       <RaMenu.Item to="/events" primaryText={translate("resources.events.name", { smart_count: 2 })} leftIcon={<SpaIcon />} />
-      <RaMenu.Item to="/publications" primaryText="Publications" leftIcon={<MenuBookIcon />} />
+      <RaMenu.Item to="/publications" primaryText={translate("resources.publications.name", { smart_count: 2 })} leftIcon={<MenuBookIcon />} />
 
       <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", my: 1.5, mx: 2 }} />
 
@@ -70,8 +70,8 @@ export const Menu = () => {
       <SectionLabel>{translate("padmakara.menu.administration")}</SectionLabel>
       <RaMenu.Item to="/users" primaryText={translate("resources.users.name", { smart_count: 2 })} leftIcon={<PeopleIcon />} />
       <RaMenu.Item to="/approvals" primaryText={translate("resources.approvals.name", { smart_count: 2 })} leftIcon={<HowToRegIcon />} />
-      <RaMenu.Item to="/migrations" primaryText="Migrations" leftIcon={<SyncAltIcon />} />
-      <RaMenu.Item to="/imports" primaryText="Legacy Imports" leftIcon={<UploadFileIcon />} />
+      <RaMenu.Item to="/migrations" primaryText={translate("padmakara.menu.migrations")} leftIcon={<SyncAltIcon />} />
+      <RaMenu.Item to="/imports" primaryText={translate("padmakara.menu.legacyImports")} leftIcon={<UploadFileIcon />} />
 
       <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", my: 1.5, mx: 2 }} />
 

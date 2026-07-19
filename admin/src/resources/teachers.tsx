@@ -33,11 +33,13 @@ import DeleteIcon from "@mui/icons-material/Delete";
 
 function TypeToDeleteButton({ resource }: { resource: string }) {
   const record = useRecordContext();
+  const translate = useTranslate();
   const notify = useNotify();
   const redirect = useRedirect();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const [deleteOne, { isPending }] = useDelete();
+  const resourceLabel = translate(`resources.${resource}.name`, { smart_count: 1 }).toLowerCase();
 
   const handleDelete = () => {
     if (value !== "delete") return;
@@ -46,10 +48,10 @@ function TypeToDeleteButton({ resource }: { resource: string }) {
       { id: record?.id },
       {
         onSuccess: () => {
-          notify("Deleted", { type: "success" });
+          notify(translate("padmakara.common.deleted"), { type: "success" });
           redirect("list", resource);
         },
-        onError: () => notify("Delete failed", { type: "error" }),
+        onError: () => notify(translate("padmakara.common.deleteFailed"), { type: "error" }),
       },
     );
   };
@@ -62,32 +64,37 @@ function TypeToDeleteButton({ resource }: { resource: string }) {
         onClick={() => { setOpen(true); setValue(""); }}
         size="small"
       >
-        Delete
+        {translate("ra.action.delete")}
       </Button>
       <Dialog open={open} onClose={() => setOpen(false)}>
-        <DialogTitle>Confirm deletion</DialogTitle>
+        <DialogTitle>{translate("padmakara.common.confirmDeletion")}</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            This will remove the {resource.slice(0, -1)} from all associated events.
-            Type <strong>delete</strong> to confirm.
-          </Typography>
+          <Typography
+            variant="body2"
+            sx={{ mb: 2 }}
+            dangerouslySetInnerHTML={{
+              __html: translate("padmakara.common.deleteAssociatedWarning", {
+                resource: resourceLabel,
+              }),
+            }}
+          />
           <MuiTextField
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="Type delete"
+            placeholder={translate("padmakara.common.typeDeletePlaceholder")}
             size="small"
             fullWidth
             autoFocus
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>{translate("ra.action.cancel")}</Button>
           <Button
             color="error"
             onClick={handleDelete}
             disabled={value !== "delete" || isPending}
           >
-            Delete
+            {translate("ra.action.delete")}
           </Button>
         </DialogActions>
       </Dialog>

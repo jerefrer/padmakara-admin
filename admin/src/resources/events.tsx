@@ -14,6 +14,7 @@ import {
   useRefresh,
   useTranslate,
   useLocaleState,
+  useRecordContext,
   ReferenceField,
   ReferenceArrayField,
   SingleFieldList,
@@ -122,9 +123,23 @@ function localeName(entity: { nameEn: string; namePt?: string | null }, locale: 
   return locale === "pt" && entity.namePt ? entity.namePt : entity.nameEn;
 }
 
+/** Locale-aware title for events: PT when the UI is in Portuguese and a PT title exists, else EN */
+function localeTitle(record: { titleEn?: string | null; titlePt?: string | null }, locale: string): string {
+  return (locale === "pt" && record.titlePt ? record.titlePt : record.titleEn) ?? "";
+}
+
+/** Chip rendering the locale-aware name of the record in context (audiences, event types…) */
+const LocaleNameChip = () => {
+  const record = useRecordContext<{ nameEn: string; namePt?: string | null }>();
+  const [locale] = useLocaleState();
+  if (!record) return null;
+  return <Chip label={localeName(record, locale)} size="small" />;
+};
+
 /* ───────────── Event List ───────────── */
 
 const StatusChip = ({ status }: { status: string }) => {
+  const translate = useTranslate();
   const colorMap: Record<string, "success" | "warning" | "default"> = {
     published: "success",
     draft: "warning",
@@ -132,7 +147,7 @@ const StatusChip = ({ status }: { status: string }) => {
   };
   return (
     <Chip
-      label={status}
+      label={translate(`padmakara.events.${status}`, { _: status })}
       size="small"
       color={colorMap[status] ?? "default"}
       sx={{ fontWeight: 600, textTransform: "capitalize", color: "#fff" }}
@@ -155,8 +170,11 @@ function useChoicesWithNone(
   labelField: string,
 ): { id: any; __label: string }[] {
   const dataProvider = useDataProvider();
+  const translate = useTranslate();
+  const [locale] = useLocaleState();
+  const noneLabel = translate("padmakara.common.none", { _: "(None)" });
   const [choices, setChoices] = useState<{ id: any; __label: string }[]>([
-    { id: "none", __label: "(None)" },
+    { id: "none", __label: noneLabel },
   ]);
 
   useEffect(() => {
@@ -170,9 +188,10 @@ function useChoicesWithNone(
       .then((res) => {
         if (cancelled) return;
         const labelOf = (d: any): string =>
+          (locale === "pt" ? d?.namePt : null) ??
           d?.[labelField] ?? d?.nameEn ?? d?.name ?? d?.titleEn ?? `#${d?.id}`;
         setChoices([
-          { id: "none", __label: "(None)" },
+          { id: "none", __label: noneLabel },
           ...(res.data ?? []).map((d: any) => ({ ...d, __label: labelOf(d) })),
         ]);
       })
@@ -185,7 +204,7 @@ function useChoicesWithNone(
     return () => {
       cancelled = true;
     };
-  }, [dataProvider, resource, labelField]);
+  }, [dataProvider, resource, labelField, locale, noneLabel]);
 
   return choices;
 }
@@ -248,44 +267,46 @@ const SingleFilterWithNone = ({
   );
 };
 
+// Labels and choice names are i18n keys — react-admin's label/choice
+// translation resolves them (falling back to the literal string).
 const eventFilters = [
-  <TextInput key="q" label="Search" source="q" alwaysOn />,
+  <TextInput key="q" label="ra.action.search" source="q" alwaysOn />,
   <SingleFilterWithNone
     key="eventType"
     source="eventTypeId"
     referenceResource="event-types"
-    label="Event Type"
+    label="padmakara.events.eventType"
     optionText="nameEn"
   />,
   <ArrayFilterWithNone
     key="groups"
     source="groupIds"
     referenceResource="groups"
-    label="Retreat Groups"
+    label="padmakara.events.retreatGroups"
     optionText="nameEn"
   />,
   <ArrayFilterWithNone
     key="teachers"
     source="teacherIds"
     referenceResource="teachers"
-    label="Teachers"
+    label="padmakara.events.teachers"
     optionText="name"
   />,
   <ArrayFilterWithNone
     key="audiences"
     source="audienceIds"
     referenceResource="audiences"
-    label="Audiences"
+    label="padmakara.events.audiences"
     optionText="nameEn"
   />,
   <SelectInput
     key="status"
     source="status"
-    label="Status"
+    label="padmakara.events.status"
     choices={[
-      { id: "draft", name: "Draft" },
-      { id: "published", name: "Published" },
-      { id: "archived", name: "Archived" },
+      { id: "draft", name: "padmakara.events.draft" },
+      { id: "published", name: "padmakara.events.published" },
+      { id: "archived", name: "padmakara.events.archived" },
     ]}
   />,
 ];
@@ -294,6 +315,7 @@ const FeaturedToggleCell = ({ record }: { record: any }) => {
   const dataProvider = useDataProvider();
   const notify = useNotify();
   const refresh = useRefresh();
+  const translate = useTranslate();
   const [loading, setLoading] = useState(false);
 
   const handleToggle = async (e: React.MouseEvent) => {
@@ -306,17 +328,26 @@ const FeaturedToggleCell = ({ record }: { record: any }) => {
         data: { featuredAt: newFeaturedAt },
         previousData: record,
       });
-      notify(newFeaturedAt ? "Event set as featured" : "Featured removed", { type: "success" });
+      notify(
+        newFeaturedAt
+          ? "padmakara.events.featuredSetNotify"
+          : "padmakara.events.featuredRemovedNotify",
+        { type: "success" },
+      );
       refresh();
     } catch (error: any) {
-      notify(`Error: ${error.message}`, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Tooltip title={record.featuredAt ? "Remove from featured" : "Set as featured"}>
+    <Tooltip
+      title={translate(
+        record.featuredAt ? "padmakara.events.featuredRemove" : "padmakara.events.featuredSet",
+      )}
+    >
       <IconButton
         size="small"
         onClick={handleToggle}
@@ -369,35 +400,35 @@ export const EventList = () => {
                 {record.eventCode}
               </Typography>
               <Typography variant="body2" sx={{ fontSize: "0.875rem" }}>
-                {record.titleEn}
+                {localeTitle(record, locale)}
               </Typography>
             </Box>
           )}
         />
 
         <FunctionField
-          label="Event Type"
+          label={translate("padmakara.events.eventType")}
           sortBy="eventTypeId"
           render={(record: any) => (
-            record.eventType ? <Chip label={record.eventType.nameEn} size="small" /> : "—"
+            record.eventType ? <Chip label={localeName(record.eventType, locale)} size="small" /> : "—"
           )}
         />
 
-        <ReferenceArrayField source="groupIds" reference="groups" label="Retreat Groups" sortable={false}>
+        <ReferenceArrayField source="groupIds" reference="groups" label={translate("padmakara.events.retreatGroups")} sortable={false}>
           <SingleFieldList>
             <ChipField source="abbreviation" size="small" />
           </SingleFieldList>
         </ReferenceArrayField>
 
-        <ReferenceArrayField source="teacherIds" reference="teachers" label="Teachers" sortable={false}>
+        <ReferenceArrayField source="teacherIds" reference="teachers" label={translate("padmakara.events.teachers")} sortable={false}>
           <SingleFieldList>
             <ChipField source="abbreviation" size="small" />
           </SingleFieldList>
         </ReferenceArrayField>
 
-        <ReferenceArrayField source="audienceIds" reference="audiences" label="Audience" sortable={false}>
+        <ReferenceArrayField source="audienceIds" reference="audiences" label={translate("padmakara.events.audience")} sortable={false}>
           <SingleFieldList>
-            <ChipField source="nameEn" size="small" />
+            <LocaleNameChip />
           </SingleFieldList>
         </ReferenceArrayField>
 
@@ -850,7 +881,10 @@ export const EventFormFields = ({
       const applied = appliedEvent + appliedPreview + results.length - failureCount;
       refresh();
       if (failureCount > 0) {
-        notify(`Failed to update ${failureCount} title(s)`, { type: "error" });
+        notify("padmakara.events.updateTitlesFailed", {
+          type: "error",
+          messageArgs: { smart_count: failureCount },
+        });
       } else if (applied > 0) {
         notify(translate("padmakara.events.translatedSummary", { smart_count: applied }), {
           type: "success",
@@ -942,7 +976,11 @@ export const EventFormFields = ({
             {translate("padmakara.events.published")}
           </ToggleButton>
         </ToggleButtonGroup>
-        <Tooltip title={form.featuredAt ? "Remove from featured" : "Set as featured on home screen"}>
+        <Tooltip
+          title={translate(
+            form.featuredAt ? "padmakara.events.featuredRemove" : "padmakara.events.featuredSetHome",
+          )}
+        >
           <IconButton
             onClick={() => {
               setForm((prev) => ({
@@ -1757,7 +1795,10 @@ export const EventCreate = () => {
         inferredSessions = applyFolderSpeakerFallback(out.sessions, folderSpeaker);
         newCorrections = out.corrections;
       } catch (err) {
-        notify(`Failed to process AI analysis: ${(err as Error).message}`, { type: "error" });
+        notify("padmakara.common.aiProcessFailed", {
+          type: "error",
+          messageArgs: { message: (err as Error).message },
+        });
         return;
       }
 
@@ -1851,7 +1892,10 @@ export const EventCreate = () => {
     }
     const base = (form.eventCode || folderName || "event").replace(/[^\w.-]+/g, "_");
     exportTracksToXlsx(rows, `${base}-tracks-review.xlsx`).catch((err) =>
-      notify(`Export failed: ${(err as Error).message}`, { type: "error" }),
+      notify("padmakara.common.exportFailed", {
+        type: "error",
+        messageArgs: { message: (err as Error).message },
+      }),
     );
   }, [sessions, trackCorrections, form.eventCode, folderName, notify]);
 
@@ -2086,7 +2130,7 @@ export const EventCreate = () => {
         redirect("list", "events");
       }
     } catch (error: any) {
-      notify(`Error: ${error.message}`, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
       setSaving(false);
     }
   };
@@ -2283,6 +2327,7 @@ export const EventEdit = () => {
   const notify = useNotify();
   const redirect = useRedirect();
   const translate = useTranslate();
+  const [locale] = useLocaleState();
   const refresh = useRefresh();
 
   const { data: event, isPending } = useGetOne("events", { id: id! }, {
@@ -2384,7 +2429,10 @@ export const EventEdit = () => {
         return promise
           .then(() => refresh())
           .catch((error: any) =>
-            notify(`Error updating session: ${error.message}`, { type: "error" }),
+            notify("padmakara.common.sessionUpdateFailed", {
+              type: "error",
+              messageArgs: { message: error.message },
+            }),
           );
       }
       return undefined;
@@ -2466,7 +2514,10 @@ export const EventEdit = () => {
         }
       } catch (error: any) {
         if (!opts?.silent) {
-          notify(`Error updating track: ${error.message}`, { type: "error" });
+          notify("padmakara.common.trackUpdateFailed", {
+            type: "error",
+            messageArgs: { message: error.message },
+          });
         }
         throw error;
       }
@@ -2638,7 +2689,10 @@ export const EventEdit = () => {
               f.filename === file.name ? { ...f, status: "error" } : f,
             ),
           });
-          notify(`Video upload failed: ${err?.message || err}`, { type: "error" });
+          notify("padmakara.common.videoUploadFailed", {
+            type: "error",
+            messageArgs: { message: err?.message || String(err) },
+          });
         })
         .finally(() => {
           cancelUploadRef.current = null;
@@ -2692,7 +2746,10 @@ export const EventEdit = () => {
         notify(translate("padmakara.session.videoDeleted") || "Video removed", { type: "success" });
         refresh();
       } catch (error: any) {
-        notify(`Failed to remove video: ${error?.message || error}`, { type: "error" });
+        notify("padmakara.common.videoRemoveFailed", {
+          type: "error",
+          messageArgs: { message: error?.message || String(error) },
+        });
         throw error;
       }
     },
@@ -2746,7 +2803,7 @@ export const EventEdit = () => {
   const handleAddFolderDropped = useCallback(
     async (meta: FolderMetadata, tracks: ParsedTrack[]) => {
       if (!form.eventCode || !id) {
-        notify("Save the event first before adding new sessions", { type: "warning" });
+        notify("padmakara.events.saveBeforeSessions", { type: "warning" });
         return;
       }
       setAddTracksUploading(true);
@@ -2832,7 +2889,7 @@ export const EventEdit = () => {
           cancelUploadRef.current = cancel;
           try {
             await promise;
-            notify("Sessions and tracks added and uploaded", { type: "success" });
+            notify("padmakara.events.sessionsAddedUploaded", { type: "success" });
             refresh();
           } catch {
             // Error shown in UploadProgress
@@ -2840,12 +2897,15 @@ export const EventEdit = () => {
             setUploadProgress(null);
           }
         } else {
-          notify("Sessions added (no audio to upload)", { type: "success" });
+          notify("padmakara.events.sessionsAddedNoAudio", { type: "success" });
           refresh();
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        notify(`Error adding sessions: ${msg}`, { type: "error" });
+        notify("padmakara.events.errorAddingSessions", {
+          type: "error",
+          messageArgs: { message: msg },
+        });
       } finally {
         setAddTracksUploading(false);
       }
@@ -2862,9 +2922,14 @@ export const EventEdit = () => {
         data: { featuredAt: newFeaturedAt },
         previousData: event,
       });
-      notify(newFeaturedAt ? "Event set as featured" : "Featured removed", { type: "success" });
+      notify(
+        newFeaturedAt
+          ? "padmakara.events.featuredSetNotify"
+          : "padmakara.events.featuredRemovedNotify",
+        { type: "success" },
+      );
     } catch (error: any) {
-      notify(`Error: ${error.message}`, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
     }
   }, [id, form.featuredAt, dataProvider, event, notify]);
 
@@ -2876,11 +2941,14 @@ export const EventEdit = () => {
         data: { status: newStatus },
         previousData: event,
       });
-      notify(`Status changed to ${newStatus}`, { type: "success" });
+      notify("padmakara.events.statusChanged", {
+        type: "success",
+        messageArgs: { status: translate(`padmakara.events.${newStatus}`, { _: newStatus }) },
+      });
     } catch (error: any) {
-      notify(`Error: ${error.message}`, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
     }
-  }, [id, dataProvider, event, notify]);
+  }, [id, dataProvider, event, notify, translate]);
 
   const handleSave = async () => {
     if (!form.eventCode || !form.titleEn) {
@@ -2906,7 +2974,7 @@ export const EventEdit = () => {
       notify(translate("padmakara.events.updatedSuccess"), { type: "success" });
       redirect("list", "events");
     } catch (error: any) {
-      notify(`Error: ${error.message}`, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
     } finally {
       setSaving(false);
     }
@@ -2919,7 +2987,7 @@ export const EventEdit = () => {
       notify(translate("padmakara.events.deletedSuccess"), { type: "success" });
       redirect("list", "events");
     } catch (error: any) {
-      notify(`Error: ${error.message}`, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
     } finally {
       setDeleting(false);
       setDeleteOpen(false);
@@ -2939,8 +3007,8 @@ export const EventEdit = () => {
 
   return (
     <Box sx={{ maxWidth: 900, mx: "auto", pb: 6 }}>
-      <Title title={`${translate("ra.action.edit")}: ${event?.titleEn || ""}`} />
-      <PageHeader title={event?.titleEn || translate("ra.action.edit")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
+      <Title title={`${translate("ra.action.edit")}: ${event ? localeTitle(event, locale) : ""}`} />
+      <PageHeader title={(event && localeTitle(event, locale)) || translate("ra.action.edit")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
 
       <EventFormFields
         form={form} setForm={setForm}

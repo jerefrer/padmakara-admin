@@ -9,6 +9,8 @@ import {
   DeleteButton,
   useNotify,
   useRedirect,
+  useTranslate,
+  useLocaleState,
   Title,
   Show,
   useRecordContext,
@@ -75,9 +77,10 @@ const STATUS_COLOR: Record<
 
 /** Small coloured chip for an import job's lifecycle status. */
 export function ImportStatusChip({ status }: { status: string }) {
+  const translate = useTranslate();
   return (
     <Chip
-      label={status}
+      label={translate(`padmakara.migrations.status.${status}`, { _: status })}
       size="small"
       color={STATUS_COLOR[status] ?? "default"}
     />
@@ -85,26 +88,30 @@ export function ImportStatusChip({ status }: { status: string }) {
 }
 
 /** Worklist of import jobs. */
-export const MigrationList = () => (
-  <List sort={{ field: "createdAt", order: "DESC" }} perPage={50}>
-    <Datagrid rowClick="show" bulkActionButtons={false}>
-      <NumberField source="id" />
-      <TextField source="eventCode" label="Event code" />
-      <FunctionField
-        label="Status"
-        render={(record: { status: string }) => (
-          <ImportStatusChip status={record.status} />
-        )}
-      />
-      <NumberField source="fileCount" label="Files" />
-      <DateField source="createdAt" showTime />
-      <DeleteButton />
-    </Datagrid>
-  </List>
-);
+export const MigrationList = () => {
+  const translate = useTranslate();
+  return (
+    <List sort={{ field: "createdAt", order: "DESC" }} perPage={50}>
+      <Datagrid rowClick="show" bulkActionButtons={false}>
+        <NumberField source="id" />
+        <TextField source="eventCode" label={translate("padmakara.events.eventCode")} />
+        <FunctionField
+          label={translate("padmakara.events.status")}
+          render={(record: { status: string }) => (
+            <ImportStatusChip status={record.status} />
+          )}
+        />
+        <NumberField source="fileCount" label={translate("padmakara.migrations.files")} />
+        <DateField source="createdAt" showTime />
+        <DeleteButton />
+      </Datagrid>
+    </List>
+  );
+};
 
 /** "Catalog a legacy event" page — lists inventory events not yet imported. */
 export const MigrationCreate = () => {
+  const translate = useTranslate();
   const notify = useNotify();
   const redirect = useRedirect();
   const [events, setEvents] = useState<AvailableEvent[] | null>(null);
@@ -115,8 +122,9 @@ export const MigrationCreate = () => {
     listAvailableEvents()
       .then((r) => setEvents(r.events))
       .catch((e: Error) =>
-        notify(`Failed to load available events: ${e.message}`, {
+        notify("padmakara.migrations.failedLoadEvents", {
           type: "error",
+          messageArgs: { message: e.message },
         }),
       );
   }, [notify]);
@@ -132,10 +140,10 @@ export const MigrationCreate = () => {
         const job = await catalogEvent(eventCode);
         jobId = job.id;
         await proposeStructure(job.id);
-        notify(`${eventCode} analyzed — ready for review`, { type: "success" });
+        notify(translate("padmakara.migrations.analyzedReady", { eventCode }), { type: "success" });
         redirect("show", "migrations", job.id);
       } catch (e) {
-        notify((e as Error).message, { type: "error" });
+        notify("padmakara.common.error", { type: "error", messageArgs: { message: (e as Error).message } });
         if (jobId !== null) {
           redirect("show", "migrations", jobId);
         } else {
@@ -143,7 +151,7 @@ export const MigrationCreate = () => {
         }
       }
     },
-    [notify, redirect],
+    [notify, redirect, translate],
   );
 
   if (events === null) {
@@ -160,12 +168,12 @@ export const MigrationCreate = () => {
 
   return (
     <Box sx={{ p: 2 }}>
-      <Title title="Review a legacy event" />
+      <Title title={translate("padmakara.migrations.reviewLegacyEventTitle")} />
       <Typography variant="h6" sx={{ mb: 1 }}>
-        Legacy events available to import ({events.length})
+        {translate("padmakara.migrations.legacyEventsAvailable", { count: events.length })}
       </Typography>
       <MuiTextField
-        label="Filter by event code"
+        label={translate("padmakara.migrations.filterByEventCode")}
         value={filter}
         size="small"
         fullWidth
@@ -180,7 +188,7 @@ export const MigrationCreate = () => {
           <Box sx={{ flex: 1 }}>
             <Typography sx={{ fontWeight: 600 }}>{e.eventCode}</Typography>
             <Typography variant="caption" color="text.secondary">
-              {e.fileCount} files · {e.matchStatus}
+              {translate("padmakara.migrations.filesCount", { smart_count: e.fileCount })} · {e.matchStatus}
             </Typography>
           </Box>
           <Button
@@ -194,12 +202,14 @@ export const MigrationCreate = () => {
             }
             onClick={() => onCatalog(e.eventCode)}
           >
-            {cataloging === e.eventCode ? "Analyzing…" : "Review"}
+            {cataloging === e.eventCode
+              ? translate("padmakara.migrations.analyzing")
+              : translate("padmakara.migrations.review")}
           </Button>
         </Paper>
       ))}
       {shown.length === 0 && (
-        <Typography color="text.secondary">No matching events.</Typography>
+        <Typography color="text.secondary">{translate("padmakara.migrations.noMatchingEvents")}</Typography>
       )}
     </Box>
   );
@@ -337,6 +347,7 @@ function tableValueToStructure(
 
 function ImportWorkspace() {
   const job = useRecordContext<ImportJob>();
+  const translate = useTranslate();
   const notify = useNotify();
   const refresh = useRefresh();
   const dataProvider = useDataProvider();
@@ -441,7 +452,7 @@ function ImportWorkspace() {
       notify(okMsg, { type: "success" });
       refresh();
     } catch (e) {
-      notify((e as Error).message, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: (e as Error).message } });
     } finally {
       setBusyAction(null);
     }
@@ -465,10 +476,10 @@ function ImportWorkspace() {
         setStructure(updated.proposedStructure);
       }
       setInstruction("");
-      notify("The AI adjusted the structure", { type: "success" });
+      notify(translate("padmakara.migrations.aiAdjustedStructure"), { type: "success" });
       refresh();
     } catch (e) {
-      notify((e as Error).message, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: (e as Error).message } });
     } finally {
       setBusyAction(null);
     }
@@ -487,7 +498,7 @@ function ImportWorkspace() {
       transcripts: structure.transcripts ?? [],
     };
     if (normalized.sessions.length === 0) {
-      notify("Add at least one session with tracks before importing", {
+      notify(translate("padmakara.migrations.needAtLeastOneSession"), {
         type: "warning",
       });
       return null;
@@ -502,7 +513,7 @@ function ImportWorkspace() {
     void run(
       "save",
       () => confirmStructure(job.id, normalized),
-      "Saved — you can finish the import later",
+      translate("padmakara.migrations.savedForLater"),
     );
   };
 
@@ -516,10 +527,10 @@ function ImportWorkspace() {
     try {
       await confirmStructure(job.id, normalized);
       await executeImport(job.id);
-      notify("Import complete", { type: "success" });
+      notify(translate("padmakara.migrations.importComplete"), { type: "success" });
       refresh();
     } catch (e) {
-      notify((e as Error).message, { type: "error" });
+      notify("padmakara.common.error", { type: "error", messageArgs: { message: (e as Error).message } });
     } finally {
       setBusyAction(null);
     }
@@ -535,13 +546,13 @@ function ImportWorkspace() {
         <Typography variant="h6">{job.eventCode}</Typography>
         <ImportStatusChip status={job.status} />
         <Typography variant="caption" color="text.secondary">
-          {job.fileCount} files
+          {translate("padmakara.migrations.filesCount", { smart_count: job.fileCount })}
         </Typography>
       </Box>
 
       {job.status === "failed" && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          {job.errorMessage ?? "Import failed."}
+          {job.errorMessage ?? translate("padmakara.migrations.importFailed")}
         </Alert>
       )}
 
@@ -558,11 +569,11 @@ function ImportWorkspace() {
             void run(
               "propose",
               () => proposeStructure(job.id),
-              "AI proposed a session structure",
+              translate("padmakara.migrations.aiProposedStructure"),
             )
           }
         >
-          Propose structure with AI
+          {translate("padmakara.migrations.proposeStructureButton")}
         </Button>
       )}
 
@@ -608,14 +619,14 @@ function ImportWorkspace() {
           />
           <Box sx={{ mt: 2, p: 1.5, bgcolor: "action.hover", borderRadius: 1 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              Ask the AI to adjust the structure
+              {translate("padmakara.migrations.askAiAdjust")}
             </Typography>
             <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
               <MuiTextField
                 size="small"
                 fullWidth
                 multiline
-                placeholder="e.g. Split day 2 into a morning and an afternoon session"
+                placeholder={translate("padmakara.migrations.refinePlaceholder")}
                 value={instruction}
                 onChange={(e) => setInstruction(e.target.value)}
                 disabled={busyAction !== null}
@@ -630,7 +641,7 @@ function ImportWorkspace() {
                 }
                 onClick={() => void onRefine()}
               >
-                Adjust
+                {translate("padmakara.migrations.adjustButton")}
               </Button>
             </Box>
           </Box>
@@ -645,7 +656,7 @@ function ImportWorkspace() {
               }
               onClick={onConfirm}
             >
-              Save for later
+              {translate("padmakara.migrations.saveForLater")}
             </Button>
             <Button
               variant="contained"
@@ -670,7 +681,7 @@ function ImportWorkspace() {
                 });
                 if (problems.length > 0) {
                   notify(
-                    ["Cannot import — please fix:", ...problems].join("\n"),
+                    [translate("padmakara.migrations.cannotImportFixIssues"), ...problems].join("\n"),
                     { type: "warning", multiLine: true },
                   );
                   return;
@@ -678,29 +689,27 @@ function ImportWorkspace() {
                 if (buildNormalizedStructure() !== null) setConfirmOpen(true);
               }}
             >
-              Start the import
+              {translate("padmakara.migrations.startImport")}
             </Button>
           </Box>
 
           <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-            <DialogTitle>Start the import for {job.eventCode}?</DialogTitle>
+            <DialogTitle>
+              {translate("padmakara.migrations.startImportConfirmTitle", { eventCode: job.eventCode })}
+            </DialogTitle>
             <DialogContent>
               <DialogContentText>
-                This copies every audio file and transcript from the legacy
-                bucket and creates the event with its sessions and tracks. It
-                can take a few minutes for a large event. Make sure the
-                structure and the event details are correct — once imported,
-                this event code cannot be imported again.
+                {translate("padmakara.migrations.startImportWarning")}
               </DialogContentText>
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+              <Button onClick={() => setConfirmOpen(false)}>{translate("ra.action.cancel")}</Button>
               <Button
                 variant="contained"
                 color="warning"
                 onClick={() => void onRunImport()}
               >
-                Start the import
+                {translate("padmakara.migrations.startImport")}
               </Button>
             </DialogActions>
           </Dialog>
@@ -708,15 +717,14 @@ function ImportWorkspace() {
       )}
 
       {job.status === "importing" && (
-        <Typography>Importing — this may take a moment…</Typography>
+        <Typography>{translate("padmakara.migrations.importingInProgress")}</Typography>
       )}
 
       {job.status === "completed" && (
         <Alert severity="success">
-          Imported successfully
           {job.retreatId != null
-            ? ` as event #${job.retreatId} (open it from the Events list).`
-            : "."}
+            ? translate("padmakara.migrations.importedSuccessfullyWithEvent", { id: job.retreatId })
+            : translate("padmakara.migrations.importedSuccessfullyPeriod")}
         </Alert>
       )}
     </Box>
