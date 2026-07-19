@@ -27,8 +27,6 @@ import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import InputBase from "@mui/material/InputBase";
-import Menu from "@mui/material/Menu";
-import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -44,6 +42,7 @@ import {
 } from "../utils/trackParser";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
+import { SpeakerChipPicker } from "./SpeakerPicker";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
 import {
   DEFAULT_LANG_CHIP,
@@ -933,7 +932,7 @@ const TrackRow = ({
     speaker: track.speaker || "",
   });
   const [editValues, setEditValues] = useState(seedFromTrack);
-  const [speakerMenuAnchor, setSpeakerMenuAnchor] = useState<null | HTMLElement>(null);
+  const [speakerPickerOpen, setSpeakerPickerOpen] = useState(false);
   // Set once the editor's outcome is decided (save, cancel or navigate) so a
   // trailing blur event can't double-commit or clobber the next row's state.
   const doneRef = useRef(false);
@@ -1016,9 +1015,9 @@ const TrackRow = ({
   };
 
   const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>) => {
-    // The speaker menu renders in a portal — focus moving into it must not
+    // The speaker picker renders in a portal — focus moving into it must not
     // close the editor.
-    if (speakerMenuAnchor) return;
+    if (speakerPickerOpen) return;
     if (e.relatedTarget && containerRef.current?.contains(e.relatedTarget as Node)) return;
     saveAndClose();
   };
@@ -1148,40 +1147,12 @@ const TrackRow = ({
 
         {/* Metadata line — the same chips as view mode, made toggleable */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", pl: "34px" }}>
-          <Chip
-            size="small"
-            variant="outlined"
-            label={`${editValues.speaker || translate("padmakara.tracks.speaker")} ▾`}
-            onClick={(e) => setSpeakerMenuAnchor(e.currentTarget)}
-            sx={{ height: 20, fontWeight: 600, "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" } }}
+          <SpeakerChipPicker
+            value={editValues.speaker || null}
+            teachers={allTeachers}
+            onChange={(abbr) => setEditValues((p) => ({ ...p, speaker: abbr ?? "" }))}
+            onOpenChange={setSpeakerPickerOpen}
           />
-          <Menu
-            anchorEl={speakerMenuAnchor}
-            open={Boolean(speakerMenuAnchor)}
-            onClose={() => setSpeakerMenuAnchor(null)}
-          >
-            <MenuItem
-              selected={!editValues.speaker}
-              onClick={() => {
-                setEditValues((p) => ({ ...p, speaker: "" }));
-                setSpeakerMenuAnchor(null);
-              }}
-            >
-              {translate("padmakara.tracks.noSpeaker")}
-            </MenuItem>
-            {allTeachers.map((t) => (
-              <MenuItem
-                key={t.id}
-                selected={t.abbreviation === editValues.speaker}
-                onClick={() => {
-                  setEditValues((p) => ({ ...p, speaker: t.abbreviation }));
-                  setSpeakerMenuAnchor(null);
-                }}
-              >
-                {t.name} ({t.abbreviation})
-              </MenuItem>
-            ))}
-          </Menu>
 
           {LANGUAGE_CODES.map((lang) => {
             const active = editValues.languages.includes(lang);

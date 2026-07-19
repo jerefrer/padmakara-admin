@@ -44,6 +44,7 @@ import SelfImprovementIcon from "@mui/icons-material/SelfImprovement";
 import TranslateIcon from "@mui/icons-material/Translate";
 import { useNotify, useTranslate } from "react-admin";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
+import { SpeakerChipPicker } from "./SpeakerPicker";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
 import {
   DEFAULT_LANG_CHIP,
@@ -416,7 +417,7 @@ function EditingTrackRow({
   const seedRef = useRef<TableTrack>({ ...track, languages: [...track.languages] });
   const seed = seedRef.current;
   const [draft, setDraft] = useState<TableTrack>(seed);
-  const [speakerMenuAnchor, setSpeakerMenuAnchor] = useState<null | HTMLElement>(null);
+  const [speakerPickerOpen, setSpeakerPickerOpen] = useState(false);
   const [moveMenuAnchor, setMoveMenuAnchor] = useState<null | HTMLElement>(null);
   // Set once the editor's outcome is decided (save, cancel or navigate) so a
   // trailing blur can't double-commit.
@@ -482,7 +483,7 @@ function EditingTrackRow({
   const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>) => {
     // Menus render in portals — focus moving into them must not close the
     // editor.
-    if (speakerMenuAnchor || moveMenuAnchor) return;
+    if (speakerPickerOpen || moveMenuAnchor) return;
     if (e.relatedTarget && containerRef.current?.contains(e.relatedTarget as Node)) return;
     saveAndClose();
   };
@@ -612,41 +613,12 @@ function EditingTrackRow({
 
       {/* Metadata line — the same chips as view mode, made toggleable */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", pl: "58px" }}>
-        <Chip
-          size="small"
-          variant="outlined"
-          label={`${draft.speaker || translate("padmakara.tracks.speaker")} ▾`}
-          title={teacherDisplayName(teachers, draft.speaker)}
-          onClick={(e) => setSpeakerMenuAnchor(e.currentTarget)}
-          sx={{ height: 20, fontWeight: 600, "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" } }}
+        <SpeakerChipPicker
+          value={draft.speaker}
+          teachers={teachers}
+          onChange={(abbr) => setDraft((p) => ({ ...p, speaker: abbr }))}
+          onOpenChange={setSpeakerPickerOpen}
         />
-        <Menu
-          anchorEl={speakerMenuAnchor}
-          open={Boolean(speakerMenuAnchor)}
-          onClose={() => setSpeakerMenuAnchor(null)}
-        >
-          <MenuItem
-            selected={!draft.speaker}
-            onClick={() => {
-              setDraft((p) => ({ ...p, speaker: null }));
-              setSpeakerMenuAnchor(null);
-            }}
-          >
-            {translate("padmakara.tracks.noSpeaker")}
-          </MenuItem>
-          {teachers.map((t) => (
-            <MenuItem
-              key={t.id}
-              selected={t.abbreviation === draft.speaker}
-              onClick={() => {
-                setDraft((p) => ({ ...p, speaker: t.abbreviation }));
-                setSpeakerMenuAnchor(null);
-              }}
-            >
-              {t.name} ({t.abbreviation})
-            </MenuItem>
-          ))}
-        </Menu>
 
         {LANGUAGE_CODES.map((lang) => {
           const active = draft.languages.includes(lang);
