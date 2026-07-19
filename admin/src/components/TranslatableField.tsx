@@ -1,11 +1,11 @@
 import { useState } from "react";
 import Box from "@mui/material/Box";
+import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
-import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
 import Tooltip from "@mui/material/Tooltip";
 import CircularProgress from "@mui/material/CircularProgress";
-import TranslateIcon from "@mui/icons-material/Translate";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { useNotify, useTranslate } from "react-admin";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 
@@ -40,6 +40,82 @@ export function useFieldTranslate() {
   return { translate: run, translating };
 }
 
+/**
+ * Amber "AI · review ✓" chip shown while a field holds an unreviewed AI
+ * translation. Clicking it marks the field reviewed. Replaces the old 9px
+ * amber dot, which read as decoration rather than a control.
+ */
+export const AiReviewChip = ({ onClick }: { onClick: () => void }) => {
+  const translate = useTranslate();
+  const tooltip = `${translate("padmakara.events.aiUnreviewed")} — ${translate("padmakara.events.markReviewed")}`;
+  return (
+    <Tooltip title={tooltip}>
+      <Chip
+        label={translate("padmakara.events.aiChipLabel")}
+        size="small"
+        onClick={onClick}
+        sx={{
+          height: 20,
+          fontWeight: 600,
+          backgroundColor: "rgba(237,108,2,0.12)",
+          color: "#c05000",
+          "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" },
+          "&:hover": { backgroundColor: "rgba(237,108,2,0.22)" },
+        }}
+      />
+    </Tooltip>
+  );
+};
+
+/**
+ * Directional translate control: a small "PT → EN" / "EN → PT" chip with an
+ * AI sparkles icon. The direction is readable without hovering — the tooltip
+ * adds the detail (source language, replaces the field).
+ */
+export const TranslateDirChip = ({
+  direction,
+  onClick,
+  disabled,
+  pending,
+  tooltip,
+}: {
+  direction: TranslateDirection;
+  onClick: () => void;
+  /** True when the source (sibling-language) field is empty. */
+  disabled?: boolean;
+  pending?: boolean;
+  tooltip: string;
+}) => (
+  <Tooltip title={tooltip}>
+    <span>
+      <Chip
+        icon={
+          pending ? (
+            <CircularProgress size={11} sx={{ ml: 0.5 }} />
+          ) : (
+            <AutoAwesomeIcon sx={{ fontSize: "13px !important" }} />
+          )
+        }
+        label={direction === "pt-to-en" ? "PT → EN" : "EN → PT"}
+        size="small"
+        clickable
+        disabled={disabled || pending}
+        onClick={onClick}
+        sx={{
+          height: 20,
+          fontWeight: 600,
+          letterSpacing: "0.02em",
+          backgroundColor: "rgba(91,94,166,0.09)",
+          color: "primary.main",
+          "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" },
+          "& .MuiChip-icon": { color: "primary.main" },
+          "&:hover": { backgroundColor: "rgba(91,94,166,0.18)" },
+        }}
+      />
+    </span>
+  </Tooltip>
+);
+
 export interface TranslatableFieldProps {
   value: string;
   /** Manual edit — caller sets value + marks the field reviewed. */
@@ -52,8 +128,10 @@ export interface TranslatableFieldProps {
   translatePending: boolean;
   /** False when the source (sibling-language) field is empty. */
   canTranslate: boolean;
+  /** Fill direction of THIS field, e.g. "pt-to-en" on the English field. */
+  direction: TranslateDirection;
   label: string;
-  /** Tooltip on the translate icon — the localized direction, e.g. "→ Portuguese". */
+  /** Tooltip on the translate chip — the localized detail of what it does. */
   translateTooltip: string;
   placeholder?: string;
   multiline?: boolean;
@@ -62,10 +140,10 @@ export interface TranslatableFieldProps {
 }
 
 /**
- * One quiet text field that replaces the old "→ Portuguese" link + "AI ·
- * unreviewed" chip + "Mark reviewed" button row. A single small translate
- * icon-button fills this field from its sibling language; an amber dot
- * (shown only while unreviewed) doubles as the "mark reviewed" affordance.
+ * One quiet text field with two corner chips: a directional "PT → EN" /
+ * "EN → PT" translate chip (AI sparkles icon), and — only while the value is
+ * an unreviewed AI translation — an amber "AI · review ✓" chip that marks it
+ * reviewed on click.
  */
 export function TranslatableField({
   value,
@@ -75,6 +153,7 @@ export function TranslatableField({
   onTranslate,
   translatePending,
   canTranslate,
+  direction,
   label,
   translateTooltip,
   placeholder,
@@ -82,10 +161,6 @@ export function TranslatableField({
   minRows,
   required,
 }: TranslatableFieldProps) {
-  const translate = useTranslate();
-  const reviewedTooltip =
-    `${translate("padmakara.events.aiUnreviewed")} — ${translate("padmakara.events.markReviewed")}`;
-
   return (
     <TextField
       fullWidth
@@ -108,38 +183,14 @@ export function TranslatableField({
           endAdornment: (
             <InputAdornment position="end" sx={multiline ? { mt: 1.25 } : undefined}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                {!reviewed && (
-                  <Tooltip title={reviewedTooltip}>
-                    <Box
-                      component="button"
-                      type="button"
-                      onClick={onMarkReviewed}
-                      aria-label={reviewedTooltip}
-                      sx={{
-                        width: 9,
-                        height: 9,
-                        p: 0,
-                        border: 0,
-                        borderRadius: "50%",
-                        bgcolor: "warning.main",
-                        cursor: "pointer",
-                        flexShrink: 0,
-                      }}
-                    />
-                  </Tooltip>
-                )}
-                <Tooltip title={translateTooltip}>
-                  <span>
-                    <IconButton
-                      size="small"
-                      edge="end"
-                      disabled={!canTranslate || translatePending}
-                      onClick={onTranslate}
-                    >
-                      {translatePending ? <CircularProgress size={16} /> : <TranslateIcon fontSize="small" />}
-                    </IconButton>
-                  </span>
-                </Tooltip>
+                {!reviewed && <AiReviewChip onClick={onMarkReviewed} />}
+                <TranslateDirChip
+                  direction={direction}
+                  disabled={!canTranslate}
+                  pending={translatePending}
+                  tooltip={translateTooltip}
+                  onClick={onTranslate}
+                />
               </Box>
             </InputAdornment>
           ),

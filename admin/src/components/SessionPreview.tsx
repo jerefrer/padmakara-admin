@@ -2,31 +2,30 @@ import AddIcon from "@mui/icons-material/Add";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
-import CheckIcon from "@mui/icons-material/Check";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DescriptionIcon from "@mui/icons-material/Description";
 import DownloadIcon from "@mui/icons-material/Download";
-import EditIcon from "@mui/icons-material/Edit";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import MovieIcon from "@mui/icons-material/Movie";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SelfImprovementIcon from "@mui/icons-material/SelfImprovement";
 import TranslateIcon from "@mui/icons-material/Translate";
 import VideoFileIcon from "@mui/icons-material/VideoFile";
-import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
-import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
+import InputBase from "@mui/material/InputBase";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
-import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import {
@@ -38,7 +37,7 @@ import {
 } from "../utils/trackParser";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
-import { TranslatableField, useFieldTranslate } from "./TranslatableField";
+import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
 
 /** Map keyed by track's originalFilename → list of corrections applied to it. */
 export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
@@ -59,6 +58,57 @@ const LANG_CHIP_COLORS: Record<string, { bg: string; text: string }> = {
   tib: { bg: "#fffbeb", text: "#b45309" },
 };
 const DEFAULT_LANG_CHIP = { bg: "rgba(91,94,166,0.06)", text: "text.primary" };
+
+const LANGUAGE_OPTIONS = ["en", "pt", "fr", "tib"];
+
+/** Small "EN" / "PT" tag that labels a quiet inline input with the same
+ *  color vocabulary as the language chips in view mode. */
+const LangTag = ({ code }: { code: string }) => {
+  const lc = LANG_CHIP_COLORS[code] || DEFAULT_LANG_CHIP;
+  return (
+    <Box
+      sx={{
+        height: 20,
+        px: 0.9,
+        borderRadius: 10,
+        backgroundColor: lc.bg,
+        color: lc.text,
+        fontSize: "0.65rem",
+        fontWeight: 700,
+        display: "flex",
+        alignItems: "center",
+        flexShrink: 0,
+      }}
+    >
+      {code.toUpperCase()}
+    </Box>
+  );
+};
+
+/** Quiet inline input used by the click-to-edit title editors — sized to sit
+ *  in a list row without breaking its rhythm. */
+const quietInputSx = {
+  flex: 1,
+  fontSize: "0.85rem",
+  px: 1,
+  py: 0.25,
+  borderRadius: 1.5,
+  backgroundColor: "rgba(91,94,166,0.06)",
+  border: "1px solid transparent",
+  "&.Mui-focused": {
+    backgroundColor: "background.paper",
+    borderColor: "primary.main",
+    boxShadow: "0 0 0 2px rgba(91,94,166,0.15)",
+  },
+  "& input": { p: 0 },
+} as const;
+
+/** Dashed-underline hover affordance shared by the click-to-edit titles. */
+const clickToEditSx = {
+  cursor: "text",
+  borderBottom: "1px dashed transparent",
+  "&:hover": { borderBottomColor: "rgba(91,94,166,0.5)" },
+} as const;
 
 type FileType = "video" | "transcript" | "audio" | "other";
 
@@ -198,10 +248,14 @@ const SessionCard = ({
   onPreview,
 }: SessionCardProps) => {
   const [expanded, setExpanded] = useState(true);
-  const [editing, setEditing] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  // Which track row is currently open in its inline editor. Lives here (not
+  // in the row) so ↑/↓ can move the editor from one track to the next.
+  const [editingTrack, setEditingTrack] = useState<number | null>(null);
   const translate = useTranslate();
-  // Seed from the CURRENT session; re-seeded when Edit opens so an AI-assist
-  // apply that changed the session titles underneath us is reflected.
+  // Seed from the CURRENT session; re-seeded when the editor opens so an
+  // AI-assist apply that changed the session titles underneath us is
+  // reflected.
   const seedFromSession = () => ({
     titleEn: session.titleEn,
     titlePt: session.titlePt,
@@ -210,6 +264,11 @@ const SessionCard = ({
   });
   const [edit, setEdit] = useState(seedFromSession);
   const ft = useFieldTranslate();
+  const titleDoneRef = useRef(false);
+  const titleBoxRef = useRef<HTMLDivElement | null>(null);
+  // When the title editor closes on blur, the same click that blurred it may
+  // land on the header — swallow that click so it doesn't toggle expansion.
+  const titleJustClosedRef = useRef(0);
 
   // Build date chip label with AM/PM inline
   const dateLabel = (() => {
@@ -223,14 +282,52 @@ const SessionCard = ({
     return `${session.date}${period}`;
   })();
 
-  const handleSaveTitle = () => {
-    onTitleChange({
-      titleEn: edit.titleEn,
-      titlePt: edit.titlePt,
-      titleEnReviewed: edit.titleEnReviewed,
-      titlePtReviewed: edit.titlePtReviewed,
-    });
-    setEditing(false);
+  const openTitleEditor = () => {
+    setEdit(seedFromSession());
+    titleDoneRef.current = false;
+    setEditingTitle(true);
+  };
+
+  const saveTitle = () => {
+    if (titleDoneRef.current) return;
+    titleDoneRef.current = true;
+    const seed = seedFromSession();
+    const dirty =
+      edit.titleEn !== seed.titleEn ||
+      edit.titlePt !== seed.titlePt ||
+      edit.titleEnReviewed !== seed.titleEnReviewed ||
+      edit.titlePtReviewed !== seed.titlePtReviewed;
+    if (dirty) {
+      onTitleChange({
+        titleEn: edit.titleEn,
+        titlePt: edit.titlePt,
+        titleEnReviewed: edit.titleEnReviewed,
+        titlePtReviewed: edit.titlePtReviewed,
+      });
+    }
+    titleJustClosedRef.current = Date.now();
+    setEditingTitle(false);
+  };
+
+  const cancelTitle = () => {
+    titleDoneRef.current = true;
+    titleJustClosedRef.current = Date.now();
+    setEditingTitle(false);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveTitle();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelTitle();
+    }
+  };
+
+  const handleTitleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (e.relatedTarget && titleBoxRef.current?.contains(e.relatedTarget as Node)) return;
+    saveTitle();
   };
 
   return (
@@ -254,7 +351,10 @@ const SessionCard = ({
           borderBottom: expanded ? "1px solid rgba(0,0,0,0.06)" : "none",
           cursor: "pointer",
         }}
-        onClick={() => !editing && setExpanded(!expanded)}
+        onClick={() => {
+          if (editingTitle || Date.now() - titleJustClosedRef.current < 250) return;
+          setExpanded(!expanded);
+        }}
       >
         {/* Session pill */}
         <Box
@@ -278,69 +378,87 @@ const SessionCard = ({
           })}
         </Box>
 
-        {editing ? (
-          <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.75 }} onClick={(e) => e.stopPropagation()}>
-            <TranslatableField
-              label={translate("padmakara.events.titleEn") || "Session title (EN)"}
-              value={edit.titleEn}
-              onChange={(v) => setEdit((p) => ({ ...p, titleEn: v, titleEnReviewed: true }))}
-              reviewed={edit.titleEnReviewed}
-              onMarkReviewed={() => setEdit((p) => ({ ...p, titleEnReviewed: true }))}
-              canTranslate={!!edit.titlePt.trim()}
-              translatePending={ft.translating}
-              translateTooltip={translate("padmakara.events.translateToEn")}
-              onTranslate={async () => {
-                const out = await ft.translate(edit.titlePt, "pt-to-en");
-                if (out != null) setEdit((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
-              }}
-            />
-            <TranslatableField
-              label={translate("padmakara.events.titlePt") || "Session title (PT)"}
-              value={edit.titlePt}
-              onChange={(v) => setEdit((p) => ({ ...p, titlePt: v, titlePtReviewed: true }))}
-              reviewed={edit.titlePtReviewed}
-              onMarkReviewed={() => setEdit((p) => ({ ...p, titlePtReviewed: true }))}
-              canTranslate={!!edit.titleEn.trim()}
-              translatePending={ft.translating}
-              translateTooltip={translate("padmakara.events.translateToPt")}
-              onTranslate={async () => {
-                const out = await ft.translate(edit.titleEn, "en-to-pt");
-                if (out != null) setEdit((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
-              }}
-            />
+        {editingTitle ? (
+          <Box
+            ref={titleBoxRef}
+            onBlur={handleTitleBlur}
+            onClick={(e) => e.stopPropagation()}
+            sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5, py: 0.25, cursor: "default" }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <LangTag code="en" />
+              <InputBase
+                autoFocus
+                fullWidth
+                value={edit.titleEn}
+                placeholder={translate("padmakara.events.titleEn")}
+                onChange={(e) => setEdit((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
+                onKeyDown={handleTitleKeyDown}
+                sx={quietInputSx}
+              />
+              {!edit.titleEnReviewed && (
+                <AiReviewChip onClick={() => setEdit((p) => ({ ...p, titleEnReviewed: true }))} />
+              )}
+              <TranslateDirChip
+                direction="pt-to-en"
+                disabled={!edit.titlePt.trim()}
+                pending={ft.translating}
+                tooltip={translate("padmakara.events.translateToEn")}
+                onClick={async () => {
+                  const out = await ft.translate(edit.titlePt, "pt-to-en");
+                  if (out != null) setEdit((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+                }}
+              />
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <LangTag code="pt" />
+              <InputBase
+                fullWidth
+                value={edit.titlePt}
+                placeholder={translate("padmakara.events.titlePt")}
+                onChange={(e) => setEdit((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
+                onKeyDown={handleTitleKeyDown}
+                sx={quietInputSx}
+              />
+              {!edit.titlePtReviewed && (
+                <AiReviewChip onClick={() => setEdit((p) => ({ ...p, titlePtReviewed: true }))} />
+              )}
+              <TranslateDirChip
+                direction="en-to-pt"
+                disabled={!edit.titleEn.trim()}
+                pending={ft.translating}
+                tooltip={translate("padmakara.events.translateToPt")}
+                onClick={async () => {
+                  const out = await ft.translate(edit.titleEn, "en-to-pt");
+                  if (out != null) setEdit((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+                }}
+              />
+            </Box>
           </Box>
         ) : (
-          <Typography variant="body2" sx={{ fontWeight: 600, flex: 1 }}>
-            {session.titleEn}
-          </Typography>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography
+              variant="body2"
+              noWrap
+              title={translate("padmakara.tracks.clickToEdit")}
+              onClick={(e) => {
+                e.stopPropagation();
+                openTitleEditor();
+              }}
+              sx={{
+                fontWeight: 600,
+                display: "inline-block",
+                maxWidth: "100%",
+                verticalAlign: "middle",
+                ...clickToEditSx,
+              }}
+            >
+              {session.titleEn}
+            </Typography>
+          </Box>
         )}
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          {/* Edit button — left of date chip */}
-          {editing ? (
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSaveTitle();
-              }}
-            >
-              <CheckIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          ) : (
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEdit(seedFromSession());
-                setEditing(true);
-              }}
-              sx={{ opacity: 0.4, "&:hover": { opacity: 1 } }}
-            >
-              <EditIcon sx={{ fontSize: 14 }} />
-            </IconButton>
-          )}
-
           {/* Video presence badge — shown when this session has at least one
               attached video. Single video: show its duration. Multiple: show
               a count instead of listing every duration inline. */}
@@ -430,6 +548,13 @@ const SessionCard = ({
               key={tidx}
               track={track}
               isLast={tidx === session.tracks.length - 1}
+              editing={editingTrack === tidx}
+              onStartEdit={() => setEditingTrack(tidx)}
+              onCloseEdit={() => setEditingTrack((cur) => (cur === tidx ? null : cur))}
+              onNavigate={(delta) => {
+                const next = tidx + delta;
+                setEditingTrack(next >= 0 && next < session.tracks.length ? next : null);
+              }}
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
               allTeachers={allTeachers}
@@ -672,6 +797,10 @@ function cleanTitle(track: ParsedTrack): string {
 const TrackRow = ({
   track,
   isLast,
+  editing,
+  onStartEdit,
+  onCloseEdit,
+  onNavigate,
   onTrackUpdate,
   onTrackDelete,
   allTeachers = [],
@@ -680,6 +809,13 @@ const TrackRow = ({
 }: {
   track: ParsedTrack;
   isLast: boolean;
+  /** True when this row's inline editor is open (state lives in SessionCard
+   *  so ↑/↓ can move the editor between tracks). */
+  editing: boolean;
+  onStartEdit: () => void;
+  onCloseEdit: () => void;
+  /** Move the editor to the previous/next track of the session. */
+  onNavigate: (delta: -1 | 1) => void;
   onTrackUpdate?: (
     trackId: number,
     updates: Partial<ParsedTrack>,
@@ -692,13 +828,12 @@ const TrackRow = ({
 }) => {
   const translate = useTranslate();
   const notify = useNotify();
-  const [editing, setEditing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  // Seed the edit form from the CURRENT track. Used for the initial state, on
-  // cancel, and — crucially — each time Edit is opened, so a track whose
-  // titleEn/titlePt changed underneath us (e.g. an AI-assist apply) shows the
-  // fresh values instead of the stale mount-time snapshot.
+  // Seed the edit form from the CURRENT track — re-seeded each time the
+  // editor opens, so a track whose titleEn/titlePt changed underneath us
+  // (e.g. an AI-assist apply) shows the fresh values instead of the stale
+  // mount-time snapshot.
   const seedFromTrack = () => ({
     title: track.title || "",
     titleEn: track.titleEn ?? "",
@@ -714,8 +849,22 @@ const TrackRow = ({
     speaker: track.speaker || "",
   });
   const [editValues, setEditValues] = useState(seedFromTrack);
-  const [saving, setSaving] = useState(false);
+  const [speakerMenuAnchor, setSpeakerMenuAnchor] = useState<null | HTMLElement>(null);
+  // Set once the editor's outcome is decided (save, cancel or navigate) so a
+  // trailing blur event can't double-commit or clobber the next row's state.
+  const doneRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const ft = useFieldTranslate();
+
+  useEffect(() => {
+    if (editing) {
+      setEditValues(seedFromTrack());
+      doneRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+
+  const canEdit = Boolean(onTrackUpdate && track.id);
 
   // Determine icon — prefer the explicit mediaType discriminator (set by parser
   // for video tracks), falling back to format-based detection for legacy rows.
@@ -726,26 +875,68 @@ const TrackRow = ({
       : "audio";
   const icon = getFileIcon(fileType);
 
-  const handleSave = async () => {
-    if (!onTrackUpdate || !track.id) return;
+  const isDirty = () => {
+    const seed = seedFromTrack();
+    return (
+      editValues.titleEn !== seed.titleEn ||
+      editValues.titlePt !== seed.titlePt ||
+      editValues.titleEnReviewed !== seed.titleEnReviewed ||
+      editValues.titlePtReviewed !== seed.titlePtReviewed ||
+      editValues.speaker !== seed.speaker ||
+      editValues.isPractice !== seed.isPractice ||
+      editValues.isTranslation !== seed.isTranslation ||
+      editValues.languages.join(",") !== seed.languages.join(",")
+    );
+  };
 
-    setSaving(true);
-    try {
-      await onTrackUpdate(track.id, {
+  const commit = () => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    if (onTrackUpdate && track.id && isDirty()) {
+      onTrackUpdate(track.id, {
         ...editValues,
         originalLanguage: editValues.languages[0] || "en",
-      });
-      setEditing(false);
-    } catch (error) {
-      console.error("Failed to update track:", error);
-    } finally {
-      setSaving(false);
+      }).catch((error) => console.error("Failed to update track:", error));
     }
   };
 
-  const handleCancel = () => {
-    setEditValues(seedFromTrack());
-    setEditing(false);
+  const saveAndClose = () => {
+    commit();
+    onCloseEdit();
+  };
+
+  const cancelEdit = () => {
+    doneRef.current = true;
+    onCloseEdit();
+  };
+
+  const saveAndNavigate = (delta: -1 | 1) => {
+    commit();
+    onNavigate(delta);
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveAndClose();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      saveAndNavigate(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      saveAndNavigate(-1);
+    }
+  };
+
+  const handleContainerBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    // The speaker menu renders in a portal — focus moving into it must not
+    // close the editor.
+    if (speakerMenuAnchor) return;
+    if (e.relatedTarget && containerRef.current?.contains(e.relatedTarget as Node)) return;
+    saveAndClose();
   };
 
   const handleDelete = async () => {
@@ -791,18 +982,20 @@ const TrackRow = ({
   if (editing) {
     return (
       <Box
+        ref={containerRef}
+        onBlur={handleContainerBlur}
         sx={{
           display: "flex",
           flexDirection: "column",
-          gap: 1.5,
+          gap: 0.6,
           px: 2,
-          py: 2,
+          py: 1,
           borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.03)",
-          backgroundColor: "rgba(91,94,166,0.02)",
+          backgroundColor: "rgba(91,94,166,0.03)",
         }}
       >
-        {/* Edit form */}
-        <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
+        {/* EN title line */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Typography
             variant="caption"
             sx={{
@@ -811,152 +1004,203 @@ const TrackRow = ({
               color: "text.secondary",
               fontFamily: "monospace",
               fontWeight: 600,
+              flexShrink: 0,
             }}
           >
             {String(track.trackNumber).padStart(2, "0")}
           </Typography>
-
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
-            <TranslatableField
-              label={translate("padmakara.events.titleEn") || "Title (English)"}
-              value={editValues.titleEn}
-              onChange={(v) => setEditValues({ ...editValues, titleEn: v, titleEnReviewed: true })}
-              reviewed={editValues.titleEnReviewed}
-              onMarkReviewed={() => setEditValues({ ...editValues, titleEnReviewed: true })}
-              canTranslate={!!editValues.titlePt.trim()}
-              translatePending={ft.translating}
-              translateTooltip={translate("padmakara.events.translateToEn")}
-              onTranslate={async () => {
-                const out = await ft.translate(editValues.titlePt, "pt-to-en");
-                if (out != null) setEditValues({ ...editValues, titleEn: out, titleEnReviewed: false });
-              }}
-            />
-            <TranslatableField
-              label={translate("padmakara.events.titlePt") || "Title (Portuguese)"}
-              value={editValues.titlePt}
-              onChange={(v) => setEditValues({ ...editValues, titlePt: v, titlePtReviewed: true })}
-              reviewed={editValues.titlePtReviewed}
-              onMarkReviewed={() => setEditValues({ ...editValues, titlePtReviewed: true })}
-              canTranslate={!!editValues.titleEn.trim()}
-              translatePending={ft.translating}
-              translateTooltip={translate("padmakara.events.translateToPt")}
-              onTranslate={async () => {
-                const out = await ft.translate(editValues.titleEn, "en-to-pt");
-                if (out != null) setEditValues({ ...editValues, titlePt: out, titlePtReviewed: false });
-              }}
-            />
-            <TextField
-              size="small"
-              label="Source filename (read-only)"
-              value={editValues.originalFilename}
-              InputProps={{ readOnly: true }}
-              sx={{
-                "& .MuiInputBase-input": { color: "text.secondary", fontFamily: "monospace", fontSize: 12 },
-              }}
-              helperText="Original filename from upload, kept for admin reference. Editing has no effect on the S3 object or what users see."
-            />
-          </Box>
+          <LangTag code="en" />
+          <InputBase
+            autoFocus
+            fullWidth
+            value={editValues.titleEn}
+            placeholder={translate("padmakara.events.titleEn")}
+            onChange={(e) => setEditValues((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
+            onKeyDown={handleEditKeyDown}
+            sx={quietInputSx}
+          />
+          {!editValues.titleEnReviewed && (
+            <AiReviewChip onClick={() => setEditValues((p) => ({ ...p, titleEnReviewed: true }))} />
+          )}
+          <TranslateDirChip
+            direction="pt-to-en"
+            disabled={!editValues.titlePt.trim()}
+            pending={ft.translating}
+            tooltip={translate("padmakara.events.translateToEn")}
+            onClick={async () => {
+              const out = await ft.translate(editValues.titlePt, "pt-to-en");
+              if (out != null) setEditValues((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+            }}
+          />
         </Box>
 
-        <Box sx={{ display: "flex", gap: 1.5, ml: "40px" }}>
-          <Autocomplete
-            multiple
+        {/* PT title line */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Box sx={{ width: 24, flexShrink: 0 }} />
+          <LangTag code="pt" />
+          <InputBase
+            fullWidth
+            value={editValues.titlePt}
+            placeholder={translate("padmakara.events.titlePt")}
+            onChange={(e) => setEditValues((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
+            onKeyDown={handleEditKeyDown}
+            sx={quietInputSx}
+          />
+          {!editValues.titlePtReviewed && (
+            <AiReviewChip onClick={() => setEditValues((p) => ({ ...p, titlePtReviewed: true }))} />
+          )}
+          <TranslateDirChip
+            direction="en-to-pt"
+            disabled={!editValues.titleEn.trim()}
+            pending={ft.translating}
+            tooltip={translate("padmakara.events.translateToPt")}
+            onClick={async () => {
+              const out = await ft.translate(editValues.titleEn, "en-to-pt");
+              if (out != null) setEditValues((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+            }}
+          />
+        </Box>
+
+        {/* Metadata line — the same chips as view mode, made toggleable */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", pl: "34px" }}>
+          <Chip
             size="small"
-            options={["en", "pt", "fr", "tib"]}
-            getOptionLabel={(option) => languageLabel(option)}
-            value={editValues.languages}
-            onChange={(_, value) =>
-              setEditValues({ ...editValues, languages: value.length > 0 ? value : ["en"] })
-            }
-            disableCloseOnSelect
-            renderTags={(value, getTagProps) =>
-              value.map((option, index) => (
-                <Chip
-                  {...getTagProps({ index })}
-                  key={option}
-                  label={languageLabel(option)}
-                  size="small"
-                  sx={{ height: 20, "& .MuiChip-label": { fontSize: "0.7rem" } }}
-                />
-              ))
-            }
-            renderInput={(params) => (
-              <TextField {...params} label="Languages" placeholder="Add..." />
-            )}
-            sx={{ minWidth: 180 }}
+            variant="outlined"
+            label={`${editValues.speaker || translate("padmakara.tracks.speaker")} ▾`}
+            onClick={(e) => setSpeakerMenuAnchor(e.currentTarget)}
+            sx={{ height: 20, fontWeight: 600, "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" } }}
           />
+          <Menu
+            anchorEl={speakerMenuAnchor}
+            open={Boolean(speakerMenuAnchor)}
+            onClose={() => setSpeakerMenuAnchor(null)}
+          >
+            <MenuItem
+              selected={!editValues.speaker}
+              onClick={() => {
+                setEditValues((p) => ({ ...p, speaker: "" }));
+                setSpeakerMenuAnchor(null);
+              }}
+            >
+              {translate("padmakara.tracks.noSpeaker")}
+            </MenuItem>
+            {allTeachers.map((t) => (
+              <MenuItem
+                key={t.id}
+                selected={t.abbreviation === editValues.speaker}
+                onClick={() => {
+                  setEditValues((p) => ({ ...p, speaker: t.abbreviation }));
+                  setSpeakerMenuAnchor(null);
+                }}
+              >
+                {t.name} ({t.abbreviation})
+              </MenuItem>
+            ))}
+          </Menu>
 
-          <Autocomplete
-            size="small"
-            options={allTeachers}
-            getOptionLabel={(option) =>
-              `${option.name} (${option.abbreviation})`
-            }
-            value={
-              allTeachers.find((t) => t.abbreviation === editValues.speaker) ||
-              null
-            }
-            onChange={(_, value) =>
-              setEditValues({
-                ...editValues,
-                speaker: value ? value.abbreviation : "",
-              })
-            }
-            isOptionEqualToValue={(option, value) =>
-              option.abbreviation === value.abbreviation
-            }
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Speaker"
-                placeholder="Select teacher..."
-              />
-            )}
-            sx={{ width: 200 }}
-          />
-
-          <FormControlLabel
-            control={
-              <Checkbox
+          {LANGUAGE_OPTIONS.map((lang) => {
+            const active = editValues.languages.includes(lang);
+            const lc = LANG_CHIP_COLORS[lang] || DEFAULT_LANG_CHIP;
+            return (
+              <Chip
+                key={lang}
                 size="small"
-                checked={editValues.isPractice}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setEditValues({ ...editValues, isPractice: e.target.checked })
-                }
-              />
-            }
-            label={<Typography variant="caption">Practice</Typography>}
-          />
-
-          <FormControlLabel
-            control={
-              <Checkbox
-                size="small"
-                checked={editValues.isTranslation}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setEditValues({
-                    ...editValues,
-                    isTranslation: e.target.checked,
+                label={languageLabel(lang)}
+                onClick={() =>
+                  setEditValues((p) => {
+                    if (p.languages.includes(lang)) {
+                      // Keep at least one language selected.
+                      if (p.languages.length === 1) return p;
+                      return { ...p, languages: p.languages.filter((l) => l !== lang) };
+                    }
+                    return { ...p, languages: [...p.languages, lang] };
                   })
                 }
+                sx={{
+                  height: 20,
+                  fontWeight: 600,
+                  "& .MuiChip-label": { px: 0.6, fontSize: "0.65rem" },
+                  ...(active
+                    ? {
+                        backgroundColor: lc.bg,
+                        color: lc.text,
+                        boxShadow: "inset 0 0 0 1.5px currentColor",
+                        "&:hover": { backgroundColor: lc.bg },
+                      }
+                    : { backgroundColor: "rgba(0,0,0,0.04)", color: "text.disabled" }),
+                }}
               />
-            }
-            label={<Typography variant="caption">Translation</Typography>}
+            );
+          })}
+
+          <Chip
+            size="small"
+            icon={<SelfImprovementIcon sx={{ fontSize: "12px !important" }} />}
+            label="Practice"
+            onClick={() => setEditValues((p) => ({ ...p, isPractice: !p.isPractice }))}
+            sx={{
+              height: 20,
+              fontWeight: 600,
+              "& .MuiChip-label": { px: 0.6, fontSize: "0.65rem" },
+              ...(editValues.isPractice
+                ? {
+                    backgroundColor: "rgba(156,39,176,0.1)",
+                    color: "#9c27b0",
+                    boxShadow: "inset 0 0 0 1.5px currentColor",
+                    "& .MuiChip-icon": { color: "#9c27b0" },
+                    "&:hover": { backgroundColor: "rgba(156,39,176,0.1)" },
+                  }
+                : {
+                    backgroundColor: "rgba(0,0,0,0.04)",
+                    color: "text.disabled",
+                    "& .MuiChip-icon": { color: "text.disabled" },
+                  }),
+            }}
+          />
+          <Chip
+            size="small"
+            icon={<TranslateIcon sx={{ fontSize: "12px !important" }} />}
+            label={translate("padmakara.session.translation")}
+            onClick={() => setEditValues((p) => ({ ...p, isTranslation: !p.isTranslation }))}
+            sx={{
+              height: 20,
+              fontWeight: 600,
+              "& .MuiChip-label": { px: 0.6, fontSize: "0.65rem" },
+              ...(editValues.isTranslation
+                ? {
+                    backgroundColor: "rgba(212,168,83,0.12)",
+                    color: "secondary.dark",
+                    boxShadow: "inset 0 0 0 1.5px currentColor",
+                    "& .MuiChip-icon": { color: "secondary.dark" },
+                    "&:hover": { backgroundColor: "rgba(212,168,83,0.12)" },
+                  }
+                : {
+                    backgroundColor: "rgba(0,0,0,0.04)",
+                    color: "text.disabled",
+                    "& .MuiChip-icon": { color: "text.disabled" },
+                  }),
+            }}
           />
 
-          <Box sx={{ ml: "auto", display: "flex", gap: 1 }}>
-            <Button size="small" onClick={handleCancel} disabled={saving}>
-              Cancel
-            </Button>
-            <Button
-              size="small"
-              variant="contained"
-              onClick={handleSave}
-              disabled={saving}
+          <Box sx={{ flex: 1 }} />
+          <Typography variant="caption" sx={{ color: "text.disabled", fontSize: "0.65rem" }}>
+            {translate("padmakara.tracks.editKeyHint")}
+          </Typography>
+          {editValues.originalFilename && (
+            <Tooltip
+              title={
+                <Box component="span" sx={{ fontFamily: "monospace", fontSize: 11 }}>
+                  {editValues.originalFilename}
+                </Box>
+              }
             >
-              {saving ? "Saving..." : "Save"}
-            </Button>
-          </Box>
+              {/* IconButton (focusable) so hovering/clicking it keeps focus
+                  inside the editor instead of blurring it closed. */}
+              <IconButton size="small" sx={{ p: 0.25, color: "text.disabled" }}>
+                <InfoOutlinedIcon sx={{ fontSize: 15 }} />
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
       </Box>
     );
@@ -972,10 +1216,9 @@ const TrackRow = ({
         py: 1,
         borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.03)",
         "&:hover": {
-          backgroundColor: onTrackUpdate
+          backgroundColor: canEdit
             ? "rgba(91,94,166,0.02)"
             : "rgba(0,0,0,0.01)",
-          cursor: onTrackUpdate ? "pointer" : "default",
         },
       }}
     >
@@ -1004,14 +1247,25 @@ const TrackRow = ({
         {icon}
       </Box>
 
-      {/* Title — cleaned of speaker prefix */}
-      <Typography
-        variant="body2"
-        sx={{ flex: 1, fontWeight: track.isTranslation ? 400 : 500 }}
-        noWrap
-      >
-        {cleanTitle(track)}
-      </Typography>
+      {/* Title — cleaned of speaker prefix. Clicking it opens the inline
+          editor in place (when the track is saved and editable). */}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography
+          variant="body2"
+          noWrap
+          title={canEdit ? translate("padmakara.tracks.clickToEdit") : undefined}
+          onClick={canEdit ? onStartEdit : undefined}
+          sx={{
+            fontWeight: track.isTranslation ? 400 : 500,
+            display: "inline-block",
+            maxWidth: "100%",
+            verticalAlign: "middle",
+            ...(canEdit ? clickToEditSx : {}),
+          }}
+        >
+          {cleanTitle(track)}
+        </Typography>
+      </Box>
 
       {/* AI corrections badge */}
       {corrections && corrections.length > 0 && (
@@ -1150,17 +1404,6 @@ const TrackRow = ({
           title={translate("padmakara.tracks.download") || "Download audio"}
         >
           <DownloadIcon sx={{ fontSize: 16 }} />
-        </IconButton>
-      )}
-
-      {/* Edit button — only show if onTrackUpdate is provided */}
-      {onTrackUpdate && (
-        <IconButton
-          size="small"
-          onClick={() => { setEditValues(seedFromTrack()); setEditing(true); }}
-          sx={{ opacity: 0.4, "&:hover": { opacity: 1 } }}
-        >
-          <EditIcon sx={{ fontSize: 14 }} />
         </IconButton>
       )}
 

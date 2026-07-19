@@ -394,6 +394,7 @@ function TrackTitleEditor({ track, onTrackChange, bulkBusy }: TrackTitleEditorPr
         onMarkReviewed={() => onTrackChange(track.key, { titleEnReviewed: true })}
         canTranslate={!!track.titlePt.trim()}
         translatePending={busy}
+        direction="pt-to-en"
         translateTooltip={translate("padmakara.events.translateToEn")}
         onTranslate={async () => {
           const out = await ft.translate(track.titlePt, "pt-to-en");
@@ -408,6 +409,7 @@ function TrackTitleEditor({ track, onTrackChange, bulkBusy }: TrackTitleEditorPr
         onMarkReviewed={() => onTrackChange(track.key, { titlePtReviewed: true })}
         canTranslate={!!track.titleEn.trim()}
         translatePending={busy}
+        direction="en-to-pt"
         translateTooltip={translate("padmakara.events.translateToPt")}
         onTranslate={async () => {
           const out = await ft.translate(track.titleEn, "en-to-pt");
@@ -678,6 +680,7 @@ function SessionTitleEditor({ session, sIdx, onSessionChange }: SessionTitleEdit
         onMarkReviewed={() => onSessionChange(sIdx, { titleEnReviewed: true })}
         canTranslate={!!session.titlePt.trim()}
         translatePending={ft.translating}
+        direction="pt-to-en"
         translateTooltip={translate("padmakara.events.translateToEn")}
         onTranslate={async () => {
           const out = await ft.translate(session.titlePt, "pt-to-en");
@@ -692,6 +695,7 @@ function SessionTitleEditor({ session, sIdx, onSessionChange }: SessionTitleEdit
         onMarkReviewed={() => onSessionChange(sIdx, { titlePtReviewed: true })}
         canTranslate={!!session.titleEn.trim()}
         translatePending={ft.translating}
+        direction="en-to-pt"
         translateTooltip={translate("padmakara.events.translateToPt")}
         onTranslate={async () => {
           const out = await ft.translate(session.titleEn, "en-to-pt");
