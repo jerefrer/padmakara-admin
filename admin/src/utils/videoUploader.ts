@@ -31,6 +31,20 @@ async function createBunnyVideo(title: string): Promise<TusCredentials> {
   return res.json();
 }
 
+/** Bunny reported transcoding failure (status 5/6) — the video is unusable. */
+export class TranscodeFailedError extends Error {
+  constructor() {
+    super("Bunny transcoding failed");
+  }
+}
+
+/** The admin clicked Cancel while we were waiting on Bunny. */
+export class UploadCancelledError extends Error {
+  constructor() {
+    super("Upload cancelled");
+  }
+}
+
 /**
  * Poll Bunny for transcoding status with backoff and a generous overall
  * timeout. Bunny's status doesn't change every second; polling fast burns
@@ -38,9 +52,9 @@ async function createBunnyVideo(title: string): Promise<TusCredentials> {
  *
  * Cadence: 3s for the first 30s, then 10s up to 5 min, then 30s up to 30 min.
  *
- * Resolves when status >= 4 (finished) or 5/6 (error). The webhook is the
- * authoritative path for backfilling duration on the track row — this poll
- * exists so admins watching the upload UI see live progress.
+ * Resolves when status >= 4 (finished) or throws TranscodeFailedError on 5/6.
+ * The webhook is the authoritative path for backfilling duration on the row —
+ * this poll exists so admins watching the upload UI see live progress.
  */
 async function pollBunnyMeta(
   videoId: string,
@@ -65,7 +79,7 @@ async function pollBunnyMeta(
         onStatusChange?.(meta.status);
       }
       if (meta.status === 5 || meta.status === 6) {
-        throw new Error("Bunny transcoding failed");
+        throw new TranscodeFailedError();
       }
       if (meta.status >= 4) return meta;
     }
@@ -75,7 +89,7 @@ async function pollBunnyMeta(
     }
     await new Promise((r) => setTimeout(r, cadenceFor(elapsed)));
   }
-  throw new Error("Upload cancelled");
+  throw new UploadCancelledError();
 }
 
 /** Best-effort cleanup if upload fails before the track row is patched. */
@@ -104,14 +118,16 @@ interface UploadVideoOpts {
 
 /**
  * Upload a single video file end-to-end: create Bunny video → TUS upload →
- * poll for transcoding completion → create a `session_videos` row.
+ * create the `session_videos` row → poll transcoding for UI feedback.
  *
- * A session may have MULTIPLE videos now (each its own `session_videos` row,
- * ordered by `position`); audio tracks remain independent topic-indexed
- * slices. Resolves once the new `session_videos` row has been created — the
- * Bunny webhook backfills `durationSeconds` on that row asynchronously after
- * transcoding finishes. Rejects (and best-effort deletes the orphan video) on
- * any failure.
+ * The row is created IMMEDIATELY after the upload completes — not after
+ * transcoding. Transcoding takes longer than the poll's 30-min timeout for
+ * big files, and anything that killed the poll (timeout, network blip, the
+ * admin navigating away) used to delete a fully-uploaded video and lose the
+ * row. Once the row exists the video is safe: the Bunny webhook backfills
+ * `durationSeconds` whenever transcoding finishes. Poll failures after that
+ * point are non-fatal; only a genuine transcode failure (or the admin
+ * cancelling) removes the row again.
  */
 export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
   const { sessionId, position, title, file, signal, onProgress, onTranscodingStart, onTranscodeStatus } = opts;
@@ -119,8 +135,10 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
   // 1. Create the Bunny video record.
   const creds = await createBunnyVideo(title);
 
-  // 2. TUS resumable upload.
-  let createdVideoId: string | null = creds.videoId;
+  // 2. TUS resumable upload. A failure here leaves a partial upload —
+  //    the only case where deleting the Bunny video is the right cleanup.
+  let orphanVideoId: string | null = creds.videoId;
+  let rowId: number | null = null;
   try {
     await new Promise<void>((resolve, reject) => {
       const upload = new tus.Upload(file, {
@@ -148,22 +166,16 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
       signal.abort = () => upload.abort();
       if (signal.cancelled) {
         upload.abort();
-        reject(new Error("Upload cancelled"));
+        reject(new UploadCancelledError());
         return;
       }
 
       upload.start();
     });
 
-    // 3. Poll Bunny until transcoding finishes (or fails).
-    onTranscodingStart?.();
-    await pollBunnyMeta(creds.videoId, signal, onTranscodeStatus);
-
-    // 4. Create the session_videos row. We deliberately don't send duration
-    //    or poster — the Bunny webhook backfills `durationSeconds` on this
-    //    row once transcoding finishes, and the public media endpoint
-    //    computes a signed thumbnail URL on the fly so the CDN hostname
-    //    stays server-side.
+    // 3. Create the session_videos row now that the bytes are all on Bunny.
+    //    No duration/poster — the webhook backfills `durationSeconds`, and
+    //    the media endpoint signs thumbnail URLs on the fly.
     const res = await authFetch(`${API_URL}/session-videos`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -172,11 +184,30 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
     if (!res.ok) {
       throw new Error(`Create session video failed (${res.status}): ${await res.text()}`);
     }
-
-    createdVideoId = null; // success — don't clean up
+    rowId = ((await res.json()) as { id: number }).id;
+    orphanVideoId = null; // row exists — the video is no longer an orphan
   } finally {
-    if (createdVideoId) {
-      await deleteBunnyVideo(createdVideoId);
+    if (orphanVideoId) {
+      await deleteBunnyVideo(orphanVideoId);
     }
+  }
+
+  // 4. Poll Bunny for transcoding — pure UI feedback from here on.
+  onTranscodingStart?.();
+  try {
+    await pollBunnyMeta(creds.videoId, signal, onTranscodeStatus);
+  } catch (err) {
+    if (err instanceof TranscodeFailedError || err instanceof UploadCancelledError) {
+      // Genuinely unusable (or the admin aborted): remove the row — the
+      // DELETE endpoint also removes the Bunny video when unreferenced.
+      if (rowId !== null) {
+        await authFetch(`${API_URL}/session-videos/${rowId}`, { method: "DELETE" }).catch(() => {});
+      }
+      throw err;
+    }
+    // Poll timeout or transient network error — transcoding continues on
+    // Bunny's side and the webhook will backfill the duration. The upload
+    // itself succeeded, so don't fail the flow or touch the video.
+    console.warn("[videoUploader] transcode polling stopped early (non-fatal):", err);
   }
 }
