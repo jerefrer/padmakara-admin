@@ -97,7 +97,11 @@ uploadRoutes.post("/bunny/create", async (c) => {
     throw AppError.badRequest("title is required");
   }
   const { guid } = await createVideo(body.title.trim());
-  const creds = buildTusCredentials(guid);
+  // 48h signature TTL — Bunny validates it on every TUS request, so it must
+  // outlive the WHOLE upload. With the 1h default, a 10.5 GB upload died at
+  // ~70%: first connection hiccup past the hour → 401 on resume → 409 offset
+  // conflict → retries exhausted → partial upload deleted by cleanup.
+  const creds = buildTusCredentials(guid, 48 * 3600);
   return c.json(creds);
 });
 

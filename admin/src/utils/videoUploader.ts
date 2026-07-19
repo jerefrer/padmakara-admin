@@ -125,7 +125,11 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const upload = new tus.Upload(file, {
         endpoint: creds.endpoint,
-        retryDelays: [0, 3000, 6000, 12000, 24000],
+        // Spans ~9 min of consecutive failures. Multi-GB uploads run for
+        // hours; giving up after seconds meant one wifi blip destroyed the
+        // whole upload (the error path deletes the partial Bunny video).
+        // tus resets the attempt counter once a request succeeds again.
+        retryDelays: [0, 3000, 10000, 30000, 60000, 120000, 300000],
         headers: {
           AuthorizationSignature: creds.signature,
           AuthorizationExpire: String(creds.expirationTime),

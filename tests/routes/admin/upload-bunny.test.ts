@@ -66,7 +66,10 @@ describe("admin upload — Bunny endpoints", () => {
         expirationTime: 1800000000,
       });
       expect(mockCreateVideo).toHaveBeenCalledWith("Day 1 Morning");
-      expect(mockBuildTusCredentials).toHaveBeenCalledWith("vid-guid-123");
+      // 48h TTL: multi-GB uploads run for hours; a 1h signature expires
+      // mid-upload and the first TUS retry after that dies with 401,
+      // destroying the partial upload (seen in prod with a 10.5 GB file).
+      expect(mockBuildTusCredentials).toHaveBeenCalledWith("vid-guid-123", 48 * 3600);
     });
 
     it("returns 400 when title is missing", async () => {
