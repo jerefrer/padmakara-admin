@@ -259,7 +259,7 @@ export function parseTrackFile(file: File): ParsedTrack {
     }
   }
 
-  if (/(?:^|\s|_)TRAD(?:\s|$|-)/i.test(baseName)) {
+  if (/(?:^|\s|_)TRAD(?:[\s_-]|$)/i.test(baseName)) {
     isTranslation = true;
     languages = ["pt"];
     originalLanguage = "pt";
@@ -316,6 +316,17 @@ export function parseTrackFile(file: File): ParsedTrack {
     speaker = speakerMatch[1]!.toUpperCase();
   }
 
+  // Fallback: all-caps abbreviation followed directly by title, space- or
+  // underscore-separated ("001 YMR Conference", "001_YMR_Conference").
+  // Case-sensitive so lowercase title words are never captured. Mirrors the
+  // backend parser's direct fallback.
+  if (!speaker) {
+    const directMatch = baseName.match(/^\d+[_\s-]+([A-Z]{2,5})[\s_]+/);
+    if (directMatch && directMatch[1] !== "TRAD") {
+      speaker = directMatch[1]!;
+    }
+  }
+
   // Build title by stripping track number prefix
   title = baseName.replace(/^\d+[_\s-]+/, "");
 
@@ -324,7 +335,7 @@ export function parseTrackFile(file: File): ParsedTrack {
     title = title
       .replace(new RegExp(`^${speaker}\\s*-\\s+`, "i"), "")
       .replace(new RegExp(`^${speaker}\\s*-\\s*`, "i"), "")
-      .replace(new RegExp(`^${speaker}\\s+`, "i"), "");
+      .replace(new RegExp(`^${speaker}[\\s_]+`, "i"), "");
   }
   // Fallback: strip any leading 2-5 letter abbreviation followed by " - " even if speaker wasn't detected
   if (!speaker) {
@@ -337,7 +348,7 @@ export function parseTrackFile(file: File): ParsedTrack {
 
   title = title
     .replace(/^TRAD\s*-\s+/i, "")
-    .replace(/^TRAD\s+/i, "")
+    .replace(/^TRAD[\s_]+/i, "")
     .replace(/\[[^\]]+\]\s*/i, "")
     .replace(/\s*\d{4}-\d{2}-\d{2}/, "");
 
@@ -355,8 +366,9 @@ export function parseTrackFile(file: File): ParsedTrack {
 
   // Pre-fill the EN/PT title fields by detected language, leaving the other
   // blank — a human-entered filename title is not AI output, so both sides
-  // start reviewed.
-  const _lang = detectTitleLanguage(title);
+  // start reviewed. A TRAD track's title is Portuguese by contract, even when
+  // the heuristic can't tell (no diacritics/stopwords, e.g. "Conferencia").
+  const _lang = isTranslation && originalLanguage === "pt" ? "pt" : detectTitleLanguage(title);
 
   return {
     trackNumber, speaker, title, language: originalLanguage, isTranslation,

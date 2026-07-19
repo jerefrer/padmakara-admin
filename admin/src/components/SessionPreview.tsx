@@ -785,12 +785,12 @@ function cleanTitle(track: ParsedTrack): string {
     t = t
       .replace(new RegExp(`^${track.speaker}\\s*-\\s+`, "i"), "")
       .replace(new RegExp(`^${track.speaker}\\s*-\\s*`, "i"), "")
-      .replace(new RegExp(`^${track.speaker}\\s+`, "i"), "");
+      .replace(new RegExp(`^${track.speaker}[\\s_]+`, "i"), "");
   }
   // Fallback: strip any leading 2-5 letter abbreviation + " - " pattern
   t = t.replace(/^[A-Z]{2,5}\s*-\s+/i, "");
   // Also strip any TRAD prefix that might remain
-  t = t.replace(/^TRAD\s*-\s+/i, "").replace(/^TRAD\s+/i, "");
+  t = t.replace(/^TRAD\s*-\s+/i, "").replace(/^TRAD[\s_]+/i, "");
   return t || track.title;
 }
 
