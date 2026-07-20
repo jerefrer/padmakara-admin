@@ -31,6 +31,8 @@ import {
   formatSessionDate,
   normalizePeriod,
 } from "./session-dates.ts";
+import { hasTrackRanges, inferSessionsFromRanges } from "./session-ranges.ts";
+import type { AnalysisNote } from "./track-conventions.ts";
 
 export interface ParsedTrack {
   trackNumber: number;
@@ -372,7 +374,7 @@ export interface InferredSession {
  * Group parsed tracks into inferred sessions based on date and time period.
  * Translation tracks without date/time info are matched to originals by track number.
  */
-export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
+function inferSessionsByDate(tracks: ParsedTrack[]): InferredSession[] {
   // Separate originals (with date/time info) from orphan translations (without)
   const originals = tracks.filter((t) => !t.isTranslation || t.date !== null);
   const orphanTranslations = tracks.filter((t) => t.isTranslation && t.date === null);
@@ -453,4 +455,21 @@ export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
   }
 
   return sessions;
+}
+
+/**
+ * Group parsed tracks into sessions, with any warnings the grouping produced.
+ *
+ * Range mode engages only when a file carries an explicit "NNN-NNN" range;
+ * every other event takes the original date-based path unchanged.
+ */
+export function inferSessionsWithNotes(
+  tracks: ParsedTrack[],
+): { sessions: InferredSession[]; notes: AnalysisNote[] } {
+  if (hasTrackRanges(tracks)) return inferSessionsFromRanges(tracks);
+  return { sessions: inferSessionsByDate(tracks), notes: [] };
+}
+
+export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
+  return inferSessionsWithNotes(tracks).sessions;
 }

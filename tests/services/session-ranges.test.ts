@@ -106,3 +106,33 @@ describe("inferSessionsFromRanges", () => {
     expect(notes.some((n) => n.severity === "info")).toBe(true);
   });
 });
+
+import { inferSessions, inferSessionsWithNotes } from "../../src/services/track-parser.ts";
+
+describe("inferSessions activation gate", () => {
+  it("uses range mode when a range is present", () => {
+    const sessions = inferSessions(parse([
+      "001-002 [TRAD] 6_10 - Manha.mp3",
+      "001 [ENG] Teaching.mp3",
+      "002 [ENG] Questions.mp3",
+    ]));
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.titleEn).toBe("October 6 - Morning");
+  });
+
+  it("falls back to date grouping when no range is present", () => {
+    const sessions = inferSessions(parse([
+      "001 JKR - Track 1-(17 April AM).mp3",
+      "002 JKR - Track 2-(17 April AM).mp3",
+      "003 JKR - Track 3-(17 April PM).mp3",
+    ]));
+    expect(sessions).toHaveLength(2);
+  });
+
+  it("returns no notes in date mode", () => {
+    const { notes } = inferSessionsWithNotes(parse([
+      "001 JKR - Track 1-(17 April AM).mp3",
+    ]));
+    expect(notes).toEqual([]);
+  });
+});
