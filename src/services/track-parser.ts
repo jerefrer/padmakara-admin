@@ -508,14 +508,6 @@ export function inferSessionsWithNotes(
   return result;
 }
 
-/**
- * Apply the session-level translation correction to a flat track list, for
- * callers that must split originals from translations BEFORE grouping.
- */
-export function correctTranslationFlags(tracks: ParsedTrack[]): void {
-  applyTranslationCorrection(groupSessions(tracks).sessions);
-}
-
 export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
   return inferSessionsWithNotes(tracks).sessions;
 }

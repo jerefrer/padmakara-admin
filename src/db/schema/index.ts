@@ -94,29 +94,3 @@ export { syncVersions } from "./sync-versions.ts";
 export type { SyncVersion } from "./sync-versions.ts";
 export { userSyncVersions } from "./user-sync-versions.ts";
 export type { UserSyncVersion } from "./user-sync-versions.ts";
-
-// Migrations
-export {
-  migrations,
-  migrationFileCatalogs,
-  migrationFileDecisions,
-  migrationLogs,
-  mediaFiles,
-  migrationsRelations,
-  migrationFileCatalogsRelations,
-  migrationFileDecisionsRelations,
-  migrationLogsRelations,
-  mediaFilesRelations,
-  migrationStatusEnum,
-  fileActionEnum,
-  fileCategoryEnum,
-  logLevelEnum,
-} from "./migrations.ts";
-
-// Event import system
-export {
-  importJobs,
-  importFiles,
-  importJobsRelations,
-  importFilesRelations,
-} from "./imports.ts";

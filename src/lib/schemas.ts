@@ -320,10 +320,6 @@ export const presignTranscriptSchema = z.object({
   contentType: z.string().min(1).max(200),
 });
 
-export const inferSessionsSchema = z.object({
-  filenames: z.array(safeFilenameSchema).min(1),
-});
-
 // AI assist (event + sessions + tracks)
 const aiEventFieldsSchema = z.object({
   titleEn: z.string().max(500).optional(),

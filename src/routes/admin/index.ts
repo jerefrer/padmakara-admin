@@ -14,7 +14,6 @@ import { userRoutes } from "./users.ts";
 import { approvalRoutes } from "./approvals.ts";
 import { uploadRoutes } from "./upload.ts";
 import { publicationRoutes } from "./publications.ts";
-import migrationRoutes from "./migrations.ts";
 import { analyzeRoutes } from "./import/analyze.ts";
 import { translateRoutes } from "./translate.ts";
 import { TRANSLATION_MODELS, DEFAULT_TRANSLATE_MODEL } from "../../services/translation-models.ts";
@@ -42,7 +41,6 @@ admin.route("/users", userRoutes);
 admin.route("/approvals", approvalRoutes);
 admin.route("/upload", uploadRoutes);
 admin.route("/publications", publicationRoutes);
-admin.route("/migrations", migrationRoutes);
 admin.route("/import/analyze", analyzeRoutes);
 
 export { admin };

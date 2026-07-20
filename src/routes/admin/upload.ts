@@ -1,8 +1,7 @@
 import { Hono } from "hono";
 import { db } from "../../db/index.ts";
 import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key } from "../../services/s3.ts";
-import { parseTrackFilename, inferSessions, correctTranslationFlags } from "../../services/track-parser.ts";
-import { presignUploadSchema, presignTranscriptSchema, inferSessionsSchema, aiAssistSchema } from "../../lib/schemas.ts";
+import { presignUploadSchema, presignTranscriptSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import {
   createVideo,
   deleteVideo,
@@ -52,40 +51,6 @@ uploadRoutes.post("/presign-transcript", async (c) => {
   const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
 
   return c.json({ s3Key, uploadUrl });
-});
-
-/**
- * POST /api/admin/upload/infer-sessions - Parse filenames and infer sessions
- * Used by admin UI to preview session structure before creating retreat
- */
-uploadRoutes.post("/infer-sessions", async (c) => {
-  const parsed = inferSessionsSchema.safeParse(
-    await c.req.json().catch(() => null),
-  );
-  if (!parsed.success) {
-    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
-  }
-
-  const { filenames } = parsed.data;
-  const tracks = filenames.map(parseTrackFilename);
-  // An English track in a session with no Tibetan is not a translation, so
-  // correct the per-file guess before splitting — otherwise those tracks are
-  // diverted out of session inference entirely.
-  correctTranslationFlags(tracks);
-  // Range-defining files are translations, but they carry the ONLY session
-  // information some legacy events have — keep them in session inference and
-  // out of the translations bucket so neither list double-counts them.
-  const originals = tracks.filter((t) => !t.isTranslation || t.trackRange !== null);
-  const translations = tracks.filter((t) => t.isTranslation && t.trackRange === null);
-  const sessions = inferSessions(originals);
-
-  return c.json({
-    sessions,
-    translations,
-    totalTracks: tracks.length,
-    originalTracks: originals.length,
-    translationTracks: translations.length,
-  });
 });
 
 /**

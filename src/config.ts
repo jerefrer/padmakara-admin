@@ -84,10 +84,6 @@ export const config = {
     defaultTranslateModel: env("ANTHROPIC_TRANSLATE_MODEL", "claude-opus-4-8"),
   },
 
-  importer: {
-    zipExtractorFn: env("IMPORT_ZIP_EXTRACTOR_FN", "padmakara-zip-extractor"),
-  },
-
   google: {
     /**
      * Optional Drive API key used to validate and resolve public Google

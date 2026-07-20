@@ -13,7 +13,6 @@ import { EventTypeList, EventTypeEdit, EventTypeCreate } from "./resources/event
 import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audiences";
 import { UserList, UserEdit } from "./resources/users";
 import { ApprovalList } from "./resources/approvals";
-import { MigrationList, MigrationCreate, MigrationShow } from "./resources/migrations";
 import { PublicationList, PublicationEdit, PublicationCreate } from "./resources/publications";
 
 const App = () => (
@@ -84,13 +83,6 @@ const App = () => (
       list={PublicationList}
       edit={PublicationEdit}
       create={PublicationCreate}
-    />
-    <Resource
-      name="migrations"
-      options={{ label: "Migration" }}
-      list={MigrationList}
-      create={MigrationCreate}
-      show={MigrationShow}
     />
   </Admin>
 );
