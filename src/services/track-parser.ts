@@ -34,6 +34,12 @@ import {
 
 export interface ParsedTrack {
   trackNumber: number;
+  /**
+   * Set when the filename's leading number is a RANGE ("001-037"), meaning the
+   * file covers tracks start..end rather than being a single track. Null for an
+   * ordinary track. When set, trackNumber equals start.
+   */
+  trackRange: { start: number; end: number } | null;
   speaker: string | null;
   speakers: string[];
   title: string;
@@ -85,6 +91,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   const baseName = filename.replace(/\.(mp3|wav|m4a|flac|ogg|mpeg)$/i, "");
 
   let trackNumber = 0;
+  let trackRange: { start: number; end: number } | null = null;
   let speaker: string | null = null;
   const speakers: string[] = [];
   let title = baseName;
@@ -121,6 +128,19 @@ export function parseTrackFilename(filename: string): ParsedTrack {
       }
     } else {
       trackNumber = num;
+    }
+  }
+
+  // A leading "NNN-NNN" is a track RANGE. Capped at three digits on both sides
+  // so an ISO date ("2019-10-06") or a year range can never match, and both
+  // sides must be numeric so "01-TPWR" stays a speaker abbreviation.
+  const rangeMatch = baseName.match(/^(\d{1,3})\s*-\s*(\d{1,3})(?=\D|$)/);
+  if (rangeMatch) {
+    const start = parseInt(rangeMatch[1]!, 10);
+    const end = parseInt(rangeMatch[2]!, 10);
+    if (end >= start) {
+      trackRange = { start, end };
+      trackNumber = start;
     }
   }
 
@@ -268,6 +288,8 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   title = baseName
     // Remove leading ISO date prefix (e.g. "2025-10-27-")
     .replace(/^\d{4}-\d{2}-\d{2}[_\s-]+/, "")
+    // Remove a leading track range (e.g. "001-037-")
+    .replace(/^\d{1,3}\s*-\s*\d{1,3}[_\s-]+/, "")
     // Remove leading number and optional underscore/space/hyphen
     .replace(/^\d+[_\s-]+/, "");
 
@@ -293,6 +315,10 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   // Remove the exact session marker matched above (all supported date shapes).
   if (sessionMarker) {
     title = title.replace(sessionMarker, "");
+    // sessionMarker was captured from baseName and may carry a leading
+    // separator that the bracket strip above already consumed, in which case
+    // the exact-string replace misses. Retry without it.
+    title = title.replace(sessionMarker.replace(/^[\s_-]+/, ""), "");
   }
 
   title = title
@@ -305,6 +331,13 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   // Replace underscores with spaces in title
   title = title.replace(/_/g, " ");
 
+  // A range definer ("001-037 [TRAD] 6_10 - Manha") is nothing but markers, so
+  // it cleans to empty. Its period word is a far better display title than the
+  // raw filename the generic fallback below would use.
+  if (!title.trim() && trackRange && sessMatch?.[2]) {
+    title = sessMatch[2];
+  }
+
   // If title is empty after cleanup, use original filename
   if (!title) {
     title = baseName;
@@ -312,6 +345,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
 
   return {
     trackNumber,
+    trackRange,
     speaker,
     speakers,
     title,
