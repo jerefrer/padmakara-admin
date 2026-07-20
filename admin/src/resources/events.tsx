@@ -1489,6 +1489,40 @@ export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
  * corrections map. The corrections map is keyed by corrected filename
  * (which becomes the canonical `originalFilename` stored in the DB).
  */
+// A leading "NNN-NNN" marks a translation file that covers a RANGE of tracks
+// ("129-143 [TRAD] 8_10 - Tarde Parte 1.mp3"). Capped at three digits per side
+// so an ISO date can never match. Mirrors the backend parser's range rule.
+const RANGE_DEFINER_PREFIX = /^\s*\d{1,3}\s*-\s*\d{1,3}(?=\D|$)/;
+
+/**
+ * Give each range-covering translation file a track number that sits after the
+ * individual tracks of its session, in part order.
+ *
+ * These files are parsed with trackNumber = the range's start, so two parts of
+ * one range ("Parte 1"/"Parte 2") both land on that number and collide on the
+ * (session, trackNumber, originalLanguage) unique key, which blocks event
+ * creation. Renumbering them past the individual tracks makes each unique and
+ * groups the whole-session recordings at the end of the session, in order.
+ */
+function renumberRangeDefiners(tracks: ParsedTrack[]): void {
+  const isDefiner = (t: ParsedTrack) => RANGE_DEFINER_PREFIX.test(t.originalFilename);
+  const definers = tracks.filter(isDefiner);
+  if (definers.length === 0) return;
+  const maxIndividual = tracks
+    .filter((t) => !isDefiner(t))
+    .reduce((max, t) => Math.max(max, t.trackNumber), 0);
+  definers
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.partNumber ?? 0) - (b.partNumber ?? 0) ||
+        a.originalFilename.localeCompare(b.originalFilename),
+    )
+    .forEach((t, i) => {
+      t.trackNumber = maxIndividual + 1 + i;
+    });
+}
+
 function analysisToInferredSessions(
   result: AnalysisResult,
   scannedFiles: ScannedFile[],
@@ -1555,6 +1589,10 @@ function analysisToInferredSessions(
         file,
       } satisfies ParsedTrack;
     });
+
+    // Range-covering translation files share the range's start number, which
+    // collides when a range has two parts — fix before the session is built.
+    renumberRangeDefiners(tracks);
 
     // The AI-analysis path never authors real session titles: whenever a
     // session carries a date or time period, `titleEn`/`titlePt` are always
