@@ -1542,6 +1542,11 @@ function analysisToInferredSessions(
         languages: t.languages ?? parsed.languages,
         originalLanguage: t.originalLanguage ?? parsed.originalLanguage,
         isTranslation: t.isTranslation ?? parsed.isTranslation,
+        // Same reasoning as languages: the backend parser is authoritative and
+        // handles a language tag sitting between the number and the
+        // abbreviation ("003 [TIB] KPS - ..."). Fall back to the client parse
+        // only when the analysis carries no speaker.
+        speaker: t.speaker ?? parsed.speaker,
         // The corrected filename becomes the canonical filename — used for S3
         // uploads and stored in the DB. The key for SessionTrackTable is also
         // this value (via the `key` field set in sessionsToTableValue).

@@ -313,7 +313,13 @@ export function parseTrackFile(file: File): ParsedTrack {
   // Detect speaker abbreviation. The abbreviation may be followed by " - ", a
   // language bracket (with or without a leading space), or a bare hyphen
   // ("01-KNP-[TIB+PT]..."). Mirrors the backend parser's separator set.
-  const speakerMatch = baseName.match(/^\d+[_\s-]+([A-Z]{2,5})(?:\s+-|\s*\[|-)/i);
+  // A language tag may sit between the number and the abbreviation
+  // ("003 [TIB] KPS - Motivation"); without the optional bracket group here the
+  // speaker is never found for tagged files. Mirrors SPEAKER_NUM_PREFIX in the
+  // backend parser.
+  const speakerMatch = baseName.match(
+    /^\d+[_\s-]+(?:\[[^\]]*\][\s_-]*)?([A-Z]{2,5})(?:\s+-|\s*\[|-)/i,
+  );
   if (speakerMatch && speakerMatch[1]!.toUpperCase() !== "TRAD") {
     speaker = speakerMatch[1]!.toUpperCase();
   }
@@ -323,14 +329,19 @@ export function parseTrackFile(file: File): ParsedTrack {
   // Case-sensitive so lowercase title words are never captured. Mirrors the
   // backend parser's direct fallback.
   if (!speaker) {
-    const directMatch = baseName.match(/^\d+[_\s-]+([A-Z]{2,5})[\s_]+/);
+    const directMatch = baseName.match(/^\d+[_\s-]+(?:\[[^\]]*\][\s_-]*)?([A-Z]{2,5})[\s_]+/);
     if (directMatch && directMatch[1] !== "TRAD") {
       speaker = directMatch[1]!;
     }
   }
 
-  // Build title by stripping track number prefix
-  title = baseName.replace(/^\d+[_\s-]+/, "");
+  // Build title by stripping track number prefix, then the language tag. The
+  // tag must go first: the speaker strip below is ^-anchored, so leaving
+  // "[TIB] " in front of "KPS - Motivation" makes it miss and the abbreviation
+  // stays in the title.
+  title = baseName
+    .replace(/^\d+[_\s-]+/, "")
+    .replace(/\[[^\]]+\]\s*/i, "");
 
   // Strip speaker abbreviation from the start of title
   if (speaker) {
@@ -351,7 +362,6 @@ export function parseTrackFile(file: File): ParsedTrack {
   title = title
     .replace(/^TRAD\s*-\s+/i, "")
     .replace(/^TRAD[\s_]+/i, "")
-    .replace(/\[[^\]]+\]\s*/i, "")
     .replace(/\s*\d{4}-\d{2}-\d{2}/, "");
 
   // Remove the exact session marker matched above (all supported date shapes).

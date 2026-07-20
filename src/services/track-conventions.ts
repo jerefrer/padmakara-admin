@@ -119,6 +119,11 @@ export const analysisTrackSchema = z.object({
   languages: z.array(z.string()).default(["en"]),
   originalLanguage: z.string().default("en"),
   isTranslation: z.boolean().default(false),
+  // Speaker abbreviation from the deterministic parser (e.g. "KPS"). Like
+  // `languages`, this is authoritative — the admin form has its own client-side
+  // parser, but that copy cannot be relied on to stay in step with this one.
+  // Claude never edits it.
+  speaker: z.string().nullable().default(null),
   corrections: z.array(trackCorrectionSchema),
 });
 export type AnalysisTrack = z.infer<typeof analysisTrackSchema>;

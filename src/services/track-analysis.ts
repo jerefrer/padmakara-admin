@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { parseTrackFilename, inferSessionsWithNotes, type ParsedTrack } from "./track-parser.ts";
-import { toIsoSessionDate } from "./session-dates.ts";
+import { toIsoSessionDate, isIsoDate, extractYear } from "./session-dates.ts";
 import type {
   AnalysisResult,
   AnalysisSession,
@@ -116,6 +116,7 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
       languages: t.languages,
       originalLanguage: t.originalLanguage,
       isTranslation: t.isTranslation,
+      speaker: t.speaker,
       corrections: [],
     })),
   }));
@@ -126,9 +127,17 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
   // `(21 June AM)` marker) with no year. The admin's date input needs ISO
   // `YYYY-MM-DD`, so combine the month/day with the event's year (from the
   // folder date) to fill the field automatically.
-  const eventYear = event.startDate?.slice(0, 4) ?? null;
+  // FOLDER_DATE_RE only matches a date at the START of the folder name, so a
+  // folder like "KPS WF - ... - OCT_2019" leaves startDate null. Fall back to
+  // any year in the name itself, otherwise a year-less "October 6" survives to
+  // the admin's date input, which can only read ISO and shows it as empty.
+  const eventYear = event.startDate?.slice(0, 4) ?? extractYear(input.folderName);
   for (const s of sessions) {
-    if (s.sessionDate) s.sessionDate = toIsoSessionDate(s.sessionDate, eventYear);
+    if (!s.sessionDate) continue;
+    const iso = toIsoSessionDate(s.sessionDate, eventYear);
+    // Never hand back a non-ISO string: session_date is a `date` column and
+    // the admin's date input silently ignores anything else.
+    s.sessionDate = isIsoDate(iso) ? iso : null;
   }
 
   // Single-day event: every session is on that day, so backfill any session

@@ -24,6 +24,8 @@ export interface AnalysisTrack {
   languages: string[];
   originalLanguage: string;
   isTranslation: boolean;
+  /** Speaker abbreviation from the backend parser, e.g. "KPS". Authoritative. */
+  speaker: string | null;
   corrections: TrackCorrection[];
 }
 

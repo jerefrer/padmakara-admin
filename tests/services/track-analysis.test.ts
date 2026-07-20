@@ -213,6 +213,7 @@ function makeSession(num: number, trackCount: number): AnalysisSession {
       languages: ["en"],
       originalLanguage: "en",
       isTranslation: false,
+      speaker: null,
       corrections: [],
     })),
   };
@@ -563,5 +564,54 @@ describe("analyzeFolder orchestrator", () => {
     expect(progress.length).toBeGreaterThan(0);
     const last = progress[progress.length - 1] as Extract<ProgressEvent, { type: "chunk_progress" }>;
     expect(last.done).toBe(last.total);
+  });
+});
+
+// The admin's EventCreate screen calls /admin/import/analyze, so this path —
+// not the import-inference pipeline — is what fills the session date and the
+// per-track speaker on that form.
+describe("deterministicPrePass - folder without a leading date", () => {
+  const FOLDER =
+    "KPS WF - Shantideva's Ninth Chapter Part 3 of 3 - LISBOA - OCT_2019 [TIB+ENG+POR]";
+  const analyse = (files: string[]) =>
+    deterministicPrePass({
+      folderName: FOLDER,
+      files: files.map((relativePath) => ({ relativePath, sizeBytes: 1 })),
+      knownGroups: [],
+      knownTeachers: [],
+      knownPlaces: [],
+      knownEventTypes: [],
+    });
+
+  it("recovers the session date year from the folder name when startDate is null", () => {
+    const r = analyse([
+      "001-002 [TRAD] 6_10 - Manha.mp3",
+      "001 [TIB] KPS - Opening prayers.mp3",
+      "002 [ENG] KPS - Teaching.mp3",
+    ]);
+    expect(r.event.startDate).toBeNull();
+    expect(r.sessions[0]?.sessionDate).toBe("2019-10-06");
+  });
+
+  it("carries the speaker through to the analysis track", () => {
+    const r = analyse(["003 [TIB] KPS - Motivation, how to listen.mp3"]);
+    const track = r.sessions[0]?.tracks[0];
+    expect(track?.speaker).toBe("KPS");
+    expect(track?.title).toBe("Motivation, how to listen");
+  });
+
+  it("emits null rather than a non-ISO session date when no year can be found", () => {
+    const r = deterministicPrePass({
+      folderName: "Teachings in Lisboa",
+      files: [
+        { relativePath: "001-002 [TRAD] 6_10 - Manha.mp3", sizeBytes: 1 },
+        { relativePath: "001 [TIB] KPS - Opening prayers.mp3", sizeBytes: 1 },
+      ],
+      knownGroups: [],
+      knownTeachers: [],
+      knownPlaces: [],
+      knownEventTypes: [],
+    });
+    expect(r.sessions[0]?.sessionDate).toBeNull();
   });
 });
