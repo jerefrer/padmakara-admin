@@ -136,3 +136,38 @@ describe("inferSessions activation gate", () => {
     expect(notes).toEqual([]);
   });
 });
+
+describe("translation correction", () => {
+  it("keeps isTranslation true on an English track in a session that also has Tibetan", () => {
+    const { sessions } = inferSessionsWithNotes(parse([
+      "01 KPS [TIB] Prayer 2017-11-14.mp3",
+      "02 KPS [ENG] Prayer translation 2017-11-14.mp3",
+    ]));
+    expect(sessions).toHaveLength(1);
+    const eng = sessions[0]!.tracks.find((t) => t.languages[0] === "en")!;
+    expect(eng.isTranslation).toBe(true);
+  });
+
+  it("clears isTranslation on English tracks in a session with no Tibetan", () => {
+    const { sessions } = inferSessionsWithNotes(parse([
+      "01 KPS [ENG] Teaching 2017-11-14.mp3",
+      "02 KPS [ENG] More teaching 2017-11-14.mp3",
+    ]));
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.tracks.every((t) => t.isTranslation === false)).toBe(true);
+  });
+
+  it("keeps a [TRAD] Portuguese range definer flagged as a translation even with no Tibetan in its session", () => {
+    const { sessions } = inferSessionsWithNotes(parse([
+      "001-002 [TRAD] 6_10 - Manha.mp3",
+      "001 [ENG] Teaching.mp3",
+      "002 [ENG] Questions.mp3",
+    ]));
+    expect(sessions).toHaveLength(1);
+    const trad = sessions[0]!.tracks.find((t) => t.trackRange !== null)!;
+    expect(trad.languages).toEqual(["pt"]);
+    expect(trad.isTranslation).toBe(true);
+    // The session has no Tibetan track, so the ENG tracks in it are corrected.
+    expect(sessions[0]!.tracks.filter((t) => t.languages[0] === "en").every((t) => !t.isTranslation)).toBe(true);
+  });
+});

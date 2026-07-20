@@ -468,11 +468,47 @@ function inferSessionsByDate(tracks: ParsedTrack[]): InferredSession[] {
  * Range mode engages only when a file carries an explicit "NNN-NNN" range;
  * every other event takes the original date-based path unchanged.
  */
-export function inferSessionsWithNotes(
+function groupSessions(
   tracks: ParsedTrack[],
 ): { sessions: InferredSession[]; notes: AnalysisNote[] } {
   if (hasTrackRanges(tracks)) return inferSessionsFromRanges(tracks);
   return { sessions: inferSessionsByDate(tracks), notes: [] };
+}
+
+/**
+ * Clear `isTranslation` on English-only tracks in any session containing no
+ * Tibetan track.
+ *
+ * parseTrackFilename reads a solo [ENG] tag as the English translation of a
+ * Tibetan original, which holds for alternating TIB/ENG teachings but not for a
+ * teacher who taught a whole session in English. Only the session reveals which
+ * case applies, so the correction lives here and the per-file rule is left alone.
+ */
+function applyTranslationCorrection(sessions: InferredSession[]): void {
+  for (const session of sessions) {
+    if (session.tracks.some((t) => t.languages.includes("tib"))) continue;
+    for (const track of session.tracks) {
+      if (track.isTranslation && track.languages.length === 1 && track.languages[0] === "en") {
+        track.isTranslation = false;
+      }
+    }
+  }
+}
+
+export function inferSessionsWithNotes(
+  tracks: ParsedTrack[],
+): { sessions: InferredSession[]; notes: AnalysisNote[] } {
+  const result = groupSessions(tracks);
+  applyTranslationCorrection(result.sessions);
+  return result;
+}
+
+/**
+ * Apply the session-level translation correction to a flat track list, for
+ * callers that must split originals from translations BEFORE grouping.
+ */
+export function correctTranslationFlags(tracks: ParsedTrack[]): void {
+  applyTranslationCorrection(groupSessions(tracks).sessions);
 }
 
 export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {

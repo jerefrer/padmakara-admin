@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db } from "../../db/index.ts";
 import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key } from "../../services/s3.ts";
-import { parseTrackFilename, inferSessions } from "../../services/track-parser.ts";
+import { parseTrackFilename, inferSessions, correctTranslationFlags } from "../../services/track-parser.ts";
 import { presignUploadSchema, presignTranscriptSchema, inferSessionsSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import {
   createVideo,
@@ -68,6 +68,10 @@ uploadRoutes.post("/infer-sessions", async (c) => {
 
   const { filenames } = parsed.data;
   const tracks = filenames.map(parseTrackFilename);
+  // An English track in a session with no Tibetan is not a translation, so
+  // correct the per-file guess before splitting — otherwise those tracks are
+  // diverted out of session inference entirely.
+  correctTranslationFlags(tracks);
   // Range-defining files are translations, but they carry the ONLY session
   // information some legacy events have — keep them in session inference and
   // out of the translations bucket so neither list double-counts them.

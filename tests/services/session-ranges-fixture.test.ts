@@ -78,4 +78,26 @@ describe("Shantideva Oct 2019 - range-based session inference", () => {
   it("emits no warnings", () => {
     expect(notes.filter((n) => n.severity === "warning")).toEqual([]);
   });
+
+  it("flags no English track as a translation in a session with zero Tibetan tracks", () => {
+    for (const session of sessions) {
+      const hasTib = session.tracks.some((t) => t.languages.includes("tib"));
+      if (hasTib) continue;
+      for (const track of session.tracks) {
+        if (track.languages.length === 1 && track.languages[0] === "en") {
+          expect(track.isTranslation).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("still flags English tracks as translations in the October 6 - Morning session (which has Tibetan)", () => {
+    const s = sessions.find((x) => x.titleEn === "October 6 - Morning")!;
+    expect(s.tracks.some((t) => t.languages.includes("tib"))).toBe(true);
+    const englishTracks = s.tracks.filter(
+      (t) => t.languages.length === 1 && t.languages[0] === "en",
+    );
+    expect(englishTracks.length).toBeGreaterThan(0);
+    expect(englishTracks.every((t) => t.isTranslation)).toBe(true);
+  });
 });
