@@ -124,7 +124,6 @@ bun db:studio                  # Visual database browser
 
 # Data seeding
 bun db:seed                    # Import data from CSV files
-bun migrate:wix                # Migrate data from old Django backend
 ```
 
 ### Important Notes
@@ -165,8 +164,7 @@ padmakara-api/
 │   ├── lib/
 │   │   └── errors.ts           # AppError class & error handling
 │   ├── scripts/
-│   │   ├── seed-from-csv.ts    # CSV data import
-│   │   └── migrate-from-wix.ts # Django backend migration
+│   │   └── seed-from-csv.ts    # CSV data import
 │   └── types/
 │       └── index.ts            # Shared TypeScript types
 ├── tests/
