@@ -244,7 +244,12 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
 }: ReadonlyTrackRowProps) {
   return (
     <Box
-      onClick={() => onEdit(track.key)}
+      // mousedown, not click: the open editor is taller than a collapsed row,
+      // so blurring it mid-click shifts everything below it upwards. mouseup
+      // then lands on a different element and the browser fires no click at
+      // all — which is why clicking a row BELOW the editor only closed it.
+      // mousedown runs before the blur, while the layout is still stable.
+      onMouseDown={() => onEdit(track.key)}
       sx={{
         display: "flex",
         alignItems: "center",
@@ -448,6 +453,15 @@ function EditingTrackRow({
     const patch = buildPatch();
     if (Object.keys(patch).length > 0) onTrackChange(track.key, patch);
   };
+
+  // Clicking another row switches `editingKey` on mousedown, which unmounts
+  // this editor and can outrun the blur handler. Commit on unmount so a pending
+  // draft is never silently dropped; `doneRef` stops this double-saving after
+  // an explicit save, cancel or arrow-key navigation, and cancelEdit sets it
+  // without committing so Esc still discards.
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(() => () => commitRef.current(), []);
 
   const saveAndClose = () => {
     commit();
