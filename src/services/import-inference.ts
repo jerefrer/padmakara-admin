@@ -15,7 +15,7 @@ import { AppError } from "../lib/errors.ts";
 import { config } from "../config.ts";
 import {
   parseTrackFilename,
-  inferSessions,
+  inferSessionsWithNotes,
   type ParsedTrack,
   type InferredSession,
 } from "./track-parser.ts";
@@ -302,6 +302,7 @@ Rules for "event":
 - startDate / endDate: use the decoded date range. If it is only month-precise, keep your best estimate or refine the day from the filenames. If no date is decodable and the filenames carry none, return null.
 Rules for "sessions":
 - Every audio file id must appear exactly once across all sessions — never drop or duplicate an id.
+- Some events encode sessions as track ranges in the translation filenames (e.g. "001-037 [TRAD] 6_10 - Manha.mp3" covers tracks 1 to 37). When the first-pass grouping already splits files into several dated sessions, it was derived from those ranges and is RELIABLE — keep its grouping exactly as given and only clean the titles.
 - Within a session, order the tracks by the leading track number of the filename.
 - For each track, provide a cleaned "title": fix obvious typos, capitalisation and spacing in the title carried by the filename. Keep it faithful — do not invent content, do not translate, do not add the speaker or date. If the filename's title is already fine, return it unchanged.
 - titleEn (the session title) is a short human label, e.g. "25 April - Morning".
@@ -396,7 +397,15 @@ export async function proposeStructure(importJobId: number) {
   const tracksByFileId = new Map<number, ProposedTrack>(
     parsedByFileId.map((p) => [p.id, parsedToProposedTrack(p.parsed, p.id)]),
   );
-  const seed = inferSessions(parsedByFileId.map((p) => p.parsed));
+  const { sessions: seed, notes: rangeNotes } = inferSessionsWithNotes(
+    parsedByFileId.map((p) => p.parsed),
+  );
+  // Range-derived warnings (overlapping ranges, tracks left uncovered) — there
+  // is no admin-facing surface for import-job notes yet, so log them where an
+  // operator investigating a bad proposal will find them.
+  for (const note of rangeNotes) {
+    console.warn(`[import-inference] job ${importJobId} (${job.eventCode}): ${note.message}`);
+  }
 
   // Hints decoded from the event code + source folder name — fed to the AI
   // (for a good title and dates) and re-used below for entity matching.
