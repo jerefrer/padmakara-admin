@@ -244,12 +244,17 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
 }: ReadonlyTrackRowProps) {
   return (
     <Box
-      // mousedown, not click: the open editor is taller than a collapsed row,
-      // so blurring it mid-click shifts everything below it upwards. mouseup
-      // then lands on a different element and the browser fires no click at
-      // all — which is why clicking a row BELOW the editor only closed it.
-      // mousedown runs before the blur, while the layout is still stable.
-      onMouseDown={() => onEdit(track.key)}
+      // The open editor is taller than a collapsed row, so if it blurs
+      // mid-click everything below it shifts upwards: mouseup then lands on a
+      // different element, no click fires, and clicking a row BELOW the editor
+      // only closed it. Suppressing mousedown's default keeps focus where it
+      // is, so the editor does not blur, nothing reflows, and the click below
+      // lands on the row the user actually aimed at. Opening still happens on
+      // click — doing it on mousedown instead swaps the DOM before the
+      // browser applies its own focus, which blurs the newly autoFocused
+      // input straight back out and closes the row on the spot.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => onEdit(track.key)}
       sx={{
         display: "flex",
         alignItems: "center",
