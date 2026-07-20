@@ -298,7 +298,15 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     // Remove a leading track range (e.g. "001-037-")
     .replace(/^\d{1,3}\s*-\s*\d{1,3}[_\s-]+/, "")
     // Remove leading number and optional underscore/space/hyphen
-    .replace(/^\d+[_\s-]+/, "");
+    .replace(/^\d+[_\s-]+/, "")
+    // Remove language tag in brackets — single ([ENG]), descriptive
+    // ([ENG - Audio]), and multi-language ([TIB+ENG], [TIB+ENG+POR]) forms.
+    //
+    // This MUST run before the speaker strip below. Many filenames put the tag
+    // between the number and the speaker ("003 [TIB] KPS - Motivation"), and
+    // the speaker patterns are ^-anchored, so leaving the tag in place makes
+    // every one of them miss and the abbreviation stays in the title.
+    .replace(/\[[A-Z]+(?:[+&/,][A-Z]+)*(?:\s*-\s*[^\]]+)?\]\s*/i, "");
 
   // Remove speaker abbreviation(s) ONLY if we detected them
   if (speakerPattern) {
@@ -311,9 +319,6 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   title = title
     .replace(/^TRAD\s+-\s+/i, "")
     .replace(/^TRAD[\s_]+/i, "")
-    // Remove language tag in brackets — single ([ENG]), descriptive
-    // ([ENG - Audio]), and multi-language ([TIB+ENG], [TIB+ENG+POR]) forms.
-    .replace(/\[[A-Z]+(?:[+&/,][A-Z]+)*(?:\s*-\s*[^\]]+)?\]\s*/i, "")
     // Remove ISO date
     .replace(/\s*\d{4}-\d{2}-\d{2}/, "")
     // Remove compact date (YYYYMMDD)

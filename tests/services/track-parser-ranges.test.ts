@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { parseTrackFilename } from "../../src/services/track-parser.ts";
 
 describe("parseTrackFilename - track ranges", () => {
@@ -79,5 +80,30 @@ describe("speaker after a language tag", () => {
   it("does not read TRAD (a language marker) as a speaker in a range definer", () => {
     const r = parseTrackFilename("001-037 [TRAD] 6_10 - Manha.mp3");
     expect(r.speaker).toBeNull();
+  });
+
+  // The language tag used to be stripped AFTER the speaker, so the ^-anchored
+  // speaker patterns never matched and the abbreviation stayed in the title.
+  it("strips the speaker from the title when a language tag precedes it", () => {
+    expect(
+      parseTrackFilename("003 [TIB] KPS - Motivation, how to listen to the teachings.mp3").title,
+    ).toBe("Motivation, how to listen to the teachings");
+    expect(parseTrackFilename("002 [TIB+ENG] KPS - Introduction.mp3").title).toBe("Introduction");
+    expect(
+      parseTrackFilename("188 [ENG] WF - Openning prayers - History of the Madhyamika.mp3").title,
+    ).toBe("Openning prayers - History of the Madhyamika");
+  });
+
+  it("leaves no title in the whole event starting with its own speaker abbreviation", () => {
+    const names: string[] = JSON.parse(
+      readFileSync(
+        new URL("../fixtures/shantideva-oct-2019-filenames.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const dirty = names
+      .map(parseTrackFilename)
+      .filter((t) => t.speaker !== null && new RegExp(`^${t.speaker}\\b`).test(t.title));
+    expect(dirty.map((t) => t.originalFilename)).toEqual([]);
   });
 });
