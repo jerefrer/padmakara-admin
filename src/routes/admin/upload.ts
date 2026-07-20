@@ -68,8 +68,11 @@ uploadRoutes.post("/infer-sessions", async (c) => {
 
   const { filenames } = parsed.data;
   const tracks = filenames.map(parseTrackFilename);
-  const originals = tracks.filter((t) => !t.isTranslation);
-  const translations = tracks.filter((t) => t.isTranslation);
+  // Range-defining files are translations, but they carry the ONLY session
+  // information some legacy events have — keep them in session inference and
+  // out of the translations bucket so neither list double-counts them.
+  const originals = tracks.filter((t) => !t.isTranslation || t.trackRange !== null);
+  const translations = tracks.filter((t) => t.isTranslation && t.trackRange === null);
   const sessions = inferSessions(originals);
 
   return c.json({

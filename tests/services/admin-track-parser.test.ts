@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseTrackFile } from "../../admin/src/utils/trackParser.ts";
+import { parseTrackFilename } from "../../src/services/track-parser.ts";
 
 /** Build a File whose only meaningful property here is its name. */
 function fileFor(name: string): File {
@@ -72,5 +73,27 @@ describe("admin parseTrackFile", () => {
     it("reads AM as morning", () => {
       expect(parseTrackFile(fileFor(`${base} (June 11 AM).mp3`)).timePeriod).toBe("morning");
     });
+  });
+});
+
+describe("infer-sessions track partitioning", () => {
+  it("keeps range definers in session inference, not the translations bucket", () => {
+    // Deliberately untagged (not "[ENG]"): a solo non-Tibetan bracket tag is
+    // itself classified isTranslation:true (pre-existing behaviour, unrelated
+    // to ranges — a lone [ENG]/[POR] track is treated as a translation of a
+    // Tibetan original), which would confound this fixture's two buckets.
+    const filenames = [
+      "001-002 [TRAD] 6_10 - Manha.mp3",
+      "001 KPS Teaching.mp3",
+      "002 KPS Questions.mp3",
+      "001 TRAD - Ensinamento.mp3",
+    ];
+    const tracks = filenames.map(parseTrackFilename);
+    const forSessions = tracks.filter((t) => !t.isTranslation || t.trackRange !== null);
+    const translations = tracks.filter((t) => t.isTranslation && t.trackRange === null);
+
+    expect(forSessions.map((t) => t.originalFilename)).toContain("001-002 [TRAD] 6_10 - Manha.mp3");
+    expect(translations.map((t) => t.originalFilename)).toEqual(["001 TRAD - Ensinamento.mp3"]);
+    expect(forSessions.length + translations.length).toBe(tracks.length);
   });
 });
