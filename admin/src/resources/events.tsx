@@ -954,7 +954,7 @@ export const EventFormFields = ({
       {/* ── Section 1: Event Details ── */}
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, mt: 1 }}>
         <Box sx={{ flex: 1 }}>
-          <SectionHeader number={1} title={translate("padmakara.events.details")} subtitle={translate("padmakara.events.reviewComplete")} />
+          <SectionHeader title={translate("padmakara.events.details")} subtitle={translate("padmakara.events.reviewComplete")} />
         </Box>
         <ToggleButtonGroup
           value={form.status}
@@ -1381,7 +1381,6 @@ export const EventFormFields = ({
       {(sessions.length > 0 || transcripts.length > 0 || eventFiles.length > 0) && (
         <>
           <SectionHeader
-            number={2}
             title={translate("padmakara.events.files")}
             subtitle={translate("padmakara.events.filesSubtitle")}
             chips={
@@ -3208,36 +3207,15 @@ const PageHeader = ({ title, backLabel, onBack }: { title: string; backLabel: st
 );
 
 const SectionHeader = ({
-  number,
   title,
   subtitle,
   chips,
 }: {
-  number: number;
   title: string;
   subtitle: string;
   chips?: React.ReactNode;
 }) => (
   <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, mb: 2, mt: 1 }}>
-    <Box
-      sx={{
-        width: 28,
-        height: 28,
-        borderRadius: "50%",
-        border: "2px solid",
-        borderColor: "primary.main",
-        color: "primary.main",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: "0.78rem",
-        fontWeight: 700,
-        flexShrink: 0,
-        mt: 0.2,
-      }}
-    >
-      {number}
-    </Box>
     <Box sx={{ flex: 1 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <Typography variant="h6" sx={{ lineHeight: 1.3 }}>
