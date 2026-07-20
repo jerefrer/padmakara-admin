@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { parseTrackFilename, inferSessions, type ParsedTrack } from "./track-parser.ts";
+import { parseTrackFilename, inferSessionsWithNotes, type ParsedTrack } from "./track-parser.ts";
 import type {
   AnalysisResult,
   AnalysisSession,
@@ -94,7 +94,7 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
   const parsedTracks: ParsedTrack[] = input.files.map((f) =>
     parseTrackFilename(basenameOf(f.relativePath)),
   );
-  const inferred = inferSessions(parsedTracks);
+  const { sessions: inferred, notes: groupingNotes } = inferSessionsWithNotes(parsedTracks);
 
   // The deterministic parser is monolingual: `InferredSession` has only
   // `titleEn` and `ParsedTrack` has only `title`. We seed both session title
@@ -151,7 +151,7 @@ export function deterministicPrePass(input: AnalyzeFolderInput): AnalysisResult 
     },
     event,
     sessions,
-    notes: [],
+    notes: groupingNotes,
   };
 }
 
@@ -770,7 +770,9 @@ function mergeChunkResults(
     for (const t of s.tracks) trackByFilename.set(t.originalFilename, t);
   }
 
-  const notes: AnalysisResult["notes"] = [];
+  // Seeded from the deterministic pre-pass so its grouping warnings (uncovered
+  // tracks, overlapping ranges) survive the AI merge instead of being dropped.
+  const notes: AnalysisResult["notes"] = [...determ.notes];
   let event: AnalysisEvent = determ.event;
   let chunksFailed = 0;
   let aiTracks = 0;
