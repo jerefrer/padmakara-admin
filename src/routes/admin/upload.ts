@@ -120,9 +120,10 @@ uploadRoutes.delete("/bunny/:videoId", async (c) => {
  */
 uploadRoutes.post("/rename-tracks", async (c) => {
   const parsed = aiAssistSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
-  }
+  // Rethrow the ZodError itself rather than a bare AppError: errorHandler
+  // renders its `issues` (path + message), which is the only way to tell
+  // which field of a 200-track payload was rejected.
+  if (!parsed.success) throw parsed.error;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw AppError.internal("ANTHROPIC_API_KEY not configured");
 

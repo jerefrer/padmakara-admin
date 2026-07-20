@@ -47,6 +47,43 @@ export interface AiSessionSuggestion {
 }
 
 const MODEL = "claude-haiku-4-5-20251001";
+const MAX_TOKENS = 8192;
+
+/**
+ * Tracks sent per Claude call. A reply costs roughly 70 output tokens per
+ * track, so 50 leaves ample headroom under MAX_TOKENS. This batching exists
+ * because the earlier single-call design silently truncated its JSON reply
+ * (and then failed to parse it) on events with a few hundred tracks.
+ */
+const TRACK_BATCH_SIZE = 50;
+
+/**
+ * Concurrent Claude calls. Keeps a 350-track event to two waves so the whole
+ * request finishes well inside the nginx proxy read timeout.
+ */
+const MAX_CONCURRENT_BATCHES = 6;
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight, preserving order.
+ * Each worker claims the next index; `i = next++` cannot interleave because
+ * it contains no await.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (let i = next++; i < items.length; i = next++) {
+      // Non-null: i is always a valid index of items here.
+      out[i] = await fn(items[i]!, i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
 
 /** Strip a leading/trailing markdown code fence, if present. */
 function stripFences(text: string): string {
@@ -83,6 +120,17 @@ const ASSIST_SYSTEM_PROMPT =
   '"tracks" array and leave event/sessions empty. Include only fields that ' +
   "change. Return only the JSON object, no markdown fences, no prose.";
 
+/**
+ * Appended for every batch after the first. Those batches see the event
+ * fields purely as translation/naming context — without this note each batch
+ * would propose its own competing event title, and only one could survive the
+ * merge.
+ */
+const TRACKS_ONLY_NOTE =
+  "\nThis request covers one batch of a longer track list. The event fields " +
+  'are shown for context only: return ONLY the "tracks" array, and only for ' +
+  "the tracks listed in this batch.";
+
 function cleanEvent(raw: unknown): AiEventFields | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const s = raw as Record<string, unknown>;
@@ -96,22 +144,23 @@ function cleanEvent(raw: unknown): AiEventFields | undefined {
   return Object.keys(out).length ? out : undefined;
 }
 
-export async function aiAssistEvent(args: {
+/** One Claude call over a single batch of tracks. */
+async function runAssistBatch(args: {
+  anthropic: Anthropic;
   instruction: string;
   event?: AiEventFields;
-  sessions?: AiSessionRow[];
+  sessions: AiSessionRow[];
   tracks: RenameTrackRow[];
   roster: RosterTeacher[];
-  apiKey: string;
+  tracksOnly: boolean;
 }): Promise<{ event?: AiEventFields; sessions: AiSessionSuggestion[]; tracks: RenameSuggestion[] }> {
-  const { instruction, event, sessions = [], tracks, roster, apiKey } = args;
-  const anthropic = new Anthropic({ apiKey });
+  const { anthropic, instruction, event, sessions, tracks, roster, tracksOnly } = args;
 
   const payload = JSON.stringify({ event: event ?? {}, sessions, tracks }, null, 2);
   const message = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 4096,
-    system: `${ASSIST_SYSTEM_PROMPT}${rosterPromptBlock(roster)}`,
+    max_tokens: MAX_TOKENS,
+    system: `${ASSIST_SYSTEM_PROMPT}${tracksOnly ? TRACKS_ONLY_NOTE : ""}${rosterPromptBlock(roster)}`,
     messages: [
       { role: "user", content: `Instruction: ${instruction}\n\nCurrent data:\n${payload}` },
     ],
@@ -162,4 +211,59 @@ export async function aiAssistEvent(args: {
   } catch {
     throw AppError.internal("Failed to parse AI assist response");
   }
+}
+
+export async function aiAssistEvent(args: {
+  instruction: string;
+  event?: AiEventFields;
+  sessions?: AiSessionRow[];
+  tracks: RenameTrackRow[];
+  roster: RosterTeacher[];
+  apiKey: string;
+}): Promise<{ event?: AiEventFields; sessions: AiSessionSuggestion[]; tracks: RenameSuggestion[] }> {
+  const { instruction, event, sessions = [], tracks, roster, apiKey } = args;
+  const anthropic = new Anthropic({ apiKey });
+
+  const batches: RenameTrackRow[][] = [];
+  for (let i = 0; i < tracks.length; i += TRACK_BATCH_SIZE) {
+    batches.push(tracks.slice(i, i + TRACK_BATCH_SIZE));
+  }
+  // An empty track list still warrants one call: the instruction may target
+  // only the event or session fields.
+  if (batches.length === 0) batches.push([]);
+
+  const results = await mapWithConcurrency(batches, MAX_CONCURRENT_BATCHES, (batch, i) =>
+    runAssistBatch({
+      anthropic,
+      instruction,
+      roster,
+      // The event fields are context for every batch (they inform titles and
+      // translations), but only the first batch is allowed to change them.
+      event,
+      sessions: i === 0 ? sessions : [],
+      tracks: batch,
+      tracksOnly: i > 0,
+    }),
+  );
+
+  // Merge track suggestions, keeping each batch to the rows it was actually
+  // given: a batch that echoes a rowKey from another batch would otherwise
+  // overwrite that batch's own, better-informed suggestion.
+  const outTracks: RenameSuggestion[] = [];
+  const seen = new Set<string>();
+  results.forEach((result, i) => {
+    // Non-null: results is index-aligned with batches by mapWithConcurrency.
+    const allowed = new Set(batches[i]!.map((t) => t.rowKey));
+    for (const suggestion of result.tracks) {
+      if (!allowed.has(suggestion.rowKey) || seen.has(suggestion.rowKey)) continue;
+      seen.add(suggestion.rowKey);
+      outTracks.push(suggestion);
+    }
+  });
+
+  return {
+    event: results[0]?.event,
+    sessions: results[0]?.sessions ?? [],
+    tracks: outTracks,
+  };
 }

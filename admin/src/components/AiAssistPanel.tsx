@@ -214,6 +214,9 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
           {busy ? t("thinking") : t("ask")}
         </Button>
       </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+        {t("batchHint")}
+      </Typography>
 
       {result && (
         <Box sx={{ mt: 2 }}>

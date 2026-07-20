@@ -292,9 +292,9 @@ eventRoutes.delete("/:id", async (c) => {
  */
 eventRoutes.post("/:id/rename-tracks", async (c) => {
   const parsed = aiAssistSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
-  }
+  // Same as the create-flow variant in upload.ts: surface Zod's issues so a
+  // rejected field is identifiable instead of an opaque VALIDATION_ERROR.
+  if (!parsed.success) throw parsed.error;
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw AppError.internal("ANTHROPIC_API_KEY not configured");
 

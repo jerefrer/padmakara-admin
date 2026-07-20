@@ -343,8 +343,12 @@ export const aiAssistSchema = z.object({
         titlePt: z.string().max(500).optional(),
       }),
     )
-    .max(200)
+    .max(500)
     .optional(),
+  // Legacy retreat imports routinely carry several hundred tracks (one event
+  // in production has 342), so these caps only exist to bound a runaway
+  // payload — aiAssistEvent batches the list across Claude calls rather than
+  // relying on a cap small enough to fit one reply.
   tracks: z
     .array(
       z.object({
@@ -357,7 +361,7 @@ export const aiAssistSchema = z.object({
       }),
     )
     .min(1)
-    .max(200),
+    .max(5000),
 });
 
 // Pagination

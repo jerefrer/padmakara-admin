@@ -368,6 +368,10 @@ export const pt = {
       unmatchedSpeaker: "sem correspondência — reveja",
       applied: "Alterações da AI aplicadas — não se esqueça de guardar",
       failed: "Pedido à AI falhou",
+      batchHint:
+        "Funciona faixa a faixa (renomear, traduzir, corrigir maiúsculas, definir orador). " +
+        "Instruções que exigem uma visão de todo o evento — numeração sequencial em todas as faixas, " +
+        "ou remover duplicados — não são fiáveis em eventos grandes.",
     },
     fields: {
       nameEn: "Nome (EN)",
