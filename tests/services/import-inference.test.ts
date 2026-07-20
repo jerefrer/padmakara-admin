@@ -480,3 +480,58 @@ describe("proposedStructureSchema", () => {
     expect(parsed.transcripts[0]?.language).toBe("pt");
   });
 });
+
+// Sessions were arriving with an empty date: filename markers like "6_10" carry
+// no year, and a folder that does not lead with a date ("KPS WF - ... - OCT_2019")
+// leaves the event startDate null, so "October 6" reached a Postgres `date`
+// column and was dropped.
+describe("assembleProposedStructure - session date resolution", () => {
+  const oneSession = (sessionDate: string | null) => ({
+    event: aiEvent,
+    sessions: [
+      {
+        sessionNumber: 1,
+        titleEn: "Morning",
+        sessionDate,
+        timePeriod: "morning" as const,
+        tracks: [{ importFileId: 10, title: "Track 1" }],
+      },
+    ],
+  });
+  const map = () => new Map<number, ProposedTrack>([[10, track(10, 1)]]);
+
+  it("attaches a caller-supplied year to a year-less date", () => {
+    const s = assembleProposedStructure(oneSession("October 6"), map(), proposedEvent(), [], {
+      eventYear: "2019",
+    });
+    expect(s.sessions[0]?.sessionDate).toBe("2019-10-06");
+  });
+
+  it("falls back to the deterministic seed date when the AI supplies none", () => {
+    const s = assembleProposedStructure(oneSession(null), map(), proposedEvent(), [], {
+      eventYear: "2019",
+      seedDateByFileId: new Map([[10, "October 6"]]),
+    });
+    expect(s.sessions[0]?.sessionDate).toBe("2019-10-06");
+  });
+
+  it("emits null rather than an unstorable non-ISO string when no year exists anywhere", () => {
+    const undated = { ...proposedEvent(), startDate: null, endDate: null };
+    const s = assembleProposedStructure(oneSession("October 6"), map(), undated, [], {
+      eventYear: null,
+    });
+    expect(s.sessions[0]?.sessionDate).toBeNull();
+  });
+
+  it("falls back to the event's own start date year when the caller supplies none", () => {
+    const s = assembleProposedStructure(oneSession("October 6"), map(), proposedEvent(), [], {});
+    expect(s.sessions[0]?.sessionDate).toBe("2024-10-06");
+  });
+
+  it("passes an already-ISO date through untouched", () => {
+    const s = assembleProposedStructure(oneSession("2024-04-25"), map(), proposedEvent(), [], {
+      eventYear: "2019",
+    });
+    expect(s.sessions[0]?.sessionDate).toBe("2024-04-25");
+  });
+});

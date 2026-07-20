@@ -26,7 +26,7 @@ import {
   type DateConfidence,
 } from "./import-event-matcher.ts";
 import { loadInventory, findInventoryEvent } from "./import-inventory.ts";
-import { toIsoSessionDate } from "./session-dates.ts";
+import { toIsoSessionDate, isIsoDate, extractYear } from "./session-dates.ts";
 
 /** A single track within a proposed session structure. */
 export interface ProposedTrack {
@@ -222,19 +222,46 @@ export const proposedStructureSchema = z.object({
  * session timePeriod defaults to "morning". A fresh proposal never ignores
  * anything — the human curates `ignored` later.
  */
+/** First deterministic session date among a group's tracks, if any. */
+function seedDateFor(
+  group: AiGrouping["sessions"][number],
+  seedDateByFileId: Map<number, string> | undefined,
+): string | null {
+  if (!seedDateByFileId) return null;
+  for (const t of group.tracks) {
+    const date = seedDateByFileId.get(t.importFileId);
+    if (date) return date;
+  }
+  return null;
+}
+
+/** Normalise a session date to ISO, or null when it cannot be made storable. */
+function resolveSessionDate(raw: string | null, eventYear: string | null): string | null {
+  if (!raw) return null;
+  const iso = toIsoSessionDate(raw, eventYear);
+  return isIsoDate(iso) ? iso : null;
+}
+
 export function assembleProposedStructure(
   grouping: AiGrouping,
   tracksByFileId: Map<number, ProposedTrack>,
   event: ProposedEvent,
   transcripts: ProposedTranscript[],
+  dateContext: {
+    /** Year to attach to a year-less session date such as "October 6". */
+    eventYear?: string | null;
+    /** Deterministic per-file session date, used when the AI supplies none. */
+    seedDateByFileId?: Map<number, string>;
+  } = {},
 ): ProposedStructure {
   const seen = new Set<number>();
 
   // The first-pass grouping labels each session with a date like "October 6"
   // that has no year — sessions.session_date is a Postgres date column, so
-  // that string is unstorable. Derive the year from the event's start date
-  // and normalise every session date to ISO before it reaches the caller.
-  const eventYear = event.startDate?.slice(0, 4) ?? null;
+  // that string is unstorable. The caller may supply a year recovered from the
+  // folder title or event code; the event's own start date is the fallback.
+  const eventYear = dateContext.eventYear ?? event.startDate?.slice(0, 4) ?? null;
+  const seedDateByFileId = dateContext.seedDateByFileId;
 
   const sessions: ProposedSession[] = grouping.sessions.map((group, index) => {
     const tracks: ProposedTrack[] = group.tracks.map((aiTrack) => {
@@ -257,9 +284,14 @@ export function assembleProposedStructure(
     return {
       sessionNumber: index + 1,
       titleEn: group.titleEn,
-      sessionDate: group.sessionDate
-        ? toIsoSessionDate(group.sessionDate, eventYear)
-        : null,
+      // The AI often returns no date, or echoes the seed's year-less
+      // "October 6". Fall back to the deterministic per-file date, attach the
+      // event year, and emit null rather than a non-ISO string — session_date
+      // is a Postgres `date` column and would silently drop anything else.
+      sessionDate: resolveSessionDate(
+        group.sessionDate ?? seedDateFor(group, seedDateByFileId),
+        eventYear,
+      ),
       timePeriod: group.timePeriod ?? "morning",
       tracks,
     };
@@ -417,6 +449,19 @@ export async function proposeStructure(importJobId: number) {
     console.warn(`[import-inference] job ${importJobId} (${job.eventCode}): ${note.message}`);
   }
 
+  // Deterministic date per file, so a session still gets one when the AI omits
+  // it. Seed sessions hold the very ParsedTrack objects built above, so they
+  // can be matched back to their file id by identity.
+  const fileIdByParsed = new Map(parsedByFileId.map((p) => [p.parsed, p.id]));
+  const seedDateByFileId = new Map<number, string>();
+  for (const session of seed) {
+    if (!session.date) continue;
+    for (const track of session.tracks) {
+      const fileId = fileIdByParsed.get(track);
+      if (fileId !== undefined) seedDateByFileId.set(fileId, session.date);
+    }
+  }
+
   // Hints decoded from the event code + source folder name — fed to the AI
   // (for a good title and dates) and re-used below for entity matching.
   const parsedCode = parseEventCode(job.eventCode);
@@ -527,6 +572,16 @@ export async function proposeStructure(importJobId: number) {
       tracksByFileId,
       proposedEvent,
       proposedTranscripts,
+      {
+        // Folder names that don't lead with a date leave startDate null
+        // ("KPS WF - ... - OCT_2019"), so fall back to any year in the folder
+        // title or the event code — without one, "October 6" is unstorable.
+        eventYear:
+          proposedEvent.startDate?.slice(0, 4)
+          ?? extractYear(folderTitle)
+          ?? extractYear(job.eventCode),
+        seedDateByFileId,
+      },
     );
   } catch (err) {
     throw AppError.internal(

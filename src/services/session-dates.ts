@@ -157,3 +157,25 @@ export function extractBareSessionDate(
     descriptor: (m[2] ?? "").replace(/[\s_-]+$/, "").trim(),
   };
 }
+
+/** True when a string is a storable ISO date (what a Postgres `date` column needs). */
+export function isIsoDate(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+/**
+ * Pull a plausible year out of arbitrary text — an event code, a folder title.
+ *
+ * Filename session markers carry a day and month but no year ("6_10"), so the
+ * year has to come from the event. The usual source is the event's own start
+ * date, but folders that don't lead with a date ("KPS WF - ... - OCT_2019")
+ * leave that null, and the year is then only recoverable from the name itself.
+ */
+export function extractYear(text: string | null | undefined): string | null {
+  if (!text) return null;
+  // Digit lookarounds rather than \b: "_" counts as a word character, so \b
+  // would refuse to match the year in "OCT_2019" — the exact shape these
+  // folder names use. Only an adjacent digit should disqualify a match.
+  const m = text.match(/(?<![0-9])(19\d{2}|20\d{2})(?![0-9])/);
+  return m ? m[1]! : null;
+}
