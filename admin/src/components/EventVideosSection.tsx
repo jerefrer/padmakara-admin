@@ -17,6 +17,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
+import Collapse from "@mui/material/Collapse";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -25,6 +26,7 @@ import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
 import Paper from "@mui/material/Paper";
 import TextField from "@mui/material/TextField";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
@@ -33,6 +35,7 @@ import type { EventVideo } from "../utils/trackParser";
 import { MediaPreviewDialog, type MediaSource } from "./MediaPreviewDialog";
 import { TranslateDirChip, useFieldTranslate } from "./TranslatableField";
 import { LangTag, clickToEditSx, quietInputSx } from "./inlineEditKit";
+import { SubtitleChips, SubtitleDetails, useVideoSubtitles } from "./VideoSubtitles";
 
 function formatDuration(seconds: number | null): string {
   if (!seconds) return "—";
@@ -56,8 +59,7 @@ interface EventVideosSectionProps {
   videos: EventVideo[];
   /** Functional updater — the section performs its own network calls for
    *  title/date/reorder/delete edits and syncs the result back through this
-   *  setter so the parent's `videos` state (also used to render the
-   *  SubtitlePanel labels below this section) stays in sync. */
+   *  setter so the parent's `videos` state stays in sync. */
   onVideosChange: (updater: (prev: EventVideo[]) => EventVideo[]) => void;
   /** Upload and URL-import still run through the parent — they share the
    *  cross-cutting UploadProgress overlay wired up in EventEdit. */
@@ -274,6 +276,11 @@ const VideoRow = ({ video, isFirst, isLast, onUpdate, onReorder, onDelete, onPre
   const [edit, setEdit] = useState({ titleEn: video.titleEn ?? "", titlePt: video.titlePt ?? "" });
   const [deleting, setDeleting] = useState(false);
   const [reordering, setReordering] = useState(false);
+  const [subsOpen, setSubsOpen] = useState(false);
+  const subtitles = useVideoSubtitles(video.id);
+  // Subtitle generation reads the transcoded audio from Bunny; until the
+  // duration is back-filled by the webhook the video is still processing.
+  const canGenerateSubtitles = !!video.durationSeconds;
   const ft = useFieldTranslate();
   const doneRef = useRef(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -343,178 +350,189 @@ const VideoRow = ({ video, isFirst, isLast, onUpdate, onReorder, onDelete, onPre
   const displayTitle = video.titleEn || video.titlePt || translate("padmakara.videos.untitled") || "Untitled video";
 
   return (
-    <Box
-      sx={{
-        display: "flex",
-        alignItems: "center",
-        gap: 1.5,
-        px: 2,
-        py: editingTitle ? 1 : 1.25,
-        borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.04)",
-        "&:hover": { backgroundColor: editingTitle ? "transparent" : "rgba(91,94,166,0.02)" },
-      }}
-    >
-      <Typography
-        variant="caption"
+    <Box sx={{ borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.04)" }}>
+      <Box
         sx={{
-          width: 24,
-          textAlign: "right",
-          color: "text.secondary",
-          fontFamily: "monospace",
-          fontWeight: 600,
-          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          px: 2,
+          py: editingTitle ? 1 : 1.25,
+          "&:hover": { backgroundColor: editingTitle ? "transparent" : "rgba(91,94,166,0.02)" },
         }}
       >
-        {String(video.position + 1).padStart(2, "0")}
-      </Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            width: 24,
+            textAlign: "right",
+            color: "text.secondary",
+            fontFamily: "monospace",
+            fontWeight: 600,
+            flexShrink: 0,
+          }}
+        >
+          {String(video.position + 1).padStart(2, "0")}
+        </Typography>
 
-      <Box sx={{ color: "#b91c1c", display: "flex", flexShrink: 0 }}>
-        <MovieIcon sx={{ fontSize: 18 }} />
+        <Box sx={{ color: "#b91c1c", display: "flex", flexShrink: 0 }}>
+          <MovieIcon sx={{ fontSize: 18 }} />
+        </Box>
+
+        {editingTitle ? (
+          <Box
+            ref={boxRef}
+            onBlur={handleBlur}
+            sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5, py: 0.25, minWidth: 0 }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <LangTag code="en" />
+              <InputBase
+                autoFocus
+                fullWidth
+                value={edit.titleEn}
+                placeholder={translate("padmakara.events.titleEn")}
+                onChange={(e) => setEdit((p) => ({ ...p, titleEn: e.target.value }))}
+                onKeyDown={handleEditKeyDown}
+                sx={quietInputSx}
+              />
+              <TranslateDirChip
+                direction="en-to-pt"
+                disabled={!edit.titleEn.trim()}
+                pending={ft.translating}
+                tooltip={translate("padmakara.events.translateToPt")}
+                onClick={async () => {
+                  const out = await ft.translate(edit.titleEn, "en-to-pt");
+                  if (out != null) setEdit((p) => ({ ...p, titlePt: out }));
+                }}
+              />
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <LangTag code="pt" />
+              <InputBase
+                fullWidth
+                value={edit.titlePt}
+                placeholder={translate("padmakara.events.titlePt")}
+                onChange={(e) => setEdit((p) => ({ ...p, titlePt: e.target.value }))}
+                onKeyDown={handleEditKeyDown}
+                sx={quietInputSx}
+              />
+              <TranslateDirChip
+                direction="pt-to-en"
+                disabled={!edit.titlePt.trim()}
+                pending={ft.translating}
+                tooltip={translate("padmakara.events.translateToEn")}
+                onClick={async () => {
+                  const out = await ft.translate(edit.titlePt, "pt-to-en");
+                  if (out != null) setEdit((p) => ({ ...p, titleEn: out }));
+                }}
+              />
+            </Box>
+          </Box>
+        ) : (
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography
+              variant="body2"
+              noWrap
+              title={translate("padmakara.tracks.clickToEdit")}
+              onClick={openEditor}
+              sx={{
+                fontWeight: 500,
+                display: "inline-block",
+                maxWidth: "100%",
+                verticalAlign: "middle",
+                ...clickToEditSx,
+              }}
+            >
+              {displayTitle}
+            </Typography>
+          </Box>
+        )}
+
+        <input
+          type="date"
+          value={video.videoDate ?? ""}
+          onChange={handleDateChange}
+          style={{
+            fontSize: "0.75rem",
+            padding: "3px 6px",
+            border: "1px solid rgba(0,0,0,0.12)",
+            borderRadius: 6,
+            color: "inherit",
+            background: "transparent",
+            flexShrink: 0,
+          }}
+        />
+
+        <Chip
+          label={
+            video.durationSeconds
+              ? formatDuration(video.durationSeconds)
+              : translate("padmakara.videos.transcoding") || "Transcoding…"
+          }
+          size="small"
+          variant="outlined"
+          sx={{ height: 22, flexShrink: 0, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
+        />
+
+        <SubtitleChips
+          state={subtitles}
+          canGenerate={canGenerateSubtitles}
+          open={subsOpen}
+          onToggle={() => setSubsOpen((o) => !o)}
+        />
+
+        <IconButton
+          size="small"
+          onClick={() => handleReorderClick(-1)}
+          disabled={isFirst || reordering}
+          title={translate("padmakara.videos.moveUp") || "Move up"}
+        >
+          <ArrowUpwardIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+        <IconButton
+          size="small"
+          onClick={() => handleReorderClick(1)}
+          disabled={isLast || reordering}
+          title={translate("padmakara.videos.moveDown") || "Move down"}
+        >
+          <ArrowDownwardIcon sx={{ fontSize: 16 }} />
+        </IconButton>
+
+        <IconButton
+          size="small"
+          onClick={() =>
+            onPreview({
+              source: { kind: "video", videoId: video.id },
+              title: video.titleEn || video.titlePt || partLabel,
+            })
+          }
+          sx={{ color: "#b91c1c" }}
+          title={translate("padmakara.videos.play") || "Play"}
+        >
+          <PlayArrowIcon sx={{ fontSize: 20 }} />
+        </IconButton>
+
+        <Tooltip title={translate("padmakara.videos.delete") || "Delete"}>
+          <span>
+            <IconButton size="small" onClick={handleDelete} disabled={deleting}>
+              {deleting ? (
+                <CircularProgress size={14} />
+              ) : (
+                <DeleteOutlineIcon sx={{ fontSize: 17, color: "text.secondary" }} />
+              )}
+            </IconButton>
+          </span>
+        </Tooltip>
       </Box>
 
-      {editingTitle ? (
-        <Box
-          ref={boxRef}
-          onBlur={handleBlur}
-          sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 0.5, py: 0.25, minWidth: 0 }}
-        >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <LangTag code="en" />
-            <InputBase
-              autoFocus
-              fullWidth
-              value={edit.titleEn}
-              placeholder={translate("padmakara.events.titleEn")}
-              onChange={(e) => setEdit((p) => ({ ...p, titleEn: e.target.value }))}
-              onKeyDown={handleEditKeyDown}
-              sx={quietInputSx}
-            />
-            <TranslateDirChip
-              direction="en-to-pt"
-              disabled={!edit.titleEn.trim()}
-              pending={ft.translating}
-              tooltip={translate("padmakara.events.translateToPt")}
-              onClick={async () => {
-                const out = await ft.translate(edit.titleEn, "en-to-pt");
-                if (out != null) setEdit((p) => ({ ...p, titlePt: out }));
-              }}
-            />
-          </Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <LangTag code="pt" />
-            <InputBase
-              fullWidth
-              value={edit.titlePt}
-              placeholder={translate("padmakara.events.titlePt")}
-              onChange={(e) => setEdit((p) => ({ ...p, titlePt: e.target.value }))}
-              onKeyDown={handleEditKeyDown}
-              sx={quietInputSx}
-            />
-            <TranslateDirChip
-              direction="pt-to-en"
-              disabled={!edit.titlePt.trim()}
-              pending={ft.translating}
-              tooltip={translate("padmakara.events.translateToEn")}
-              onClick={async () => {
-                const out = await ft.translate(edit.titlePt, "pt-to-en");
-                if (out != null) setEdit((p) => ({ ...p, titleEn: out }));
-              }}
-            />
-          </Box>
-        </Box>
-      ) : (
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography
-            variant="body2"
-            noWrap
-            title={translate("padmakara.tracks.clickToEdit")}
-            onClick={openEditor}
-            sx={{
-              fontWeight: 500,
-              display: "inline-block",
-              maxWidth: "100%",
-              verticalAlign: "middle",
-              ...clickToEditSx,
-            }}
-          >
-            {displayTitle}
-          </Typography>
-        </Box>
-      )}
-
-      <input
-        type="date"
-        value={video.videoDate ?? ""}
-        onChange={handleDateChange}
-        style={{
-          fontSize: "0.75rem",
-          padding: "3px 6px",
-          border: "1px solid rgba(0,0,0,0.12)",
-          borderRadius: 6,
-          color: "inherit",
-          background: "transparent",
-          flexShrink: 0,
-        }}
-      />
-
-      <Chip
-        label={
-          video.durationSeconds
-            ? formatDuration(video.durationSeconds)
-            : translate("padmakara.videos.transcoding") || "Transcoding…"
-        }
-        size="small"
-        variant="outlined"
-        sx={{ height: 22, flexShrink: 0, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
-      />
-
-      <Typography variant="caption" color="text.secondary" sx={{ fontFamily: "monospace", flexShrink: 0 }}>
-        {video.bunnyVideoId.slice(0, 8)}
-      </Typography>
-
-      <IconButton
-        size="small"
-        onClick={() => handleReorderClick(-1)}
-        disabled={isFirst || reordering}
-        title={translate("padmakara.videos.moveUp") || "Move up"}
-      >
-        <ArrowUpwardIcon sx={{ fontSize: 16 }} />
-      </IconButton>
-      <IconButton
-        size="small"
-        onClick={() => handleReorderClick(1)}
-        disabled={isLast || reordering}
-        title={translate("padmakara.videos.moveDown") || "Move down"}
-      >
-        <ArrowDownwardIcon sx={{ fontSize: 16 }} />
-      </IconButton>
-
-      <IconButton
-        size="small"
-        onClick={() =>
-          onPreview({
-            source: { kind: "video", videoId: video.id },
-            title: video.titleEn || video.titlePt || partLabel,
-          })
-        }
-        sx={{ color: "#b91c1c" }}
-        title={translate("padmakara.videos.play") || "Play"}
-      >
-        <PlayArrowIcon sx={{ fontSize: 20 }} />
-      </IconButton>
-
-      <Button
-        size="small"
-        color="error"
-        startIcon={<DeleteOutlineIcon sx={{ fontSize: 14 }} />}
-        onClick={handleDelete}
-        disabled={deleting}
-        sx={{ textTransform: "none", fontSize: "0.75rem" }}
-      >
-        {deleting
-          ? translate("padmakara.videos.deleting") || "Removing…"
-          : translate("padmakara.videos.delete") || "Delete"}
-      </Button>
+      <Collapse in={subsOpen} timeout={150} unmountOnExit={false} mountOnEnter>
+        <SubtitleDetails
+          state={subtitles}
+          canGenerate={canGenerateSubtitles}
+          bunnyVideoId={video.bunnyVideoId}
+        />
+      </Collapse>
     </Box>
   );
 };

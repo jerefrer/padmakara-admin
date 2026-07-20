@@ -61,7 +61,6 @@ import { EventVideosSection } from "../components/EventVideosSection";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
-import { SubtitlePanel } from "../components/SubtitlePanel";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
 import { AiAssistPanel, type AiAssistResult } from "../components/AiAssistPanel";
 import {
@@ -3089,19 +3088,6 @@ export const EventEdit = () => {
       {trackCount > 0 && transcriptCount > 0 && event?.id && (
         <ReadAlongPanel eventId={Number(event.id)} />
       )}
-
-      {videos.map((v) => (
-        <SubtitlePanel
-          key={v.id}
-          videoId={v.id}
-          videoLabel={
-            v.titleEn ||
-            v.titlePt ||
-            translate("padmakara.videos.part", { number: v.position + 1 }) ||
-            `Part ${v.position + 1}`
-          }
-        />
-      ))}
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>

@@ -10,6 +10,7 @@ import Box from "@mui/material/Box";
 export const LANG_CHIP_COLORS: Record<string, { bg: string; text: string }> = {
   en: { bg: "#eff6ff", text: "#1d4ed8" },
   pt: { bg: "#f0fdf4", text: "#15803d" },
+  es: { bg: "#f0fdfa", text: "#0f766e" },
   fr: { bg: "#faf5ff", text: "#7e22ce" },
   tib: { bg: "#fffbeb", text: "#b45309" },
 };
