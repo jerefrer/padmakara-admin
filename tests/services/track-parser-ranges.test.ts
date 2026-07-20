@@ -42,3 +42,42 @@ describe("parseTrackFilename - track ranges", () => {
     expect(parseTrackFilename("2019-10-06 - JKR Teaching.mp3").trackRange).toBeNull();
   });
 });
+
+describe("speaker after a language tag", () => {
+  it("detects the speaker abbreviation after a bracketed language tag", () => {
+    const r = parseTrackFilename("003 [TIB] KPS - Motivation, how to listen to the teachings.mp3");
+    expect(r.speaker).toBe("KPS");
+  });
+
+  it("detects the speaker abbreviation after a multi-language bracketed tag", () => {
+    const r = parseTrackFilename("002 [TIB+ENG] KPS - Introduction.mp3");
+    expect(r.speaker).toBe("KPS");
+  });
+
+  it("detects the speaker abbreviation after a language tag with a longer title", () => {
+    const r = parseTrackFilename(
+      "188 [ENG] WF - Openning prayers - History of the Madhyamika.mp3",
+    );
+    expect(r.speaker).toBe("WF");
+  });
+
+  it("still detects the speaker abbreviation in the untagged form", () => {
+    const r = parseTrackFilename("342 WF Chapter 10 - textual outline.mp3");
+    expect(r.speaker).toBe("WF");
+  });
+
+  it("does not read a title word as a speaker when only a language tag is present", () => {
+    const r = parseTrackFilename("001 [TIB] Openning prayers.mp3");
+    expect(r.speaker).toBeNull();
+  });
+
+  it("does not read a title word as a speaker after a multi-language tag", () => {
+    const r = parseTrackFilename("226 [TIB+ENG] Questions and prayers.mp3");
+    expect(r.speaker).toBeNull();
+  });
+
+  it("does not read TRAD (a language marker) as a speaker in a range definer", () => {
+    const r = parseTrackFilename("001-037 [TRAD] 6_10 - Manha.mp3");
+    expect(r.speaker).toBeNull();
+  });
+});

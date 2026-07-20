@@ -88,6 +88,11 @@ function normalizeLanguage(lang: string): string {
   return LANGUAGE_MAP[upper] ?? lang.toLowerCase();
 }
 
+// The speaker abbreviation usually follows the track number directly, but many
+// events put the language tag first ("003 [TIB] KPS - Motivation"). Allowing an
+// optional bracket group here is what lets those files resolve a speaker.
+const SPEAKER_NUM_PREFIX = `^\\d+[_\\s-]+(?:\\[[^\\]]*\\][\\s_-]*)?`;
+
 export function parseTrackFilename(filename: string): ParsedTrack {
   // Remove extension
   const baseName = filename.replace(/\.(mp3|wav|m4a|flac|ogg|mpeg)$/i, "");
@@ -149,7 +154,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   // Extract speaker abbreviation(s) — handle combos like KPS+JKR, JKR+TRAD, PWR&TRAD
   // Pattern: "001 KPS+JKR title" or "001 JKR+TRAD - title" or "001 PWR&TRAD - title"
   const comboMatch = baseName.match(
-    /^\d+[_\s-]+([A-Z]{2,5})[+&]([A-Z]{2,5})(?:\s+-|\s+\[|\s+[A-Z]|\s+[a-z]|-)/i,
+    new RegExp(`${SPEAKER_NUM_PREFIX}([A-Z]{2,5})[+&]([A-Z]{2,5})(?:\\s+-|\\s+\\[|\\s+[A-Z]|\\s+[a-z]|-)`, "i"),
   );
   if (comboMatch) {
     const part1 = comboMatch[1]!.toUpperCase();
@@ -185,7 +190,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   } else {
     // Single speaker pattern — with separator (hyphen or bracket)
     const speakerMatch = baseName.match(
-      /^\d+[_\s-]+([A-Z]{2,5})(?:\s+-|\s+\[|-)/i,
+      new RegExp(`${SPEAKER_NUM_PREFIX}([A-Z]{2,5})(?:\\s+-|\\s+\\[|-)`, "i"),
     );
     if (speakerMatch) {
       const sp = speakerMatch[1]!.toUpperCase();
@@ -199,7 +204,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     // e.g., "001 JKR How to relate to our mind" or "001_YMR_Conference"
     // Case-sensitive: only matches UPPERCASE tokens to avoid capturing title words
     if (!speaker) {
-      const directMatch = baseName.match(/^\d+[_\s-]+([A-Z]{2,5})[\s_]+/);
+      const directMatch = baseName.match(new RegExp(`${SPEAKER_NUM_PREFIX}([A-Z]{2,5})[\\s_]+`));
       if (directMatch) {
         const sp = directMatch[1]!;
         if (!NON_TEACHER_TOKENS.has(sp)) {
