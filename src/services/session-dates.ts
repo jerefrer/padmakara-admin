@@ -109,6 +109,26 @@ export function formatSessionDate(parsed: { month: string; day: number; year: nu
   return `${parsed.month} ${parsed.day}`;
 }
 
+const MONTH_TO_NUM: Record<string, string> = {
+  january: "01", february: "02", march: "03", april: "04", may: "05", june: "06",
+  july: "07", august: "08", september: "09", october: "10", november: "11", december: "12",
+};
+
+/**
+ * Turn a parser session date into ISO `YYYY-MM-DD`. Already-ISO dates pass
+ * through; a "Month Day" string (the parser's output for a `(21 June AM)`
+ * marker) is combined with the event year. Anything else is left untouched.
+ */
+export function toIsoSessionDate(raw: string, year: string | null): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const m = raw.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
+  if (m && year) {
+    const mm = MONTH_TO_NUM[m[1]!.toLowerCase()];
+    if (mm) return `${year}-${mm}-${m[2]!.padStart(2, "0")}`;
+  }
+  return raw;
+}
+
 /**
  * Extract a session date that is NOT anchored by a period word, plus whatever
  * descriptive text follows it — e.g. "093 [TRAD] - 7_10 - Questao extra".

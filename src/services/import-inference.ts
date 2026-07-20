@@ -26,6 +26,7 @@ import {
   type DateConfidence,
 } from "./import-event-matcher.ts";
 import { loadInventory, findInventoryEvent } from "./import-inventory.ts";
+import { toIsoSessionDate } from "./session-dates.ts";
 
 /** A single track within a proposed session structure. */
 export interface ProposedTrack {
@@ -229,6 +230,12 @@ export function assembleProposedStructure(
 ): ProposedStructure {
   const seen = new Set<number>();
 
+  // The first-pass grouping labels each session with a date like "October 6"
+  // that has no year — sessions.session_date is a Postgres date column, so
+  // that string is unstorable. Derive the year from the event's start date
+  // and normalise every session date to ISO before it reaches the caller.
+  const eventYear = event.startDate?.slice(0, 4) ?? null;
+
   const sessions: ProposedSession[] = grouping.sessions.map((group, index) => {
     const tracks: ProposedTrack[] = group.tracks.map((aiTrack) => {
       const base = tracksByFileId.get(aiTrack.importFileId);
@@ -250,7 +257,9 @@ export function assembleProposedStructure(
     return {
       sessionNumber: index + 1,
       titleEn: group.titleEn,
-      sessionDate: group.sessionDate,
+      sessionDate: group.sessionDate
+        ? toIsoSessionDate(group.sessionDate, eventYear)
+        : null,
       timePeriod: group.timePeriod ?? "morning",
       tracks,
     };
@@ -306,6 +315,7 @@ Rules for "sessions":
 - Within a session, order the tracks by the leading track number of the filename.
 - For each track, provide a cleaned "title": fix obvious typos, capitalisation and spacing in the title carried by the filename. Keep it faithful — do not invent content, do not translate, do not add the speaker or date. If the filename's title is already fine, return it unchanged.
 - titleEn (the session title) is a short human label, e.g. "25 April - Morning".
+- sessionDate must be "YYYY-MM-DD". The first-pass grouping labels each session with a date like "October 6" that has no year — take the year from the event date range above and convert it. Only return null if no date is available at all.
 Respond with only the JSON object: no prose, no markdown code fences.`;
 
 interface GroupingHints {
