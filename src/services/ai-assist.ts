@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { AppError } from "../lib/errors.ts";
+import { mapWithConcurrency } from "../lib/concurrency.ts";
 import {
   resolveSpeaker,
   rosterPromptBlock,
@@ -62,28 +63,6 @@ const TRACK_BATCH_SIZE = 50;
  * request finishes well inside the nginx proxy read timeout.
  */
 const MAX_CONCURRENT_BATCHES = 6;
-
-/**
- * Run `fn` over `items` with at most `limit` in flight, preserving order.
- * Each worker claims the next index; `i = next++` cannot interleave because
- * it contains no await.
- */
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    for (let i = next++; i < items.length; i = next++) {
-      // Non-null: i is always a valid index of items here.
-      out[i] = await fn(items[i]!, i);
-    }
-  });
-  await Promise.all(workers);
-  return out;
-}
 
 /** Strip a leading/trailing markdown code fence, if present. */
 function stripFences(text: string): string {
