@@ -5,9 +5,10 @@ import { db } from "../db/index.ts";
 import { tracks } from "../db/schema/tracks.ts";
 import { eventVideos } from "../db/schema/event-videos.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
+import { eventFiles } from "../db/schema/event-files.ts";
 import { events } from "../db/schema/retreats.ts";
 import { users } from "../db/schema/users.ts";
-import { generatePresignedDownloadUrl, getObjectText } from "../services/s3.ts";
+import { generatePresignedDownloadUrl, generatePresignedAttachmentUrl, getObjectText } from "../services/s3.ts";
 import {
   buildPlaybackUrls,
   buildMp4DownloadUrl,
@@ -96,6 +97,42 @@ async function getUserForAccess(authUser: { id: number; role: string } | null) {
     subscriptionStatus: fullUser.subscriptionStatus,
     subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
   };
+}
+
+/**
+ * Watermark every page of a PDF with a single centered line of text near the
+ * bottom (e.g. viewer name + email). Shared by the transcript and generic
+ * file routes so sensitive documents get identical per-user watermarking.
+ */
+async function watermarkPdf(originalPdfBytes: Uint8Array, watermarkText: string): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.load(originalPdfBytes);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const fontSize = 9;
+  const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
+  for (const page of pdfDoc.getPages()) {
+    const { width } = page.getSize();
+    page.drawText(watermarkText, {
+      x: (width - textWidth) / 2,
+      y: 20,
+      size: fontSize,
+      font,
+      color: rgb(0.75, 0.75, 0.75),
+      opacity: 0.5,
+    });
+  }
+  return await pdfDoc.save();
+}
+
+/**
+ * Look up the event for a generic event file (event_file → event with audience)
+ */
+async function getEventForFile(fileId: number) {
+  const file = await db.query.eventFiles.findFirst({
+    where: eq(eventFiles.id, fileId),
+    with: { event: { with: { audience: true } } },
+  });
+  if (!file) return null;
+  return { file, event: file.event ?? null };
 }
 
 /**
@@ -433,24 +470,7 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
   const originalPdfBytes = new Uint8Array(await pdfResponse.arrayBuffer());
 
   // Add watermark: single centered line at bottom of each page
-  const pdfDoc = await PDFDocument.load(originalPdfBytes);
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontSize = 9;
-  const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
-
-  for (const page of pdfDoc.getPages()) {
-    const { width } = page.getSize();
-    page.drawText(watermarkText, {
-      x: (width - textWidth) / 2,
-      y: 20,
-      size: fontSize,
-      font,
-      color: rgb(0.75, 0.75, 0.75),
-      opacity: 0.5,
-    });
-  }
-
-  const watermarkedPdfBytes = await pdfDoc.save();
+  const watermarkedPdfBytes = await watermarkPdf(originalPdfBytes, watermarkText);
 
   // Use original filename if available, fall back to generated name
   const rawFilename = result.transcript.originalFilename
@@ -474,6 +494,63 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
       "Content-Length": String(watermarkedPdfBytes.byteLength),
     },
   });
+});
+
+/**
+ * GET /api/media/file/:id — serve a generic event document.
+ * Requires auth (same event access check as transcripts). Sensitive PDFs are
+ * watermarked per-user and streamed; everything else redirects to a short-lived
+ * presigned S3 URL. ?download=true forces attachment disposition.
+ */
+mediaRoutes.get("/file/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const authUser = getOptionalUser(c);
+  if (!authUser) throw AppError.unauthorized("Authentication required to view files");
+
+  const result = await getEventForFile(id);
+  if (!result?.file) throw AppError.notFound("File not found");
+
+  if (result.event) {
+    const userForAccess = await getUserForAccess(authUser);
+    const accessResult = await checkEventAccess(userForAccess, result.event);
+    if (!accessResult.allowed) denialToHttpError(accessResult.reason);
+  }
+
+  const ext = (result.file.extension || "").replace(/^\./, "").toLowerCase();
+  const isPdf = ext === "pdf";
+  const isDownload = c.req.query("download") === "true";
+  const rawFilename = result.file.originalFilename;
+  const asciiFilename = rawFilename.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "'");
+  const utf8Filename = encodeURIComponent(rawFilename);
+
+  // Sensitive PDFs → per-user watermark (same treatment as transcripts).
+  if (isPdf && result.file.sensitive) {
+    const fullUser = await db.query.users.findFirst({ where: eq(users.id, authUser.id) });
+    const userName = fullUser
+      ? [fullUser.firstName, fullUser.lastName].filter(Boolean).join(" ") || authUser.email
+      : authUser.email;
+    const presignedUrl = await generatePresignedDownloadUrl(result.file.s3Key);
+    const pdfResponse = await fetch(presignedUrl);
+    if (!pdfResponse.ok) throw AppError.internal("Failed to fetch file from storage");
+    const bytes = await watermarkPdf(
+      new Uint8Array(await pdfResponse.arrayBuffer()),
+      `${userName} — ${authUser.email}`,
+    );
+    const disposition = isDownload ? "attachment" : "inline";
+    return new Response(bytes as BodyInit, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `${disposition}; filename="${asciiFilename}"; filename*=UTF-8''${utf8Filename}`,
+        "Content-Length": String(bytes.byteLength),
+      },
+    });
+  }
+
+  // Everything else → redirect to a presigned S3 URL (offloads bytes to S3).
+  const url = isDownload
+    ? await generatePresignedAttachmentUrl(result.file.s3Key, rawFilename)
+    : await generatePresignedDownloadUrl(result.file.s3Key);
+  return c.redirect(url, 302);
 });
 
 export { mediaRoutes };
