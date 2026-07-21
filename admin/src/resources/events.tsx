@@ -55,6 +55,7 @@ import { useParams } from "react-router-dom";
 
 import { TrackDropZone } from "../components/TrackDropZone";
 import { TrackAnalysisDropZone } from "../components/TrackAnalysisDropZone";
+import { NamingConventionsButton } from "../components/NamingConventionsButton";
 import { AnalysisReport } from "../components/AnalysisReport";
 import { SessionPreview } from "../components/SessionPreview";
 import { EventVideosSection } from "../components/EventVideosSection";
@@ -2213,6 +2214,12 @@ export const EventCreate = () => {
             fileCount={0}
             folderName={null}
           />
+          <Box sx={{ mt: 2, display: "flex", justifyContent: "center", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {translate("padmakara.namingConventions.hint") || "Not sure how to name your files?"}
+            </Typography>
+            <NamingConventionsButton />
+          </Box>
         </Paper>
       )}
 
@@ -3104,9 +3111,12 @@ export const EventEdit = () => {
 
       {/* 6.2 — Add sessions/tracks to an existing event */}
       <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: "text.secondary" }}>
-          Add audio sessions
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 1.5 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, color: "text.secondary" }}>
+            Add audio sessions
+          </Typography>
+          <NamingConventionsButton />
+        </Box>
         <TrackDropZone
           onFolderDropped={handleAddFolderDropped}
           fileCount={0}

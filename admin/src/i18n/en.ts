@@ -18,10 +18,14 @@ export const en = {
       content: "Content",
       reference: "Reference",
       administration: "Administration",
-      documentation: "Documentation",
-      namingConventions: "Naming conventions (PDF)",
-      migrations: "Migrations",
-      legacyImports: "Legacy Imports",
+    },
+    namingConventions: {
+      title: "Naming conventions",
+      button: "Naming conventions",
+      hint: "Not sure how to name your files?",
+      downloadPdf: "Download PDF",
+      close: "Close",
+      loadError: "Couldn't load the guide here. Download the PDF instead.",
     },
     common: {
       none: "(None)",

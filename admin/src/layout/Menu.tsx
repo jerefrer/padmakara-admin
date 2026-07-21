@@ -7,15 +7,10 @@ import PeopleIcon from "@mui/icons-material/People";
 import CategoryIcon from "@mui/icons-material/Category";
 import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
-import SyncAltIcon from "@mui/icons-material/SyncAlt";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
-import UploadFileIcon from "@mui/icons-material/UploadFile";
-import DescriptionIcon from "@mui/icons-material/Description";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
-import MenuItem from "@mui/material/MenuItem";
-import ListItemIcon from "@mui/material/ListItemIcon";
 
 export const Menu = () => {
   const translate = useTranslate();
@@ -70,30 +65,6 @@ export const Menu = () => {
       <SectionLabel>{translate("padmakara.menu.administration")}</SectionLabel>
       <RaMenu.Item to="/users" primaryText={translate("resources.users.name", { smart_count: 2 })} leftIcon={<PeopleIcon />} />
       <RaMenu.Item to="/approvals" primaryText={translate("resources.approvals.name", { smart_count: 2 })} leftIcon={<HowToRegIcon />} />
-      <RaMenu.Item to="/migrations" primaryText={translate("padmakara.menu.migrations")} leftIcon={<SyncAltIcon />} />
-      <RaMenu.Item to="/imports" primaryText={translate("padmakara.menu.legacyImports")} leftIcon={<UploadFileIcon />} />
-
-      <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", my: 1.5, mx: 2 }} />
-
-      {/* Reference docs */}
-      <SectionLabel>{translate("padmakara.menu.documentation")}</SectionLabel>
-      <MenuItem
-        component="a"
-        href="/naming-conventions.pdf"
-        download="NAMING-CONVENTIONS.pdf"
-        sx={{
-          color: "rgba(255,255,255,0.7)",
-          py: 1,
-          px: 2,
-          fontSize: "0.875rem",
-          "&:hover": { color: "rgba(255,255,255,0.95)" },
-        }}
-      >
-        <ListItemIcon sx={{ color: "inherit", minWidth: 40 }}>
-          <DescriptionIcon fontSize="small" />
-        </ListItemIcon>
-        {translate("padmakara.menu.namingConventions")}
-      </MenuItem>
     </Box>
   );
 };

@@ -219,10 +219,14 @@ export const pt = {
       content: "Conteúdo",
       reference: "Referência",
       administration: "Administração",
-      documentation: "Documentação",
-      namingConventions: "Convenções de nomes (PDF)",
-      migrations: "Migrações",
-      legacyImports: "Importações Legadas",
+    },
+    namingConventions: {
+      title: "Convenções de nomenclatura",
+      button: "Convenções de nomes",
+      hint: "Não sabe como nomear os ficheiros?",
+      downloadPdf: "Descarregar PDF",
+      close: "Fechar",
+      loadError: "Não foi possível carregar o guia aqui. Descarregue o PDF.",
     },
     common: {
       none: "(Nenhum)",
