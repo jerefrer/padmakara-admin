@@ -9,6 +9,7 @@ dist
 
 # generated at build/deploy time from docs/NAMING-CONVENTIONS.md
 admin/public/naming-conventions.pdf
+admin/public/naming-conventions.md
 
 # code coverage
 coverage

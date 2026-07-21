@@ -26,6 +26,11 @@ import vfsModule from "pdfmake/build/vfs_fonts.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const MD_PATH = join(here, "../../docs/NAMING-CONVENTIONS.md");
 const OUT_PATH = join(here, "../../admin/public/naming-conventions.pdf");
+// The admin app renders the same guide in-app (react-markdown), so copy the raw
+// source next to the PDF as a served build artifact. Single source of truth:
+// docs/NAMING-CONVENTIONS.md feeds both the PDF (below) and the in-app modal
+// (which fetches /naming-conventions.md at runtime).
+const MD_OUT_PATH = join(here, "../../admin/public/naming-conventions.md");
 
 // pdfmake ships Roboto as base64 in its browser VFS. Decode the four faces we
 // need to temp files so the server-side PdfPrinter can read them — keeps the
@@ -52,36 +57,47 @@ const fonts = {
   },
 };
 
-type Run = { text: string; bold?: boolean; style?: string };
+type Run = { text: string; bold?: boolean; italics?: boolean; style?: string };
 
-/** Parse `**bold**` and `` `inline code` `` (including code nested in bold). */
+function mkRun(text: string, bold: boolean, italics: boolean): Run {
+  return { text, ...(bold && { bold: true }), ...(italics && { italics: true }) };
+}
+
+/**
+ * Parse `**bold**`, `*italic*`, and `` `inline code` `` into pdfmake text runs.
+ * Bold is matched before italic (the token regex tries `**…**` first at each
+ * position), and `code` spans are split out inside every segment so a
+ * `` **`TRAD`** `` renders bold + monospace.
+ */
 function parseInline(text: string): string | Run[] {
   const runs: Run[] = [];
-  // Split a plain segment on `code` spans, tagging each run bold or not.
-  const pushWithCode = (segment: string, bold: boolean) => {
+  // Split a plain segment on `code` spans, tagging each run bold/italic.
+  const pushSeg = (segment: string, bold: boolean, italics: boolean) => {
     const codeRe = /`([^`]+)`/g;
     let last = 0;
     let m: RegExpExecArray | null;
     while ((m = codeRe.exec(segment))) {
-      if (m.index > last) runs.push({ text: segment.slice(last, m.index), ...(bold && { bold }) });
-      runs.push({ text: m[1]!, style: "code", ...(bold && { bold }) });
+      if (m.index > last) runs.push(mkRun(segment.slice(last, m.index), bold, italics));
+      runs.push({ text: m[1]!, style: "code", ...(bold && { bold: true }), ...(italics && { italics: true }) });
       last = codeRe.lastIndex;
     }
-    if (last < segment.length) runs.push({ text: segment.slice(last), ...(bold && { bold }) });
+    if (last < segment.length) runs.push(mkRun(segment.slice(last), bold, italics));
   };
 
-  const boldRe = /\*\*([^*]+)\*\*/g;
+  // `**bold**` (alt 1) is tried before `*italic*` (alt 2) at each position.
+  const tokenRe = /\*\*([^*]+)\*\*|\*([^*]+)\*/g;
   let last = 0;
   let m: RegExpExecArray | null;
-  while ((m = boldRe.exec(text))) {
-    if (m.index > last) pushWithCode(text.slice(last, m.index), false);
-    pushWithCode(m[1]!, true);
-    last = boldRe.lastIndex;
+  while ((m = tokenRe.exec(text))) {
+    if (m.index > last) pushSeg(text.slice(last, m.index), false, false);
+    if (m[1] !== undefined) pushSeg(m[1], true, false);
+    else pushSeg(m[2]!, false, true);
+    last = tokenRe.lastIndex;
   }
-  if (last < text.length) pushWithCode(text.slice(last), false);
+  if (last < text.length) pushSeg(text.slice(last), false, false);
 
   if (runs.length === 0) return text;
-  if (runs.length === 1 && !runs[0]!.bold && !runs[0]!.style) return runs[0]!.text;
+  if (runs.length === 1 && !runs[0]!.bold && !runs[0]!.italics && !runs[0]!.style) return runs[0]!.text;
   return runs;
 }
 
@@ -96,7 +112,15 @@ function isTableSeparator(line: string): boolean {
 }
 
 const md = readFileSync(MD_PATH, "utf8").replace(/\r\n/g, "\n");
-const lines = md.split("\n");
+// pdfmake ships only Roboto, whose bundled subset lacks a few punctuation
+// glyphs the guide uses (arrows, "identical to"). Substitute ASCII equivalents
+// for the PDF render only — the in-app copy keeps the originals (the browser
+// font renders them fine).
+const pdfSource = md
+  .replace(/←/g, "<-")
+  .replace(/→/g, "->")
+  .replace(/≡/g, "==");
+const lines = pdfSource.split("\n");
 const content: any[] = [];
 let i = 0;
 
@@ -180,9 +204,45 @@ while (i < lines.length) {
       i++;
     }
     const listKey = isBullet ? "ul" : "ol";
+    // Each item must be a single `{text}` block — a bare Run[] array is read by
+    // pdfmake as a vertical stack, breaking every inline run onto its own line.
     content.push({
-      [listKey]: items.map((t) => parseInline(t)),
+      [listKey]: items.map((t) => ({ text: parseInline(t) })),
       margin: [0, 2, 0, 10],
+    });
+    continue;
+  }
+
+  // Blockquote (`>` … , including nested `> >`) → left-accented callout box.
+  if (trimmed.startsWith(">")) {
+    const quoteLines: string[] = [];
+    while (i < lines.length && lines[i]!.trim().startsWith(">")) {
+      // Strip up to two levels of `>` marker (the guide nests one deep).
+      quoteLines.push(lines[i]!.trim().replace(/^>\s?/, "").replace(/^>\s?/, ""));
+      i++;
+    }
+    // Split into paragraphs on the blank (`>`-only) lines.
+    const paras: string[] = [];
+    let cur: string[] = [];
+    for (const ql of quoteLines) {
+      if (ql.trim() === "") {
+        if (cur.length) { paras.push(cur.join(" ")); cur = []; }
+      } else cur.push(ql.trim());
+    }
+    if (cur.length) paras.push(cur.join(" "));
+    const stack = paras.map((p, idx) => ({
+      text: parseInline(p),
+      margin: [0, 0, 0, idx < paras.length - 1 ? 6 : 0] as [number, number, number, number],
+    }));
+    content.push({
+      table: { widths: ["*"], body: [[{ stack, margin: [12, 8, 10, 8] }]] },
+      layout: {
+        hLineWidth: () => 0,
+        vLineWidth: (col: number) => (col === 0 ? 3 : 0),
+        vLineColor: () => "#9b1b1b",
+        fillColor: () => "#f7f2ea",
+      },
+      margin: [0, 4, 0, 12],
     });
     continue;
   }
@@ -213,6 +273,7 @@ while (i < lines.length) {
     !/^(#{1,3})\s/.test(lines[i]!) &&
     !lines[i]!.trim().startsWith("```") &&
     !lines[i]!.trim().startsWith("|") &&
+    !lines[i]!.trim().startsWith(">") &&
     !/^\s*-\s+/.test(lines[i]!) &&
     !/^\s*\d+\.\s+/.test(lines[i]!)
   ) {
@@ -249,3 +310,7 @@ await new Promise<void>((resolve, reject) => {
 
 writeFileSync(OUT_PATH, Buffer.concat(chunks));
 console.log(`Wrote ${OUT_PATH} (${Buffer.concat(chunks).length} bytes)`);
+
+// Copy the raw Markdown alongside the PDF for the in-app modal to fetch.
+writeFileSync(MD_OUT_PATH, md);
+console.log(`Wrote ${MD_OUT_PATH} (${md.length} bytes)`);
