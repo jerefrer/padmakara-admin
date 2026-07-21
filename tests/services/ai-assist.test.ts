@@ -114,6 +114,23 @@ describe("aiAssistEvent", () => {
       aiAssistEvent({ instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k" }),
     ).rejects.toThrow();
   });
+
+  it("surfaces a transient upstream 5xx as a retryable 503, not a bare 500", async () => {
+    // Shape of an Anthropic SDK APIError: an Error carrying a numeric HTTP status.
+    const apiError = Object.assign(new Error("Internal server error"), { status: 500 });
+    mockMessagesCreate.mockRejectedValueOnce(apiError);
+    await expect(
+      aiAssistEvent({ instruction: "capitalize titles", tracks: TRACKS, roster: ROSTER, apiKey: "k" }),
+    ).rejects.toMatchObject({ statusCode: 503, code: "AI_UNAVAILABLE" });
+  });
+
+  it("surfaces an upstream rate limit (429) as a retryable 503", async () => {
+    const rateLimited = Object.assign(new Error("rate limited"), { status: 429 });
+    mockMessagesCreate.mockRejectedValueOnce(rateLimited);
+    await expect(
+      aiAssistEvent({ instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k" }),
+    ).rejects.toMatchObject({ statusCode: 503, code: "AI_UNAVAILABLE" });
+  });
 });
 
 /** `count` tracks named t1..tN, the shape the create form sends. */

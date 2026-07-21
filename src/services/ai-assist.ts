@@ -51,6 +51,27 @@ const MODEL = "claude-haiku-4-5-20251001";
 const MAX_TOKENS = 8192;
 
 /**
+ * Retries the Anthropic SDK performs on transient failures (5xx, 429, network)
+ * before giving up, on top of its default of 2. The upstream API occasionally
+ * returns a bare 500 `api_error`; a couple of extra attempts smooths over the
+ * momentary ones.
+ */
+const AI_MAX_RETRIES = 4;
+
+/**
+ * True for errors worth retrying / worth telling the admin to retry: an
+ * Anthropic upstream 5xx, a rate limit (429), or a connection error (which
+ * surfaces without a numeric status). Duck-typed on `.status`/`.name` so it
+ * holds without importing the SDK's error classes.
+ */
+function isTransientUpstreamError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { status?: unknown; name?: unknown };
+  if (typeof e.status === "number") return e.status >= 500 || e.status === 429;
+  return typeof e.name === "string" && /Connection|Timeout/i.test(e.name);
+}
+
+/**
  * Tracks sent per Claude call. A reply costs roughly 70 output tokens per
  * track, so 50 leaves ample headroom under MAX_TOKENS. This batching exists
  * because the earlier single-call design silently truncated its JSON reply
@@ -201,7 +222,7 @@ export async function aiAssistEvent(args: {
   apiKey: string;
 }): Promise<{ event?: AiEventFields; sessions: AiSessionSuggestion[]; tracks: RenameSuggestion[] }> {
   const { instruction, event, sessions = [], tracks, roster, apiKey } = args;
-  const anthropic = new Anthropic({ apiKey });
+  const anthropic = new Anthropic({ apiKey, maxRetries: AI_MAX_RETRIES });
 
   const batches: RenameTrackRow[][] = [];
   for (let i = 0; i < tracks.length; i += TRACK_BATCH_SIZE) {
@@ -211,19 +232,37 @@ export async function aiAssistEvent(args: {
   // only the event or session fields.
   if (batches.length === 0) batches.push([]);
 
-  const results = await mapWithConcurrency(batches, MAX_CONCURRENT_BATCHES, (batch, i) =>
-    runAssistBatch({
-      anthropic,
-      instruction,
-      roster,
-      // The event fields are context for every batch (they inform titles and
-      // translations), but only the first batch is allowed to change them.
-      event,
-      sessions: i === 0 ? sessions : [],
-      tracks: batch,
-      tracksOnly: i > 0,
-    }),
-  );
+  let results;
+  try {
+    results = await mapWithConcurrency(batches, MAX_CONCURRENT_BATCHES, (batch, i) =>
+      runAssistBatch({
+        anthropic,
+        instruction,
+        roster,
+        // The event fields are context for every batch (they inform titles and
+        // translations), but only the first batch is allowed to change them.
+        event,
+        sessions: i === 0 ? sessions : [],
+        tracks: batch,
+        tracksOnly: i > 0,
+      }),
+    );
+  } catch (err) {
+    // Parse / no-text failures are already AppErrors — let them through as-is.
+    if (err instanceof AppError) throw err;
+    // A transient upstream failure (the SDK's retries already exhausted) is
+    // surfaced as a clear, retryable 503 rather than the bare 500 the raw SDK
+    // error would produce — so the admin retries instead of assuming the
+    // feature is broken.
+    if (isTransientUpstreamError(err)) {
+      throw new AppError(
+        503,
+        "The AI assistant is temporarily unavailable (upstream error). Please try again in a moment.",
+        "AI_UNAVAILABLE",
+      );
+    }
+    throw err;
+  }
 
   // Merge track suggestions, keeping each batch to the rows it was actually
   // given: a batch that echoes a rowKey from another batch would otherwise

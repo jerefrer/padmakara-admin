@@ -138,7 +138,20 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ instruction: text, event, sessions, tracks }),
       });
-      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      if (!res.ok) {
+        // Prefer the API's `error` field (e.g. the friendly AI_UNAVAILABLE
+        // message) over the raw JSON body, falling back to the body then the
+        // status when it isn't the expected shape.
+        const body = await res.text();
+        let message = body || `${res.status}`;
+        try {
+          const parsed = JSON.parse(body) as { error?: unknown };
+          if (typeof parsed.error === "string" && parsed.error) message = parsed.error;
+        } catch {
+          /* non-JSON body — show it as-is */
+        }
+        throw new Error(message);
+      }
       // Trusting the shape here: the rename-tracks endpoint's contract
       // (Tasks 1-2) guarantees { event?, sessions, tracks } on success.
       const data = (await res.json()) as AiAssistResult;
