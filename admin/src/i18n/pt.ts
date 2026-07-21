@@ -316,6 +316,11 @@ export const pt = {
       status: "Estado",
       created: "Criado",
       audiences: "Audiências",
+      // Content presence column
+      content: "Conteúdo",
+      hasVideo: "Tem vídeo",
+      hasAudio: "Tem áudio",
+      hasDocuments: "Tem documentos",
       // Featured
       featuredSet: "Marcar como destaque",
       featuredSetHome: "Marcar como destaque no ecrã inicial",

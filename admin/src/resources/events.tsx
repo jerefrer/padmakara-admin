@@ -49,6 +49,9 @@ import SpaIcon from "@mui/icons-material/SelfImprovement";
 import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
 import TranslateIcon from "@mui/icons-material/Translate";
+import Videocam from "@mui/icons-material/Videocam";
+import Audiotrack from "@mui/icons-material/Audiotrack";
+import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
 import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
@@ -487,6 +490,28 @@ export const EventList = () => {
               </Box>
             );
           }}
+        />
+        <FunctionField
+          label={translate("padmakara.events.content")}
+          render={(record: any) => (
+            <Box sx={{ display: "flex", gap: 0.5, color: "text.secondary" }}>
+              {record.hasVideo && (
+                <Tooltip title={translate("padmakara.events.hasVideo")}>
+                  <Videocam fontSize="small" />
+                </Tooltip>
+              )}
+              {record.hasAudio && (
+                <Tooltip title={translate("padmakara.events.hasAudio")}>
+                  <Audiotrack fontSize="small" />
+                </Tooltip>
+              )}
+              {record.hasDocuments && (
+                <Tooltip title={translate("padmakara.events.hasDocuments")}>
+                  <Description fontSize="small" />
+                </Tooltip>
+              )}
+            </Box>
+          )}
         />
         <FunctionField label={translate("padmakara.events.status")} render={(record: any) => <StatusChip status={record.status} />} />
         <EditButton />

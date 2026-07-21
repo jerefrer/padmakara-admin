@@ -115,6 +115,11 @@ export const en = {
       status: "Status",
       created: "Created",
       audiences: "Audiences",
+      // Content presence column
+      content: "Content",
+      hasVideo: "Has video",
+      hasAudio: "Has audio",
+      hasDocuments: "Has documents",
       // Featured
       featuredSet: "Set as featured",
       featuredSetHome: "Set as featured on home screen",
