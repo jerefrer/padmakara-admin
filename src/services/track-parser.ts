@@ -355,6 +355,15 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     title = baseName;
   }
 
+  // Capitalize the first character so lowercase source filenames
+  // ("001 words from Tulku Rinpoché.mp3" → "Words from Tulku Rinpoché")
+  // produce a properly-cased title. Only the first character is touched, so
+  // internal capitals — proper nouns ("Tulku Rinpoché"), acronyms
+  // ("MANI KABUM") — are preserved.
+  if (title) {
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+  }
+
   return {
     trackNumber,
     trackRange,

@@ -447,7 +447,7 @@ describe("parseTrackFilename", () => {
       );
       expect(result.trackNumber).toBe(21);
       expect(result.speaker).toBe("PWR");
-      expect(result.title).toBe("kindness of our mother-bondade da nossa mae");
+      expect(result.title).toBe("Kindness of our mother-bondade da nossa mae");
       expect(result.languages).toEqual(["en", "pt"]);
       expect(result.originalLanguage).toBe("en");
       expect(result.isTranslation).toBe(false);
@@ -514,6 +514,35 @@ describe("parseTrackFilename", () => {
       expect(mp3.title).toBe("Test");
       expect(wav.title).toBe("Test");
       expect(m4a.title).toBe("Test");
+    });
+  });
+
+  describe("Title capitalization", () => {
+    it("capitalizes the first letter of a lowercase title", () => {
+      const result = parseTrackFilename("001 words from Tulku Rinpoché.mp3");
+      expect(result.title).toBe("Words from Tulku Rinpoché");
+    });
+
+    it("preserves internal capitals when capitalizing the first letter", () => {
+      const result = parseTrackFilename("017 Bodhichita and Buddhahood.mp3");
+      expect(result.title).toBe("Bodhichita and Buddhahood");
+    });
+
+    it("leaves an already-capitalized title unchanged", () => {
+      const result = parseTrackFilename("002 Initial prayers.mp3");
+      expect(result.title).toBe("Initial prayers");
+    });
+
+    it("capitalizes an accented first letter (Portuguese)", () => {
+      const result = parseTrackFilename("001 TRAD - água e fogo.mp3");
+      expect(result.title).toBe("Água e fogo");
+    });
+
+    it("capitalizes the lowercase title of a SPEAKER+TRAD combo track", () => {
+      const result = parseTrackFilename(
+        "021 PWR&TRAD - kindness of our mother-bondade da nossa mae.mp3",
+      );
+      expect(result.title).toBe("Kindness of our mother-bondade da nossa mae");
     });
   });
 
