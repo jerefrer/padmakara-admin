@@ -9,6 +9,11 @@ import {
 } from "../../db/schema/retreats.ts";
 import { eventPublications } from "../../db/schema/publications.ts";
 import { teachers } from "../../db/schema/teachers.ts";
+import { eventVideos } from "../../db/schema/event-videos.ts";
+import { sessions } from "../../db/schema/sessions.ts";
+import { tracks } from "../../db/schema/tracks.ts";
+import { transcripts } from "../../db/schema/transcripts.ts";
+import { eventFiles } from "../../db/schema/event-files.ts";
 import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
@@ -120,7 +125,39 @@ eventRoutes.get("/", async (c) => {
   const total = filteredData.length;
   const paginatedData = filteredData.slice(offset, offset + limit);
 
-  return listResponse(c, paginatedData, total, offset, offset + limit, "events");
+  // Content-presence flags for the list icons (cheap grouped existence scans).
+  const ids = paginatedData.map((e: { id: number }) => e.id);
+  const hasVideo = new Set<number>();
+  const hasAudio = new Set<number>();
+  const hasDocs = new Set<number>();
+  if (ids.length) {
+    const [vids, auds, trs, files] = await Promise.all([
+      db.select({ id: eventVideos.eventId }).from(eventVideos)
+        .where(inArray(eventVideos.eventId, ids)).groupBy(eventVideos.eventId),
+      db.select({ id: sessions.eventId }).from(tracks)
+        .innerJoin(sessions, eq(tracks.sessionId, sessions.id))
+        .where(inArray(sessions.eventId, ids)).groupBy(sessions.eventId),
+      db.select({ id: transcripts.eventId }).from(transcripts)
+        .where(inArray(transcripts.eventId, ids)).groupBy(transcripts.eventId),
+      db.select({ id: eventFiles.eventId }).from(eventFiles)
+        .where(and(
+          inArray(eventFiles.eventId, ids),
+          inArray(eventFiles.fileType, ["document", "image", "other"]),
+        )).groupBy(eventFiles.eventId),
+    ]);
+    vids.forEach((r) => hasVideo.add(r.id));
+    auds.forEach((r) => hasAudio.add(r.id));
+    trs.forEach((r) => hasDocs.add(r.id));
+    files.forEach((r) => hasDocs.add(r.id));
+  }
+  const enriched = paginatedData.map((e: { id: number }) => ({
+    ...e,
+    hasVideo: hasVideo.has(e.id),
+    hasAudio: hasAudio.has(e.id),
+    hasDocuments: hasDocs.has(e.id),
+  }));
+
+  return listResponse(c, enriched, total, offset, offset + limit, "events");
 });
 
 eventRoutes.get("/:id", async (c) => {
