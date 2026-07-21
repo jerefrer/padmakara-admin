@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db } from "../../db/index.ts";
-import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key } from "../../services/s3.ts";
-import { presignUploadSchema, presignTranscriptSchema, aiAssistSchema } from "../../lib/schemas.ts";
+import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key, buildEventFileS3Key } from "../../services/s3.ts";
+import { presignUploadSchema, presignTranscriptSchema, presignFileSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import {
   createVideo,
   deleteVideo,
@@ -50,6 +50,20 @@ uploadRoutes.post("/presign-transcript", async (c) => {
   const s3Key = buildTranscriptS3Key(eventCode, filename);
   const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
 
+  return c.json({ s3Key, uploadUrl });
+});
+
+/**
+ * POST /api/admin/upload/presign-file — presigned PUT for a generic document.
+ */
+uploadRoutes.post("/presign-file", async (c) => {
+  const parsed = presignFileSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+  const { eventCode, filename, contentType, fileType } = parsed.data;
+  const s3Key = buildEventFileS3Key(eventCode, fileType, filename);
+  const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
   return c.json({ s3Key, uploadUrl });
 });
 
