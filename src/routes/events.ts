@@ -80,6 +80,10 @@ const eventWithSessions = {
     },
   },
   transcripts: true,
+  eventFiles: {
+    where: (f: any, { inArray }: any) => inArray(f.fileType, ["document", "image", "other"]),
+    orderBy: (f: any, { asc }: any) => [asc(f.sortOrder), asc(f.id)],
+  },
 } as const;
 
 // ─── Public endpoints (no auth) ──────────────────────────────────────────
