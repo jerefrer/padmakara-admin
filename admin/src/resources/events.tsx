@@ -19,12 +19,12 @@ import {
   ReferenceArrayField,
   SingleFieldList,
   ChipField,
-  TextInput,
   ReferenceInput,
   AutocompleteInput,
   SelectInput,
   ReferenceArrayInput,
   AutocompleteArrayInput,
+  SearchInput,
 } from "react-admin";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
@@ -275,7 +275,7 @@ const SingleFilterWithNone = ({
 // Labels and choice names are i18n keys — react-admin's label/choice
 // translation resolves them (falling back to the literal string).
 const eventFilters = [
-  <TextInput key="q" label="ra.action.search" source="q" alwaysOn />,
+  <SearchInput key="q" source="q" alwaysOn />,
   <SingleFilterWithNone
     key="eventType"
     source="eventTypeId"
