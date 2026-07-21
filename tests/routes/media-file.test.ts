@@ -22,6 +22,8 @@ vi.mock("../../src/services/s3.ts", () => ({
 }));
 
 import { createAccessToken } from "../../src/services/auth.ts";
+import { checkEventAccess, denialToHttpError } from "../../src/services/access.ts";
+import { AppError } from "../../src/lib/errors.ts";
 const userToken = () => createAccessToken({ sub: 1, email: "u@test.com", role: "user" });
 
 describe("GET /api/media/file/:id", () => {
@@ -55,5 +57,20 @@ describe("GET /api/media/file/:id", () => {
     const token = await userToken();
     const { status } = await testJson("/api/media/file/999", { headers: { Authorization: `Bearer ${token}` } });
     expect(status).toBe(404);
+  });
+
+  it("403 when checkEventAccess denies access", async () => {
+    findFirst.mockResolvedValueOnce({ id: 5, eventId: 3, extension: "pdf", sensitive: false, s3Key: "events/E/file/doc.pdf", originalFilename: "doc.pdf", event: { id: 3, audience: { slug: "free-subscribers" } } });
+    // Override the module-level always-allow mocks for this test only: deny
+    // access and have denialToHttpError map the denial to a real 403 AppError,
+    // matching how the route's `if (!accessResult.allowed) denialToHttpError(...)`
+    // call behaves against the real access service.
+    vi.mocked(checkEventAccess).mockResolvedValueOnce({ allowed: false, reason: "SUBSCRIPTION_REQUIRED" });
+    vi.mocked(denialToHttpError).mockImplementationOnce(() => {
+      throw AppError.forbidden("Active subscription required");
+    });
+    const token = await userToken();
+    const { status } = await testJson("/api/media/file/5", { headers: { Authorization: `Bearer ${token}` } });
+    expect(status).toBe(403);
   });
 });
