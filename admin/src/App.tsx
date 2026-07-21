@@ -84,6 +84,11 @@ const App = () => (
       edit={PublicationEdit}
       create={PublicationCreate}
     />
+    {/* List-less resources: used programmatically via the data provider
+        from the event form (Documents section, transcript persistence) —
+        no dedicated list/edit/create screens. */}
+    <Resource name="event-files" />
+    <Resource name="transcripts" />
   </Admin>
 );
 

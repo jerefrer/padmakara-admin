@@ -66,6 +66,72 @@ export async function uploadTranscript(
   return { s3Key };
 }
 
+// ---------------------------------------------------------------------------
+// Generic event-document upload helpers (images, PDFs, Office docs, etc.)
+// ---------------------------------------------------------------------------
+
+/**
+ * Request a presigned S3 upload URL for a single event document (a file
+ * headed for the `event_files` table rather than a track or a transcript).
+ */
+export async function presignFile(
+  eventCode: string,
+  filename: string,
+  contentType: string,
+  fileType: string,
+): Promise<{ s3Key: string; uploadUrl: string }> {
+  const res = await authFetch(`${API_URL}/upload/presign-file`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventCode, filename, contentType, fileType }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Presign failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+/**
+ * Upload a generic event document: presign → PUT to S3 → return s3Key.
+ *
+ * Calls `onProgress` with a 0-1 fraction during the XHR upload.
+ */
+export async function uploadFile(
+  eventCode: string,
+  file: File,
+  fileType: string,
+  onProgress?: (fraction: number) => void,
+): Promise<{ s3Key: string }> {
+  const contentType = file.type || "application/octet-stream";
+  const { s3Key, uploadUrl } = await presignFile(
+    eventCode,
+    file.name,
+    contentType,
+    fileType,
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", contentType);
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`S3 upload failed: ${xhr.status} ${xhr.statusText}`));
+    };
+
+    xhr.onerror = () => reject(new Error("Network error during file upload"));
+    xhr.send(file);
+  });
+
+  return { s3Key };
+}
+
 /**
  * An audio upload item — one file becomes one track on a session.
  *
