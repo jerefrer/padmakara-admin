@@ -63,6 +63,7 @@ import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
+import { DocumentsSection, type PendingDocument } from "../components/DocumentsSection";
 import { AiAssistPanel, type AiAssistResult } from "../components/AiAssistPanel";
 import {
   SessionTrackTable,
@@ -1792,6 +1793,15 @@ export const EventCreate = () => {
   const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
   const cancelUploadRef = useRef<(() => void) | null>(null);
   const [transcriptUploads, setTranscriptUploads] = useState<TranscriptUploadState[]>([]);
+  // Transcript/document rows can't be persisted until the event has a real
+  // id — the create flow only has `eventCode` until Save runs. Uploads still
+  // happen immediately (S3 only needs the code); the DB rows for whatever
+  // finished uploading are created in handleSave once `event.id` exists,
+  // mirroring how sessions/tracks are already deferred to save-time.
+  const pendingTranscriptsRef = useRef<
+    { language: string; s3Key: string; originalFilename: string; fileSizeBytes: number }[]
+  >([]);
+  const pendingDocumentsRef = useRef<PendingDocument[]>([]);
 
   // AI analysis state
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -1988,7 +1998,7 @@ export const EventCreate = () => {
             : u),
         );
         try {
-          await uploadTranscript(form.eventCode, file, (progress) => {
+          const { s3Key } = await uploadTranscript(form.eventCode, file, (progress) => {
             setTranscriptUploads((prev) =>
               prev.map((u) => u.filename === file.name ? { ...u, progress } : u),
             );
@@ -1996,6 +2006,14 @@ export const EventCreate = () => {
           setTranscriptUploads((prev) =>
             prev.map((u) => u.filename === file.name ? { ...u, status: "done", progress: 1 } : u),
           );
+          // No event id yet — queue the row for handleSave to create once
+          // the event (and its id) exist.
+          pendingTranscriptsRef.current.push({
+            language: detectTitleLanguage(file.name),
+            s3Key,
+            originalFilename: file.name,
+            fileSizeBytes: file.size,
+          });
           notify(`${file.name} — ${translate("padmakara.transcript.uploadSuccess") || "uploaded"}`, { type: "success" });
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -2008,6 +2026,11 @@ export const EventCreate = () => {
     },
     [form.eventCode, notify, translate],
   );
+
+  /** Create-flow document uploads (no event id yet) — queue for handleSave. */
+  const handlePendingDocumentUpload = useCallback((doc: PendingDocument) => {
+    pendingDocumentsRef.current.push(doc);
+  }, []);
 
   /**
    * Apply an AI-assist suggestion (from `AiAssistPanel`) onto `form` +
@@ -2094,6 +2117,19 @@ export const EventCreate = () => {
           groupIds: selectedGroups.map((g) => g.id),
         },
       });
+
+      // Any transcripts/documents dropped before Save only had an eventCode
+      // to upload against — persist their DB rows now that a real id exists.
+      for (const t of pendingTranscriptsRef.current) {
+        await dataProvider.create("transcripts", { data: { eventId: event.id, ...t } });
+      }
+      pendingTranscriptsRef.current = [];
+      for (const [idx, d] of pendingDocumentsRef.current.entries()) {
+        await dataProvider.create("event-files", {
+          data: { eventId: event.id, ...d, title: null, sensitive: false, sortOrder: idx },
+        });
+      }
+      pendingDocumentsRef.current = [];
 
       const uploadItems: UploadItem[] = [];
       // Videos attach to the event itself now, not to a session — position is
@@ -2299,6 +2335,15 @@ export const EventCreate = () => {
                 disabled={saving}
               />
             </Paper>
+          )}
+
+          {/* Documents (images, PDFs, Office files) — same eventCode-only guard as Transcripts above */}
+          {form.eventCode && (
+            <DocumentsSection
+              eventCode={form.eventCode}
+              disabled={saving}
+              onPendingUpload={handlePendingDocumentUpload}
+            />
           )}
 
           {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
@@ -2809,10 +2854,11 @@ export const EventEdit = () => {
   // 6.1 — Transcript upload handler for EventEdit
   const handleEditTranscriptFilesDropped = useCallback(
     async (files: File[]) => {
-      if (!form.eventCode) {
+      if (!form.eventCode || !event?.id) {
         notify(translate("padmakara.transcript.saveFirst") || "Save the event first, then upload transcripts", { type: "warning" });
         return;
       }
+      const eventId = Number(event.id);
       const initial: TranscriptUploadState[] = files.map((f) => ({
         filename: f.name,
         status: "pending",
@@ -2827,10 +2873,19 @@ export const EventEdit = () => {
             : u),
         );
         try {
-          await uploadTranscript(form.eventCode, file, (progress) => {
+          const { s3Key } = await uploadTranscript(form.eventCode, file, (progress) => {
             setTranscriptUploads((prev) =>
               prev.map((u) => u.filename === file.name ? { ...u, progress } : u),
             );
+          });
+          await dataProvider.create("transcripts", {
+            data: {
+              eventId,
+              language: detectTitleLanguage(file.name),
+              s3Key,
+              originalFilename: file.name,
+              fileSizeBytes: file.size,
+            },
           });
           setTranscriptUploads((prev) =>
             prev.map((u) => u.filename === file.name ? { ...u, status: "done", progress: 1 } : u),
@@ -2846,7 +2901,7 @@ export const EventEdit = () => {
         }
       }
     },
-    [form.eventCode, notify, refresh, translate],
+    [form.eventCode, event?.id, dataProvider, notify, refresh, translate],
   );
 
   // 6.2 — Add sessions/tracks to existing event
@@ -3136,6 +3191,13 @@ export const EventEdit = () => {
           disabled={saving}
         />
       </Paper>
+
+      {/* Documents (images, PDFs, Office files) */}
+      <DocumentsSection
+        eventCode={form.eventCode}
+        eventId={event?.id ? Number(event.id) : undefined}
+        disabled={saving}
+      />
 
       {trackCount > 0 && transcriptCount > 0 && event?.id && (
         <ReadAlongPanel eventId={Number(event.id)} />
