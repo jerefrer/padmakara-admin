@@ -4,6 +4,7 @@ import {
   text,
   integer,
   bigint,
+  boolean,
   timestamp,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -30,6 +31,11 @@ export const eventFiles = pgTable("event_files", {
   extension: text("extension").notNull(), // .jpg, .vtt, .doc, etc.
   fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
   language: text("language"), // Optional language for subtitles, docs, etc.
+
+  // Documents feature
+  sensitive: boolean("sensitive").notNull().default(false),
+  title: text("title"),
+  sortOrder: integer("sort_order").notNull().default(0),
 
   // Timestamps
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
