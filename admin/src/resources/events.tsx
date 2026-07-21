@@ -556,7 +556,6 @@ interface EventFormProps {
   allAudiences: AudienceOption[];
   sessions: InferredSession[];
   transcripts: any[];
-  eventFiles: any[];
   onSessionTitleChange: (
     idx: number,
     patch: Partial<InferredSession>,
@@ -668,7 +667,7 @@ export const EventFormFields = ({
   selectedEventType, setSelectedEventType,
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
-  sessions, transcripts, eventFiles, onSessionTitleChange, onTrackUpdate, onTrackDelete,
+  sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   videos, onVideosChange, onVideoUpload, onVideoImportUrl,
   previewSessions, onPreviewSessionsChange,
   onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
@@ -1380,7 +1379,7 @@ export const EventFormFields = ({
       )}
 
       {/* ── Section 2: Content ── */}
-      {(sessions.length > 0 || transcripts.length > 0 || eventFiles.length > 0) && (
+      {(sessions.length > 0 || transcripts.length > 0) && (
         <>
           <SectionHeader
             title={translate("padmakara.events.files")}
@@ -1418,8 +1417,8 @@ export const EventFormFields = ({
           )}
 
           {/* Event-level files (transcripts, videos, etc.) */}
-          {(transcripts.length > 0 || eventFiles.length > 0) && (
-            <EventFilesPreview transcripts={transcripts} eventFiles={eventFiles} />
+          {transcripts.length > 0 && (
+            <EventFilesPreview transcripts={transcripts} />
           )}
         </>
       )}
@@ -2283,7 +2282,7 @@ export const EventCreate = () => {
             selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
             allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
             allEventTypes={allEventTypes} allAudiences={allAudiences}
-            sessions={[]} transcripts={[]} eventFiles={[]} onSessionTitleChange={handleSessionTitleChange}
+            sessions={[]} transcripts={[]} onSessionTitleChange={handleSessionTitleChange}
             previewSessions={sessions}
             onPreviewSessionsChange={setSessions}
             trackCount={0}
@@ -3126,7 +3125,7 @@ export const EventEdit = () => {
         selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
         allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
         allEventTypes={allEventTypes} allAudiences={allAudiences}
-        sessions={sessions} transcripts={event?.transcripts || []} eventFiles={event?.eventFiles || []} onSessionTitleChange={handleSessionTitleChange}
+        sessions={sessions} transcripts={event?.transcripts || []} onSessionTitleChange={handleSessionTitleChange}
         onTrackUpdate={handleTrackUpdate}
         onTrackDelete={handleTrackDelete}
         videos={videos}

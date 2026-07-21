@@ -40,11 +40,10 @@ function getFileIcon(type: FileType) {
 
 interface EventFilesPreviewProps {
   transcripts: any[];
-  eventFiles: any[];
 }
 
-export const EventFilesPreview = ({ transcripts, eventFiles }: EventFilesPreviewProps) => {
-  if (transcripts.length === 0 && eventFiles.length === 0) return null;
+export const EventFilesPreview = ({ transcripts }: EventFilesPreviewProps) => {
+  if (transcripts.length === 0) return null;
 
   // Convert transcripts to tracks for display
   const transcriptTracks: ParsedTrack[] = transcripts.map((t, idx) => ({
@@ -64,34 +63,6 @@ export const EventFilesPreview = ({ transcripts, eventFiles }: EventFilesPreview
     mediaType: "audio",
   }));
 
-  // Group event files by type
-  const eventFilesByType = new Map<string, ParsedTrack[]>();
-  for (const ef of eventFiles) {
-    const type = ef.fileType || "other";
-    if (!eventFilesByType.has(type)) {
-      eventFilesByType.set(type, []);
-    }
-
-    const track: ParsedTrack = {
-      trackNumber: 0,
-      title: ef.originalFilename || `File ${eventFilesByType.get(type)!.length + 1}`,
-      speaker: null,
-      languages: ef.languages || [ef.language || "unknown"],
-      originalLanguage: ef.originalLanguage || ef.language || "unknown",
-      isTranslation: false,
-      originalFilename: ef.originalFilename || null,
-      partNumber: null,
-      file: { name: ef.originalFilename || "file", size: ef.fileSizeBytes || 0 } as File,
-      date: null,
-      timePeriod: null,
-      isPractice: false,
-      fileFormat: ef.originalFilename ? ef.originalFilename.split(".").pop()?.toLowerCase() : null,
-      mediaType: "audio",
-    };
-
-    eventFilesByType.get(type)!.push(track);
-  }
-
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mb: 3 }}>
       {/* Event-level transcripts */}
@@ -102,16 +73,6 @@ export const EventFilesPreview = ({ transcripts, eventFiles }: EventFilesPreview
           tracks={transcriptTracks}
         />
       )}
-
-      {/* Event-level files grouped by type */}
-      {Array.from(eventFilesByType.entries()).map(([type, tracks]) => (
-        <FileSection
-          key={type}
-          title={`${type.charAt(0).toUpperCase() + type.slice(1)} Files`}
-          icon={<DescriptionIcon />}
-          tracks={tracks}
-        />
-      ))}
     </Box>
   );
 };
