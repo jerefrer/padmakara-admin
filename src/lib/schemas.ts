@@ -320,6 +320,60 @@ export const presignTranscriptSchema = z.object({
   contentType: z.string().min(1).max(200),
 });
 
+const eventFileTypeSchema = z.enum([
+  "image",
+  "document",
+  "other",
+  "subtitle",
+  "design",
+]);
+
+// Presign upload for a generic event document.
+export const presignFileSchema = z.object({
+  eventCode: z.string().min(1).max(200),
+  filename: safeFilenameSchema,
+  contentType: z.string().min(1).max(200),
+  fileType: eventFileTypeSchema,
+});
+
+// Persist an event_files row after the S3 PUT completes.
+export const createEventFileSchema = z.object({
+  eventId: z.number().int(),
+  originalFilename: z.string().min(1).max(500),
+  s3Key: z.string().min(1).max(1000),
+  fileType: eventFileTypeSchema,
+  extension: z.string().min(1).max(20),
+  fileSizeBytes: z.number().int().min(0).optional().nullable(),
+  language: z.string().max(20).optional().nullable(),
+  title: z.string().max(300).optional().nullable(),
+  sensitive: z.boolean().optional().default(false),
+  sortOrder: z.number().int().min(0).optional().default(0),
+});
+
+export const updateEventFileSchema = z.object({
+  title: z.string().max(300).optional().nullable(),
+  sensitive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+  language: z.string().max(20).optional().nullable(),
+  fileType: eventFileTypeSchema.optional(),
+});
+
+// Persist a transcripts row from the admin (fixes the persistence gap).
+export const createTranscriptSchema = z.object({
+  eventId: z.number().int(),
+  language: z.string().min(1).max(20),
+  s3Key: z.string().min(1).max(1000),
+  originalFilename: z.string().max(500).optional().nullable(),
+  fileSizeBytes: z.number().int().min(0).optional().nullable(),
+  pageCount: z.number().int().min(0).optional().nullable(),
+  status: z.string().max(20).optional().default("published"),
+});
+
+export const updateTranscriptSchema = z.object({
+  language: z.string().min(1).max(20).optional(),
+  status: z.string().max(20).optional(),
+});
+
 // AI assist (event + sessions + tracks)
 const aiEventFieldsSchema = z.object({
   titleEn: z.string().max(500).optional(),

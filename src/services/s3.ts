@@ -247,6 +247,18 @@ export function buildTranscriptS3Key(
 }
 
 /**
+ * Build a consistent S3 key for generic event document files.
+ * Format: events/{event_code}/{file_type}/{filename}
+ */
+export function buildEventFileS3Key(
+  eventCode: string,
+  fileType: string,
+  filename: string,
+): string {
+  return `events/${eventCode}/${fileType}/${filename}`;
+}
+
+/**
  * Build S3 key for ZIP download files.
  * Format: downloads/{event_code}/{filename}.zip
  */
