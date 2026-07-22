@@ -30,6 +30,7 @@ import Typography from "@mui/material/Typography";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
+import { friendlyJobError } from "../utils/friendlyJobError";
 import { LANG_CHIP_COLORS, DEFAULT_LANG_CHIP, LangTag } from "./inlineEditKit";
 
 export interface SubtitleJob {
@@ -380,10 +381,16 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
       {failedJob && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
           <ErrorOutlineIcon sx={{ fontSize: 14, color: "#b91c1c" }} />
-          <Typography variant="caption" sx={{ color: "#b91c1c", flex: 1, minWidth: 120 }}>
-            {translate("padmakara.subtitles.failed", { language: langName(failedJob.language) })}
-            {failedJob.errorMessage ? ` — ${failedJob.errorMessage}` : ""}
-          </Typography>
+          <Tooltip title={failedJob.errorMessage ?? ""}>
+            <Typography
+              variant="caption"
+              sx={{ color: "#b91c1c", flex: 1, minWidth: 120, cursor: failedJob.errorMessage ? "help" : undefined }}
+            >
+              {translate("padmakara.subtitles.failed", { language: langName(failedJob.language) })}
+              {" — "}
+              {friendlyJobError(failedJob.errorMessage, translate)}
+            </Typography>
+          </Tooltip>
           <Button
             size="small"
             color="error"
