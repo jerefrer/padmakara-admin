@@ -35,8 +35,10 @@ function statusColor(status: string): "default" | "info" | "warning" | "success"
       return "error";
     case "processing":
     case "submitted":
+    case "running":
       return "info";
     case "pending":
+    case "queued":
       return "warning";
     default:
       return "default";

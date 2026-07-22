@@ -611,6 +611,8 @@ export const pt = {
       status: {
         pending: "Pendente",
         submitted: "Submetido",
+        queued: "Em fila",
+        running: "Em execução",
         processing: "Em processamento",
         completed: "Concluído",
         failed: "Falhado",
@@ -642,6 +644,8 @@ export const pt = {
       status: {
         pending: "Pendente",
         submitted: "Submetido",
+        queued: "Em fila",
+        running: "Em execução",
         processing: "Em processamento",
         completed: "Concluído",
         failed: "Falhado",

@@ -410,6 +410,8 @@ export const en = {
       status: {
         pending: "Pending",
         submitted: "Submitted",
+        queued: "Queued",
+        running: "Running",
         processing: "Processing",
         completed: "Completed",
         failed: "Failed",
@@ -441,6 +443,8 @@ export const en = {
       status: {
         pending: "Pending",
         submitted: "Submitted",
+        queued: "Queued",
+        running: "Running",
         processing: "Processing",
         completed: "Completed",
         failed: "Failed",
