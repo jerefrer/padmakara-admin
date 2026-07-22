@@ -1,9 +1,10 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { db } from "../db/index.ts";
 import { tracks } from "../db/schema/tracks.ts";
 import { eventVideos } from "../db/schema/event-videos.ts";
+import { videoSubtitles } from "../db/schema/video-subtitles.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
 import { eventFiles } from "../db/schema/event-files.ts";
 import { events } from "../db/schema/retreats.ts";
@@ -257,6 +258,44 @@ function proxyBaseUrl(c: any, videoId: number): string {
 }
 
 /**
+ * Inject subtitle renditions into a (already variant-rewritten) HLS master
+ * playlist so the player's CC menu offers them. Declares one
+ * `#EXT-X-MEDIA:TYPE=SUBTITLES` per language (off by default — the user opts
+ * in via the CC menu) and tags every `#EXT-X-STREAM-INF` variant with the
+ * `SUBTITLES` group. Pure/testable: `subPlaylistUrl(lang)` builds the URI.
+ */
+export function injectSubtitleRenditions(
+  master: string,
+  subLangs: { language: string; label: string | null }[],
+  subPlaylistUrl: (lang: string) => string,
+): string {
+  if (subLangs.length === 0) return master;
+
+  // Point every variant stream at the subtitles group.
+  let out = master.replace(
+    /^(#EXT-X-STREAM-INF:[^\r\n]*)$/gm,
+    (line) => `${line},SUBTITLES="subs"`,
+  );
+
+  const mediaLines = subLangs
+    .map((s) => {
+      const name = (s.label || s.language.toUpperCase()).replace(/"/g, "");
+      return (
+        `#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="${name}",` +
+        `LANGUAGE="${s.language}",AUTOSELECT=NO,DEFAULT=NO,FORCED=NO,` +
+        `URI="${subPlaylistUrl(s.language)}"`
+      );
+    })
+    .join("\n");
+
+  // Insert the media declarations right after the #EXTM3U header line.
+  if (/^#EXTM3U[^\r\n]*\r?\n/m.test(out)) {
+    return out.replace(/^(#EXTM3U[^\r\n]*\r?\n)/m, `$1${mediaLines}\n`);
+  }
+  return `${mediaLines}\n${out}`;
+}
+
+/**
  * Master playlist. Fetches the upstream `/{guid}/playlist.m3u8` and rewrites
  * each sub-playlist reference (e.g. `360p/video.m3u8`) into a URL that
  * routes back through this proxy with the MAT preserved.
@@ -278,13 +317,26 @@ mediaRoutes.get("/video/hls/:videoId/master.m3u8", async (c) => {
 
   // Sub-playlists are referenced as `<quality>/video.m3u8` — single line
   // per variant, no leading `#`.
-  const rewritten = body.replace(
+  const variantRewritten = body.replace(
     /^([^\s#][^\r\n]*\.m3u8)\s*$/gm,
     (line) => {
       const trimmed = line.trim();
       const quality = trimmed.split("/")[0]!;
       return `${base}/v/${encodeURIComponent(quality)}?mat=${matEnc}`;
     },
+  );
+
+  // Add subtitle renditions from video_subtitles so the native player's CC
+  // menu offers them. Bunny's own captions aren't referenced by the proxied
+  // manifest, so we declare + serve them ourselves (MAT-signed, VTT from S3).
+  const subs = await db
+    .select({ language: videoSubtitles.language, label: videoSubtitles.label })
+    .from(videoSubtitles)
+    .where(eq(videoSubtitles.videoId, videoId));
+  const rewritten = injectSubtitleRenditions(
+    variantRewritten,
+    subs,
+    (lang) => `${base}/subs/${encodeURIComponent(lang)}/playlist.m3u8?mat=${matEnc}`,
   );
 
   c.header("Content-Type", "application/vnd.apple.mpegurl");
@@ -355,6 +407,75 @@ mediaRoutes.get("/video/hls/:videoId/s", async (c) => {
   const guid = await authorizeProxyRequest(mat, videoId);
   const upstream = bunnyUrl(`/${guid}/${segPath}`);
   return c.redirect(upstream, 302);
+});
+
+/**
+ * Subtitle sub-playlist — a one-segment WebVTT playlist wrapping the VTT for a
+ * single language, referenced by the master playlist's SUBTITLES rendition.
+ */
+mediaRoutes.get("/video/hls/:videoId/subs/:lang/playlist.m3u8", async (c) => {
+  const videoId = parseInt(c.req.param("videoId"), 10);
+  const lang = c.req.param("lang");
+  if (!/^[a-z]{2,8}$/i.test(lang)) throw AppError.badRequest("Invalid subtitle language");
+  const mat = c.req.query("mat");
+  await authorizeProxyRequest(mat, videoId);
+
+  const [sub] = await db
+    .select({ language: videoSubtitles.language })
+    .from(videoSubtitles)
+    .where(and(eq(videoSubtitles.videoId, videoId), eq(videoSubtitles.language, lang)))
+    .limit(1);
+  if (!sub) throw AppError.notFound("Subtitle track not found");
+
+  const [video] = await db
+    .select({ durationSeconds: eventVideos.durationSeconds })
+    .from(eventVideos)
+    .where(eq(eventVideos.id, videoId))
+    .limit(1);
+  // One VTT covers the whole video; TARGETDURATION just needs to be >= it.
+  const dur = Math.max(1, Math.ceil(video?.durationSeconds ?? 86400));
+  const base = proxyBaseUrl(c, videoId);
+  const matEnc = encodeURIComponent(mat!);
+
+  const playlist =
+    [
+      "#EXTM3U",
+      "#EXT-X-VERSION:3",
+      `#EXT-X-TARGETDURATION:${dur}`,
+      "#EXT-X-MEDIA-SEQUENCE:0",
+      "#EXT-X-PLAYLIST-TYPE:VOD",
+      `#EXTINF:${dur}.0,`,
+      `${base}/subs/${encodeURIComponent(lang)}/track.vtt?mat=${matEnc}`,
+      "#EXT-X-ENDLIST",
+    ].join("\n") + "\n";
+
+  c.header("Content-Type", "application/vnd.apple.mpegurl");
+  c.header("Cache-Control", "no-store");
+  return c.body(playlist);
+});
+
+/**
+ * Subtitle VTT — serves the WebVTT for one language from S3 (video_subtitles),
+ * MAT-authorized like the rest of the proxy.
+ */
+mediaRoutes.get("/video/hls/:videoId/subs/:lang/track.vtt", async (c) => {
+  const videoId = parseInt(c.req.param("videoId"), 10);
+  const lang = c.req.param("lang");
+  if (!/^[a-z]{2,8}$/i.test(lang)) throw AppError.badRequest("Invalid subtitle language");
+  const mat = c.req.query("mat");
+  await authorizeProxyRequest(mat, videoId);
+
+  const [sub] = await db
+    .select({ s3Key: videoSubtitles.s3Key })
+    .from(videoSubtitles)
+    .where(and(eq(videoSubtitles.videoId, videoId), eq(videoSubtitles.language, lang)))
+    .limit(1);
+  if (!sub?.s3Key) throw AppError.notFound("Subtitle track not found");
+
+  const vtt = await getObjectText(sub.s3Key);
+  c.header("Content-Type", "text/vtt; charset=utf-8");
+  c.header("Cache-Control", "no-store");
+  return c.body(vtt);
 });
 
 /**
