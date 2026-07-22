@@ -410,6 +410,9 @@ export const en = {
       readyStatus: "Read-Along ready · %{language} · %{when}",
       regenerate: "Regenerate",
       regenerateHint: "Only needed if the transcript was corrected.",
+      regenerateConfirmTitle: "Regenerate read-along?",
+      regenerateConfirmContent:
+        "Read-along has already been generated for this event. Regenerating re-runs the whole alignment job (GPU time) and is normally only needed if the transcript was corrected. Continue?",
       retry: "Retry",
       status: {
         pending: "Pending",

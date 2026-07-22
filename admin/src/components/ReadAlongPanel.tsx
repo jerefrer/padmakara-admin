@@ -10,7 +10,7 @@ import Divider from "@mui/material/Divider";
 import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ReplayIcon from "@mui/icons-material/Replay";
-import { useNotify, useRefresh, useTranslate } from "react-admin";
+import { useNotify, useRefresh, useTranslate, Confirm } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import { friendlyJobError } from "../utils/friendlyJobError";
 
@@ -65,6 +65,7 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
   const [jobs, setJobs] = useState<ReadAlongJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTerminalCount = useRef<number>(0);
 
@@ -191,7 +192,7 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
                   variant="text"
                   size="small"
                   startIcon={<ReplayIcon fontSize="small" />}
-                  onClick={handleSubmit}
+                  onClick={() => setConfirmOpen(true)}
                   disabled={submitting || hasActive}
                 >
                   {submitting
@@ -300,6 +301,17 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
           </Box>
         </>
       )}
+
+      <Confirm
+        isOpen={confirmOpen}
+        title={translate("padmakara.readAlong.regenerateConfirmTitle")}
+        content={translate("padmakara.readAlong.regenerateConfirmContent")}
+        onConfirm={() => {
+          setConfirmOpen(false);
+          handleSubmit();
+        }}
+        onClose={() => setConfirmOpen(false)}
+      />
     </Paper>
   );
 };

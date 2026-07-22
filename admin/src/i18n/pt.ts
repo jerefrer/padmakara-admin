@@ -611,6 +611,9 @@ export const pt = {
       readyStatus: "Read-Along pronto · %{language} · %{when}",
       regenerate: "Regenerar",
       regenerateHint: "Apenas necessário se a transcrição foi corrigida",
+      regenerateConfirmTitle: "Regenerar read-along?",
+      regenerateConfirmContent:
+        "O read-along já foi gerado para este evento. Regenerar volta a executar todo o job de alinhamento (tempo de GPU) e normalmente só é necessário se a transcrição foi corrigida. Continuar?",
       retry: "Tentar novamente",
       status: {
         pending: "Pendente",
