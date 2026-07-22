@@ -360,6 +360,12 @@ export const en = {
       tracks: "%{count} tracks",
       translation: "Translation",
       trackPlay: "Play",
+      editDate: "Click to edit date & time",
+      addDate: "Add date",
+      morning: "Morning",
+      afternoon: "Afternoon",
+      evening: "Evening",
+      noPeriod: "No time",
     },
     videos: {
       title: "Videos",

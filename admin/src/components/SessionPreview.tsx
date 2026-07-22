@@ -17,7 +17,10 @@ import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
+import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
+import Select from "@mui/material/Select";
+import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useEffect, useRef, useState } from "react";
@@ -201,6 +204,63 @@ const SessionCard = ({
   // land on the header — swallow that click so it doesn't toggle expansion.
   const titleJustClosedRef = useRef(0);
 
+  // ── Date + time-period inline editor (edit flow only) ──────────────────
+  const [editingDate, setEditingDate] = useState(false);
+  // The period Select renders its menu in a portal; while it's open a blur
+  // out of the editor box must NOT commit-and-close (mirrors the speaker
+  // picker guard in TrackRow).
+  const [periodOpen, setPeriodOpen] = useState(false);
+  const seedDate = () => ({
+    date: session.date ?? "",
+    timePeriod: session.timePeriod ?? "",
+  });
+  const [dateEdit, setDateEdit] = useState(seedDate);
+  const dateDoneRef = useRef(false);
+  const dateBoxRef = useRef<HTMLDivElement | null>(null);
+  const dateJustClosedRef = useRef(0);
+
+  const openDateEditor = () => {
+    setDateEdit(seedDate());
+    dateDoneRef.current = false;
+    setEditingDate(true);
+  };
+
+  const saveDate = () => {
+    if (dateDoneRef.current) return;
+    dateDoneRef.current = true;
+    const seed = seedDate();
+    // Only emit the fields that actually changed, so editing the date never
+    // silently stamps a time period onto a session that never had one.
+    const patch: Partial<InferredSession> = {};
+    if (dateEdit.date !== seed.date) patch.date = dateEdit.date || null;
+    if (dateEdit.timePeriod !== seed.timePeriod) patch.timePeriod = dateEdit.timePeriod || null;
+    if (Object.keys(patch).length > 0) onTitleChange(patch);
+    dateJustClosedRef.current = Date.now();
+    setEditingDate(false);
+  };
+
+  const cancelDate = () => {
+    dateDoneRef.current = true;
+    dateJustClosedRef.current = Date.now();
+    setEditingDate(false);
+  };
+
+  const handleDateKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveDate();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelDate();
+    }
+  };
+
+  const handleDateBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (periodOpen) return;
+    if (e.relatedTarget && dateBoxRef.current?.contains(e.relatedTarget as Node)) return;
+    saveDate();
+  };
+
   // Build date chip label with AM/PM inline
   const dateLabel = (() => {
     if (!session.date) return null;
@@ -283,7 +343,13 @@ const SessionCard = ({
           cursor: "pointer",
         }}
         onClick={() => {
-          if (editingTitle || Date.now() - titleJustClosedRef.current < 250) return;
+          if (
+            editingTitle ||
+            editingDate ||
+            Date.now() - titleJustClosedRef.current < 250 ||
+            Date.now() - dateJustClosedRef.current < 250
+          )
+            return;
           setExpanded(!expanded);
         }}
       >
@@ -391,16 +457,80 @@ const SessionCard = ({
         )}
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-          {/* Date chip with AM/PM inline */}
-          {dateLabel && (
+          {/* Date + time-period: click-to-edit, mirroring the title editor.
+              Shows a real date chip when set, an "Add date" affordance when
+              not, and an inline date input + period select while editing. */}
+          {editingDate ? (
+            <Box
+              ref={dateBoxRef}
+              onBlur={handleDateBlur}
+              onClick={(e) => e.stopPropagation()}
+              sx={{ display: "flex", alignItems: "center", gap: 0.5, cursor: "default" }}
+            >
+              <TextField
+                autoFocus
+                size="small"
+                type="date"
+                value={dateEdit.date}
+                onChange={(e) => setDateEdit((p) => ({ ...p, date: e.target.value }))}
+                onKeyDown={handleDateKeyDown}
+                slotProps={{ inputLabel: { shrink: true } }}
+                sx={{ width: 150, "& .MuiInputBase-input": { py: 0.35, fontSize: "0.75rem" } }}
+              />
+              <Select
+                size="small"
+                value={dateEdit.timePeriod}
+                displayEmpty
+                open={periodOpen}
+                onOpen={() => setPeriodOpen(true)}
+                onClose={() => setPeriodOpen(false)}
+                onChange={(e) => setDateEdit((p) => ({ ...p, timePeriod: String(e.target.value) }))}
+                onKeyDown={handleDateKeyDown}
+                sx={{ width: 118, "& .MuiSelect-select": { py: 0.35, fontSize: "0.75rem" } }}
+              >
+                <MenuItem value="">
+                  <em>{translate("padmakara.session.noPeriod")}</em>
+                </MenuItem>
+                <MenuItem value="morning">{translate("padmakara.session.morning")}</MenuItem>
+                <MenuItem value="afternoon">{translate("padmakara.session.afternoon")}</MenuItem>
+                <MenuItem value="evening">{translate("padmakara.session.evening")}</MenuItem>
+              </Select>
+            </Box>
+          ) : dateLabel ? (
             <Chip
               icon={<CalendarTodayIcon sx={{ fontSize: "12px !important" }} />}
               label={dateLabel}
               size="small"
               variant="outlined"
+              title={translate("padmakara.session.editDate")}
+              onClick={(e) => {
+                e.stopPropagation();
+                openDateEditor();
+              }}
               sx={{
                 height: 24,
+                cursor: "pointer",
                 "& .MuiChip-label": { fontSize: "0.7rem", px: 0.8 },
+              }}
+            />
+          ) : (
+            <Chip
+              icon={<CalendarTodayIcon sx={{ fontSize: "12px !important" }} />}
+              label={translate("padmakara.session.addDate")}
+              size="small"
+              variant="outlined"
+              title={translate("padmakara.session.editDate")}
+              onClick={(e) => {
+                e.stopPropagation();
+                openDateEditor();
+              }}
+              sx={{
+                height: 24,
+                cursor: "pointer",
+                color: "text.disabled",
+                borderStyle: "dashed",
+                "& .MuiChip-label": { fontSize: "0.7rem", px: 0.8 },
+                "& .MuiChip-icon": { color: "text.disabled" },
               }}
             />
           )}

@@ -561,6 +561,12 @@ export const pt = {
       tracks: "%{count} faixas",
       translation: "Tradução",
       trackPlay: "Reproduzir",
+      editDate: "Clique para editar data e hora",
+      addDate: "Adicionar data",
+      morning: "Manhã",
+      afternoon: "Tarde",
+      evening: "Noite",
+      noPeriod: "Sem hora",
     },
     videos: {
       title: "Vídeos",

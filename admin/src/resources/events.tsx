@@ -2559,7 +2559,12 @@ export const EventEdit = () => {
       // Persist immediately for existing (saved) sessions. New sessions in an
       // edit have no id yet and are handled by their own create flow.
       if (session?.id) {
-        const promise = dataProvider.update("sessions", { id: session.id, data: patch, previousData: {} });
+        // The UI model calls the session date `date`; the API column is
+        // `sessionDate`. Map it for the update payload (timePeriod matches on
+        // both sides). Everything else passes through untouched.
+        const { date, ...rest } = patch;
+        const data = "date" in patch ? { ...rest, sessionDate: date } : rest;
+        const promise = dataProvider.update("sessions", { id: session.id, data, previousData: {} });
         if (opts?.silent) {
           // Batch callers (translateAllMissing) handle their own single
           // refresh/notify after the whole batch settles — let rejections
