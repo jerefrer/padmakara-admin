@@ -38,18 +38,35 @@ describe("GET /api/media/file/:id", () => {
     expect(status).toBe(401);
   });
 
-  it("redirects a non-sensitive image to a presigned URL", async () => {
+  it("streams a non-sensitive file through the API (no S3 redirect)", async () => {
     findFirst.mockResolvedValueOnce({ id: 5, eventId: 3, extension: "png", sensitive: false, s3Key: "events/E/image/p.png", originalFilename: "p.png", event: { id: 3, audience: null } });
-    const token = await userToken();
-    // testJson always calls res.json(), which throws on a 302's empty body.
-    // This call never leaves the process (app.fetch() invokes Hono's router
-    // directly), so there's no real HTTP client to follow the redirect —
-    // inspect the raw Response instead to assert on status + Location.
-    const res = await testRequest("/api/media/file/5", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect([301, 302]).toContain(res.status);
-    expect(res.headers.get("location")).toBe("https://s3/get");
+    // The route now fetches the presigned S3 URL server-side and pipes the body
+    // back on our own origin (so the web app can fetch()+blob it without S3
+    // CORS). Stub global fetch to stand in for the S3 GET.
+    const fetchMock = vi.fn(async () =>
+      new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { "Content-Type": "image/png", "Content-Length": "3" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const token = await userToken();
+      const res = await testRequest("/api/media/file/5", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(res.status).toBe(200);
+      // Streamed through our origin — did NOT redirect to S3.
+      expect(res.headers.get("location")).toBeNull();
+      expect(res.headers.get("content-type")).toBe("image/png");
+      expect(res.headers.get("content-disposition")).toContain("inline");
+      const body = new Uint8Array(await res.arrayBuffer());
+      expect(Array.from(body)).toEqual([1, 2, 3]);
+      // We fetched the presigned URL, not the raw s3Key.
+      expect(fetchMock).toHaveBeenCalledWith("https://s3/get");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("404 for a missing file", async () => {

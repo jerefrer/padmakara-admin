@@ -8,7 +8,7 @@ import { transcripts } from "../db/schema/transcripts.ts";
 import { eventFiles } from "../db/schema/event-files.ts";
 import { events } from "../db/schema/retreats.ts";
 import { users } from "../db/schema/users.ts";
-import { generatePresignedDownloadUrl, generatePresignedAttachmentUrl, getObjectText } from "../services/s3.ts";
+import { generatePresignedDownloadUrl, getObjectText } from "../services/s3.ts";
 import {
   buildPlaybackUrls,
   buildMp4DownloadUrl,
@@ -497,10 +497,27 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
 });
 
 /**
+ * Minimal extension → MIME map for documents we serve. Falls back to the
+ * object's stored S3 Content-Type, then application/octet-stream.
+ */
+const FILE_CONTENT_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+  webp: "image/webp", heic: "image/heic", heif: "image/heif", bmp: "image/bmp", svg: "image/svg+xml",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+/**
  * GET /api/media/file/:id — serve a generic event document.
  * Requires auth (same event access check as transcripts). Sensitive PDFs are
- * watermarked per-user and streamed; everything else redirects to a short-lived
- * presigned S3 URL. ?download=true forces attachment disposition.
+ * watermarked per-user; everything else is streamed through the API (not a
+ * presigned-S3 redirect) so the web app can fetch() it with its auth header and
+ * read the blob without needing S3-side CORS. ?download=true forces attachment.
  */
 mediaRoutes.get("/file/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
@@ -546,11 +563,28 @@ mediaRoutes.get("/file/:id", async (c) => {
     });
   }
 
-  // Everything else → redirect to a presigned S3 URL (offloads bytes to S3).
-  const url = isDownload
-    ? await generatePresignedAttachmentUrl(result.file.s3Key, rawFilename)
-    : await generatePresignedDownloadUrl(result.file.s3Key);
-  return c.redirect(url, 302);
+  // Everything else → stream the bytes through the API rather than redirecting
+  // to S3. Keeping the response on our own origin lets the web app fetch() it
+  // with its Authorization header and read the resulting blob; a presigned-S3
+  // redirect would require S3-side CORS for the app origin. Pipe S3's body
+  // (don't buffer the whole file into memory).
+  const presignedUrl = await generatePresignedDownloadUrl(result.file.s3Key);
+  const s3Response = await fetch(presignedUrl);
+  if (!s3Response.ok || !s3Response.body) {
+    throw AppError.internal("Failed to fetch file from storage");
+  }
+  const contentType =
+    FILE_CONTENT_TYPES[ext] ||
+    s3Response.headers.get("Content-Type") ||
+    "application/octet-stream";
+  const disposition = isDownload ? "attachment" : "inline";
+  const headers: Record<string, string> = {
+    "Content-Type": contentType,
+    "Content-Disposition": `${disposition}; filename="${asciiFilename}"; filename*=UTF-8''${utf8Filename}`,
+  };
+  const contentLength = s3Response.headers.get("Content-Length");
+  if (contentLength) headers["Content-Length"] = contentLength;
+  return new Response(s3Response.body, { headers });
 });
 
 export { mediaRoutes };
