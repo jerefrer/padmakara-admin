@@ -455,6 +455,40 @@ mediaRoutes.get("/video/hls/:videoId/subs/:lang/playlist.m3u8", async (c) => {
 });
 
 /**
+ * Bunny's HLS renditions do not start at MPEG-TS presentation timestamp 0 —
+ * every video measured (9, 12, 13) starts at exactly 1.458667s, i.e. 131280
+ * ticks on the 90kHz clock. Our WebVTT cues, by contrast, are absolute from
+ * the start of the content (Whisper aligns the MP4 audio, which starts at 0).
+ *
+ * With no X-TIMESTAMP-MAP the player has to guess how those two timelines
+ * relate, and gets it wrong by exactly that offset: measured in a real browser,
+ * hls.js placed every cue 1.459s away from its VTT timestamp. Declaring
+ * "WebVTT 00:00:00.000 corresponds to media PTS 131280" — which is precisely
+ * true — makes hls.js render each cue at its exact VTT time.
+ *
+ * If Bunny ever changes its start PTS, re-derive with:
+ *   ffprobe -show_entries format=start_time <first .ts segment>   (× 90000)
+ */
+const BUNNY_HLS_START_PTS_90KHZ = 131280;
+
+/**
+ * Prepend the X-TIMESTAMP-MAP header to a WebVTT document so HLS players can
+ * align its cues to media that starts at a non-zero PTS. The line must live in
+ * the header block, immediately after the `WEBVTT` line. Idempotent: a document
+ * that already declares a map is returned untouched.
+ */
+export function withTimestampMap(
+  vtt: string,
+  mpegTs: number = BUNNY_HLS_START_PTS_90KHZ,
+): string {
+  if (/^X-TIMESTAMP-MAP/m.test(vtt)) return vtt;
+  const mapLine = `X-TIMESTAMP-MAP=MPEGTS:${mpegTs},LOCAL:00:00:00.000`;
+  const header = /^(﻿?WEBVTT[^\r\n]*)(\r?\n)/;
+  if (!header.test(vtt)) return `WEBVTT\n${mapLine}\n\n${vtt}`;
+  return vtt.replace(header, `$1$2${mapLine}$2`);
+}
+
+/**
  * Subtitle VTT — serves the WebVTT for one language from S3 (video_subtitles),
  * MAT-authorized like the rest of the proxy.
  */
@@ -475,7 +509,7 @@ mediaRoutes.get("/video/hls/:videoId/subs/:lang/track.vtt", async (c) => {
   const vtt = await getObjectText(sub.s3Key);
   c.header("Content-Type", "text/vtt; charset=utf-8");
   c.header("Cache-Control", "no-store");
-  return c.body(vtt);
+  return c.body(withTimestampMap(vtt));
 });
 
 /**

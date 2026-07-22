@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { injectSubtitleRenditions } from "../../src/routes/media.ts";
+import { injectSubtitleRenditions, withTimestampMap } from "../../src/routes/media.ts";
 
 const MASTER = [
   "#EXTM3U",
@@ -48,6 +48,59 @@ describe("injectSubtitleRenditions", () => {
   });
 
   it("emits one media line per language", () => {
+    const out = injectSubtitleRenditions(
+      MASTER,
+      [
+        { language: "en", label: "English" },
+        { language: "pt", label: "Português" },
+      ],
+      (lang) => `u/${lang}`,
+    );
+    const media = out.match(/#EXT-X-MEDIA:TYPE=SUBTITLES/g) ?? [];
+    expect(media).toHaveLength(2);
+  });
+});
+
+describe("withTimestampMap", () => {
+  const VTT = ["WEBVTT", "", "00:00:21.120 --> 00:00:22.600", "This morning", ""].join("\n");
+
+  it("inserts the map immediately after the WEBVTT header line", () => {
+    const out = withTimestampMap(VTT);
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("WEBVTT");
+    expect(lines[1]).toBe("X-TIMESTAMP-MAP=MPEGTS:131280,LOCAL:00:00:00.000");
+    // Blank line still separates the header block from the first cue.
+    expect(lines[2]).toBe("");
+    expect(lines[3]).toBe("00:00:21.120 --> 00:00:22.600");
+  });
+
+  it("leaves cue timestamps untouched", () => {
+    expect(withTimestampMap(VTT)).toContain("00:00:21.120 --> 00:00:22.600");
+  });
+
+  it("is idempotent when a map is already declared", () => {
+    const already = withTimestampMap(VTT);
+    expect(withTimestampMap(already)).toBe(already);
+  });
+
+  it("honours a custom MPEGTS value", () => {
+    expect(withTimestampMap(VTT, 900000)).toContain(
+      "X-TIMESTAMP-MAP=MPEGTS:900000,LOCAL:00:00:00.000",
+    );
+  });
+
+  it("preserves CRLF line endings", () => {
+    const crlf = "WEBVTT\r\n\r\n00:00:01.000 --> 00:00:02.000\r\nHi\r\n";
+    const out = withTimestampMap(crlf);
+    expect(out).toContain("WEBVTT\r\nX-TIMESTAMP-MAP=MPEGTS:131280,LOCAL:00:00:00.000\r\n");
+  });
+
+  it("still produces a valid document when the header line is missing", () => {
+    const out = withTimestampMap("00:00:01.000 --> 00:00:02.000\nHi\n");
+    expect(out.startsWith("WEBVTT\nX-TIMESTAMP-MAP=MPEGTS:131280")).toBe(true);
+  });
+
+  it("emits one media line per language (regression guard)", () => {
     const out = injectSubtitleRenditions(
       MASTER,
       [
