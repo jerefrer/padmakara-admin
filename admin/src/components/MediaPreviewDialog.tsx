@@ -6,7 +6,8 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Hls from "hls.js";
 import { authFetch } from "../utils/authFetch";
 
 export type MediaSource =
@@ -22,7 +23,35 @@ interface MediaPreviewDialogProps {
 
 interface ResolvedMedia {
   url: string;
-  mediaType: "audio" | "video" | "iframe";
+  mediaType: "audio" | "video" | "iframe" | "hls";
+}
+
+// Plays an HLS URL via hls.js (Chrome/Firefox) or native HLS (Safari).
+function HlsVideo({ src }: { src: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = src; // Safari plays HLS natively.
+      return;
+    }
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      return () => hls.destroy();
+    }
+    video.src = src;
+  }, [src]);
+  return (
+    <video
+      ref={videoRef}
+      controls
+      autoPlay
+      style={{ width: "100%", maxHeight: "70vh", display: "block" }}
+    />
+  );
 }
 
 async function fetchMedia(source: MediaSource): Promise<ResolvedMedia> {
@@ -33,11 +62,14 @@ async function fetchMedia(source: MediaSource): Promise<ResolvedMedia> {
     return { url: json.url, mediaType: source.mediaType };
   }
 
-  // Event video — Bunny iframe is the simplest reliable player here.
+  // Event video — play the backend HLS proxy (each Bunny sub-request is
+  // signed server-side). The Bunny embed/iframe player 403s on this pull zone:
+  // its CDN tokens are exact-URL only and don't cover the embed player's
+  // internal playlist/segment/caption requests.
   const res = await authFetch(`/api/media/video/${source.videoId}`);
   if (!res.ok) throw new Error(`Failed to load video (${res.status})`);
-  const json = (await res.json()) as { iframe: string };
-  return { url: json.iframe, mediaType: "iframe" };
+  const json = (await res.json()) as { proxyHls: string };
+  return { url: json.proxyHls, mediaType: "hls" };
 }
 
 export const MediaPreviewDialog = ({
@@ -114,6 +146,11 @@ export const MediaPreviewDialog = ({
               autoPlay
               style={{ width: "100%", maxHeight: "70vh", display: "block" }}
             />
+          </Box>
+        )}
+        {!loading && !error && media && media.mediaType === "hls" && (
+          <Box sx={{ py: 1 }}>
+            <HlsVideo src={media.url} />
           </Box>
         )}
         {!loading && !error && media && media.mediaType === "iframe" && (
