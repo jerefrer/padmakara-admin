@@ -29,9 +29,14 @@ const { mockDb, mockGenerateRetreatZip } = vi.hoisted(() => {
       },
     },
     select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => Promise.resolve([])),
-      })),
+      // `.from()` must work BOTH as a directly-awaited thenable (used by
+      // enrichTracksWithSpeakerNames' bare `db.select(...).from(teachers)`)
+      // AND as a `.where()`-chainable query builder (used elsewhere).
+      from: vi.fn(() =>
+        Object.assign(Promise.resolve<unknown[]>([]), {
+          where: vi.fn(() => Promise.resolve([])),
+        }),
+      ),
     })),
     insert: vi.fn((_table: unknown) => ({
       values: vi.fn((_data: unknown) => ({
@@ -545,5 +550,78 @@ describe("GET /api/events/public — optional auth: admin sees drafts", () => {
     expect(rendered.sql).toMatch(/\bin\b/i);
     expect(rendered.params).toContain("published");
     expect(rendered.params).toContain("draft");
+  });
+});
+
+// ─── Read-along enrichment on public endpoints ───────────────────────────────
+
+/** A published public event with one session/track carrying a readAlongS3Key. */
+function makePublicEventWithReadAlong(id: number) {
+  return {
+    id,
+    status: "published",
+    audience: { slug: "free-anyone" },
+    eventTeachers: [],
+    eventRetreatGroups: [],
+    eventPlaces: [],
+    eventPublications: [],
+    eventType: null,
+    transcripts: [],
+    featuredAt: new Date().toISOString(),
+    sessions: [
+      {
+        id: 1,
+        tracks: [
+          { id: 10, speaker: null, readAlongS3Key: "events/E1/read-along/track1.json" },
+          { id: 11, speaker: null, readAlongS3Key: null },
+        ],
+      },
+    ],
+  };
+}
+
+describe("GET /api/events/public/:id — read-along enrichment", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("adds hasReadAlong to tracks and strips the raw readAlongS3Key", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(makePublicEventWithReadAlong(300));
+
+    const { status, body } = await testJson("/api/events/public/300");
+
+    expect(status).toBe(200);
+    const tracks = (body as any).sessions[0].tracks;
+    expect(tracks[0].hasReadAlong).toBe(true);
+    expect(tracks[0].readAlongS3Key).toBeUndefined();
+    expect(tracks[1].hasReadAlong).toBe(false);
+    expect(tracks[1].readAlongS3Key).toBeUndefined();
+  });
+});
+
+describe("GET /api/events/featured — read-along enrichment", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("adds hasReadAlong to tracks and strips the raw readAlongS3Key", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(makePublicEventWithReadAlong(301));
+
+    const { status, body } = await testJson("/api/events/featured");
+
+    expect(status).toBe(200);
+    const tracks = (body as any).sessions[0].tracks;
+    expect(tracks[0].hasReadAlong).toBe(true);
+    expect(tracks[0].readAlongS3Key).toBeUndefined();
+    expect(tracks[1].hasReadAlong).toBe(false);
+  });
+
+  it("returns null (not an error) when no event is featured", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(null);
+
+    const { status, body } = await testJson("/api/events/featured");
+
+    expect(status).toBe(200);
+    expect(body).toBeNull();
   });
 });

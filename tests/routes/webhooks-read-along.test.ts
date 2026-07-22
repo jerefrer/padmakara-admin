@@ -3,16 +3,32 @@ import { createHmac } from "node:crypto";
 import { config } from "../../src/config.ts";
 import { testRequest } from "../helpers.ts";
 
+// vi.mock factories are hoisted above imports, so use vi.hoisted for shared refs.
+const { mockUpdate, mockUpdateSet, mockUpdateWhere, mockFindFirstTrack, mockBumpVersion } = vi.hoisted(() => {
+  // update chain: update().set().where()
+  const mockUpdateWhere = vi.fn(() => Promise.resolve());
+  const mockUpdateSet = vi.fn(() => ({ where: mockUpdateWhere }));
+  const mockUpdate = vi.fn(() => ({ set: mockUpdateSet }));
+
+  const mockFindFirstTrack = vi.fn<() => Promise<unknown>>(() => Promise.resolve(null));
+  const mockBumpVersion = vi.fn(() => Promise.resolve());
+
+  return { mockUpdate, mockUpdateSet, mockUpdateWhere, mockFindFirstTrack, mockBumpVersion };
+});
+
 // The read-along handler updates the readAlongJobs row after a valid signature.
 // Mock the db so the valid-signature test does not need a real database.
 vi.mock("../../src/db/index.ts", () => ({
   db: {
-    update: vi.fn(() => ({
-      set: vi.fn(() => ({
-        where: vi.fn(() => Promise.resolve()),
-      })),
-    })),
+    update: mockUpdate,
+    query: {
+      tracks: { findFirst: mockFindFirstTrack },
+    },
   },
+}));
+
+vi.mock("../../src/services/sync-versions.ts", () => ({
+  bumpVersion: mockBumpVersion,
 }));
 
 function sign(rawBody: string): string {
@@ -61,5 +77,48 @@ describe("POST /api/webhooks/read-along — signature verification", () => {
     const body = { jobId: "j1", status: "failed" };
     const res = await postReadAlong(body, sign(JSON.stringify(body)));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/webhooks/read-along — completion side effects", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("touches the parent event and bumps the events sync version on completion", async () => {
+    mockFindFirstTrack.mockResolvedValueOnce({ id: 5, originalFilename: "track1.mp3" });
+
+    const body = {
+      jobId: "j2",
+      eventId: 42,
+      eventCode: "E42",
+      status: "completed",
+      uploadedFiles: { "track1.mp3": "events/E42/read-along/track1.json" },
+    };
+    const rawBody = JSON.stringify(body);
+    const res = await postReadAlong(body, sign(rawBody));
+
+    expect(res.status).toBe(200);
+    expect(mockBumpVersion).toHaveBeenCalledWith("events");
+    // update() is called for: readAlongJobs, tracks (per uploaded file), and events.
+    expect(mockUpdate.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("does not touch the event or bump the version when the job failed", async () => {
+    const body = { jobId: "j3", status: "failed", error: "boom" };
+    const rawBody = JSON.stringify(body);
+    const res = await postReadAlong(body, sign(rawBody));
+
+    expect(res.status).toBe(200);
+    expect(mockBumpVersion).not.toHaveBeenCalled();
+  });
+
+  it("does not bump the version when completed but no files were uploaded", async () => {
+    const body = { jobId: "j4", eventId: 42, status: "completed" };
+    const rawBody = JSON.stringify(body);
+    const res = await postReadAlong(body, sign(rawBody));
+
+    expect(res.status).toBe(200);
+    expect(mockBumpVersion).not.toHaveBeenCalled();
   });
 });

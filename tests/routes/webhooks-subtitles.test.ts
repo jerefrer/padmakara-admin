@@ -14,6 +14,7 @@ const {
   mockFindFirstSubtitleJob,
   mockFindFirstEventVideo,
   mockFindFirstEvent,
+  mockBumpVersion,
 } = vi.hoisted(() => {
   // insert chain: insert().values().onConflictDoUpdate()
   const mockInsertOnConflict = vi.fn(() => Promise.resolve());
@@ -30,6 +31,8 @@ const {
   const mockFindFirstEventVideo = vi.fn<() => Promise<unknown>>(() => Promise.resolve(null));
   const mockFindFirstEvent = vi.fn<() => Promise<unknown>>(() => Promise.resolve(null));
 
+  const mockBumpVersion = vi.fn(() => Promise.resolve());
+
   return {
     mockUpdate,
     mockUpdateSet,
@@ -40,6 +43,7 @@ const {
     mockFindFirstSubtitleJob,
     mockFindFirstEventVideo,
     mockFindFirstEvent,
+    mockBumpVersion,
   };
 });
 
@@ -62,6 +66,10 @@ vi.mock("../../src/services/bunny-captions.ts", () => ({
 vi.mock("../../src/services/s3.ts", () => ({
   getObjectText: vi.fn().mockResolvedValue("WEBVTT\n\n"),
   putObject: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../src/services/sync-versions.ts", () => ({
+  bumpVersion: mockBumpVersion,
 }));
 
 function sign(rawBody: string): string {
@@ -166,6 +174,10 @@ describe("POST /api/webhooks/subtitles — event_video re-homing", () => {
       "English",
       "WEBVTT\n\n00:00.000 --> 00:01.000\nHello",
     );
+
+    // Touches the parent event and bumps the events sync version so the app's
+    // version-gated sync + no-TTL cache pick up the newly available subtitles.
+    expect(mockBumpVersion).toHaveBeenCalledWith("events");
   });
 
   it("skips re-homing when the job has no event_video attribution", async () => {
@@ -192,6 +204,8 @@ describe("POST /api/webhooks/subtitles — event_video re-homing", () => {
     expect(res.status).toBe(200);
     expect(mockPutObject).not.toHaveBeenCalled();
     expect(mockAddCaption).not.toHaveBeenCalled();
+    // Attribution failed before the event was ever resolved — must not bump.
+    expect(mockBumpVersion).not.toHaveBeenCalled();
   });
 
   it("skips Bunny upload but still re-homes when the event_video has no bunnyVideoId", async () => {
@@ -225,5 +239,8 @@ describe("POST /api/webhooks/subtitles — event_video re-homing", () => {
     expect(res.status).toBe(200);
     expect(mockPutObject).toHaveBeenCalled();
     expect(mockAddCaption).not.toHaveBeenCalled();
+    // The event was still resolved (job → video → event), so the touch +
+    // version bump must still fire even without a Bunny caption upload.
+    expect(mockBumpVersion).toHaveBeenCalledWith("events");
   });
 });

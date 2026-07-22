@@ -143,6 +143,11 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
     throw AppError.forbidden("This event requires authentication");
   }
 
+  // Enrich all tracks with speaker names + hasReadAlong (strips readAlongS3Key)
+  for (const session of (event as any).sessions ?? []) {
+    await enrichTracksWithSpeakerNames(session.tracks ?? []);
+  }
+
   await resolveEventTeacherUrls(event);
   await resolveEventGroupUrls(event);
   applyEventVideoThumbnails(event);
@@ -168,6 +173,11 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
 
   if (!event) {
     return c.json(null);
+  }
+
+  // Enrich all tracks with speaker names + hasReadAlong (strips readAlongS3Key)
+  for (const session of (event as any).sessions ?? []) {
+    await enrichTracksWithSpeakerNames(session.tracks ?? []);
   }
 
   await resolveEventTeacherUrls(event);

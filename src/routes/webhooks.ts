@@ -12,6 +12,7 @@ import { config } from "../config.ts";
 import { getVideoMeta } from "../services/bunny.ts";
 import { addCaption } from "../services/bunny-captions.ts";
 import { getObjectText, putObject } from "../services/s3.ts";
+import { bumpVersion } from "../services/sync-versions.ts";
 
 const webhookRoutes = new Hono();
 
@@ -90,6 +91,11 @@ webhookRoutes.post("/read-along", async (c) => {
       }
     }
     console.log(`[webhook] Updated ${updated}/${Object.keys(uploadedFiles).length} tracks`);
+
+    // Touch the parent event and bump the events sync version so the app's
+    // version-gated sync + no-TTL cache pick up the newly available read-along data.
+    await db.update(events).set({ updatedAt: new Date() }).where(eq(events.id, eventId));
+    bumpVersion("events").catch((e) => console.error("[webhook] bumpVersion failed:", e));
   }
 
   return c.json({ ok: true });
@@ -309,6 +315,11 @@ webhookRoutes.post("/subtitles", async (c) => {
           ),
         );
     }
+
+    // Touch the parent event and bump the events sync version so the app's
+    // version-gated sync + no-TTL cache pick up the newly available subtitles.
+    await db.update(events).set({ updatedAt: new Date() }).where(eq(events.id, event.id));
+    bumpVersion("events").catch((e) => console.error("[webhook] bumpVersion failed:", e));
   }
 
   return c.json({ ok: true });
