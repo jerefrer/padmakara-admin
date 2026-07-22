@@ -9,6 +9,7 @@ import { transcripts } from "../db/schema/transcripts.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { putObject } from "./s3.ts";
+import { reconcileReadAlongRows } from "./batch-reconcile.ts";
 
 const batchClient = new BatchClient({
   region: config.aws.region,
@@ -149,11 +150,20 @@ export async function submitReadAlongJob(
 
 /**
  * Get recent read-along jobs for an event.
+ *
+ * Non-terminal rows are reconciled against AWS Batch's actual state first —
+ * a Batch job that died without ever POSTing its completion webhook would
+ * otherwise leave the row (and the admin UI) stuck "in progress" forever.
  */
 export async function getReadAlongJobs(eventId: number) {
-  return db.query.readAlongJobs.findMany({
-    where: eq(readAlongJobs.eventId, eventId),
-    orderBy: [desc(readAlongJobs.createdAt)],
-    limit: 10,
-  });
+  const query = () =>
+    db.query.readAlongJobs.findMany({
+      where: eq(readAlongJobs.eventId, eventId),
+      orderBy: [desc(readAlongJobs.createdAt)],
+      limit: 10,
+    });
+
+  const rows = await query();
+  await reconcileReadAlongRows(rows);
+  return query();
 }

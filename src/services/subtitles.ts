@@ -9,6 +9,7 @@ import { subtitleJobs } from "../db/schema/subtitle-jobs.ts";
 import { videoSubtitles } from "../db/schema/video-subtitles.ts";
 import { config } from "../config.ts";
 import { buildMp4DownloadUrl } from "./bunny.ts";
+import { reconcileSubtitleRows } from "./batch-reconcile.ts";
 
 const batchClient = new BatchClient({
   region: config.aws.region,
@@ -130,13 +131,22 @@ export async function submitSubtitleJob(
 
 /**
  * Get recent subtitle jobs for an event_video.
+ *
+ * Non-terminal rows are reconciled against AWS Batch's actual state first —
+ * a Batch job that died without ever POSTing its completion webhook would
+ * otherwise leave the row (and the admin UI) stuck "in progress" forever.
  */
 export async function getSubtitleJobsForVideo(videoId: number) {
-  return db.query.subtitleJobs.findMany({
-    where: eq(subtitleJobs.videoId, videoId),
-    orderBy: [desc(subtitleJobs.createdAt)],
-    limit: 10,
-  });
+  const query = () =>
+    db.query.subtitleJobs.findMany({
+      where: eq(subtitleJobs.videoId, videoId),
+      orderBy: [desc(subtitleJobs.createdAt)],
+      limit: 10,
+    });
+
+  const rows = await query();
+  await reconcileSubtitleRows(rows);
+  return query();
 }
 
 /**
