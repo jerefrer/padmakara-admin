@@ -407,6 +407,10 @@ export const en = {
       lastJob: "%{language} · %{when}",
       noJobs: "No read-along jobs yet for this event.",
       recentJobs: "Recent jobs",
+      readyStatus: "Read-Along ready · %{language} · %{when}",
+      regenerate: "Regenerate",
+      regenerateHint: "Only needed if the transcript was corrected.",
+      retry: "Retry",
       status: {
         pending: "Pending",
         submitted: "Submitted",
@@ -455,6 +459,11 @@ export const en = {
         es: "Spanish",
         fr: "French",
       },
+    },
+    jobErrors: {
+      crashed: "The generation job crashed unexpectedly. Try re-running it — if it keeps failing, check the server logs.",
+      agedOut: "The job could no longer be tracked by AWS and its final state is unknown. Please re-run it.",
+      missingCallback: "The job finished but the result was not received. Please re-run it to complete.",
     },
     upload: {
       complete: "Upload Complete",

@@ -3221,16 +3221,16 @@ export const EventEdit = () => {
         />
       </Paper>
 
+      {trackCount > 0 && transcriptCount > 0 && event?.id && (
+        <ReadAlongPanel eventId={Number(event.id)} />
+      )}
+
       {/* Documents (images, PDFs, Office files) */}
       <DocumentsSection
         eventCode={form.eventCode}
         eventId={event?.id ? Number(event.id) : undefined}
         disabled={saving}
       />
-
-      {trackCount > 0 && transcriptCount > 0 && event?.id && (
-        <ReadAlongPanel eventId={Number(event.id)} />
-      )}
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>

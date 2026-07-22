@@ -8,8 +8,11 @@ import LinearProgress from "@mui/material/LinearProgress";
 import Tooltip from "@mui/material/Tooltip";
 import Divider from "@mui/material/Divider";
 import GraphicEqIcon from "@mui/icons-material/GraphicEq";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import ReplayIcon from "@mui/icons-material/Replay";
 import { useNotify, useRefresh, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
+import { friendlyJobError } from "../utils/friendlyJobError";
 
 interface ReadAlongJob {
   id: string;
@@ -131,6 +134,11 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
 
   const latestJob = jobs[0] ?? null;
   const hasActive = jobs.some((j) => !TERMINAL_STATUSES.has(j.status));
+  const isCompleted = !hasActive && latestJob?.status === "completed";
+  const isFailed = !hasActive && latestJob?.status === "failed";
+  // Fallback for "no job yet" and any unrecognized/unexpected status — shows
+  // the prominent Generate button, same as the original always-on behavior.
+  const showGenerateProminent = !hasActive && !isCompleted && !isFailed;
 
   return (
     <Paper sx={{ p: 3, mb: 2 }}>
@@ -144,55 +152,119 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
         {translate("padmakara.readAlong.description")}
       </Typography>
 
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, flexWrap: "wrap" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minHeight: 32 }}>
-          {loading ? (
-            <Typography variant="body2" color="text.secondary">
-              {translate("ra.page.loading")}
-            </Typography>
-          ) : latestJob ? (
-            <>
-              <Chip
-                label={translate(`padmakara.readAlong.status.${latestJob.status}`, { _: latestJob.status })}
-                size="small"
-                color={statusColor(latestJob.status)}
-              />
-              <Typography variant="body2" color="text.secondary">
-                {translate("padmakara.readAlong.lastJob", {
-                  language: latestJob.language.toUpperCase(),
-                  when: formatTimestamp(latestJob.completedAt ?? latestJob.submittedAt ?? latestJob.createdAt),
-                })}
-              </Typography>
-            </>
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              {translate("padmakara.readAlong.noJobs")}
-            </Typography>
-          )}
-        </Box>
-
-        <Tooltip title={translate("padmakara.readAlong.generateTooltip")}>
-          <span>
-            <Button
-              variant="contained"
-              startIcon={<GraphicEqIcon />}
-              onClick={handleSubmit}
-              disabled={submitting || hasActive}
-            >
-              {submitting
-                ? translate("padmakara.readAlong.generating")
-                : translate("padmakara.readAlong.generate")}
-            </Button>
-          </span>
-        </Tooltip>
-      </Box>
-
-      {hasActive && <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />}
-
-      {latestJob?.status === "failed" && latestJob.errorMessage && (
-        <Typography variant="body2" color="error" sx={{ mt: 2 }}>
-          {latestJob.errorMessage}
+      {loading ? (
+        <Typography variant="body2" color="text.secondary">
+          {translate("ra.page.loading")}
         </Typography>
+      ) : hasActive && latestJob ? (
+        <Box>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Chip
+              label={translate(`padmakara.readAlong.status.${latestJob.status}`, { _: latestJob.status })}
+              size="small"
+              color={statusColor(latestJob.status)}
+            />
+            <Typography variant="body2" color="text.secondary">
+              {translate("padmakara.readAlong.lastJob", {
+                language: latestJob.language.toUpperCase(),
+                when: formatTimestamp(latestJob.completedAt ?? latestJob.submittedAt ?? latestJob.createdAt),
+              })}
+            </Typography>
+          </Box>
+          <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />
+        </Box>
+      ) : isCompleted && latestJob ? (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <CheckCircleIcon color="success" fontSize="small" />
+            <Typography variant="body2">
+              {translate("padmakara.readAlong.readyStatus", {
+                language: latestJob.language.toUpperCase(),
+                when: formatTimestamp(latestJob.completedAt ?? latestJob.submittedAt ?? latestJob.createdAt),
+              })}
+            </Typography>
+          </Box>
+          <Box sx={{ textAlign: "right" }}>
+            <Tooltip title={translate("padmakara.readAlong.generateTooltip")}>
+              <span>
+                <Button
+                  variant="text"
+                  size="small"
+                  startIcon={<ReplayIcon fontSize="small" />}
+                  onClick={handleSubmit}
+                  disabled={submitting || hasActive}
+                >
+                  {submitting
+                    ? translate("padmakara.readAlong.generating")
+                    : translate("padmakara.readAlong.regenerate")}
+                </Button>
+              </span>
+            </Tooltip>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+              {translate("padmakara.readAlong.regenerateHint")}
+            </Typography>
+          </Box>
+        </Box>
+      ) : isFailed && latestJob ? (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, flexWrap: "wrap" }}>
+          <Tooltip title={latestJob.errorMessage ?? ""}>
+            <Typography
+              variant="body2"
+              color="error"
+              sx={{ cursor: latestJob.errorMessage ? "help" : undefined }}
+            >
+              {friendlyJobError(latestJob.errorMessage, translate)}
+            </Typography>
+          </Tooltip>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<ReplayIcon />}
+            onClick={handleSubmit}
+            disabled={submitting || hasActive}
+          >
+            {submitting ? translate("padmakara.readAlong.generating") : translate("padmakara.readAlong.retry")}
+          </Button>
+        </Box>
+      ) : (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minHeight: 32 }}>
+            {latestJob ? (
+              <>
+                <Chip
+                  label={translate(`padmakara.readAlong.status.${latestJob.status}`, { _: latestJob.status })}
+                  size="small"
+                  color={statusColor(latestJob.status)}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  {translate("padmakara.readAlong.lastJob", {
+                    language: latestJob.language.toUpperCase(),
+                    when: formatTimestamp(latestJob.completedAt ?? latestJob.submittedAt ?? latestJob.createdAt),
+                  })}
+                </Typography>
+              </>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                {translate("padmakara.readAlong.noJobs")}
+              </Typography>
+            )}
+          </Box>
+
+          <Tooltip title={translate("padmakara.readAlong.generateTooltip")}>
+            <span>
+              <Button
+                variant="contained"
+                startIcon={<GraphicEqIcon />}
+                onClick={handleSubmit}
+                disabled={submitting || hasActive}
+              >
+                {submitting
+                  ? translate("padmakara.readAlong.generating")
+                  : translate("padmakara.readAlong.generate")}
+              </Button>
+            </span>
+          </Tooltip>
+        </Box>
       )}
 
       {jobs.length > 1 && (
@@ -217,7 +289,7 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
                   {job.language.toUpperCase()} · {formatTimestamp(job.completedAt ?? job.submittedAt ?? job.createdAt)}
                 </Typography>
                 {job.errorMessage && (
-                  <Tooltip title={job.errorMessage}>
+                  <Tooltip title={friendlyJobError(job.errorMessage, translate)}>
                     <Typography variant="caption" color="error" sx={{ cursor: "help" }}>
                       ⚠
                     </Typography>

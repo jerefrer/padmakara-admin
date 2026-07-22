@@ -608,6 +608,10 @@ export const pt = {
       lastJob: "%{language} · %{when}",
       noJobs: "Ainda não há jobs de read-along para este evento.",
       recentJobs: "Jobs recentes",
+      readyStatus: "Read-Along pronto · %{language} · %{when}",
+      regenerate: "Regenerar",
+      regenerateHint: "Apenas necessário se a transcrição foi corrigida",
+      retry: "Tentar novamente",
       status: {
         pending: "Pendente",
         submitted: "Submetido",
@@ -656,6 +660,11 @@ export const pt = {
         es: "Espanhol",
         fr: "Francês",
       },
+    },
+    jobErrors: {
+      crashed: "O trabalho de geração falhou inesperadamente. Tenta novamente — se continuar a falhar, verifica os registos do servidor.",
+      agedOut: "O trabalho já não pôde ser acompanhado pela AWS e o seu estado final é desconhecido. Volta a executá-lo.",
+      missingCallback: "O trabalho terminou mas o resultado não foi recebido. Volta a executá-lo para concluir.",
     },
     upload: {
       complete: "Carregamento Concluído",
