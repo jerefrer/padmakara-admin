@@ -53,6 +53,21 @@ function formatTimestamp(iso: string | null): string {
   return new Date(iso).toLocaleString();
 }
 
+// Human-readable run time between two timestamps (e.g. "3min 20s", "1h 5min").
+function formatDuration(startIso: string | null, endIso: string | null): string | null {
+  if (!startIso || !endIso) return null;
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return sec ? `${min}min ${sec}s` : `${min}min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}h ${m}min` : `${h}h`;
+}
+
 interface Props {
   eventId: number;
 }
@@ -134,6 +149,9 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
   };
 
   const latestJob = jobs[0] ?? null;
+  const latestDuration = latestJob
+    ? formatDuration(latestJob.submittedAt ?? latestJob.createdAt, latestJob.completedAt)
+    : null;
   const hasActive = jobs.some((j) => !TERMINAL_STATUSES.has(j.status));
   const isCompleted = !hasActive && latestJob?.status === "completed";
   const isFailed = !hasActive && latestJob?.status === "failed";
@@ -183,6 +201,9 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
                 language: latestJob.language.toUpperCase(),
                 when: formatTimestamp(latestJob.completedAt ?? latestJob.submittedAt ?? latestJob.createdAt),
               })}
+              {latestDuration
+                ? ` · ${translate("padmakara.readAlong.taken", { duration: latestDuration })}`
+                : ""}
             </Typography>
           </Box>
           <Box sx={{ textAlign: "right" }}>
@@ -275,7 +296,9 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
             {translate("padmakara.readAlong.recentJobs")}
           </Typography>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-            {jobs.slice(1, 5).map((job) => (
+            {jobs.slice(1, 5).map((job) => {
+              const jobDuration = formatDuration(job.submittedAt ?? job.createdAt, job.completedAt);
+              return (
               <Box
                 key={job.id}
                 sx={{ display: "flex", alignItems: "center", gap: 1.5, fontSize: "0.8125rem" }}
@@ -288,6 +311,7 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
                 />
                 <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
                   {job.language.toUpperCase()} · {formatTimestamp(job.completedAt ?? job.submittedAt ?? job.createdAt)}
+                  {jobDuration ? ` · ${translate("padmakara.readAlong.taken", { duration: jobDuration })}` : ""}
                 </Typography>
                 {job.errorMessage && (
                   <Tooltip title={friendlyJobError(job.errorMessage, translate)}>
@@ -297,7 +321,8 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
                   </Tooltip>
                 )}
               </Box>
-            ))}
+              );
+            })}
           </Box>
         </>
       )}

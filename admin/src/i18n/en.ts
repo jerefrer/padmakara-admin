@@ -398,7 +398,7 @@ export const en = {
     },
     readAlong: {
       title: "Read-Along Alignment",
-      description: "Run Whisper alignment on the original-language audio against the transcript PDF. Generates per-word timing JSON used by the read-along viewer in the app.",
+      description: "Syncs the audio with the transcript so words light up as they're spoken, in the app.",
       generate: "Generate Read-Along",
       generating: "Submitting…",
       generateTooltip: "Submits an AWS Batch job. Takes 5–30 minutes depending on event length.",
@@ -408,6 +408,7 @@ export const en = {
       noJobs: "No read-along jobs yet for this event.",
       recentJobs: "Recent jobs",
       readyStatus: "Read-Along ready · %{language} · %{when}",
+      taken: "in %{duration}",
       regenerate: "Regenerate",
       regenerateHint: "Only needed if the transcript was corrected.",
       regenerateConfirmTitle: "Regenerate read-along?",

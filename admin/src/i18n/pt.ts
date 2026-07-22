@@ -599,7 +599,7 @@ export const pt = {
     },
     readAlong: {
       title: "Alinhamento Read-Along",
-      description: "Executa o alinhamento Whisper do áudio na língua original com o PDF da transcrição. Gera o JSON de tempos por palavra usado pelo leitor read-along na aplicação.",
+      description: "Sincroniza o áudio com a transcrição para as palavras se destacarem enquanto se ouve, na app.",
       generate: "Gerar Read-Along",
       generating: "A submeter…",
       generateTooltip: "Submete um job AWS Batch. Demora 5–30 minutos consoante a duração do evento.",
@@ -609,6 +609,7 @@ export const pt = {
       noJobs: "Ainda não há jobs de read-along para este evento.",
       recentJobs: "Jobs recentes",
       readyStatus: "Read-Along pronto · %{language} · %{when}",
+      taken: "em %{duration}",
       regenerate: "Regenerar",
       regenerateHint: "Apenas necessário se a transcrição foi corrigida",
       regenerateConfirmTitle: "Regenerar read-along?",
