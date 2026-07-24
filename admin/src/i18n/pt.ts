@@ -361,7 +361,7 @@ export const pt = {
     },
     aiAssist: {
       heading: "Assistente AI",
-      caption: "Descreva uma alteração a aplicar a este evento, às suas sessões e faixas",
+      caption: "Descreva uma alteração a aplicar a este evento, às suas sessões, vídeos e faixas",
       placeholder:
         'ex.: "Capitalizar todos os títulos das faixas", "Remover as iniciais do orador", ' +
         'ou "Definir o orador como JKR na segunda sessão"',
@@ -374,6 +374,8 @@ export const pt = {
       discard: "Descartar",
       sectionEvent: "Evento",
       sectionSessions: "Sessões",
+      sectionVideos: "Vídeos",
+      videoDate: "Data",
       sectionTracks: "Faixas",
       unmatchedSpeaker: "sem correspondência — reveja",
       applied: "Alterações da AI aplicadas — não se esqueça de guardar",

@@ -160,7 +160,7 @@ export const en = {
     },
     aiAssist: {
       heading: "AI assistant",
-      caption: "Describe a change to apply to this event, its sessions and tracks",
+      caption: "Describe a change to apply to this event, its sessions, videos and tracks",
       placeholder:
         'e.g. "Title-case every track title", "Remove the speaker initials", ' +
         'or "Set the speaker to JKR on the second session"',
@@ -173,6 +173,8 @@ export const en = {
       discard: "Discard",
       sectionEvent: "Event",
       sectionSessions: "Sessions",
+      sectionVideos: "Videos",
+      videoDate: "Date",
       sectionTracks: "Tracks",
       unmatchedSpeaker: "unmatched — review",
       applied: "AI changes applied — remember to save",

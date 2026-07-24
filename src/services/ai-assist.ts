@@ -47,6 +47,26 @@ export interface AiSessionSuggestion {
   titlePt?: string;
 }
 
+/**
+ * An event video (an `event_videos` row), which is a separate entity from an
+ * audio track: it hangs off the event rather than a session, and carries a
+ * recording date of its own.
+ */
+export interface AiVideoRow {
+  rowKey: string;
+  title: string;
+  titleEn?: string;
+  titlePt?: string;
+  videoDate?: string;
+}
+
+export interface AiVideoSuggestion {
+  rowKey: string;
+  titleEn?: string;
+  titlePt?: string;
+  videoDate?: string;
+}
+
 const MODEL = "claude-opus-5";
 
 /**
@@ -214,13 +234,24 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ASSIST_SYSTEM_PROMPT =
   "You are helping a Buddhist retreat administrator edit a retreat event in a " +
   "content management system. You receive the event's current fields, its " +
-  "sessions, its tracks, and a plain-English instruction. Return ONLY a JSON " +
-  'object with optional keys "event", "sessions", and "tracks":\n' +
+  "sessions, its videos, its tracks, and a plain-English instruction. Return " +
+  'ONLY a JSON object with optional keys "event", "sessions", "videos", and ' +
+  '"tracks":\n' +
   '- "event": an object with any of titleEn, titlePt, mainThemesEn, mainThemesPt, ' +
   "sessionThemesEn, sessionThemesPt, startDate, endDate — only the fields that " +
   "should change. Dates must be ISO YYYY-MM-DD.\n" +
   '- "sessions": an array of { rowKey, titleEn?, titlePt? } for sessions that ' +
   "should change (rowKey unchanged).\n" +
+  '- "videos": an array of { rowKey, titleEn?, titlePt?, videoDate? } for ' +
+  "videos that should change (rowKey unchanged). Videos are recordings " +
+  "attached to the event itself, separate from the audio tracks. Each has " +
+  "titleEn and titlePt (either may be empty), title — its current title, " +
+  "which is often still the raw upload filename — and videoDate, the " +
+  "recording date, which may be empty. Set titleEn/titlePt to give a video a " +
+  "readable title, and videoDate (ISO YYYY-MM-DD) when the instruction asks " +
+  "for a date or one can be derived from the name. Correct an obviously " +
+  "mistyped year in a filename (a 5-digit year, for instance) to the year it " +
+  "plainly means.\n" +
   '- "tracks": an array of { rowKey, titleEn?, titlePt?, speaker? } for tracks ' +
   "that should change (rowKey unchanged). Each track has titleEn and titlePt " +
   "— the title shown for that interface language, which may be empty — plus " +
@@ -229,11 +260,13 @@ const ASSIST_SYSTEM_PROMPT =
   "(usually English). To fill in or translate a track's title, set titleEn " +
   "and/or titlePt (derive the translation from title when titleEn/titlePt " +
   "are empty).\n" +
-  "IMPORTANT: only suggest changes to event or session fields when the " +
-  "instruction explicitly asks about the event or the sessions. If the " +
-  "instruction is only about track titles or speakers, return just the " +
-  '"tracks" array and leave event/sessions empty. Include only fields that ' +
-  "change. Return only the JSON object, no markdown fences, no prose.";
+  "IMPORTANT: only suggest changes to a group when the instruction asks about " +
+  "that group. An instruction about videos changes only videos; one about " +
+  "track titles or speakers changes only tracks; leave every other key out. " +
+  "Include only fields that change. If the instruction names data that is not " +
+  "in the payload, return an empty JSON object rather than acting on the " +
+  "nearest similar rows. Return only the JSON object, no markdown fences, no " +
+  "prose.";
 
 /**
  * Appended for every batch after the first. Those batches see the event
@@ -244,7 +277,8 @@ const ASSIST_SYSTEM_PROMPT =
 const TRACKS_ONLY_NOTE =
   "\nThis request covers one batch of a longer track list. The event fields " +
   'are shown for context only: return ONLY the "tracks" array, and only for ' +
-  "the tracks listed in this batch.";
+  "the tracks listed in this batch. The sessions and videos are handled by " +
+  "another request — omit those keys entirely.";
 
 function cleanEvent(raw: unknown): AiEventFields | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
@@ -265,13 +299,19 @@ async function runAssistBatch(args: {
   instruction: string;
   event?: AiEventFields;
   sessions: AiSessionRow[];
+  videos: AiVideoRow[];
   tracks: RenameTrackRow[];
   roster: RosterTeacher[];
   tracksOnly: boolean;
-}): Promise<{ event?: AiEventFields; sessions: AiSessionSuggestion[]; tracks: RenameSuggestion[] }> {
-  const { anthropic, instruction, event, sessions, tracks, roster, tracksOnly } = args;
+}): Promise<{
+  event?: AiEventFields;
+  sessions: AiSessionSuggestion[];
+  videos: AiVideoSuggestion[];
+  tracks: RenameSuggestion[];
+}> {
+  const { anthropic, instruction, event, sessions, videos, tracks, roster, tracksOnly } = args;
 
-  const payload = JSON.stringify({ event: event ?? {}, sessions, tracks }, null, 2);
+  const payload = JSON.stringify({ event: event ?? {}, sessions, videos, tracks }, null, 2);
   const message = await anthropic.messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,
@@ -302,6 +342,24 @@ async function runAssistBatch(args: {
       })
     : [];
 
+  const outVideos: AiVideoSuggestion[] = Array.isArray(r.videos)
+    ? r.videos.flatMap((item): AiVideoSuggestion[] => {
+        if (typeof item !== "object" || item === null) return [];
+        const s = item as Record<string, unknown>;
+        const sug: AiVideoSuggestion = { rowKey: String(s.rowKey ?? "") };
+        if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
+        if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
+        // Same rule as the event dates: a date the API can't store is worse
+        // than no suggestion, so anything non-ISO is dropped rather than
+        // handed to the admin as an applyable change.
+        if (typeof s.videoDate === "string" && ISO_DATE.test(s.videoDate)) {
+          sug.videoDate = s.videoDate;
+        }
+        // A bare rowKey with nothing changed is noise in the review table.
+        return sug.rowKey && Object.keys(sug).length > 1 ? [sug] : [];
+      })
+    : [];
+
   const outTracks: RenameSuggestion[] = Array.isArray(r.tracks)
     ? r.tracks.flatMap((item): RenameSuggestion[] => {
         if (typeof item !== "object" || item === null) return [];
@@ -318,18 +376,24 @@ async function runAssistBatch(args: {
       })
     : [];
 
-  return { event: outEvent, sessions: outSessions, tracks: outTracks };
+  return { event: outEvent, sessions: outSessions, videos: outVideos, tracks: outTracks };
 }
 
 export async function aiAssistEvent(args: {
   instruction: string;
   event?: AiEventFields;
   sessions?: AiSessionRow[];
+  videos?: AiVideoRow[];
   tracks: RenameTrackRow[];
   roster: RosterTeacher[];
   apiKey: string;
-}): Promise<{ event?: AiEventFields; sessions: AiSessionSuggestion[]; tracks: RenameSuggestion[] }> {
-  const { instruction, event, sessions = [], tracks, roster, apiKey } = args;
+}): Promise<{
+  event?: AiEventFields;
+  sessions: AiSessionSuggestion[];
+  videos: AiVideoSuggestion[];
+  tracks: RenameSuggestion[];
+}> {
+  const { instruction, event, sessions = [], videos = [], tracks, roster, apiKey } = args;
   const anthropic = new Anthropic({ apiKey, maxRetries: AI_MAX_RETRIES });
 
   const batches: RenameTrackRow[][] = [];
@@ -337,7 +401,7 @@ export async function aiAssistEvent(args: {
     batches.push(tracks.slice(i, i + TRACK_BATCH_SIZE));
   }
   // An empty track list still warrants one call: the instruction may target
-  // only the event or session fields.
+  // only the event, session, or video fields.
   if (batches.length === 0) batches.push([]);
 
   let results;
@@ -350,7 +414,10 @@ export async function aiAssistEvent(args: {
         // The event fields are context for every batch (they inform titles and
         // translations), but only the first batch is allowed to change them.
         event,
+        // Sessions and videos are event-wide, not per-batch: sending them once
+        // keeps the batches from proposing competing edits to the same rows.
         sessions: i === 0 ? sessions : [],
+        videos: i === 0 ? videos : [],
         tracks: batch,
         tracksOnly: i > 0,
       }),
@@ -387,9 +454,13 @@ export async function aiAssistEvent(args: {
     }
   });
 
+  // Only the first batch was given the sessions and videos, so only its reply
+  // can carry suggestions for them; a later batch echoing one is discarded.
+  const allowedVideoKeys = new Set(videos.map((v) => v.rowKey));
   return {
     event: results[0]?.event,
     sessions: results[0]?.sessions ?? [],
+    videos: (results[0]?.videos ?? []).filter((v) => allowedVideoKeys.has(v.rowKey)),
     tracks: outTracks,
   };
 }

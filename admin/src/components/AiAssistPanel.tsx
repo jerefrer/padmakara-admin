@@ -21,14 +21,21 @@ export interface AiAssistTrack {
   titleEn?: string; titlePt?: string; speaker?: string | null;
 }
 export interface AiAssistSession { rowKey: string; titleEn?: string; titlePt?: string; }
+export interface AiAssistVideo {
+  rowKey: string; title: string; titleEn?: string; titlePt?: string; videoDate?: string;
+}
 export interface AiAssistResult {
   event?: AiAssistEventFields;
   sessions: Array<{ rowKey: string; titleEn?: string; titlePt?: string }>;
+  videos: Array<{ rowKey: string; titleEn?: string; titlePt?: string; videoDate?: string }>;
   tracks: Array<{ rowKey: string; titleEn?: string; titlePt?: string; speaker?: string; speakerUnmatched?: true }>;
 }
 interface AiAssistPanelProps {
   event: AiAssistEventFields;
   sessions: AiAssistSession[];
+  // Absent for the create flow — a video needs a real event id to attach to,
+  // so there is nothing to send until the event has been saved.
+  videos?: AiAssistVideo[];
   tracks: AiAssistTrack[];
   endpoint: string;
   onApply: (result: AiAssistResult) => void | Promise<void>;
@@ -50,7 +57,7 @@ const EVENT_FIELD_LABEL_KEYS: Record<keyof AiAssistEventFields, string> = {
   endDate: "padmakara.events.endDate",
 };
 
-export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: AiAssistPanelProps) {
+export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, onApply }: AiAssistPanelProps) {
   const translate = useTranslate();
   const notify = useNotify();
   const [instruction, setInstruction] = useState("");
@@ -67,6 +74,10 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
   const sessionByKey = useMemo(
     () => new Map(sessions.map((s) => [s.rowKey, s])),
     [sessions],
+  );
+  const videoByKey = useMemo(
+    () => new Map(videos.map((v) => [v.rowKey, v])),
+    [videos],
   );
 
   const eventDiffs = useMemo<DiffRow[]>(() => {
@@ -92,6 +103,29 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
       return rows;
     });
   }, [result, sessionByKey]);
+
+  const videoDiffs = useMemo<DiffRow[]>(() => {
+    if (!result) return [];
+    return result.videos.flatMap((v) => {
+      const cur = videoByKey.get(v.rowKey);
+      const videoLabel = cur?.title || v.rowKey;
+      const rows: DiffRow[] = [];
+      if (v.titleEn !== undefined) {
+        rows.push({ label: `${videoLabel} · EN`, from: cur?.titleEn ?? "", to: v.titleEn });
+      }
+      if (v.titlePt !== undefined) {
+        rows.push({ label: `${videoLabel} · PT`, from: cur?.titlePt ?? "", to: v.titlePt });
+      }
+      if (v.videoDate !== undefined) {
+        rows.push({
+          label: `${videoLabel} · ${translate("padmakara.aiAssist.videoDate")}`,
+          from: cur?.videoDate ?? "",
+          to: v.videoDate,
+        });
+      }
+      return rows;
+    });
+  }, [result, videoByKey, translate]);
 
   const trackDiffs = useMemo<DiffRow[]>(() => {
     if (!result) return [];
@@ -125,7 +159,7 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
     });
   }, [result, trackByKey, translate]);
 
-  const totalChanges = eventDiffs.length + sessionDiffs.length + trackDiffs.length;
+  const totalChanges = eventDiffs.length + sessionDiffs.length + videoDiffs.length + trackDiffs.length;
 
   const handleAsk = async () => {
     const text = instruction.trim();
@@ -136,7 +170,7 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
       const res = await authFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction: text, event, sessions, tracks }),
+        body: JSON.stringify({ instruction: text, event, sessions, videos, tracks }),
       });
       if (!res.ok) {
         // Prefer the API's `error` field (e.g. the friendly AI_UNAVAILABLE
@@ -155,7 +189,7 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
       // Trusting the shape here: the rename-tracks endpoint's contract
       // (Tasks 1-2) guarantees { event?, sessions, tracks } on success.
       const data = (await res.json()) as AiAssistResult;
-      setResult({ event: data.event, sessions: data.sessions ?? [], tracks: data.tracks ?? [] });
+      setResult({ event: data.event, sessions: data.sessions ?? [], videos: data.videos ?? [], tracks: data.tracks ?? [] });
     } catch (e) {
       // authFetch rejects/throws only Error instances here
       notify(`${t("failed")}: ${(e as Error).message}`, { type: "error" });
@@ -241,6 +275,7 @@ export function AiAssistPanel({ event, sessions, tracks, endpoint, onApply }: Ai
             <>
               {renderDiffs(t("sectionEvent"), eventDiffs)}
               {renderDiffs(t("sectionSessions"), sessionDiffs)}
+              {renderDiffs(t("sectionVideos"), videoDiffs)}
               {renderDiffs(t("sectionTracks"), trackDiffs)}
               <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
                 <Button

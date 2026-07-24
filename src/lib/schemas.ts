@@ -399,10 +399,26 @@ export const aiAssistSchema = z.object({
     )
     .max(500)
     .optional(),
+  // Event videos (`event_videos` rows) — a separate entity from the audio
+  // tracks, so an instruction about videos needs them in the payload or the
+  // model has nothing to act on.
+  videos: z
+    .array(
+      z.object({
+        rowKey: z.string().min(1).max(100),
+        title: z.string().max(500),
+        titleEn: z.string().max(500).optional(),
+        titlePt: z.string().max(500).optional(),
+        videoDate: z.string().max(20).optional(),
+      }),
+    )
+    .max(500)
+    .optional(),
   // Legacy retreat imports routinely carry several hundred tracks (one event
   // in production has 342), so these caps only exist to bound a runaway
   // payload — aiAssistEvent batches the list across Claude calls rather than
-  // relying on a cap small enough to fit one reply.
+  // relying on a cap small enough to fit one reply. An empty list is valid on
+  // its own: a video-only event has no tracks to send.
   tracks: z
     .array(
       z.object({
@@ -414,9 +430,15 @@ export const aiAssistSchema = z.object({
         speaker: z.string().max(100).optional().nullable(),
       }),
     )
-    .min(1)
     .max(5000),
-});
+})
+  // Any one of the three row lists is enough to work on, but a payload with
+  // none of them gives the model nothing to act on — reject it here rather
+  // than spending a Claude call to be told so.
+  .refine(
+    (v) => v.tracks.length > 0 || (v.videos?.length ?? 0) > 0 || (v.sessions?.length ?? 0) > 0,
+    { message: "Provide at least one track, video, or session to work on" },
+  );
 
 // Pagination
 export const paginationSchema = z.object({

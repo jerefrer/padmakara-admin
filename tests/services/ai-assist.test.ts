@@ -17,6 +17,7 @@ const ROSTER = [
 const TRACKS = [
   { rowKey: "t1", originalFilename: "001.mp3", title: "opening", speaker: null },
 ];
+const VIDEOS = [{ rowKey: "v1", title: "raw_upload_2025.mp4" }];
 
 function aiReply(obj: unknown) {
   return { content: [{ type: "text", text: JSON.stringify(obj) }] };
@@ -321,5 +322,123 @@ describe("aiAssistEvent request shape", () => {
         output_config: { effort: "medium" },
       }),
     );
+  });
+});
+
+describe("aiAssistEvent videos", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns video title suggestions", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({
+        videos: [{ rowKey: "v1", titleEn: "Closing Ceremony", titlePt: "Cerimônia de Encerramento" }],
+        tracks: [],
+      }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Give the video a readable title",
+      videos: VIDEOS, tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.videos).toEqual([
+      { rowKey: "v1", titleEn: "Closing Ceremony", titlePt: "Cerimônia de Encerramento" },
+    ]);
+  });
+
+  it("returns a video date suggestion in ISO form", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ videos: [{ rowKey: "v1", videoDate: "2025-04-12" }], tracks: [] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Set the video date to 12 April 2025",
+      videos: VIDEOS, tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.videos).toEqual([{ rowKey: "v1", videoDate: "2025-04-12" }]);
+  });
+
+  it("drops a non-ISO videoDate while keeping that video's title suggestion", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({
+        videos: [{ rowKey: "v1", titleEn: "Closing Ceremony", videoDate: "next tuesday" }],
+        tracks: [],
+      }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Title and date the video",
+      videos: VIDEOS, tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.videos).toEqual([{ rowKey: "v1", titleEn: "Closing Ceremony" }]);
+  });
+
+  it("drops a video suggestion whose rowKey was not in the request payload", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ videos: [{ rowKey: "v999", titleEn: "Hallucinated" }], tracks: [] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "x",
+      videos: VIDEOS, tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.videos).toEqual([]);
+  });
+
+  it("drops a video suggestion that carries no changed field", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ videos: [{ rowKey: "v1" }], tracks: [] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "x",
+      videos: VIDEOS, tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.videos).toEqual([]);
+  });
+
+  it("sends videos only in the first batch", async () => {
+    const seenVideos: unknown[][] = [];
+    mockMessagesCreate.mockImplementation(({ messages }: any) => {
+      const data = JSON.parse(messages[0].content.split("Current data:\n")[1]);
+      seenVideos.push(data.videos);
+      return Promise.resolve(aiReply({ tracks: [] }));
+    });
+
+    await aiAssistEvent({
+      instruction: "x",
+      videos: VIDEOS, tracks: manyTracks(120), roster: ROSTER, apiKey: "k",
+    });
+
+    expect(seenVideos).toHaveLength(3); // ceil(120 / 50)
+    expect(seenVideos[0]).toEqual(VIDEOS);
+    expect(seenVideos[1]).toEqual([]);
+    expect(seenVideos[2]).toEqual([]);
+  });
+
+  it("returns an empty videos array when the caller passes none", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(aiReply({ tracks: [] }));
+    const out = await aiAssistEvent({
+      instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.videos).toEqual([]);
+  });
+});
+
+describe("aiAssistEvent with empty tracks", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("makes exactly one call and still returns event/video suggestions when tracks is []", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({
+        event: { titleEn: "Spring Retreat 2025" },
+        videos: [{ rowKey: "v1", titleEn: "Closing Ceremony" }],
+      }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Update the event title and video title",
+      event: { titleEn: "spring retreat" },
+      videos: VIDEOS,
+      tracks: [],
+      roster: ROSTER,
+      apiKey: "k",
+    });
+    expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
+    expect(out.event).toEqual({ titleEn: "Spring Retreat 2025" });
+    expect(out.videos).toEqual([{ rowKey: "v1", titleEn: "Closing Ceremony" }]);
   });
 });

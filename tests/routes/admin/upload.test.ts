@@ -378,7 +378,7 @@ describe("POST /api/admin/upload/rename-tracks", () => {
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 
-  it("returns 400 VALIDATION_ERROR when tracks array is empty", async () => {
+  it("returns 400 VALIDATION_ERROR when there are no tracks, videos or sessions to work on", async () => {
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
       method: "POST",

@@ -226,7 +226,7 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 
-  it("returns 400 VALIDATION_ERROR when tracks array is empty", async () => {
+  it("returns 400 VALIDATION_ERROR when there are no tracks, videos or sessions to work on", async () => {
     const token = await adminToken();
     const { status, body } = await testJson(
       "/api/admin/events/42/rename-tracks",
@@ -240,6 +240,34 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(status).toBe(400);
     expect((body as any).code).toBe("VALIDATION_ERROR");
     expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
+  it("accepts an empty tracks array when the payload carries videos (video-only event)", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(
+        JSON.stringify({
+          videos: [{ rowKey: "9", titleEn: "Morning Teachings", videoDate: "2019-10-09" }],
+        }),
+      ),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson(
+      "/api/admin/events/42/rename-tracks",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          instruction: "Give the videos readable titles and extract their dates",
+          tracks: [],
+          videos: [{ rowKey: "9", title: "20219-10-09-KPS-TEACHINGS-MORNING-UBP" }],
+        }),
+      },
+    );
+
+    expect(status).toBe(200);
+    expect((body as any).videos).toEqual([
+      { rowKey: "9", titleEn: "Morning Teachings", videoDate: "2019-10-09" },
+    ]);
   });
 
   it("accepts a track with an empty originalFilename (nullable DB column)", async () => {

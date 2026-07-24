@@ -2699,6 +2699,34 @@ export const EventEdit = () => {
       if (s.titlePt !== undefined) { patch.titlePt = s.titlePt; patch.titlePtReviewed = true; }
       if (Object.keys(patch).length) await handleSessionTitleChange(idx, patch, { silent: true });
     }
+    // Videos → immediate persist via PATCH, the same endpoint
+    // EventVideosSection's inline editors use (there's no batch/silent
+    // update helper for videos to reuse, so this calls authFetch directly).
+    for (const v of result.videos) {
+      const videoId = Number(v.rowKey);
+      if (!Number.isFinite(videoId)) continue;
+      const patch: Record<string, unknown> = {};
+      if (v.titleEn !== undefined) patch.titleEn = v.titleEn;
+      if (v.titlePt !== undefined) patch.titlePt = v.titlePt;
+      if (v.videoDate !== undefined) patch.videoDate = v.videoDate;
+      if (Object.keys(patch).length === 0) continue;
+      try {
+        const res = await authFetch(`/api/admin/videos/${videoId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      } catch (error: any) {
+        // Surface it before bailing out, the same way the session and track
+        // loops do — an apply that dies silently looks like it worked.
+        notify(translate("padmakara.videos.updateFailed", { message: error.message }), {
+          type: "error",
+        });
+        throw error;
+      }
+      setVideos((prev) => prev.map((x) => (x.id === videoId ? { ...x, ...patch } : x)));
+    }
     // Tracks → immediate persist via the existing handler. AI-generated
     // title fields go straight into titleEn/titlePt — reviewed=false since
     // the admin hasn't confirmed the AI's wording.
@@ -2712,7 +2740,7 @@ export const EventEdit = () => {
       if (Object.keys(updates).length) await handleTrackUpdate(trackId, updates, { silent: true });
     }
     refresh();
-  }, [sessions, handleSessionTitleChange, handleTrackUpdate, refresh]);
+  }, [sessions, handleSessionTitleChange, handleTrackUpdate, refresh, notify, translate]);
 
   const handleTrackDelete = useCallback(
     async (trackId: number) => {
@@ -3171,7 +3199,7 @@ export const EventEdit = () => {
       {/* AI-assist: natural-language rename/theme suggestions, applied
           immediately (sessions/tracks) or staged into `form` (event fields,
           saved via the Save button) */}
-      {trackCount > 0 && (
+      {(trackCount > 0 || videos.length > 0) && (
         <AiAssistPanel
           endpoint={`/api/admin/events/${id}/rename-tracks`}
           event={{
@@ -3181,6 +3209,13 @@ export const EventEdit = () => {
             startDate: form.startDate, endDate: form.endDate,
           }}
           sessions={sessions.map((s) => ({ rowKey: String(s.id), titleEn: s.titleEn, titlePt: s.titlePt }))}
+          videos={videos.map((v) => ({
+            rowKey: String(v.id),
+            title: v.titleEn || v.titlePt || `Video ${v.position + 1}`,
+            titleEn: v.titleEn ?? "",
+            titlePt: v.titlePt ?? "",
+            videoDate: v.videoDate ?? "",
+          }))}
           tracks={sessions.flatMap((s) => s.tracks).map((tk) => ({
             rowKey: String(tk.id),
             originalFilename: tk.originalFilename ?? "",
