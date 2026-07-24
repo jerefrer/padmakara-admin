@@ -26,7 +26,17 @@ export function useFieldTranslate() {
     setTranslating(true);
     try {
       const out = await translateFields(direction, { v: text });
-      return out.v ?? "";
+      const value = typeof out.v === "string" ? out.v : "";
+      if (!value.trim()) {
+        // The endpoint returned no usable translation for this field (the model
+        // occasionally drops or renames the key). Returning "" here would let
+        // every caller's `if (out != null)` guard overwrite — and thereby WIPE —
+        // the target field. Return null so the field is left intact and tell the
+        // user to retry instead.
+        notify(translate("padmakara.events.translateEmpty"), { type: "warning" });
+        return null;
+      }
+      return value;
     } catch (e: any) {
       notify(`${translate("padmakara.events.translateError")}${e?.message ? `: ${e.message}` : ""}`, {
         type: "error",

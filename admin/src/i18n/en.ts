@@ -86,6 +86,7 @@ export const en = {
       aiChipLabel: "AI · review ✓",
       translateNothing: "Nothing to translate — target fields already filled",
       translateError: "Translation failed",
+      translateEmpty: "No translation came back — the field was left unchanged. Please try again.",
       autoTranslateTitle: "Automatic translation — only fills empty fields",
       autoTranslateDone: "Everything is translated ✓",
       missingInPt: "Missing in Portuguese",

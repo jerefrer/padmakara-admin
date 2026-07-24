@@ -68,6 +68,42 @@ describe("POST /api/admin/translate", () => {
     expect((body as any).translations).toEqual({ title: "Olá" });
   });
 
+  it("recovers a single-field translation when the model renames the key", async () => {
+    // The per-field translate button sends the opaque key `v`. The model
+    // occasionally keys its reply differently (e.g. echoing the prompt's
+    // "title" example). For a one-field request the sole returned string is
+    // unambiguously the translation, so the route maps it back to `v` instead
+    // of dropping it — dropping it wiped the target field and forced a retry.
+    mockMessagesCreate.mockResolvedValueOnce(
+      anthropicResponse(JSON.stringify({ translation: "Retiro de Primavera" })),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/translate", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ direction: "en-to-pt", items: { v: "Spring Retreat" } }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).translations).toEqual({ v: "Retiro de Primavera" });
+  });
+
+  it("does not guess a translation when a multi-field batch renames keys", async () => {
+    // With more than one field a mismatched key is ambiguous — dropping it
+    // (the client then leaves the field untouched) is safer than assigning the
+    // wrong language to the wrong field.
+    mockMessagesCreate.mockResolvedValueOnce(
+      anthropicResponse(JSON.stringify({ wrong1: "A", wrong2: "B" })),
+    );
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/translate", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ direction: "en-to-pt", items: { a: "x", b: "y" } }),
+    });
+    expect(status).toBe(200);
+    expect((body as any).translations).toEqual({});
+  });
+
   it("returns 400 for an invalid direction", async () => {
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/translate", {

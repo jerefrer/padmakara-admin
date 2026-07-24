@@ -106,7 +106,27 @@ async function translateBatch(
   if (!result.success) {
     throw AppError.internal("Translation response was not an object of strings");
   }
-  return result.data;
+  const data = result.data;
+
+  // The model is asked to echo back each input field key, but it occasionally
+  // renames the key of a single-field reply (e.g. copying the prompt's "title"
+  // example instead of the opaque key the per-field translate button sends).
+  // For a one-field batch the sole returned string is unambiguously that
+  // field's translation, so map it back to the requested key rather than
+  // dropping it — dropping it made the client wipe the target field and forced
+  // a retry. Multi-field batches stay untouched: a mismatch there is ambiguous.
+  const first = batch[0];
+  if (batch.length === 1 && first && typeof data[first[0]] !== "string") {
+    const values = Object.values(data);
+    if (values.length === 1 && typeof values[0] === "string") {
+      console.warn(
+        `translate: model renamed single-field key; recovered "${first[0]}" from the returned value`,
+      );
+      return { [first[0]]: values[0] };
+    }
+    console.warn(`translate: model returned no usable value for single field "${first[0]}"`);
+  }
+  return data;
 }
 
 /**

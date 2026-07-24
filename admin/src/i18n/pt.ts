@@ -287,6 +287,7 @@ export const pt = {
       aiChipLabel: "IA · rever ✓",
       translateNothing: "Nada a traduzir — os campos de destino já estão preenchidos",
       translateError: "Falha na tradução",
+      translateEmpty: "Não veio nenhuma tradução — o campo ficou inalterado. Tente novamente.",
       autoTranslateTitle: "Tradução automática — só preenche campos vazios",
       autoTranslateDone: "Está tudo traduzido ✓",
       missingInPt: "Em falta em português",
