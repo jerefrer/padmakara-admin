@@ -47,8 +47,23 @@ export interface AiSessionSuggestion {
   titlePt?: string;
 }
 
-const MODEL = "claude-haiku-4-5-20251001";
-const MAX_TOKENS = 8192;
+const MODEL = "claude-opus-5";
+
+/**
+ * Thinking is on by default on Opus 5 and counts against `max_tokens`
+ * alongside the JSON reply, so this is well above what the reply alone needs
+ * (see TRACK_BATCH_SIZE). Kept at the non-streaming ceiling that stays
+ * comfortably inside the SDK's HTTP timeout.
+ */
+const MAX_TOKENS = 16000;
+
+/**
+ * Renaming and translating from a filled-in payload is structured work, not
+ * deep reasoning — `medium` is the cost/latency lever that keeps a multi-batch
+ * event responsive without costing the translation quality that motivated the
+ * move off Haiku.
+ */
+const EFFORT = "medium" as const;
 
 /**
  * Retries the Anthropic SDK performs on transient failures (5xx, 429, network)
@@ -73,15 +88,17 @@ function isTransientUpstreamError(err: unknown): boolean {
 
 /**
  * Tracks sent per Claude call. A reply costs roughly 70 output tokens per
- * track, so 50 leaves ample headroom under MAX_TOKENS. This batching exists
- * because the earlier single-call design silently truncated its JSON reply
- * (and then failed to parse it) on events with a few hundred tracks.
+ * track, so 50 leaves ample headroom under MAX_TOKENS even once thinking is
+ * accounted for. This batching exists because the earlier single-call design
+ * silently truncated its JSON reply (and then failed to parse it) on events
+ * with a few hundred tracks.
  */
 const TRACK_BATCH_SIZE = 50;
 
 /**
- * Concurrent Claude calls. Keeps a 350-track event to two waves so the whole
- * request finishes well inside the nginx proxy read timeout.
+ * Concurrent Claude calls. Keeps a 350-track event to two waves, which matters
+ * more on Opus than it did on Haiku: the wall clock is the admin staring at a
+ * spinner, not a proxy timeout (Caddy sets no response read timeout).
  */
 const MAX_CONCURRENT_BATCHES = 6;
 
@@ -160,6 +177,7 @@ async function runAssistBatch(args: {
   const message = await anthropic.messages.create({
     model: MODEL,
     max_tokens: MAX_TOKENS,
+    output_config: { effort: EFFORT },
     system: `${ASSIST_SYSTEM_PROMPT}${tracksOnly ? TRACKS_ONLY_NOTE : ""}${rosterPromptBlock(roster)}`,
     messages: [
       { role: "user", content: `Instruction: ${instruction}\n\nCurrent data:\n${payload}` },

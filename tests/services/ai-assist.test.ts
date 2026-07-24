@@ -221,3 +221,19 @@ describe("aiAssistEvent batching", () => {
     expect(out.tracks).toEqual([{ rowKey: "t1", titleEn: "correct" }]);
   });
 });
+
+describe("aiAssistEvent request shape", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("calls the claude-opus-5 model with effort medium", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(aiReply({ tracks: [] }));
+    await aiAssistEvent({ instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k" });
+    expect(mockMessagesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "claude-opus-5",
+        max_tokens: 16000,
+        output_config: { effort: "medium" },
+      }),
+    );
+  });
+});
