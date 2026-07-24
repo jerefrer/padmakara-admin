@@ -418,19 +418,21 @@ describe("POST /api/admin/upload/rename-tracks", () => {
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 
-  it("returns 500 when AI response is not valid JSON", async () => {
+  it("returns 422 quoting the AI when it answers in prose instead of JSON", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
       makeAnthropicResponse("This is not JSON at all"),
     );
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/upload/rename-tracks", {
+    const { status, body } = await testJson("/api/admin/upload/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ instruction: "Fix titles", tracks: VALID_TRACKS }),
     });
 
-    expect(status).toBe(500);
+    expect(status).toBe(422);
+    expect((body as any).code).toBe("AI_NEEDS_CLARIFICATION");
+    expect((body as any).error).toContain("This is not JSON at all");
   });
 
   it("returns 401 without an auth token", async () => {

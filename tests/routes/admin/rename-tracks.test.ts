@@ -307,34 +307,38 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(mockMessagesCreate).not.toHaveBeenCalled();
   });
 
-  it("returns 500 when AI response cannot be parsed as JSON", async () => {
+  it("returns 422 quoting the AI when it answers in prose instead of JSON", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
-      makeAnthropicResponse("Sorry, I cannot do that."),
+      makeAnthropicResponse("Sorry, I cannot do that — which tracks did you mean?"),
     );
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+    const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ instruction: "Fix titles", tracks: VALID_TRACKS }),
     });
 
-    expect(status).toBe(500);
+    expect(status).toBe(422);
+    expect((body as any).code).toBe("AI_NEEDS_CLARIFICATION");
+    // The admin needs the model's own words, not a generic parse failure.
+    expect((body as any).error).toContain("which tracks did you mean");
   });
 
-  it("returns 500 when AI response is valid JSON but is an array, not an object", async () => {
+  it("returns 422 when the AI response is valid JSON but is an array, not an object", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
       makeAnthropicResponse(JSON.stringify([{ rowKey: "1-1", title: "Oops" }])),
     );
 
     const token = await adminToken();
-    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+    const { status, body } = await testJson("/api/admin/events/42/rename-tracks", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ instruction: "Fix titles", tracks: VALID_TRACKS }),
     });
 
-    expect(status).toBe(500);
+    expect(status).toBe(422);
+    expect((body as any).code).toBe("AI_NEEDS_CLARIFICATION");
   });
 
   it("returns 401 without an auth token", async () => {

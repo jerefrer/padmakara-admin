@@ -111,6 +111,104 @@ function stripFences(text: string): string {
   return t;
 }
 
+/**
+ * The first balanced top-level JSON object in `text`, or null if there is
+ * none. Claude sometimes prefaces (or follows) its JSON with a sentence of
+ * prose, which a whole-string `JSON.parse` chokes on even though the object
+ * itself is perfectly good. String literals are tracked so a brace inside a
+ * title doesn't close the object early.
+ */
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]!;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString && ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return text.slice(start, i + 1);
+  }
+  return null;
+}
+
+/** How much of Claude's prose reply to quote back to the admin. */
+const CLARIFICATION_MAX_CHARS = 600;
+
+/**
+ * Turn a reply that carries no JSON at all into an admin-facing message. This
+ * is nearly always Claude asking a clarifying question — an instruction that
+ * names data it wasn't given, say — so quoting it verbatim tells the admin
+ * exactly what to fix, where the old generic parse error told them nothing.
+ */
+function clarificationError(text: string): AppError {
+  const said = text.replace(/\s+/g, " ").trim();
+  if (!said) {
+    return new AppError(
+      422,
+      "The AI assistant returned an empty response. Please try again.",
+      "AI_NEEDS_CLARIFICATION",
+    );
+  }
+  const quoted =
+    said.length > CLARIFICATION_MAX_CHARS
+      ? `${said.slice(0, CLARIFICATION_MAX_CHARS)}…`
+      : said;
+  return new AppError(
+    422,
+    `The AI assistant did not propose any changes and replied instead: “${quoted}” — rephrase the instruction and try again.`,
+    "AI_NEEDS_CLARIFICATION",
+  );
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Parse a reply into its JSON object, tolerating fences and surrounding prose.
+ * Throws a 422 carrying Claude's own words when there is no object to find.
+ *
+ * The embedded-object search runs only when the reply isn't valid JSON at all,
+ * i.e. when it is wrapped in prose. A reply that parses cleanly but has the
+ * wrong shape (an array of suggestions rather than the object) is a formatting
+ * failure: fishing the first nested object out of it would yield a fragment
+ * and report "no changes proposed", which reads as success.
+ */
+function parseAssistReply(text: string): Record<string, unknown> {
+  const stripped = stripFences(text);
+  let whole: unknown;
+  try {
+    whole = JSON.parse(stripped);
+  } catch {
+    const embedded = extractJsonObject(stripped);
+    if (embedded) {
+      try {
+        const parsed: unknown = JSON.parse(embedded);
+        if (isPlainObject(parsed)) return parsed;
+      } catch {
+        // Not JSON after all — fall through to the clarification error.
+      }
+    }
+    throw clarificationError(stripped);
+  }
+  if (isPlainObject(whole)) return whole;
+  throw clarificationError(stripped);
+}
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const ASSIST_SYSTEM_PROMPT =
@@ -189,46 +287,38 @@ async function runAssistBatch(args: {
     throw AppError.internal("No text response from AI API");
   }
 
-  try {
-    const raw: unknown = JSON.parse(stripFences(textBlock.text));
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-      throw new Error("Expected object");
-    }
-    const r = raw as Record<string, unknown>;
+  const r = parseAssistReply(textBlock.text);
 
-    const outEvent = cleanEvent(r.event);
+  const outEvent = cleanEvent(r.event);
 
-    const outSessions: AiSessionSuggestion[] = Array.isArray(r.sessions)
-      ? r.sessions.flatMap((item): AiSessionSuggestion[] => {
-          if (typeof item !== "object" || item === null) return [];
-          const s = item as Record<string, unknown>;
-          const sug: AiSessionSuggestion = { rowKey: String(s.rowKey ?? "") };
-          if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
-          if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
-          return sug.rowKey ? [sug] : [];
-        })
-      : [];
+  const outSessions: AiSessionSuggestion[] = Array.isArray(r.sessions)
+    ? r.sessions.flatMap((item): AiSessionSuggestion[] => {
+        if (typeof item !== "object" || item === null) return [];
+        const s = item as Record<string, unknown>;
+        const sug: AiSessionSuggestion = { rowKey: String(s.rowKey ?? "") };
+        if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
+        if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
+        return sug.rowKey ? [sug] : [];
+      })
+    : [];
 
-    const outTracks: RenameSuggestion[] = Array.isArray(r.tracks)
-      ? r.tracks.flatMap((item): RenameSuggestion[] => {
-          if (typeof item !== "object" || item === null) return [];
-          const s = item as Record<string, unknown>;
-          const sug: RenameSuggestion = { rowKey: String(s.rowKey ?? "") };
-          if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
-          if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
-          if (typeof s.speaker === "string") {
-            const resolved = resolveSpeaker(s.speaker, roster);
-            sug.speaker = resolved.speaker;
-            if (resolved.unmatched) sug.speakerUnmatched = true;
-          }
-          return sug.rowKey ? [sug] : [];
-        })
-      : [];
+  const outTracks: RenameSuggestion[] = Array.isArray(r.tracks)
+    ? r.tracks.flatMap((item): RenameSuggestion[] => {
+        if (typeof item !== "object" || item === null) return [];
+        const s = item as Record<string, unknown>;
+        const sug: RenameSuggestion = { rowKey: String(s.rowKey ?? "") };
+        if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
+        if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
+        if (typeof s.speaker === "string") {
+          const resolved = resolveSpeaker(s.speaker, roster);
+          sug.speaker = resolved.speaker;
+          if (resolved.unmatched) sug.speakerUnmatched = true;
+        }
+        return sug.rowKey ? [sug] : [];
+      })
+    : [];
 
-    return { event: outEvent, sessions: outSessions, tracks: outTracks };
-  } catch {
-    throw AppError.internal("Failed to parse AI assist response");
-  }
+  return { event: outEvent, sessions: outSessions, tracks: outTracks };
 }
 
 export async function aiAssistEvent(args: {

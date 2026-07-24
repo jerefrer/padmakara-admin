@@ -112,7 +112,7 @@ describe("aiAssistEvent", () => {
     mockMessagesCreate.mockResolvedValueOnce({ content: [{ type: "text", text: "nope" }] });
     await expect(
       aiAssistEvent({ instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k" }),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({ statusCode: 422, code: "AI_NEEDS_CLARIFICATION" });
   });
 
   it("surfaces a transient upstream 5xx as a retryable 503, not a bare 500", async () => {
@@ -219,6 +219,92 @@ describe("aiAssistEvent batching", () => {
     });
 
     expect(out.tracks).toEqual([{ rowKey: "t1", titleEn: "correct" }]);
+  });
+});
+
+describe("aiAssistEvent AI reply parsing", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("parses the JSON object when the model prefixes it with a sentence of prose", async () => {
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{
+        type: "text",
+        text: "Sure, here are my suggestions:\n" +
+          JSON.stringify({ tracks: [{ rowKey: "t1", titleEn: "Dedication of merit" }] }),
+      }],
+    });
+    const out = await aiAssistEvent({
+      instruction: "Fill in English titles", tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([{ rowKey: "t1", titleEn: "Dedication of merit" }]);
+  });
+
+  it("parses the JSON object when the model appends prose after it", async () => {
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{
+        type: "text",
+        text: JSON.stringify({ tracks: [{ rowKey: "t1", titleEn: "Dedication of merit" }] }) +
+          "\nLet me know if you'd like any other changes.",
+      }],
+    });
+    const out = await aiAssistEvent({
+      instruction: "Fill in English titles", tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([{ rowKey: "t1", titleEn: "Dedication of merit" }]);
+  });
+
+  it("does not truncate at a brace that appears inside a string value", async () => {
+    // A lone, unmatched "}" inside the string value would close a naive
+    // (quote-unaware) brace counter early, before the real end of the object.
+    const titleEn = "Closing bracket } appears here";
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{
+        type: "text",
+        text: "Here you go:\n" + JSON.stringify({ tracks: [{ rowKey: "t1", titleEn }] }),
+      }],
+    });
+    const out = await aiAssistEvent({
+      instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([{ rowKey: "t1", titleEn }]);
+  });
+
+  it("throws a 422 AI_NEEDS_CLARIFICATION quoting the model's words when the reply is pure prose", async () => {
+    const prose = "I need more information: which retreat's sessions should I rename?";
+    mockMessagesCreate.mockResolvedValueOnce({ content: [{ type: "text", text: prose }] });
+    await expect(
+      aiAssistEvent({ instruction: "rename the sessions", tracks: TRACKS, roster: ROSTER, apiKey: "k" }),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      code: "AI_NEEDS_CLARIFICATION",
+      message: expect.stringContaining("which retreat's sessions should I rename"),
+    });
+  });
+
+  it("throws a 422 AI_NEEDS_CLARIFICATION when the reply is empty/whitespace only", async () => {
+    mockMessagesCreate.mockResolvedValueOnce({ content: [{ type: "text", text: "   \n  " }] });
+    await expect(
+      aiAssistEvent({ instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k" }),
+    ).rejects.toMatchObject({
+      statusCode: 422,
+      code: "AI_NEEDS_CLARIFICATION",
+      message: expect.stringContaining("empty response"),
+    });
+  });
+
+  it("truncates a very long prose reply in the error message", async () => {
+    const prose = "x".repeat(1000);
+    mockMessagesCreate.mockResolvedValueOnce({ content: [{ type: "text", text: prose }] });
+    let error: any;
+    try {
+      await aiAssistEvent({ instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k" });
+    } catch (err) {
+      error = err;
+    }
+    expect(error.message.length).toBeLessThan(prose.length);
+    // The quoted excerpt ends with the implementation's ellipsis character,
+    // immediately followed by the closing curly quote.
+    expect(error.message).toContain("…”");
   });
 });
 
