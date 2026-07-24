@@ -28,7 +28,7 @@ import Paper from "@mui/material/Paper";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import type { EventVideo } from "../utils/trackParser";
@@ -324,8 +324,42 @@ const VideoRow = ({ video, isFirst, isLast, onUpdate, onReorder, onDelete, onPre
     saveTitle();
   };
 
-  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    void onUpdate(video.id, { videoDate: e.target.value || null });
+  /* The date is edited as a local draft and committed on blur/Enter. Driving
+     the input straight off `video.videoDate` made it unusable: an
+     <input type="date"> only reports a value once all three segments are
+     filled, so the first digit of the year fires a change ("0002-07-24"),
+     React restores the input to the still-unchanged prop, and the day/month
+     the user had typed are wiped. Committing per keystroke also fired one
+     PATCH per year digit, writing 0002/0020/0202 to the server on the way. */
+  const [dateDraft, setDateDraft] = useState(video.videoDate ?? "");
+  const cancelDateRef = useRef(false);
+
+  useEffect(() => {
+    setDateDraft(video.videoDate ?? "");
+  }, [video.videoDate]);
+
+  const commitDate = () => {
+    if (cancelDateRef.current) {
+      cancelDateRef.current = false;
+      setDateDraft(video.videoDate ?? "");
+      return;
+    }
+    const next = dateDraft || null;
+    if (next === (video.videoDate ?? null)) return;
+    void onUpdate(video.id, { videoDate: next });
+  };
+
+  const handleDateKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur(); // blur commits
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      // blur fires synchronously here, before any state update lands — flag
+      // the cancel on a ref so commitDate can see it.
+      cancelDateRef.current = true;
+      e.currentTarget.blur();
+    }
   };
 
   const handleDelete = async () => {
@@ -451,8 +485,10 @@ const VideoRow = ({ video, isFirst, isLast, onUpdate, onReorder, onDelete, onPre
 
         <input
           type="date"
-          value={video.videoDate ?? ""}
-          onChange={handleDateChange}
+          value={dateDraft}
+          onChange={(e) => setDateDraft(e.target.value)}
+          onBlur={commitDate}
+          onKeyDown={handleDateKeyDown}
           style={{
             fontSize: "0.75rem",
             padding: "3px 6px",
