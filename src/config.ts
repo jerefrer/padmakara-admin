@@ -37,6 +37,19 @@ export const config = {
     forcePathStyle: env("S3_FORCE_PATH_STYLE", "false") === "true",
   },
 
+  // Object storage (audio, PDFs, images, ZIPs). Separate from `aws` so R2
+  // credentials never clobber the AWS creds that Batch + SES still need.
+  // Each field falls back to the AWS_*/S3_* equivalent, so an unconfigured
+  // deployment behaves exactly as before (real AWS S3).
+  storage: {
+    accessKeyId: env("STORAGE_ACCESS_KEY_ID", env("AWS_ACCESS_KEY_ID", "")),
+    secretAccessKey: env("STORAGE_SECRET_ACCESS_KEY", env("AWS_SECRET_ACCESS_KEY", "")),
+    region: env("STORAGE_REGION", env("AWS_REGION", "eu-west-3")),
+    bucket: env("S3_BUCKET", "padmakara-pt-app"),
+    endpoint: env("S3_ENDPOINT", ""),
+    forcePathStyle: env("S3_FORCE_PATH_STYLE", "false") === "true",
+  },
+
   email: {
     fromEmail: env("SES_FROM_EMAIL", "no-reply@padmakara.pt"),
   },
