@@ -26,6 +26,28 @@ const s3Client = new S3Client({
 
 const BUCKET = config.storage.bucket;
 
+/**
+ * Env vars handed to the AWS Batch pipeline containers so their boto3 client
+ * talks to the SAME object store as this backend. When S3_ENDPOINT is empty
+ * (pre-R2 cutover) the container falls back to its IAM role against real S3.
+ * The container reads these via make_s3_client() in run_job.py/subtitle_job.py.
+ */
+export function storageEnvForContainer(
+  storage: {
+    endpoint: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    region: string;
+  } = config.storage,
+): { name: string; value: string }[] {
+  return [
+    { name: "S3_ENDPOINT", value: storage.endpoint },
+    { name: "S3_ACCESS_KEY_ID", value: storage.accessKeyId },
+    { name: "S3_SECRET_ACCESS_KEY", value: storage.secretAccessKey },
+    { name: "S3_REGION", value: storage.region },
+  ];
+}
+
 export async function generatePresignedUploadUrl(
   key: string,
   contentType: string,
