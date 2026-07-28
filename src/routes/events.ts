@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, inArray, isNotNull, desc } from "drizzle-orm";
+import { eq, and, inArray, isNotNull, isNull, desc } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
 import { sessions } from "../db/schema/sessions.ts";
@@ -205,10 +205,14 @@ eventRoutes.post("/public/:id/request-download", async (c) => {
     throw AppError.unauthorized("Authentication required");
   }
 
-  // Check for existing pending/processing anonymous request for this event
+  // Check for an existing anonymous (userId IS NULL) request for this event.
+  // Must exclude user-owned requests: reusing one would hand a guest a request
+  // they can't access (verifyDownloadAccess denies non-owner authenticated
+  // requests), producing a 403 on the status/download poll.
   const existingRequest = await db.query.downloadRequests.findFirst({
     where: and(
       eq(downloadRequests.eventId, eventId),
+      isNull(downloadRequests.userId),
       inArray(downloadRequests.status, ["pending", "processing", "ready"]),
     ),
     columns: { id: true, status: true, expiresAt: true },
