@@ -85,6 +85,30 @@ describe("parseOwnS3Key", () => {
   });
 });
 
+describe("parseOwnS3Key — R2 endpoint", () => {
+  const BUCKET = "padmakara-app";
+  const R2 = "https://abc123.r2.cloudflarestorage.com";
+
+  it("extracts the key from an R2 path-style URL", () => {
+    const url = `${R2}/${BUCKET}/events/EVT/track%20one%20(AM).mp3`;
+    expect(parseOwnS3Key(url, BUCKET, R2)).toBe("events/EVT/track one (AM).mp3");
+  });
+
+  it("extracts the key from an R2 virtual-hosted URL", () => {
+    const url = `https://${BUCKET}.abc123.r2.cloudflarestorage.com/events/EVT/a.mp3`;
+    expect(parseOwnS3Key(url, BUCKET, R2)).toBe("events/EVT/a.mp3");
+  });
+
+  it("still handles the AWS virtual-hosted form", () => {
+    const url = `https://${BUCKET}.s3.eu-west-3.amazonaws.com/events/EVT/a.mp3`;
+    expect(parseOwnS3Key(url, BUCKET, R2)).toBe("events/EVT/a.mp3");
+  });
+
+  it("returns null for a foreign host", () => {
+    expect(parseOwnS3Key("https://example.com/x.mp3", BUCKET, R2)).toBeNull();
+  });
+});
+
 describe("resolveVideoSourceUrl", () => {
   it("passes non-Drive https URLs through unchanged", () => {
     const resolved = resolveVideoSourceUrl("https://example.com/videos/talk.mp4", "");

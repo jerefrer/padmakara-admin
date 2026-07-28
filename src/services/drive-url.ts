@@ -81,7 +81,8 @@ export function parseDriveFileId(rawUrl: string): string | null {
  */
 export function parseOwnS3Key(
   rawUrl: string,
-  bucket: string = config.aws.s3Bucket,
+  bucket: string = config.storage.bucket,
+  endpoint: string = config.storage.endpoint,
 ): string | null {
   let url: URL;
   try {
@@ -90,6 +91,25 @@ export function parseOwnS3Key(
     return null;
   }
   if (!bucket) return null;
+
+  // Custom S3-compatible endpoint (e.g. Cloudflare R2). Presigned URLs use
+  // path-style ({endpoint}/{bucket}/{key}); virtual-hosted is also accepted.
+  if (endpoint) {
+    try {
+      const endpointHost = new URL(endpoint).hostname;
+      if (url.hostname === endpointHost) {
+        const prefix = `/${bucket}/`;
+        if (url.pathname.startsWith(prefix)) {
+          return decodeURIComponent(url.pathname.slice(prefix.length)) || null;
+        }
+      }
+      if (url.hostname === `${bucket}.${endpointHost}`) {
+        return decodeURIComponent(url.pathname.replace(/^\//, "")) || null;
+      }
+    } catch {
+      // Malformed endpoint config — fall through to the AWS patterns below.
+    }
+  }
 
   // Virtual-hosted style: {bucket}.s3.{region}.amazonaws.com or {bucket}.s3.amazonaws.com
   if (new RegExp(`^${bucket}\\.s3(\\.[a-z0-9-]+)?\\.amazonaws\\.com$`).test(url.hostname)) {
