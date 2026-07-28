@@ -1,11 +1,15 @@
 import archiver from "archiver";
 import { Readable } from "stream";
+import { createWriteStream } from "fs";
+import { unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { db } from "../db/index.ts";
 import { downloadRequests, events, sessions, tracks } from "../db/schema/index.ts";
 import { eq, and } from "drizzle-orm";
 import {
   getObjectStream,
-  uploadStream,
+  uploadFile,
   buildZipS3Key,
   buildTrackS3Key,
   generatePresignedDownloadUrl,
@@ -172,8 +176,14 @@ export async function generateRetreatZip(
       console.warn(`[ZIP] Archiver warning for request ${requestId}:`, warn);
     });
 
-    console.log(`[ZIP] Streaming archive to S3: ${zipS3Key}`);
-    const uploadPromise = uploadStream(zipS3Key, archive, "application/zip");
+    const tmpZipPath = join(tmpdir(), `zip-${requestId}.zip`);
+    console.log(`[ZIP] Building archive to temp file: ${tmpZipPath}`);
+    const zipFileStream = createWriteStream(tmpZipPath);
+    const zipWriteClosed = new Promise<void>((resolve, reject) => {
+      zipFileStream.on("close", () => resolve());
+      zipFileStream.on("error", reject);
+    });
+    archive.pipe(zipFileStream);
 
     // Process each track. appendTrack waits until archiver has fully consumed
     // each source stream before the next is opened, so we hold at most one S3
@@ -228,17 +238,26 @@ export async function generateRetreatZip(
       }
     }
 
-    // Finalize the archive and wait for the upload to drain to S3. Running both
-    // under Promise.all surfaces a failure in either and leaves neither promise
-    // unhandled.
-    await Promise.all([archive.finalize(), uploadPromise]);
+    // Finalize the archive and wait for it to fully flush to the temp file,
+    // then upload the file to storage. Bun's Node streams can't be fed directly
+    // to the AWS SDK's multipart uploader ("Body Data is unsupported format"),
+    // so we stage the ZIP to disk and use Bun's native S3 client to stream the
+    // file up (bounded memory, R2-native).
+    await archive.finalize();
+    await zipWriteClosed;
 
     if (fatalArchiveError) {
       throw fatalArchiveError;
     }
 
     const zipSize = archive.pointer();
-    console.log(`[ZIP] Archive finalized and uploaded to ${zipS3Key}. Size: ${zipSize} bytes`);
+    console.log(`[ZIP] Archive built (${zipSize} bytes). Uploading to ${zipS3Key}...`);
+    try {
+      await uploadFile(zipS3Key, tmpZipPath, "application/zip");
+      console.log(`[ZIP] Uploaded ${zipS3Key}`);
+    } finally {
+      await unlink(tmpZipPath).catch(() => {});
+    }
 
     // Generate presigned download URL (valid for 24 hours)
     const downloadUrl = await generatePresignedDownloadUrl(

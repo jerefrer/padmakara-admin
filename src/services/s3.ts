@@ -48,6 +48,27 @@ export function storageEnvForContainer(
   ];
 }
 
+// Bun-native S3 client, used for uploading server-generated files (ZIP
+// downloads). The AWS SDK's lib-storage multipart uploader rejects Bun's Node
+// streams ("Body Data is unsupported format"); Bun's built-in client speaks the
+// S3 API natively, works cleanly with R2, and streams a file from disk without
+// buffering the whole thing in memory.
+const bunStorage = new Bun.S3Client({
+  accessKeyId: config.storage.accessKeyId,
+  secretAccessKey: config.storage.secretAccessKey,
+  ...(config.storage.endpoint ? { endpoint: config.storage.endpoint } : {}),
+  bucket: config.storage.bucket,
+  region: config.storage.region,
+});
+
+/**
+ * Upload a local file to storage, streaming it from disk. Used for
+ * server-generated artifacts (e.g. ZIP downloads) built to a temp file.
+ */
+export async function uploadFile(key: string, filePath: string, contentType: string): Promise<void> {
+  await bunStorage.write(key, Bun.file(filePath), { type: contentType });
+}
+
 export async function generatePresignedUploadUrl(
   key: string,
   contentType: string,
