@@ -8,7 +8,7 @@ import { tracks } from "../db/schema/tracks.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
-import { putObject } from "./s3.ts";
+import { putObject, storageEnvForContainer } from "./s3.ts";
 import { reconcileReadAlongRows } from "./batch-reconcile.ts";
 
 const batchClient = new BatchClient({
@@ -109,10 +109,11 @@ export async function submitReadAlongJob(
     jobQueue: config.readAlong.jobQueue,
     containerOverrides: {
       environment: [
+        ...storageEnvForContainer(),
         { name: "EVENT_CODE", value: event.eventCode },
         { name: "EVENT_ID", value: String(eventId) },
         { name: "JOB_ID", value: job!.id },
-        { name: "S3_BUCKET", value: config.aws.s3Bucket },
+        { name: "S3_BUCKET", value: config.storage.bucket },
         { name: "LANGUAGE", value: language },
         { name: "SKIP_PAGES", value: String(skipPages) },
         { name: "WHISPER_MODEL", value: whisperModel },
