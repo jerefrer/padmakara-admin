@@ -9,6 +9,7 @@ import { subtitleJobs } from "../db/schema/subtitle-jobs.ts";
 import { videoSubtitles } from "../db/schema/video-subtitles.ts";
 import { config } from "../config.ts";
 import { buildMp4DownloadUrl } from "./bunny.ts";
+import { storageEnvForContainer } from "./s3.ts";
 import { reconcileSubtitleRows } from "./batch-reconcile.ts";
 
 const batchClient = new BatchClient({
@@ -89,6 +90,7 @@ export async function submitSubtitleJob(
     jobQueue: config.readAlong.jobQueue,
     containerOverrides: {
       environment: [
+        ...storageEnvForContainer(),
         { name: "JOB_MODE", value: "subtitles" },
         { name: "JOB_ID", value: job!.id },
         { name: "SESSION_ID", value: String(videoId) },
@@ -98,7 +100,7 @@ export async function submitSubtitleJob(
         { name: "TRACK_NUMBERS", value: trackNumbers.join(",") },
         { name: "LANGUAGE", value: language },
         { name: "WHISPER_MODEL", value: whisperModel },
-        { name: "S3_BUCKET", value: config.aws.s3Bucket },
+        { name: "S3_BUCKET", value: config.storage.bucket },
         { name: "VIDEO_AUDIO_URL", value: videoAudioUrl },
         { name: "TRANSCRIPT_PREFIX", value: transcriptPrefix },
         { name: "WEBHOOK_URL", value: webhookUrl },
