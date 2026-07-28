@@ -12,19 +12,19 @@ import { config } from "../config.ts";
 import type { Readable } from "stream";
 
 const s3Client = new S3Client({
-  region: config.aws.region,
+  region: config.storage.region,
   credentials: {
-    accessKeyId: config.aws.accessKeyId,
-    secretAccessKey: config.aws.secretAccessKey,
+    accessKeyId: config.storage.accessKeyId,
+    secretAccessKey: config.storage.secretAccessKey,
   },
   requestChecksumCalculation: "WHEN_REQUIRED",
   responseChecksumValidation: "WHEN_REQUIRED",
-  ...(config.aws.endpoint
-    ? { endpoint: config.aws.endpoint, forcePathStyle: config.aws.forcePathStyle }
+  ...(config.storage.endpoint
+    ? { endpoint: config.storage.endpoint, forcePathStyle: config.storage.forcePathStyle }
     : {}),
 });
 
-const BUCKET = config.aws.s3Bucket;
+const BUCKET = config.storage.bucket;
 
 export async function generatePresignedUploadUrl(
   key: string,
