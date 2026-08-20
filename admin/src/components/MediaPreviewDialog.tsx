@@ -7,6 +7,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import { useEffect, useRef, useState } from "react";
+import { useTranslate } from "react-admin";
 import Hls from "hls.js";
 import { authFetch } from "../utils/authFetch";
 
@@ -23,7 +24,7 @@ interface MediaPreviewDialogProps {
 
 interface ResolvedMedia {
   url: string;
-  mediaType: "audio" | "video" | "iframe" | "hls";
+  mediaType: "audio" | "video" | "iframe" | "hls" | "unavailable";
 }
 
 // Plays an HLS URL via hls.js (Chrome/Firefox) or native HLS (Safari).
@@ -57,6 +58,9 @@ function HlsVideo({ src }: { src: string }) {
 async function fetchMedia(source: MediaSource): Promise<ResolvedMedia> {
   if (source.kind === "track") {
     const res = await authFetch(`/api/media/audio/${source.trackId}`);
+    // 404 = the track has no audio object yet (keyless row). Surface it as a
+    // calm "unavailable" state rather than a red error.
+    if (res.status === 404) return { url: "", mediaType: "unavailable" };
     if (!res.ok) throw new Error(`Failed to load media (${res.status})`);
     const json = (await res.json()) as { url: string };
     return { url: json.url, mediaType: source.mediaType };
@@ -78,6 +82,7 @@ export const MediaPreviewDialog = ({
   source,
   onClose,
 }: MediaPreviewDialogProps) => {
+  const translate = useTranslate();
   const [media, setMedia] = useState<ResolvedMedia | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +131,11 @@ export const MediaPreviewDialog = ({
         {error && (
           <Typography color="error" sx={{ py: 2 }}>
             {error}
+          </Typography>
+        )}
+        {!loading && !error && media && media.mediaType === "unavailable" && (
+          <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+            {translate("padmakara.tracks.noAudioBody") || "This track has no audio file yet."}
           </Typography>
         )}
         {!loading && !error && media && media.mediaType === "audio" && (

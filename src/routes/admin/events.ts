@@ -128,15 +128,24 @@ eventRoutes.get("/", async (c) => {
   // Content-presence flags for the list icons (cheap grouped existence scans).
   const ids = paginatedData.map((e: { id: number }) => e.id);
   const hasVideo = new Set<number>();
-  const hasAudio = new Set<number>();
   const hasDocs = new Set<number>();
+  const audioCounts = new Map<number, { total: number; keyed: number }>();
   if (ids.length) {
     const [vids, auds, trs, files] = await Promise.all([
       db.select({ id: eventVideos.eventId }).from(eventVideos)
         .where(inArray(eventVideos.eventId, ids)).groupBy(eventVideos.eventId),
-      db.select({ id: sessions.eventId }).from(tracks)
+      // Per-event track total + how many actually have audio (s3_key set).
+      // count(col) ignores NULLs, so `keyed` counts only playable tracks.
+      // keyed === 0 → no audio; 0 < keyed < total → partial (some tracks
+      // still missing audio — the event-921 case); keyed === total → done.
+      db.select({
+        id: sessions.eventId,
+        total: sql<number>`count(*)::int`,
+        keyed: sql<number>`count(${tracks.s3Key})::int`,
+      }).from(tracks)
         .innerJoin(sessions, eq(tracks.sessionId, sessions.id))
-        .where(inArray(sessions.eventId, ids)).groupBy(sessions.eventId),
+        .where(inArray(sessions.eventId, ids))
+        .groupBy(sessions.eventId),
       db.select({ id: transcripts.eventId }).from(transcripts)
         .where(inArray(transcripts.eventId, ids)).groupBy(transcripts.eventId),
       db.select({ id: eventFiles.eventId }).from(eventFiles)
@@ -146,18 +155,61 @@ eventRoutes.get("/", async (c) => {
         )).groupBy(eventFiles.eventId),
     ]);
     vids.forEach((r) => hasVideo.add(r.id));
-    auds.forEach((r) => hasAudio.add(r.id));
+    auds.forEach((r) => audioCounts.set(r.id, { total: Number(r.total), keyed: Number(r.keyed) }));
     trs.forEach((r) => hasDocs.add(r.id));
     files.forEach((r) => hasDocs.add(r.id));
   }
-  const enriched = paginatedData.map((e: { id: number }) => ({
-    ...e,
-    hasVideo: hasVideo.has(e.id),
-    hasAudio: hasAudio.has(e.id),
-    hasDocuments: hasDocs.has(e.id),
-  }));
+  const enriched = paginatedData.map((e: { id: number }) => {
+    const ac = audioCounts.get(e.id);
+    return {
+      ...e,
+      hasVideo: hasVideo.has(e.id),
+      hasAudio: (ac?.keyed ?? 0) > 0,
+      audioTotal: ac?.total ?? 0,
+      audioKeyed: ac?.keyed ?? 0,
+      hasDocuments: hasDocs.has(e.id),
+    };
+  });
 
   return listResponse(c, enriched, total, offset, offset + limit, "events");
+});
+
+/**
+ * GET /incomplete-audio — events that have at least one track with no
+ * audio object (s3_key null). Every track is meant to have audio, so
+ * these are genuinely incomplete uploads (e.g. an interrupted bulk
+ * upload). Powers the admin "pending audio" banner. Registered BEFORE
+ * "/:id" so the literal path isn't captured as an id.
+ */
+eventRoutes.get("/incomplete-audio", async (c) => {
+  const rows = await db
+    .select({
+      id: events.id,
+      eventCode: events.eventCode,
+      titleEn: events.titleEn,
+      titlePt: events.titlePt,
+      status: events.status,
+      total: sql<number>`count(*)::int`,
+      missing: sql<number>`count(*) filter (where ${tracks.s3Key} is null)::int`,
+    })
+    .from(tracks)
+    .innerJoin(sessions, eq(tracks.sessionId, sessions.id))
+    .innerJoin(events, eq(sessions.eventId, events.id))
+    .groupBy(events.id, events.eventCode, events.titleEn, events.titlePt, events.status)
+    .having(sql`count(*) filter (where ${tracks.s3Key} is null) > 0`)
+    .orderBy(events.startDate);
+
+  return c.json({
+    events: rows.map((r) => ({
+      id: r.id,
+      eventCode: r.eventCode,
+      titleEn: r.titleEn,
+      titlePt: r.titlePt,
+      status: r.status,
+      missing: Number(r.missing),
+      total: Number(r.total),
+    })),
+  });
 });
 
 eventRoutes.get("/:id", async (c) => {

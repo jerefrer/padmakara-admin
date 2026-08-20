@@ -26,6 +26,11 @@ export interface ParsedTrack {
   isPractice?: boolean;
   fileFormat?: string | null;
   mediaType: TrackMediaType;
+  /** Edit-mode only: whether the DB track has an uploaded audio object
+   *  (s3_key present). Undefined in the create flow (files not yet
+   *  uploaded). Used to gate Play/Download so keyless tracks — a row with
+   *  no audio — can't fire a 404. */
+  hasAudio?: boolean;
 }
 
 /** A single video attached to an event (event-wide, ordered by position — no

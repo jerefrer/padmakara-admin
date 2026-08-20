@@ -7,14 +7,17 @@ import DownloadIcon from "@mui/icons-material/Download";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import MusicOffIcon from "@mui/icons-material/MusicOff";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SelfImprovementIcon from "@mui/icons-material/SelfImprovement";
 import TranslateIcon from "@mui/icons-material/Translate";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 import VideoFileIcon from "@mui/icons-material/VideoFile";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
+import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
 import MenuItem from "@mui/material/MenuItem";
@@ -95,6 +98,9 @@ interface SessionPreviewProps {
   /** Edit-mode only: deletes the track row + its S3 audio (and read-along
    *  JSON). Confirmation is handled by the row before this fires. */
   onTrackDelete?: (trackId: number) => Promise<void>;
+  /** Edit-mode only: uploads audio for a keyless track (finishes an
+   *  interrupted upload) and backfills its s3_key. */
+  onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   /** When provided, tracks whose originalFilename has an entry will get an
    *  AI-correction badge and an expandable diff panel. Existing callers that
@@ -107,6 +113,7 @@ export const SessionPreview = ({
   onSessionTitleChange,
   onTrackUpdate,
   onTrackDelete,
+  onTrackAudioUpload,
   allTeachers,
   trackCorrections,
 }: SessionPreviewProps) => {
@@ -140,6 +147,7 @@ export const SessionPreview = ({
               onTitleChange={(patch) => onSessionTitleChange(idx, patch)}
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
+              onTrackAudioUpload={onTrackAudioUpload}
               allTeachers={allTeachers}
               trackCorrections={trackCorrections}
               onPreview={setPreview}
@@ -166,6 +174,7 @@ interface SessionCardProps {
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
+  onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   trackCorrections?: TrackCorrectionsMap;
   onPreview: (state: PreviewState) => void;
@@ -177,6 +186,7 @@ const SessionCard = ({
   onTitleChange,
   onTrackUpdate,
   onTrackDelete,
+  onTrackAudioUpload,
   allTeachers,
   trackCorrections,
   onPreview,
@@ -582,6 +592,7 @@ const SessionCard = ({
               }}
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
+              onTrackAudioUpload={onTrackAudioUpload}
               allTeachers={allTeachers}
               corrections={trackCorrections?.get(track.originalFilename ?? "")}
               onPreview={onPreview}
@@ -618,6 +629,7 @@ const TrackRow = ({
   onNavigate,
   onTrackUpdate,
   onTrackDelete,
+  onTrackAudioUpload,
   allTeachers = [],
   corrections,
   onPreview,
@@ -636,6 +648,7 @@ const TrackRow = ({
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
+  onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   /** AI corrections that were applied to this track, if any. */
   corrections?: TrackCorrection[];
@@ -645,6 +658,8 @@ const TrackRow = ({
   const notify = useNotify();
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   // Seed the edit form from the CURRENT track — re-seeded each time the
   // editor opens, so a track whose titleEn/titlePt changed underneath us
   // (e.g. an AI-assist apply) shows the fresh values instead of the stale
@@ -1113,8 +1128,63 @@ const TrackRow = ({
         {formatFileSize(track.file.size)}
       </Typography>
 
-      {/* Play button — only show for saved (DB-backed) tracks */}
-      {track.id && (
+      {/* Keyless track (audio never uploaded). When the parent supplies an
+          upload handler (edit mode), offer a direct "Upload audio" action to
+          finish the interrupted upload for just this track; otherwise show a
+          disabled marker. Either way, no Play/Download that could 404. */}
+      {track.id && track.hasAudio === false && onTrackAudioUpload && (
+        <>
+          <input
+            ref={audioInputRef}
+            type="file"
+            accept="audio/*"
+            style={{ display: "none" }}
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = ""; // allow re-selecting the same file later
+              if (!file || !track.id) return;
+              setUploadingAudio(true);
+              try {
+                await onTrackAudioUpload(track.id, file);
+                notify("padmakara.tracks.uploadAudioDone", { type: "success" });
+              } catch {
+                notify("padmakara.tracks.uploadAudioFailed", { type: "error" });
+              } finally {
+                setUploadingAudio(false);
+              }
+            }}
+          />
+          <IconButton
+            size="small"
+            disabled={uploadingAudio}
+            onClick={(e) => {
+              e.stopPropagation();
+              audioInputRef.current?.click();
+            }}
+            sx={{ opacity: 0.6, "&:hover": { opacity: 1, color: "primary.main" } }}
+            title={translate("padmakara.tracks.uploadAudio") || "Upload audio"}
+          >
+            {uploadingAudio ? (
+              <CircularProgress size={16} />
+            ) : (
+              <UploadFileIcon sx={{ fontSize: 18 }} />
+            )}
+          </IconButton>
+        </>
+      )}
+      {track.id && track.hasAudio === false && !onTrackAudioUpload && (
+        <IconButton
+          size="small"
+          disabled
+          sx={{ opacity: 0.4 }}
+          title={translate("padmakara.tracks.noAudio") || "No audio uploaded"}
+        >
+          <MusicOffIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+      )}
+
+      {/* Play button — only for saved (DB-backed) tracks that have audio */}
+      {track.id && track.hasAudio !== false && (
         <IconButton
           size="small"
           onClick={(e) => {
@@ -1137,7 +1207,7 @@ const TrackRow = ({
 
       {/* Download button — fetches a fresh presigned URL and triggers a
           browser download with the track's title as filename. */}
-      {track.id && (
+      {track.id && track.hasAudio !== false && (
         <IconButton
           size="small"
           onClick={handleDownload}

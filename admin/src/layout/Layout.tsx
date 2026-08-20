@@ -4,6 +4,7 @@ import { AppBar, Sidebar, CheckForApplicationUpdate, useResourceDefinitions, use
 import { useLocation } from "react-router-dom";
 import { Menu } from "./Menu";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
+import { IncompleteAudioBanner } from "../components/IncompleteAudioBanner";
 
 function PageTitle() {
   const location = useLocation();
@@ -100,6 +101,9 @@ export const Layout = ({ children }: { children: React.ReactNode }) => (
       >
         <PageTitle />
       </AppBar>
+
+      {/* Global alert: events with unfinished audio uploads */}
+      <IncompleteAudioBanner />
 
       {/* Page content */}
       <Box

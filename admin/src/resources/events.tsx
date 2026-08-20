@@ -29,6 +29,8 @@ import {
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import AlertTitle from "@mui/material/AlertTitle";
 import Button from "@mui/material/Button";
 import MuiTextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
@@ -51,6 +53,7 @@ import StarBorderIcon from "@mui/icons-material/StarBorder";
 import TranslateIcon from "@mui/icons-material/Translate";
 import Videocam from "@mui/icons-material/Videocam";
 import Audiotrack from "@mui/icons-material/Audiotrack";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
 import IconButton from "@mui/material/IconButton";
@@ -500,11 +503,20 @@ export const EventList = () => {
                   <Videocam fontSize="small" />
                 </Tooltip>
               )}
-              {record.hasAudio && (
+              {record.audioTotal > 0 && record.audioKeyed < record.audioTotal ? (
+                <Tooltip
+                  title={translate("padmakara.events.audioPartial", {
+                    keyed: record.audioKeyed,
+                    total: record.audioTotal,
+                  })}
+                >
+                  <Audiotrack fontSize="small" sx={{ color: "warning.main" }} />
+                </Tooltip>
+              ) : record.hasAudio ? (
                 <Tooltip title={translate("padmakara.events.hasAudio")}>
                   <Audiotrack fontSize="small" />
                 </Tooltip>
-              )}
+              ) : null}
               {record.hasDocuments && (
                 <Tooltip title={translate("padmakara.events.hasDocuments")}>
                   <Description fontSize="small" />
@@ -592,6 +604,9 @@ interface EventFormProps {
     opts?: { silent?: boolean },
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
+  /** Edit-mode only: uploads audio for a keyless track (finishes an
+   *  interrupted upload) and backfills its s3_key. */
+  onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
   /** Event-level videos, ordered by position. Only present in edit mode — a
    *  video needs a real event id to attach to, so the create wizard has none
    *  of this until after the event is saved. */
@@ -693,6 +708,7 @@ export const EventFormFields = ({
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
+  onTrackAudioUpload,
   videos, onVideosChange, onVideoUpload, onVideoImportUrl,
   previewSessions, onPreviewSessionsChange,
   onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
@@ -1436,6 +1452,7 @@ export const EventFormFields = ({
                 onSessionTitleChange={onSessionTitleChange}
                 onTrackUpdate={onTrackUpdate}
                 onTrackDelete={onTrackDelete}
+                onTrackAudioUpload={onTrackAudioUpload}
                 allTeachers={allTeachers}
               />
             </Box>
@@ -2442,6 +2459,7 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
         partNumber: null,
         isPractice: t.isPractice || false,
         fileFormat: t.fileFormat || null,
+        hasAudio: !!t.s3Key,
       };
     }).sort((a: any, b: any) => {
       if (a.trackNumber !== b.trackNumber) return a.trackNumber - b.trackNumber;
@@ -2451,6 +2469,133 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
     }),
   }));
 }
+
+/**
+ * Repair panel shown on an event that still has tracks without audio (an
+ * upload that never finished). The admin drags the original audio files or
+ * folder; each file is matched to a missing track by its original filename
+ * and uploaded, backfilling s3_key. Tracks that already have audio are
+ * untouched; files that match nothing are reported. Renders nothing when
+ * the event is complete.
+ */
+const AudioRepairPanel = ({
+  eventCode,
+  sessions,
+  onRepaired,
+}: {
+  eventCode: string;
+  sessions: InferredSession[];
+  onRepaired: () => void;
+}) => {
+  const translate = useTranslate();
+  const notify = useNotify();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const missing = sessions.flatMap((s) =>
+    s.tracks
+      .filter((t) => t.id && t.hasAudio === false)
+      .map((t) => ({
+        trackId: t.id as number,
+        sessionNumber: s.sessionNumber,
+        trackNumber: t.trackNumber,
+        title: t.title,
+        originalFilename: t.originalFilename || "",
+      })),
+  );
+
+  if (missing.length === 0) return null;
+
+  const handleFiles = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    const byName = new Map(files.map((f) => [f.name, f] as const));
+
+    // Match each still-missing track to a dropped file by original filename.
+    const items: UploadItem[] = [];
+    for (const m of missing) {
+      const file = m.originalFilename ? byName.get(m.originalFilename) : undefined;
+      if (file) {
+        items.push({
+          trackId: m.trackId,
+          sessionNumber: m.sessionNumber,
+          file,
+          filename: file.name,
+          mediaType: "audio",
+          title: m.title,
+        });
+      }
+    }
+
+    if (items.length === 0) {
+      notify("padmakara.tracks.repairNoMatches", { type: "warning" });
+      return;
+    }
+    const matchedNames = new Set(items.map((i) => i.filename));
+    const unmatched = files.filter((f) => !matchedNames.has(f.name)).length;
+
+    setBusy(true);
+    const { promise } = uploadTracks(items, eventCode, () => {});
+    try {
+      await promise;
+      notify("padmakara.tracks.repairUploaded", {
+        type: "success",
+        messageArgs: { smart_count: items.length },
+      });
+      if (unmatched > 0) {
+        notify("padmakara.tracks.repairUnmatched", {
+          type: "info",
+          messageArgs: { smart_count: unmatched },
+        });
+      }
+      onRepaired();
+    } catch {
+      notify("padmakara.tracks.uploadAudioFailed", { type: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Alert severity="warning" sx={{ mb: 3 }}>
+      <AlertTitle>
+        {translate("padmakara.tracks.repairTitle", { smart_count: missing.length })}
+      </AlertTitle>
+      <Typography variant="body2" sx={{ mb: 1 }}>
+        {translate("padmakara.tracks.repairInstructions")}
+      </Typography>
+      <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mb: 1.5 }}>
+        {translate("padmakara.tracks.repairMissing")}:{" "}
+        {missing.map((m) => `${m.trackNumber}. ${m.title}`).join(" · ")}
+      </Typography>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const fl = e.target.files;
+          e.target.value = ""; // allow re-picking the same files
+          void handleFiles(fl);
+        }}
+      />
+      <Button
+        variant="contained"
+        color="warning"
+        size="small"
+        startIcon={<UploadFileIcon />}
+        disabled={busy}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        {busy
+          ? translate("padmakara.tracks.uploadingAudio")
+          : translate("padmakara.tracks.uploadAudio")}
+      </Button>
+      {busy && <LinearProgress sx={{ mt: 1.5 }} />}
+    </Alert>
+  );
+};
 
 export const EventEdit = () => {
   const { id } = useParams<{ id: string }>();
@@ -3077,6 +3222,36 @@ export const EventEdit = () => {
     [form.eventCode, id, sessions, videos, dataProvider, notify, refresh],
   );
 
+  // Finish an interrupted upload for a single keyless track: upload the
+  // chosen file and backfill its s3_key (reuses the bulk uploader for one
+  // item). Errors propagate to the row, which surfaces them.
+  const handleTrackAudioUpload = useCallback(
+    async (trackId: number, file: File) => {
+      if (!form.eventCode) return;
+      const session = sessions.find((s) => s.tracks.some((t) => t.id === trackId));
+      if (!session) return;
+      const { promise } = uploadTracks(
+        [{
+          trackId,
+          sessionNumber: session.sessionNumber,
+          file,
+          filename: file.name,
+          mediaType: "audio",
+          title: file.name,
+        }],
+        form.eventCode,
+        (progress) => setUploadProgress({ ...progress }),
+      );
+      try {
+        await promise;
+        refresh();
+      } finally {
+        setUploadProgress(null);
+      }
+    },
+    [form.eventCode, sessions, refresh],
+  );
+
   const handleFeaturedToggle = useCallback(async () => {
     if (!id) return;
     const newFeaturedAt = form.featuredAt ? null : new Date().toISOString();
@@ -3174,6 +3349,10 @@ export const EventEdit = () => {
       <Title title={`${translate("ra.action.edit")}: ${event ? localeTitle(event, locale) : ""}`} />
       <PageHeader title={(event && localeTitle(event, locale)) || translate("ra.action.edit")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
 
+      {form.eventCode && (
+        <AudioRepairPanel eventCode={form.eventCode} sessions={sessions} onRepaired={refresh} />
+      )}
+
       <EventFormFields
         form={form} setForm={setForm}
         selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
@@ -3186,6 +3365,7 @@ export const EventEdit = () => {
         sessions={sessions} transcripts={event?.transcripts || []} onSessionTitleChange={handleSessionTitleChange}
         onTrackUpdate={handleTrackUpdate}
         onTrackDelete={handleTrackDelete}
+        onTrackAudioUpload={handleTrackAudioUpload}
         videos={videos}
         onVideosChange={setVideos}
         onVideoUpload={handleVideoUpload}
