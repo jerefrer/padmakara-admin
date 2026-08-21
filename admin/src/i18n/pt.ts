@@ -730,6 +730,8 @@ export const pt = {
       generate: "Gerar legendas",
       generateHint: "Em inglês, a partir do áudio do vídeo e da transcrição do evento · 5–30 min",
       generatingLang: "A gerar legendas em %{language}",
+      previewLabel: "Legendas",
+      previewOff: "Desligadas",
       regenerate: "Regenerar",
       regenerateHint: "Repete a transcrição e substitui a faixa inglesa. As traduções ficam marcadas como desatualizadas.",
       submittedSuccess: "Job de legendas submetido",
