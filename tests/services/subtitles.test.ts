@@ -223,7 +223,7 @@ describe("deleteSubtitleJob", () => {
   });
 
   it("deletes a terminal job row", async () => {
-    mockFindFirstSubtitleJob.mockResolvedValueOnce({ id: "job-1", status: "failed" });
+    mockFindFirstSubtitleJob.mockResolvedValueOnce({ id: "job-1", status: "failed", batchJobId: null });
     const { deleteSubtitleJob } = await import("../../src/services/subtitles.ts");
     await expect(deleteSubtitleJob("job-1")).resolves.toEqual({ id: "job-1", deleted: true });
     expect(mockDelete).toHaveBeenCalled();
@@ -232,7 +232,7 @@ describe("deleteSubtitleJob", () => {
   it("refuses to delete a job that is still running", async () => {
     // Deleting a live job would orphan its Batch job, whose completion
     // webhook would then have no row to write back to.
-    mockFindFirstSubtitleJob.mockResolvedValueOnce({ id: "job-2", status: "running" });
+    mockFindFirstSubtitleJob.mockResolvedValueOnce({ id: "job-2", status: "running", batchJobId: "batch-2" });
     const { deleteSubtitleJob } = await import("../../src/services/subtitles.ts");
     await expect(deleteSubtitleJob("job-2")).rejects.toThrow(/cancel it before clearing/i);
     expect(mockDelete).not.toHaveBeenCalled();
