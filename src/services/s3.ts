@@ -53,20 +53,30 @@ export function storageEnvForContainer(
 // streams ("Body Data is unsupported format"); Bun's built-in client speaks the
 // S3 API natively, works cleanly with R2, and streams a file from disk without
 // buffering the whole thing in memory.
-const bunStorage = new Bun.S3Client({
-  accessKeyId: config.storage.accessKeyId,
-  secretAccessKey: config.storage.secretAccessKey,
-  ...(config.storage.endpoint ? { endpoint: config.storage.endpoint } : {}),
-  bucket: config.storage.bucket,
-  region: config.storage.region,
-});
+//
+// Built on first use rather than at module load. `Bun` does not exist under Vitest,
+// which runs on Node, so constructing it at import time made *every* test file that
+// reaches src/index.ts fail with "Bun is not defined" — the whole suite, not just the
+// storage tests. Only uploadFile() needs it, and that is never called from a test.
+let bunStorage: InstanceType<typeof Bun.S3Client> | undefined;
+
+function getBunStorage(): InstanceType<typeof Bun.S3Client> {
+  bunStorage ??= new Bun.S3Client({
+    accessKeyId: config.storage.accessKeyId,
+    secretAccessKey: config.storage.secretAccessKey,
+    ...(config.storage.endpoint ? { endpoint: config.storage.endpoint } : {}),
+    bucket: config.storage.bucket,
+    region: config.storage.region,
+  });
+  return bunStorage;
+}
 
 /**
  * Upload a local file to storage, streaming it from disk. Used for
  * server-generated artifacts (e.g. ZIP downloads) built to a temp file.
  */
 export async function uploadFile(key: string, filePath: string, contentType: string): Promise<void> {
-  await bunStorage.write(key, Bun.file(filePath), { type: contentType });
+  await getBunStorage().write(key, Bun.file(filePath), { type: contentType });
 }
 
 export async function generatePresignedUploadUrl(

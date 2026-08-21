@@ -246,6 +246,13 @@
       "when": 1811296000000,
       "tag": "0034_download_user_id_nullable",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1811382400000,
+      "tag": "0035_payment_transactions",
+      "breakpoints": true
     }
   ]
 }

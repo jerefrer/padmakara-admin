@@ -2,6 +2,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users, userGroupMemberships, userEventAttendance } from "../db/schema/users.ts";
 import { eventRetreatGroups } from "../db/schema/retreats.ts";
+import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 
 // Audience slugs from seed-from-csv.ts (slugify of English names)
@@ -67,13 +68,27 @@ interface EventForAccess {
   audienceId?: number | null;
 }
 
+/**
+ * Whether the user's contribution currently entitles them to member content.
+ *
+ * `subscriptionExpiresAt` is the date they have paid through. We keep access open for
+ * `config.subscription.graceDays` beyond it, because a renewal notification can arrive
+ * late or not at all — Easypay does not guarantee delivery, and a member who has been
+ * charged must not lose access while we wait to hear about it. A few extra days of
+ * access costs nothing; locking out someone who paid costs trust.
+ *
+ * A cancelled subscription is still active until its paid-through date, so
+ * `subscriptionCancelledAt` deliberately plays no part here.
+ */
 export function hasActiveSubscription(user: {
   subscriptionStatus: string;
   subscriptionExpiresAt: Date | null;
 }): boolean {
   if (user.subscriptionStatus !== "active") return false;
-  if (user.subscriptionExpiresAt && user.subscriptionExpiresAt < new Date()) return false;
-  return true;
+  if (!user.subscriptionExpiresAt) return true;
+  const cutoff = new Date(user.subscriptionExpiresAt);
+  cutoff.setDate(cutoff.getDate() + config.subscription.graceDays);
+  return cutoff >= new Date();
 }
 
 /**

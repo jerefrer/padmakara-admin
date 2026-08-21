@@ -197,11 +197,11 @@ describe("Payment routes (mock mode)", () => {
       expect(status).toBe(200);
       expect(body.url).toContain("/subscription/cancel");
 
-      expect(updateChain.set).toHaveBeenCalledWith(
-        expect.objectContaining({
-          subscriptionStatus: "expired",
-        }),
-      );
+      // Cancelling must NOT revoke access: the member paid through
+      // subscriptionExpiresAt and keeps it until then.
+      const cancelSet = updateChain.set.mock.calls[0]![0];
+      expect(cancelSet.subscriptionCancelledAt).toBeInstanceOf(Date);
+      expect(cancelSet).not.toHaveProperty("subscriptionStatus");
     });
   });
 
@@ -269,9 +269,7 @@ describe("Payment routes (mock mode)", () => {
       res = await testJson("/api/payment/cancel", { method: "POST", headers });
       expect(res.status).toBe(200);
       expect(res.body.url).toContain("cancel");
-      expect(updateChain.set).toHaveBeenCalledWith(
-        expect.objectContaining({ subscriptionStatus: "expired" }),
-      );
+      expect(updateChain.set.mock.calls[0]![0].subscriptionCancelledAt).toBeInstanceOf(Date);
 
       // 3. Re-subscribe
       (db.query.users.findFirst as any).mockResolvedValue(
