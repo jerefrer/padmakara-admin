@@ -495,6 +495,9 @@ export const aiAssistSchema = z.object({
     .array(
       z.object({
         rowKey: z.string().min(1).max(100),
+        // The number the admin shows this session under, so an instruction
+        // can name it ("session 3") instead of quoting its title.
+        sessionNumber: z.number().int().min(0).max(10000).optional(),
         titleEn: z.string().max(500).optional(),
         titlePt: z.string().max(500).optional(),
       }),
@@ -508,6 +511,8 @@ export const aiAssistSchema = z.object({
     .array(
       z.object({
         rowKey: z.string().min(1).max(100),
+        // 1-based, as the admin labels it ("Video 2").
+        videoNumber: z.number().int().min(0).max(10000).optional(),
         title: z.string().max(500),
         titleEn: z.string().max(500).optional(),
         titlePt: z.string().max(500).optional(),
@@ -525,6 +530,12 @@ export const aiAssistSchema = z.object({
     .array(
       z.object({
         rowKey: z.string().min(1).max(100),
+        // Where the track sits in the admin: which session, and its number
+        // within that session. Sent so an instruction can address tracks
+        // positionally ("tracks 3 to 7", "the last track of session 2")
+        // instead of having to quote titles.
+        sessionNumber: z.number().int().min(0).max(10000).optional(),
+        trackNumber: z.number().int().min(0).max(10000).optional(),
         originalFilename: z.string().max(500),
         title: z.string().max(500),
         titleEn: z.string().max(500).optional(),

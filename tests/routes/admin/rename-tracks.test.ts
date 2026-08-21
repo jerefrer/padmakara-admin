@@ -118,6 +118,37 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(mockMessagesCreate).toHaveBeenCalledOnce();
   });
 
+  it("passes the admin's session and track numbers through to the model", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify({ tracks: [] })),
+    );
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        instruction: "Retitle track 3 of session 2",
+        sessions: [{ rowKey: "s7", sessionNumber: 2, titleEn: "Afternoon" }],
+        tracks: [
+          {
+            rowKey: "1-1", sessionNumber: 2, trackNumber: 3,
+            originalFilename: "003.mp3", title: "Opening",
+          },
+        ],
+      }),
+    });
+
+    expect(status).toBe(200);
+    // The numbers are what an instruction like "track 3 of session 2" is
+    // resolved against, so they have to survive validation and reach the
+    // prompt rather than being stripped as unknown keys.
+    const sent = mockMessagesCreate.mock.calls[0]![0].messages[0].content;
+    const payload = JSON.parse(sent.split("Current data:\n")[1]);
+    expect(payload.tracks[0]).toMatchObject({ sessionNumber: 2, trackNumber: 3 });
+    expect(payload.sessions[0]).toMatchObject({ sessionNumber: 2 });
+  });
+
   it("returns event field suggestions for an event-focused instruction", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
       makeAnthropicResponse(

@@ -165,9 +165,83 @@ describe("aiAssistEvent", () => {
       ],
       roster: ROSTER, apiKey: "k",
     });
-    // t1 keeps what it had, so it is not a change to review.
-    expect(out.tracks[0]?.languages).toBeUndefined();
-    expect(out.tracks[1]?.languages).toEqual(["tib", "en"]);
+    // t1 keeps what it had, so it is not a change to review at all — a bare
+    // rowKey with nothing under it would draw an empty review row.
+    expect(out.tracks).toEqual([{ rowKey: "t2", languages: ["tib", "en"] }]);
+  });
+
+  it("drops a track title suggestion identical to the title the track already has", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [
+        { rowKey: "t1", titleEn: "Opening", titlePt: "Abertura" },
+        { rowKey: "t2", titleEn: "Closing", titlePt: "Encerramento" },
+      ] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Give every track an English and Portuguese title",
+      tracks: [
+        // Already correct in English — only the Portuguese is a change.
+        { rowKey: "t1", originalFilename: "001.mp3", title: "a", titleEn: "Opening", titlePt: "" },
+        { rowKey: "t2", originalFilename: "002.mp3", title: "b", titleEn: "Closing", titlePt: "Encerramento" },
+      ],
+      roster: ROSTER, apiKey: "k",
+    });
+    // t2 was already right in both languages, so it drops out entirely.
+    expect(out.tracks).toEqual([{ rowKey: "t1", titlePt: "Abertura" }]);
+  });
+
+  it("drops a speaker suggestion matching the speaker the track already has", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "t1", speaker: "JKR", titleEn: "Opening" }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Set the speaker to Jigme Khyentse Rinpoche",
+      tracks: [{ rowKey: "t1", originalFilename: "001.mp3", title: "a", speaker: "JKR" }],
+      roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([{ rowKey: "t1", titleEn: "Opening" }]);
+  });
+
+  it("drops a session title suggestion identical to the session's own", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ sessions: [
+        { rowKey: "s1", titleEn: "Morning" },
+        { rowKey: "s2", titleEn: "Afternoon session" },
+      ] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Tidy the session titles",
+      sessions: [
+        { rowKey: "s1", sessionNumber: 1, titleEn: "Morning" },
+        { rowKey: "s2", sessionNumber: 2, titleEn: "afternoon" },
+      ],
+      tracks: [], roster: ROSTER, apiKey: "k",
+    });
+    expect(out.sessions).toEqual([{ rowKey: "s2", titleEn: "Afternoon session" }]);
+  });
+
+  it("drops an event field suggestion identical to the field's current value", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ event: { titleEn: "Spring Retreat", titlePt: "Retiro de Primavera" } }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Translate the event title",
+      event: { titleEn: "Spring Retreat", titlePt: "" },
+      tracks: [], roster: ROSTER, apiKey: "k",
+    });
+    expect(out.event).toEqual({ titlePt: "Retiro de Primavera" });
+  });
+
+  it("returns no event key at all when every suggested field already matches", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ event: { titleEn: "Spring Retreat" } }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Check the event title",
+      event: { titleEn: "Spring Retreat" },
+      tracks: [], roster: ROSTER, apiKey: "k",
+    });
+    expect(out.event).toBeUndefined();
   });
 
   it("strips markdown fences around the JSON object", async () => {
@@ -393,6 +467,59 @@ describe("aiAssistEvent request shape", () => {
         output_config: { effort: "medium" },
       }),
     );
+  });
+});
+
+describe("aiAssistEvent positional numbering", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /** The JSON payload handed to the model on call `n` (0-based). */
+  function payloadOfCall(n: number): any {
+    const { messages } = mockMessagesCreate.mock.calls[n]![0];
+    return JSON.parse(messages[0].content.split("Current data:\n")[1]);
+  }
+
+  it("puts the admin's session and track numbers in the payload the model sees", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(aiReply({ tracks: [] }));
+    await aiAssistEvent({
+      instruction: "Retitle tracks 3 to 7",
+      sessions: [{ rowKey: "s1", sessionNumber: 2, titleEn: "Afternoon" }],
+      videos: [{ rowKey: "v1", videoNumber: 1, title: "raw.mp4" }],
+      tracks: [
+        { rowKey: "t1", sessionNumber: 2, trackNumber: 3, originalFilename: "003.mp3", title: "a" },
+      ],
+      roster: ROSTER, apiKey: "k",
+    });
+
+    const payload = payloadOfCall(0);
+    expect(payload.tracks[0]).toMatchObject({ sessionNumber: 2, trackNumber: 3 });
+    expect(payload.sessions[0]).toMatchObject({ sessionNumber: 2 });
+    expect(payload.videos[0]).toMatchObject({ videoNumber: 1 });
+  });
+
+  it("tells the model that track numbers restart in every session", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(aiReply({ tracks: [] }));
+    await aiAssistEvent({ instruction: "x", tracks: TRACKS, roster: ROSTER, apiKey: "k" });
+
+    const { system } = mockMessagesCreate.mock.calls[0]![0];
+    expect(system).toContain("trackNumber restarts at 1 in every session");
+    // Numbers identify a row; letting the model "fix" them would silently
+    // reorder the event.
+    expect(system).toContain("Never change sessionNumber or trackNumber");
+  });
+
+  it("ignores a suggestion that tries to change a track's number", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "t1", trackNumber: 9, sessionNumber: 4, titleEn: "Opening" }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Renumber the tracks",
+      tracks: [{ rowKey: "t1", sessionNumber: 1, trackNumber: 1, originalFilename: "001.mp3", title: "a" }],
+      roster: ROSTER, apiKey: "k",
+    });
+    // Only the whitelisted fields survive the clean — the numbers are not
+    // among them, so a renumbering suggestion cannot reach the admin.
+    expect(out.tracks).toEqual([{ rowKey: "t1", titleEn: "Opening" }]);
   });
 });
 

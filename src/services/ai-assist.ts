@@ -9,6 +9,10 @@ import {
 
 export interface RenameTrackRow {
   rowKey: string;
+  /** The session this track belongs to, as numbered in the admin. */
+  sessionNumber?: number;
+  /** The track's position within its session, as numbered in the admin. */
+  trackNumber?: number;
   originalFilename: string;
   title: string;
   titleEn?: string;
@@ -39,6 +43,8 @@ export interface AiEventFields {
 
 export interface AiSessionRow {
   rowKey: string;
+  /** The number the admin shows this session under. */
+  sessionNumber?: number;
   titleEn?: string;
   titlePt?: string;
 }
@@ -56,6 +62,8 @@ export interface AiSessionSuggestion {
  */
 export interface AiVideoRow {
   rowKey: string;
+  /** 1-based, as the admin labels it. */
+  videoNumber?: number;
   title: string;
   titleEn?: string;
   titlePt?: string;
@@ -265,6 +273,19 @@ function cleanLanguages(raw: unknown): string[] | undefined {
 const sameLanguages = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((code, i) => code === b[i]);
 
+/**
+ * True when a suggested value differs from what the row already holds.
+ *
+ * The model routinely echoes fields it looked at but did not change — an
+ * instruction that mentions Portuguese tends to come back with every track's
+ * existing titlePt repeated. Those are not changes: dropping them here keeps
+ * the review table down to the rows that matter and keeps the change count
+ * the admin sees honest. Absent and empty are the same thing, since the admin
+ * sends "" for a field it has no value for.
+ */
+const changed = (current: string | null | undefined, suggested: string): boolean =>
+  (current ?? "") !== suggested;
+
 const ASSIST_SYSTEM_PROMPT =
   "You are helping a Buddhist retreat administrator edit a retreat event in a " +
   "content management system. You receive the event's current fields, its " +
@@ -275,10 +296,12 @@ const ASSIST_SYSTEM_PROMPT =
   "sessionThemesEn, sessionThemesPt, startDate, endDate — only the fields that " +
   "should change. Dates must be ISO YYYY-MM-DD.\n" +
   '- "sessions": an array of { rowKey, titleEn?, titlePt? } for sessions that ' +
-  "should change (rowKey unchanged).\n" +
+  "should change (rowKey unchanged). Each session carries sessionNumber — the " +
+  'number the admin shows it under ("Session 3").\n' +
   '- "videos": an array of { rowKey, titleEn?, titlePt?, videoDate? } for ' +
   "videos that should change (rowKey unchanged). Videos are recordings " +
   "attached to the event itself, separate from the audio tracks. Each has " +
+  'videoNumber — the number the admin labels it with ("Video 2") — plus ' +
   "titleEn and titlePt (either may be empty), title — its current title, " +
   "which is often still the raw upload filename — and videoDate, the " +
   "recording date, which may be empty. Set titleEn/titlePt to give a video a " +
@@ -299,6 +322,15 @@ const ASSIST_SYSTEM_PROMPT =
   "entry; no other code exists. Setting languages REPLACES the whole list, so " +
   "list every language the track should end up with, in the order tib, en, " +
   "pt, fr. Omit languages for a track whose list is already correct.\n" +
+  "Each track also carries sessionNumber — the session it belongs to — and " +
+  "trackNumber, its position within that session; both are the numbers the " +
+  "admin displays. Resolve instructions that address rows by position against " +
+  'these rather than guessing from filenames: "tracks 3 to 7" means ' +
+  "trackNumber 3 through 7, and trackNumber restarts at 1 in every session, " +
+  "so an instruction naming track numbers without naming a session applies to " +
+  "that track number in every session. Never change sessionNumber or " +
+  "trackNumber themselves — they identify the row, they are not editable " +
+  "fields.\n" +
   "IMPORTANT: only suggest changes to a group when the instruction asks about " +
   "that group. An instruction about videos changes only videos; one about " +
   "track titles or speakers changes only tracks; leave every other key out. " +
@@ -319,15 +351,17 @@ const TRACKS_ONLY_NOTE =
   "the tracks listed in this batch. The sessions and videos are handled by " +
   "another request — omit those keys entirely.";
 
-function cleanEvent(raw: unknown): AiEventFields | undefined {
+function cleanEvent(raw: unknown, current: AiEventFields | undefined): AiEventFields | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const s = raw as Record<string, unknown>;
   const out: AiEventFields = {};
   for (const k of ["titleEn", "titlePt", "mainThemesEn", "mainThemesPt", "sessionThemesEn", "sessionThemesPt"] as const) {
-    if (typeof s[k] === "string") out[k] = s[k] as string;
+    if (typeof s[k] === "string" && changed(current?.[k], s[k] as string)) out[k] = s[k] as string;
   }
   for (const k of ["startDate", "endDate"] as const) {
-    if (typeof s[k] === "string" && ISO_DATE.test(s[k] as string)) out[k] = s[k] as string;
+    if (typeof s[k] === "string" && ISO_DATE.test(s[k] as string) && changed(current?.[k], s[k] as string)) {
+      out[k] = s[k] as string;
+    }
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -368,30 +402,41 @@ async function runAssistBatch(args: {
 
   const r = parseAssistReply(textBlock.text);
 
-  const outEvent = cleanEvent(r.event);
+  const outEvent = cleanEvent(r.event, event);
+
+  const sessionByKey = new Map(sessions.map((row) => [row.rowKey, row]));
 
   const outSessions: AiSessionSuggestion[] = Array.isArray(r.sessions)
     ? r.sessions.flatMap((item): AiSessionSuggestion[] => {
         if (typeof item !== "object" || item === null) return [];
         const s = item as Record<string, unknown>;
         const sug: AiSessionSuggestion = { rowKey: String(s.rowKey ?? "") };
-        if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
-        if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
-        return sug.rowKey ? [sug] : [];
+        const cur = sessionByKey.get(sug.rowKey);
+        if (typeof s.titleEn === "string" && changed(cur?.titleEn, s.titleEn)) sug.titleEn = s.titleEn;
+        if (typeof s.titlePt === "string" && changed(cur?.titlePt, s.titlePt)) sug.titlePt = s.titlePt;
+        // A bare rowKey with nothing changed is noise in the review table.
+        return sug.rowKey && Object.keys(sug).length > 1 ? [sug] : [];
       })
     : [];
+
+  const videoByKey = new Map(videos.map((row) => [row.rowKey, row]));
 
   const outVideos: AiVideoSuggestion[] = Array.isArray(r.videos)
     ? r.videos.flatMap((item): AiVideoSuggestion[] => {
         if (typeof item !== "object" || item === null) return [];
         const s = item as Record<string, unknown>;
         const sug: AiVideoSuggestion = { rowKey: String(s.rowKey ?? "") };
-        if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
-        if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
+        const cur = videoByKey.get(sug.rowKey);
+        if (typeof s.titleEn === "string" && changed(cur?.titleEn, s.titleEn)) sug.titleEn = s.titleEn;
+        if (typeof s.titlePt === "string" && changed(cur?.titlePt, s.titlePt)) sug.titlePt = s.titlePt;
         // Same rule as the event dates: a date the API can't store is worse
         // than no suggestion, so anything non-ISO is dropped rather than
         // handed to the admin as an applyable change.
-        if (typeof s.videoDate === "string" && ISO_DATE.test(s.videoDate)) {
+        if (
+          typeof s.videoDate === "string" &&
+          ISO_DATE.test(s.videoDate) &&
+          changed(cur?.videoDate, s.videoDate)
+        ) {
           sug.videoDate = s.videoDate;
         }
         // A bare rowKey with nothing changed is noise in the review table.
@@ -408,25 +453,27 @@ async function runAssistBatch(args: {
         if (typeof item !== "object" || item === null) return [];
         const s = item as Record<string, unknown>;
         const sug: RenameSuggestion = { rowKey: String(s.rowKey ?? "") };
-        if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
-        if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
+        const cur = currentByKey.get(sug.rowKey);
+        if (typeof s.titleEn === "string" && changed(cur?.titleEn, s.titleEn)) sug.titleEn = s.titleEn;
+        if (typeof s.titlePt === "string" && changed(cur?.titlePt, s.titlePt)) sug.titlePt = s.titlePt;
         if (s.languages !== undefined) {
           const langs = cleanLanguages(s.languages);
-          const current = currentByKey.get(sug.rowKey)?.languages;
-          // A list identical to the track's own is not a change. Instructions
-          // that name languages tend to make the model echo every track it
-          // looked at, which would otherwise draw an "English → English" row
-          // per track and bury the tracks that do change.
+          const current = cur?.languages;
+          // Same rule as the titles above, applied to the list rather than a
+          // string: a list identical to the track's own is not a change.
           if (langs && !(current && sameLanguages(current, langs))) {
             sug.languages = langs;
           }
         }
         if (typeof s.speaker === "string") {
           const resolved = resolveSpeaker(s.speaker, roster);
-          sug.speaker = resolved.speaker;
-          if (resolved.unmatched) sug.speakerUnmatched = true;
+          if (changed(cur?.speaker, resolved.speaker)) {
+            sug.speaker = resolved.speaker;
+            if (resolved.unmatched) sug.speakerUnmatched = true;
+          }
         }
-        return sug.rowKey ? [sug] : [];
+        // A bare rowKey with nothing changed is noise in the review table.
+        return sug.rowKey && Object.keys(sug).length > 1 ? [sug] : [];
       })
     : [];
 
