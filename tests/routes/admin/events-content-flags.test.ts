@@ -16,8 +16,10 @@ vi.mock("../../../src/db/index.ts", () => {
     chain.groupBy = () => Promise.resolve(rows);
     return chain;
   };
-  // Return presence for event 1 across all four selects.
-  const selectImpl = vi.fn(() => makeChain([{ id: 1 }]));
+  // Return presence for event 1 across all four selects. The audio select
+  // projects total/keyed as well — without them Number(undefined) is NaN and
+  // hasAudio comes out false; the other three selects only read `id`.
+  const selectImpl = vi.fn(() => makeChain([{ id: 1, total: 2, keyed: 2 }]));
   return {
     db: {
       query: {
