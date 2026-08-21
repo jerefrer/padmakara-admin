@@ -1,4 +1,4 @@
-import { BatchClient, DescribeJobsCommand } from "@aws-sdk/client-batch";
+import { BatchClient, DescribeJobsCommand, TerminateJobCommand } from "@aws-sdk/client-batch";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { readAlongJobs } from "../db/schema/read-along-jobs.ts";
@@ -27,7 +27,10 @@ const SUCCEEDED_WEBHOOK_GRACE_MS = 2 * 60 * 1000;
 // job that was submitted moments ago and hasn't shown up in DescribeJobs yet.
 const AGED_OUT_THRESHOLD_MS = 15 * 60 * 1000;
 
-const TERMINAL_DB_STATUSES = new Set(["completed", "failed"]);
+// Exported so cancellation logic (subtitles.ts, read-along.ts) and the
+// admin UI can agree on which statuses are already final — a job in one of
+// these states cannot be cancelled because it no longer runs.
+export const TERMINAL_DB_STATUSES = new Set(["completed", "failed"]);
 
 export interface BatchJobInfo {
   status: string;
@@ -241,4 +244,27 @@ export async function reconcileSubtitleRows(rows: any[]): Promise<void> {
     completedAtCol: subtitleJobs.completedAt,
     updatedAtCol: subtitleJobs.updatedAt,
   });
+}
+
+/**
+ * Ask AWS Batch to terminate a job (admin-initiated cancellation).
+ *
+ * Never throws: a job that has already finished (succeeded, failed, or aged
+ * out of Batch's retention window) makes TerminateJob reject — that is not
+ * an error from the caller's point of view, since the desired end state
+ * ("this job is not running") already holds. The caller is responsible for
+ * updating the DB row regardless of whether AWS still had anything to stop.
+ */
+export async function terminateBatchJob(
+  batchJobId: string,
+  reason: string,
+): Promise<void> {
+  try {
+    await batchClient.send(new TerminateJobCommand({ jobId: batchJobId, reason }));
+  } catch (err) {
+    console.error(
+      `[batch-reconcile] Failed to terminate Batch job ${batchJobId} (it may already have finished):`,
+      err,
+    );
+  }
 }

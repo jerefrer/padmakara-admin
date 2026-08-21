@@ -9,7 +9,12 @@ import { transcripts } from "../db/schema/transcripts.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { putObject, storageEnvForContainer } from "./s3.ts";
-import { reconcileReadAlongRows } from "./batch-reconcile.ts";
+import { reconcileReadAlongRows, terminateBatchJob, TERMINAL_DB_STATUSES } from "./batch-reconcile.ts";
+
+// Reason recorded on read_along_jobs.error_message when an admin cancels a
+// job. friendlyJobError() (admin/src/utils/friendlyJobError.ts) special-cases
+// this text so the UI shows "cancelled", not "crashed".
+const CANCEL_REASON = "Cancelled by an administrator";
 
 const batchClient = new BatchClient({
   region: config.aws.region,
@@ -167,4 +172,37 @@ export async function getReadAlongJobs(eventId: number) {
   const rows = await query();
   await reconcileReadAlongRows(rows);
   return query();
+}
+
+/**
+ * Cancel a running/queued read-along job: asks AWS Batch to terminate it
+ * (best effort — never throws even if the job already finished there) and
+ * marks the DB row terminal with a reason distinguishable from a genuine
+ * failure.
+ */
+export async function cancelReadAlongJob(jobId: string) {
+  const job = await db.query.readAlongJobs.findFirst({
+    where: eq(readAlongJobs.id, jobId),
+  });
+  if (!job) throw AppError.notFound("Read-along job not found");
+  if (TERMINAL_DB_STATUSES.has(job.status)) {
+    throw AppError.conflict("This job has already finished and cannot be cancelled");
+  }
+
+  if (job.batchJobId) {
+    await terminateBatchJob(job.batchJobId, CANCEL_REASON);
+  }
+
+  const completedAt = new Date();
+  await db
+    .update(readAlongJobs)
+    .set({
+      status: "failed",
+      errorMessage: CANCEL_REASON,
+      completedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(readAlongJobs.id, jobId));
+
+  return { ...job, status: "failed", errorMessage: CANCEL_REASON, completedAt };
 }

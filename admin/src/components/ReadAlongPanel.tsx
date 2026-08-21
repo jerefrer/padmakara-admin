@@ -9,6 +9,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Divider from "@mui/material/Divider";
 import GraphicEqIcon from "@mui/icons-material/GraphicEq";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
 import ReplayIcon from "@mui/icons-material/Replay";
 import { useNotify, useRefresh, useTranslate, Confirm } from "react-admin";
 import { authFetch } from "../utils/authFetch";
@@ -81,6 +82,8 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTerminalCount = useRef<number>(0);
 
@@ -148,6 +151,28 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
     }
   };
 
+  const handleCancel = async (jobId: string) => {
+    setCancelling(true);
+    try {
+      const res = await authFetch(`/api/admin/events/${eventId}/read-along/${jobId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+        const msg = body.error?.message ?? `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      notify(translate("padmakara.readAlong.cancelledSuccess"), { type: "success" });
+      await fetchJobs();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notify(`${translate("padmakara.readAlong.cancelFailed")}: ${msg}`, { type: "error" });
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const latestJob = jobs[0] ?? null;
   const latestDuration = latestJob
     ? formatDuration(latestJob.submittedAt ?? latestJob.createdAt, latestJob.completedAt)
@@ -183,12 +208,22 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
               size="small"
               color={statusColor(latestJob.status)}
             />
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
               {translate("padmakara.readAlong.lastJob", {
                 language: latestJob.language.toUpperCase(),
                 when: formatTimestamp(latestJob.completedAt ?? latestJob.submittedAt ?? latestJob.createdAt),
               })}
             </Typography>
+            <Button
+              size="small"
+              color="inherit"
+              startIcon={<CancelIcon fontSize="small" />}
+              disabled={cancelling}
+              onClick={() => setCancelConfirmOpen(true)}
+              sx={{ textTransform: "none", color: "text.secondary" }}
+            >
+              {translate("padmakara.readAlong.cancel")}
+            </Button>
           </Box>
           <LinearProgress sx={{ mt: 2, borderRadius: 1 }} />
         </Box>
@@ -337,6 +372,20 @@ export const ReadAlongPanel = ({ eventId }: Props) => {
         }}
         onClose={() => setConfirmOpen(false)}
       />
+
+      {latestJob && (
+        <Confirm
+          isOpen={cancelConfirmOpen}
+          title={translate("padmakara.readAlong.cancelConfirmTitle")}
+          content={translate("padmakara.readAlong.cancelConfirmContent")}
+          confirmColor="warning"
+          onConfirm={() => {
+            setCancelConfirmOpen(false);
+            void handleCancel(latestJob.id);
+          }}
+          onClose={() => setCancelConfirmOpen(false)}
+        />
+      )}
     </Paper>
   );
 };
