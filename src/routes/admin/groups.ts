@@ -20,6 +20,7 @@ import {
   processHeroMobile,
 } from "../../services/image-pipeline.ts";
 import { resolveGroupUrls } from "../../lib/group-utils.ts";
+import { loadImageSource, imageSourceResponse } from "../../lib/image-source.ts";
 import { bumpVersion, bumpUserAccessVersion } from "../../services/sync-versions.ts";
 
 const groupRoutes = new Hono();
@@ -70,6 +71,39 @@ groupRoutes.put("/reorder", async (c) => {
     console.error("[sync] failed to bump groups version:", err),
   );
   return c.json({ success: true });
+});
+
+/**
+ * GET /:id/avatar/source and GET /:id/hero/source — the current image bytes,
+ * served through the API so the admin can re-crop it without the browser
+ * having to read a cross-origin URL. See lib/image-source.ts.
+ */
+groupRoutes.get("/:id/avatar/source", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid group ID");
+
+  const group = await db.query.retreatGroups.findFirst({
+    where: eq(retreatGroups.id, id),
+  });
+  if (!group) throw AppError.notFound("Group not found");
+
+  return imageSourceResponse(
+    await loadImageSource({ s3Key: group.avatarS3Key, fallbackUrl: group.logoUrl }),
+  );
+});
+
+groupRoutes.get("/:id/hero/source", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid group ID");
+
+  const group = await db.query.retreatGroups.findFirst({
+    where: eq(retreatGroups.id, id),
+  });
+  if (!group) throw AppError.notFound("Group not found");
+
+  return imageSourceResponse(
+    await loadImageSource({ s3Key: group.heroS3Key, fallbackUrl: null }),
+  );
 });
 
 /**

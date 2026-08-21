@@ -5,6 +5,7 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import EditIcon from "@mui/icons-material/Edit";
 import { ImageCropDialog, applyGrayscale, type HeroSaveParams } from "./ImageCropDialog";
 import { authFetch } from "../utils/authFetch";
+import { fetchImageSourceAsFile } from "../utils/imageSource";
 
 type DialogState =
   | { kind: "closed" }
@@ -44,26 +45,6 @@ async function uploadTeacherHero(
     body: form,
   });
   if (!res.ok) throw new Error("Failed to upload hero");
-}
-
-async function fetchUrlAsFile(url: string, filename: string): Promise<File> {
-  // Likely failure mode here is CORS — the S3 bucket doesn't have a CORS
-  // policy for this origin, so fetch is blocked even though <img> works
-  // (image tags don't trigger CORS preflight). Log the underlying error
-  // so we can diagnose if "Could not load existing" toast pops up.
-  let res: Response;
-  try {
-    res = await fetch(url, { mode: "cors", cache: "no-cache" });
-  } catch (err) {
-    console.error("[fetchUrlAsFile] fetch failed (likely CORS):", err, "url:", url);
-    throw err;
-  }
-  if (!res.ok) {
-    console.error("[fetchUrlAsFile] HTTP", res.status, res.statusText, "url:", url);
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const blob = await res.blob();
-  return new File([blob], filename, { type: blob.type || "image/jpeg" });
 }
 
 /** Crop the source image to the given pixel area and return a JPEG blob.
@@ -125,13 +106,16 @@ export function TeacherImageUpload() {
   }, []);
 
   const openAvatarFromExisting = useCallback(async () => {
-    const url = (record?.avatarUrl || record?.photoUrl) as string | undefined;
-    if (!url) {
+    const hasExisting = !!(record?.avatarUrl || record?.photoUrl);
+    if (!record?.id || !hasExisting) {
       avatarInputRef.current?.click();
       return;
     }
     try {
-      const file = await fetchUrlAsFile(url, "current-avatar.jpg");
+      const file = await fetchImageSourceAsFile(
+        `/api/admin/teachers/${record.id}/avatar/source`,
+        "current-avatar.jpg",
+      );
       setDialog({ kind: "avatar", file });
     } catch {
       notify("Could not load existing avatar", { type: "warning" });
@@ -163,14 +147,16 @@ export function TeacherImageUpload() {
   }, []);
 
   const openHeroFromExisting = useCallback(async () => {
-    if (!record) return;
-    const url = record.heroUrl as string | undefined;
-    if (!url) {
+    if (!record?.id) return;
+    if (!record.heroUrl) {
       heroInputRef.current?.click();
       return;
     }
     try {
-      const file = await fetchUrlAsFile(url, "current-hero.jpg");
+      const file = await fetchImageSourceAsFile(
+        `/api/admin/teachers/${record.id}/hero/source`,
+        "current-hero.jpg",
+      );
       setDialog({
         kind: "hero",
         file,

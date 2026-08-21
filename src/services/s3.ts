@@ -326,6 +326,27 @@ export async function getObjectText(key: string): Promise<string> {
 }
 
 /**
+ * Get an S3 object's raw bytes plus its stored content type. Used for small
+ * objects the API has to hand straight back to a client (e.g. serving an
+ * image back to the admin for re-cropping), where buffering is simpler and
+ * cheaper than plumbing a stream through.
+ */
+export async function getObjectBytes(
+  key: string,
+): Promise<{ body: Uint8Array; contentType: string }> {
+  const response = await s3Client.send(
+    new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+  );
+  if (!response.Body) {
+    throw new Error(`No body returned for S3 object: ${key}`);
+  }
+  return {
+    body: await response.Body.transformToByteArray(),
+    contentType: response.ContentType || "application/octet-stream",
+  };
+}
+
+/**
  * Get an S3 object as a readable stream for ZIP generation.
  */
 export async function getObjectStream(key: string): Promise<Readable> {

@@ -18,6 +18,7 @@ import {
   processHeroMobile,
 } from "../../services/image-pipeline.ts";
 import { resolveTeacherUrls } from "../../lib/teacher-utils.ts";
+import { loadImageSource, imageSourceResponse } from "../../lib/image-source.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 
 const teacherRoutes = new Hono();
@@ -50,6 +51,38 @@ teacherRoutes.get("/", async (c) => {
     data.map(async (t) => ({ ...t, ...(await resolveTeacherUrls(t)) })),
   );
   return listResponse(c, resolved, total, offset, offset + limit, "teachers");
+});
+
+/**
+ * GET /:id/avatar/source and GET /:id/hero/source — the current image bytes,
+ * served through the API so the admin can re-crop it.
+ *
+ * The admin deliberately does NOT fetch the image URL directly: legacy
+ * `photo_url` avatars live on third-party sites that send no CORS headers,
+ * so the browser blocks reading them. See lib/image-source.ts.
+ */
+teacherRoutes.get("/:id/avatar/source", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid teacher ID");
+
+  const teacher = await db.query.teachers.findFirst({ where: eq(teachers.id, id) });
+  if (!teacher) throw AppError.notFound("Teacher not found");
+
+  return imageSourceResponse(
+    await loadImageSource({ s3Key: teacher.avatarS3Key, fallbackUrl: teacher.photoUrl }),
+  );
+});
+
+teacherRoutes.get("/:id/hero/source", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (isNaN(id)) throw AppError.badRequest("Invalid teacher ID");
+
+  const teacher = await db.query.teachers.findFirst({ where: eq(teachers.id, id) });
+  if (!teacher) throw AppError.notFound("Teacher not found");
+
+  return imageSourceResponse(
+    await loadImageSource({ s3Key: teacher.heroS3Key, fallbackUrl: null }),
+  );
 });
 
 /**

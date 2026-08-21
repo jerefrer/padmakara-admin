@@ -5,6 +5,7 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import EditIcon from "@mui/icons-material/Edit";
 import { ImageCropDialog, type HeroSaveParams } from "./ImageCropDialog";
 import { authFetch } from "../utils/authFetch";
+import { fetchImageSourceAsFile } from "../utils/imageSource";
 
 type DialogState =
   | { kind: "closed" }
@@ -78,26 +79,6 @@ async function cropImageToBlob(
   }
 }
 
-async function fetchUrlAsFile(url: string, filename: string): Promise<File> {
-  // Likely failure mode here is CORS — the S3 bucket doesn't have a CORS
-  // policy for this origin, so fetch is blocked even though <img> works
-  // (image tags don't trigger CORS preflight). When that happens, we log
-  // the underlying error and let the caller surface a friendly toast.
-  let res: Response;
-  try {
-    res = await fetch(url, { mode: "cors", cache: "no-cache" });
-  } catch (err) {
-    console.error("[fetchUrlAsFile] fetch failed (likely CORS):", err, "url:", url);
-    throw err;
-  }
-  if (!res.ok) {
-    console.error("[fetchUrlAsFile] HTTP", res.status, res.statusText, "url:", url);
-    throw new Error(`HTTP ${res.status}`);
-  }
-  const blob = await res.blob();
-  return new File([blob], filename, { type: blob.type || "image/jpeg" });
-}
-
 export function GroupImageUpload() {
   const record = useRecordContext();
   const notify = useNotify();
@@ -119,13 +100,16 @@ export function GroupImageUpload() {
   }, []);
 
   const openAvatarFromExisting = useCallback(async () => {
-    const url = (record?.avatarUrl || record?.logoUrl) as string | undefined;
-    if (!url) {
+    const hasExisting = !!(record?.avatarUrl || record?.logoUrl);
+    if (!record?.id || !hasExisting) {
       avatarInputRef.current?.click();
       return;
     }
     try {
-      const file = await fetchUrlAsFile(url, "current-avatar.jpg");
+      const file = await fetchImageSourceAsFile(
+        `/api/admin/groups/${record.id}/avatar/source`,
+        "current-avatar.jpg",
+      );
       setDialog({ kind: "avatar", file });
     } catch {
       notify("Could not load existing avatar", { type: "warning" });
@@ -157,14 +141,16 @@ export function GroupImageUpload() {
   }, []);
 
   const openHeroFromExisting = useCallback(async () => {
-    if (!record) return;
-    const url = record.heroUrl as string | undefined;
-    if (!url) {
+    if (!record?.id) return;
+    if (!record.heroUrl) {
       heroInputRef.current?.click();
       return;
     }
     try {
-      const file = await fetchUrlAsFile(url, "current-hero.jpg");
+      const file = await fetchImageSourceAsFile(
+        `/api/admin/groups/${record.id}/hero/source`,
+        "current-hero.jpg",
+      );
       setDialog({
         kind: "hero",
         file,
