@@ -536,8 +536,6 @@ export const en = {
       generate: "Generate subtitles",
       generateHint: "English, from the video audio and the event transcript · 5–30 min",
       generatingLang: "Generating %{language} subtitles",
-      previewLabel: "Subtitles",
-      previewOff: "Off",
       regenerate: "Regenerate",
       regenerateHint: "Re-runs transcription and replaces the English track. Translations are marked out of date.",
       submittedSuccess: "Subtitle job submitted",
