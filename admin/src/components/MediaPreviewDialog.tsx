@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslate } from "react-admin";
 import Hls from "hls.js";
 import { authFetch } from "../utils/authFetch";
+import { chooseVideoEngine } from "./hlsEngine";
 import {
   buildSubtitleOptions,
   SUBTITLES_OFF,
@@ -54,8 +55,42 @@ function HlsVideo({ src }: { src: string }) {
     setSelected(SUBTITLES_OFF);
     const offLabel = translate("padmakara.subtitles.previewOff") || "Off";
 
-    // Safari plays HLS natively and owns the text tracks itself.
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    // Prefer hls.js wherever MSE works; use native HLS only when it can't run.
+    // Checking native first is a trap: some Chromium builds report
+    // canPlayType('…mpegurl')="maybe" but then fail a raw .m3u8 on video.src
+    // with MediaError code 4. See chooseVideoEngine.
+    const engine = chooseVideoEngine({
+      hlsjsSupported: Hls.isSupported(),
+      nativeHls: Boolean(video.canPlayType("application/vnd.apple.mpegurl")),
+    });
+
+    // hls.js path (Chromium/Firefox).
+    if (engine === "hlsjs") {
+      const hls = new Hls();
+      hlsRef.current = hls;
+      let forcedOff = false;
+      const refresh = () => {
+        if (!forcedOff && hls.subtitleTracks.length > 0) {
+          hls.subtitleTrack = SUBTITLES_OFF; // AUTOSELECT=NO,DEFAULT=NO — stay off.
+          forcedOff = true;
+        }
+        const descriptors: SubtitleTrackDescriptor[] = hls.subtitleTracks.map(
+          (t) => ({ id: t.id, lang: t.lang, label: t.name }),
+        );
+        setOptions(buildSubtitleOptions(descriptors, offLabel));
+      };
+      hls.on(Hls.Events.MANIFEST_PARSED, refresh);
+      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, refresh);
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      return () => {
+        hls.destroy();
+        hlsRef.current = null;
+      };
+    }
+
+    // Native HLS (Safari/iOS) — the browser owns the text tracks itself.
+    if (engine === "native") {
       video.src = src;
       let forcedOff = false;
       const refresh = () => {
@@ -83,31 +118,6 @@ function HlsVideo({ src }: { src: string }) {
         video.textTracks.removeEventListener?.("addtrack", refresh);
         video.textTracks.removeEventListener?.("removetrack", refresh);
         video.removeEventListener("loadedmetadata", refresh);
-      };
-    }
-
-    // hls.js path (Chrome/Firefox/etc).
-    if (Hls.isSupported()) {
-      const hls = new Hls();
-      hlsRef.current = hls;
-      let forcedOff = false;
-      const refresh = () => {
-        if (!forcedOff && hls.subtitleTracks.length > 0) {
-          hls.subtitleTrack = SUBTITLES_OFF; // AUTOSELECT=NO,DEFAULT=NO — stay off.
-          forcedOff = true;
-        }
-        const descriptors: SubtitleTrackDescriptor[] = hls.subtitleTracks.map(
-          (t) => ({ id: t.id, lang: t.lang, label: t.name }),
-        );
-        setOptions(buildSubtitleOptions(descriptors, offLabel));
-      };
-      hls.on(Hls.Events.MANIFEST_PARSED, refresh);
-      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, refresh);
-      hls.loadSource(src);
-      hls.attachMedia(video);
-      return () => {
-        hls.destroy();
-        hlsRef.current = null;
       };
     }
 
