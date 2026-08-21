@@ -135,6 +135,35 @@ describe("AiAssistPanel review table", () => {
     ]);
   });
 
+  it("keeps a track's number and title on one line", async () => {
+    await ask(
+      [makeTrack({ rowKey: "t1", trackNumber: 6, title: "Elements and dissolution" })],
+      { sessions: [], videos: [], tracks: [{ rowKey: "t1", titleEn: "Elements & dissolution" }] },
+    );
+
+    const itemCell = [...bodyRows().find(isValueRow)!.querySelectorAll("td")][1]!;
+    // Number and title share one flex parent; stacking them put the title on
+    // a second line and left the column needlessly narrow.
+    expect(itemCell.children).toHaveLength(1);
+    const line = itemCell.children[0] as HTMLElement;
+    expect(getComputedStyle(line).display).toBe("flex");
+    expect([...line.children].map((el) => el.textContent)).toEqual([
+      "06", "Elements and dissolution",
+    ]);
+  });
+
+  it("gives a session heading more height than the rows it introduces", async () => {
+    await ask(TWO_SESSIONS, TWO_SESSIONS_RESULT);
+
+    const padding = (row: Element) =>
+      parseFloat(getComputedStyle(row.querySelectorAll("td")[1]!).paddingTop);
+    const heading = bodyRows().find((r) => !isValueRow(r))!;
+    const value = bodyRows().find(isValueRow)!;
+
+    // The heading opens a session — it read as a thinner divider before.
+    expect(padding(heading)).toBeGreaterThan(padding(value));
+  });
+
   it("splits a value so the words that moved are their own elements", async () => {
     await ask(
       [makeTrack({ rowKey: "t1", trackNumber: 4, titleEn: "Morning teaching part 1" })],

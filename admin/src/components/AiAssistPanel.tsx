@@ -52,6 +52,9 @@ interface AiAssistPanelProps {
 /** Beyond this the review scrolls in place, so Apply stays reachable. */
 const REVIEW_MAX_HEIGHT = 420;
 
+/** Item column: wide enough for "07 Elements and dissolution" on one line. */
+const ITEM_COLUMN_WIDTH = 280;
+
 /**
  * A value with the words that moved picked out, so a one-word correction in a
  * long title doesn't have to be found by comparing two sentences by eye.
@@ -244,16 +247,19 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
           <TableRow key={`group-${i}`}>
             <TableCell
               padding="checkbox"
-              sx={{ py: 0.25, borderBottom: "none", backgroundColor: "rgba(91,94,166,0.05)" }}
+              sx={{ py: 1, borderBottom: "none", backgroundColor: "rgba(91,94,166,0.06)" }}
             >
               <Checkbox size="small" {...selectionProps(ids)} />
             </TableCell>
             <TableCell
               colSpan={columns - 1}
               sx={{
-                py: 0.5, borderBottom: "none",
-                fontWeight: 700, fontSize: "0.72rem", letterSpacing: 0.3,
-                color: "text.secondary", backgroundColor: "rgba(91,94,166,0.05)",
+                // Deliberately roomier than a track row: the heading has to
+                // read as the band that opens a session, not as a thinner
+                // version of the rows under it.
+                py: 1, borderBottom: "none",
+                fontWeight: 700, fontSize: "0.8rem", letterSpacing: 0.3,
+                color: "text.primary", backgroundColor: "rgba(91,94,166,0.06)",
               }}
             >
               {r.groupLabel}
@@ -283,21 +289,24 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
             />
           </TableCell>
           {showItem && (
-            <TableCell sx={{ ...cellSx, width: 150 }}>
+            <TableCell sx={{ ...cellSx, width: ITEM_COLUMN_WIDTH }}>
               {startsItem && (
-                <>
-                  <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                <Box sx={{ display: "flex", alignItems: "baseline", gap: 1 }}>
+                  <Typography
+                    variant="body2"
+                    sx={{ fontFamily: "monospace", fontWeight: 600, flexShrink: 0 }}
+                  >
                     {r.itemLabel}
                   </Typography>
                   {r.itemSubLabel && (
                     <Typography
-                      variant="caption"
-                      sx={{ display: "block", color: "text.secondary", wordBreak: "break-word" }}
+                      variant="body2"
+                      sx={{ color: "text.secondary", wordBreak: "break-word" }}
                     >
                       {r.itemSubLabel}
                     </Typography>
                   )}
-                </>
+                </Box>
               )}
             </TableCell>
           )}
@@ -343,7 +352,7 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
               <TableCell padding="checkbox">
                 <Checkbox size="small" {...selectionProps(sectionIds)} />
               </TableCell>
-              {showItem && <TableCell sx={{ width: 150 }}>{itemHeader}</TableCell>}
+              {showItem && <TableCell sx={{ width: ITEM_COLUMN_WIDTH }}>{itemHeader}</TableCell>}
               <TableCell sx={{ width: showItem ? 110 : 180 }}>{t("colField")}</TableCell>
               <TableCell sx={{ width: "35%" }}>{t("colCurrent")}</TableCell>
               <TableCell>{t("colProposed")}</TableCell>
