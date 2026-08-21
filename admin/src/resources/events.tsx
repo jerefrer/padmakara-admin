@@ -2360,16 +2360,25 @@ export const EventCreate = () => {
                 sessionThemesEn: form.sessionThemesEn, sessionThemesPt: form.sessionThemesPt,
                 startDate: form.startDate, endDate: form.endDate,
               }}
-              sessions={sessions.map((s, i) => ({ rowKey: `s${i}`, titleEn: s.titleEn, titlePt: s.titlePt }))}
-              tracks={sessions.flatMap((s) => s.tracks).map((tk) => ({
+              sessions={sessions.map((s, i) => ({
+                rowKey: `s${i}`,
+                sessionNumber: s.sessionNumber,
+                titleEn: s.titleEn,
+                titlePt: s.titlePt,
+              }))}
+              tracks={sessions.flatMap((s) => s.tracks.map((tk) => ({
                 rowKey: fileKey(tk.file),
+                // Session/track numbers label the review table so a proposed
+                // rename is traceable to a row in the table below.
+                sessionNumber: s.sessionNumber,
+                trackNumber: tk.trackNumber,
                 originalFilename: tk.originalFilename,
                 title: tk.titleEn || tk.titlePt || tk.title,
                 titleEn: tk.titleEn ?? "",
                 titlePt: tk.titlePt ?? "",
                 speaker: tk.speaker ?? "",
                 languages: tk.languages,
-              }))}
+              })))}
               onApply={handleAiApply}
             />
           )}
@@ -3510,23 +3519,33 @@ export const EventEdit = () => {
             sessionThemesEn: form.sessionThemesEn, sessionThemesPt: form.sessionThemesPt,
             startDate: form.startDate, endDate: form.endDate,
           }}
-          sessions={sessions.map((s) => ({ rowKey: String(s.id), titleEn: s.titleEn, titlePt: s.titlePt }))}
+          sessions={sessions.map((s) => ({
+            rowKey: String(s.id),
+            sessionNumber: s.sessionNumber,
+            titleEn: s.titleEn,
+            titlePt: s.titlePt,
+          }))}
           videos={videos.map((v) => ({
             rowKey: String(v.id),
+            position: v.position,
             title: v.titleEn || v.titlePt || `Video ${v.position + 1}`,
             titleEn: v.titleEn ?? "",
             titlePt: v.titlePt ?? "",
             videoDate: v.videoDate ?? "",
           }))}
-          tracks={sessions.flatMap((s) => s.tracks).map((tk) => ({
+          tracks={sessions.flatMap((s) => s.tracks.map((tk) => ({
             rowKey: String(tk.id),
+            // Session/track numbers label the review table so a proposed
+            // rename is traceable to a row in the table below.
+            sessionNumber: s.sessionNumber,
+            trackNumber: tk.trackNumber,
             originalFilename: tk.originalFilename ?? "",
             title: tk.titleEn || tk.titlePt || tk.title,
             titleEn: tk.titleEn ?? "",
             titlePt: tk.titlePt ?? "",
             speaker: tk.speaker ?? "",
             languages: tk.languages,
-          }))}
+          })))}
           onApply={handleAiApply}
         />
       )}

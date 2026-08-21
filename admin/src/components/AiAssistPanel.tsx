@@ -1,40 +1,43 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import Checkbox from "@mui/material/Checkbox";
 import Divider from "@mui/material/Divider";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
-import { languageLabel } from "../utils/trackParser";
+import {
+  buildEventDiffs,
+  buildSessionDiffs,
+  buildTrackDiffs,
+  buildVideoDiffs,
+  selectedResult,
+  type AiAssistEventFields,
+  type AiAssistResult,
+  type AiAssistSession,
+  type AiAssistTrack,
+  type AiAssistVideo,
+  type DiffRow,
+  type Segment,
+} from "../utils/aiAssistDiff";
 
-export interface AiAssistEventFields {
-  titleEn?: string; titlePt?: string;
-  mainThemesEn?: string; mainThemesPt?: string;
-  sessionThemesEn?: string; sessionThemesPt?: string;
-  startDate?: string; endDate?: string;
-}
-export interface AiAssistTrack {
-  rowKey: string; originalFilename: string; title: string;
-  titleEn?: string; titlePt?: string; speaker?: string | null;
-  languages?: string[];
-}
-export interface AiAssistSession { rowKey: string; titleEn?: string; titlePt?: string; }
-export interface AiAssistVideo {
-  rowKey: string; title: string; titleEn?: string; titlePt?: string; videoDate?: string;
-}
-export interface AiAssistResult {
-  event?: AiAssistEventFields;
-  sessions: Array<{ rowKey: string; titleEn?: string; titlePt?: string }>;
-  videos: Array<{ rowKey: string; titleEn?: string; titlePt?: string; videoDate?: string }>;
-  tracks: Array<{
-    rowKey: string; titleEn?: string; titlePt?: string;
-    speaker?: string; speakerUnmatched?: true; languages?: string[];
-  }>;
-}
+export type {
+  AiAssistEventFields,
+  AiAssistResult,
+  AiAssistSession,
+  AiAssistTrack,
+  AiAssistVideo,
+};
+
 interface AiAssistPanelProps {
   event: AiAssistEventFields;
   sessions: AiAssistSession[];
@@ -46,25 +49,42 @@ interface AiAssistPanelProps {
   onApply: (result: AiAssistResult) => void | Promise<void>;
 }
 
-interface DiffRow { label: string; from: string; to: string; unmatched?: boolean; }
+/** Beyond this the review scrolls in place, so Apply stays reachable. */
+const REVIEW_MAX_HEIGHT = 420;
 
-/** "tib" + "en" → "Tibetan + English", the same names the track chips use. */
-const formatLanguages = (codes: string[] | undefined): string =>
-  (codes ?? []).map(languageLabel).join(" + ");
-
-// Every AiAssistEventFields key already has a human-readable label in
-// padmakara.events.* (the event details form uses the same fields), so the
-// diff review reuses those instead of rendering raw camelCase field names.
-const EVENT_FIELD_LABEL_KEYS: Record<keyof AiAssistEventFields, string> = {
-  titleEn: "padmakara.events.titleEn",
-  titlePt: "padmakara.events.titlePt",
-  mainThemesEn: "padmakara.events.mainThemesEn",
-  mainThemesPt: "padmakara.events.mainThemesPt",
-  sessionThemesEn: "padmakara.events.sessionThemesEn",
-  sessionThemesPt: "padmakara.events.sessionThemesPt",
-  startDate: "padmakara.events.startDate",
-  endDate: "padmakara.events.endDate",
-};
+/**
+ * A value with the words that moved picked out, so a one-word correction in a
+ * long title doesn't have to be found by comparing two sentences by eye.
+ * `side` decides whether a flagged run reads as removed or as added.
+ */
+function InlineValue({ segments, side }: { segments: Segment[]; side: "from" | "to" }) {
+  if (segments.length === 0) return <>—</>;
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.changed ? (
+          <Box
+            key={i}
+            component="span"
+            sx={
+              side === "from"
+                ? {
+                    backgroundColor: "rgba(211,47,47,0.12)",
+                    textDecoration: "line-through",
+                    borderRadius: 0.5,
+                  }
+                : { backgroundColor: "rgba(46,125,50,0.16)", fontWeight: 700, borderRadius: 0.5 }
+            }
+          >
+            {seg.text}
+          </Box>
+        ) : (
+          <Box key={i} component="span">{seg.text}</Box>
+        ),
+      )}
+    </>
+  );
+}
 
 export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, onApply }: AiAssistPanelProps) {
   const translate = useTranslate();
@@ -73,109 +93,47 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
   const [busy, setBusy] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<AiAssistResult | null>(null);
+  // Ids of rows the admin has unticked. Tracking exclusions rather than
+  // selections means a fresh reply arrives fully selected with no sync step.
+  const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
 
-  const t = (k: string) => translate(`padmakara.aiAssist.${k}`);
+  const t = (k: string, options?: Record<string, unknown>) =>
+    translate(`padmakara.aiAssist.${k}`, options);
 
-  const trackByKey = useMemo(
-    () => new Map(tracks.map((tr) => [tr.rowKey, tr])),
-    [tracks],
+  const eventDiffs = useMemo(
+    () => buildEventDiffs(event, result?.event, translate),
+    [result, event, translate],
   );
-  const sessionByKey = useMemo(
-    () => new Map(sessions.map((s) => [s.rowKey, s])),
-    [sessions],
+  const sessionDiffs = useMemo(
+    () => (result ? buildSessionDiffs(sessions, result.sessions, translate) : []),
+    [result, sessions, translate],
   );
-  const videoByKey = useMemo(
-    () => new Map(videos.map((v) => [v.rowKey, v])),
-    [videos],
+  const videoDiffs = useMemo(
+    () => (result ? buildVideoDiffs(videos, result.videos, translate) : []),
+    [result, videos, translate],
+  );
+  const trackDiffs = useMemo(
+    () => (result ? buildTrackDiffs(tracks, result.tracks, translate) : []),
+    [result, tracks, translate],
   );
 
-  const eventDiffs = useMemo<DiffRow[]>(() => {
-    if (!result?.event) return [];
-    // Object.keys() widens to string[]; AiAssistEventFields has no other own
-    // keys, so every runtime key is guaranteed to be one of its keyof.
-    return (Object.keys(result.event) as (keyof AiAssistEventFields)[]).map((k) => ({
-      label: translate(EVENT_FIELD_LABEL_KEYS[k]),
-      from: event[k] ?? "",
-      // Non-null: the early return above guarantees result.event is defined;
-      // TS can't carry that narrowing through this .map() callback closure.
-      to: result.event![k] ?? "",
-    }));
-  }, [result, event, translate]);
+  const allDiffs = useMemo(
+    () => [...eventDiffs, ...sessionDiffs, ...videoDiffs, ...trackDiffs],
+    [eventDiffs, sessionDiffs, videoDiffs, trackDiffs],
+  );
+  const totalChanges = allDiffs.length;
+  const selectedCount = allDiffs.filter((r) => !excluded.has(r.id)).length;
 
-  const sessionDiffs = useMemo<DiffRow[]>(() => {
-    if (!result) return [];
-    return result.sessions.flatMap((s) => {
-      const cur = sessionByKey.get(s.rowKey);
-      const rows: DiffRow[] = [];
-      if (s.titleEn !== undefined) rows.push({ label: `EN`, from: cur?.titleEn ?? "", to: s.titleEn });
-      if (s.titlePt !== undefined) rows.push({ label: `PT`, from: cur?.titlePt ?? "", to: s.titlePt });
-      return rows;
+  const setRowsExcluded = (ids: readonly string[], exclude: boolean) => {
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (exclude) next.add(id);
+        else next.delete(id);
+      }
+      return next;
     });
-  }, [result, sessionByKey]);
-
-  const videoDiffs = useMemo<DiffRow[]>(() => {
-    if (!result) return [];
-    return result.videos.flatMap((v) => {
-      const cur = videoByKey.get(v.rowKey);
-      const videoLabel = cur?.title || v.rowKey;
-      const rows: DiffRow[] = [];
-      if (v.titleEn !== undefined) {
-        rows.push({ label: `${videoLabel} · EN`, from: cur?.titleEn ?? "", to: v.titleEn });
-      }
-      if (v.titlePt !== undefined) {
-        rows.push({ label: `${videoLabel} · PT`, from: cur?.titlePt ?? "", to: v.titlePt });
-      }
-      if (v.videoDate !== undefined) {
-        rows.push({
-          label: `${videoLabel} · ${translate("padmakara.aiAssist.videoDate")}`,
-          from: cur?.videoDate ?? "",
-          to: v.videoDate,
-        });
-      }
-      return rows;
-    });
-  }, [result, videoByKey, translate]);
-
-  const trackDiffs = useMemo<DiffRow[]>(() => {
-    if (!result) return [];
-    return result.tracks.flatMap((tr) => {
-      const cur = trackByKey.get(tr.rowKey);
-      const trackLabel = cur?.title || cur?.originalFilename || tr.rowKey;
-      const rows: DiffRow[] = [];
-      if (tr.titleEn !== undefined) {
-        rows.push({
-          label: `${trackLabel} · EN`,
-          from: cur?.titleEn ?? "",
-          to: tr.titleEn,
-        });
-      }
-      if (tr.titlePt !== undefined) {
-        rows.push({
-          label: `${trackLabel} · PT`,
-          from: cur?.titlePt ?? "",
-          to: tr.titlePt,
-        });
-      }
-      if (tr.speaker !== undefined) {
-        rows.push({
-          label: translate("padmakara.fields.speaker"),
-          from: cur?.speaker ?? "",
-          to: tr.speaker,
-          unmatched: tr.speakerUnmatched,
-        });
-      }
-      if (tr.languages !== undefined) {
-        rows.push({
-          label: `${trackLabel} · ${translate("padmakara.aiAssist.languages")}`,
-          from: formatLanguages(cur?.languages),
-          to: formatLanguages(tr.languages),
-        });
-      }
-      return rows;
-    });
-  }, [result, trackByKey, translate]);
-
-  const totalChanges = eventDiffs.length + sessionDiffs.length + videoDiffs.length + trackDiffs.length;
+  };
 
   const handleAsk = async () => {
     const text = instruction.trim();
@@ -186,7 +144,17 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
       const res = await authFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction: text, event, sessions, videos, tracks }),
+        // The admin's own numbering goes along with the rows: it is what an
+        // instruction like "retitle tracks 3 to 7" is resolved against, and
+        // without it the model can only guess from filenames. Videos are
+        // renumbered 1-based here because that is how the admin labels them.
+        body: JSON.stringify({
+          instruction: text,
+          event,
+          sessions,
+          videos: videos.map(({ position, ...rest }) => ({ ...rest, videoNumber: position + 1 })),
+          tracks,
+        }),
       });
       if (!res.ok) {
         // Prefer the API's `error` field (e.g. the friendly AI_UNAVAILABLE
@@ -205,6 +173,7 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
       // Trusting the shape here: the rename-tracks endpoint's contract
       // (Tasks 1-2) guarantees { event?, sessions, tracks } on success.
       const data = (await res.json()) as AiAssistResult;
+      setExcluded(new Set());
       setResult({ event: data.event, sessions: data.sessions ?? [], videos: data.videos ?? [], tracks: data.tracks ?? [] });
     } catch (e) {
       // authFetch rejects/throws only Error instances here
@@ -215,11 +184,12 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
   };
 
   const handleApply = async () => {
-    if (!result || applying) return;
+    if (!result || applying || selectedCount === 0) return;
     setApplying(true);
     try {
-      await onApply(result);
+      await onApply(selectedResult(result, allDiffs, excluded));
       setResult(null);
+      setExcluded(new Set());
       setInstruction("");
       notify(t("applied"), { type: "info" });
     } finally {
@@ -227,23 +197,163 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
     }
   };
 
-  const renderDiffs = (title: string, rows: DiffRow[]) =>
-    rows.length > 0 && (
-      <Box sx={{ mb: 1.5 }}>
+  /**
+   * One section of the review, as a table: what changed on the left, the
+   * current value and the proposal in their own columns so a long title in
+   * one row can't push the next row's values out of alignment. Every row —
+   * and every session heading — carries a checkbox, so a suggestion that went
+   * too wide can be trimmed instead of thrown away wholesale.
+   */
+  const renderDiffs = (title: string, itemHeader: string, rows: DiffRow[]) => {
+    if (rows.length === 0) return null;
+    // Event rows name a field outright and have nothing to identify.
+    const showItem = rows.some((r) => r.itemLabel !== "");
+    const columns = showItem ? 5 : 4;
+
+    const sectionIds = rows.map((r) => r.id);
+    // Ids per session heading, so one tick can clear a whole session.
+    const groupIds = new Map<string, string[]>();
+    for (const r of rows) {
+      if (!r.groupLabel) continue;
+      const list = groupIds.get(r.groupLabel);
+      if (list) list.push(r.id);
+      else groupIds.set(r.groupLabel, [r.id]);
+    }
+
+    const selectionProps = (ids: readonly string[]) => {
+      const on = ids.filter((id) => !excluded.has(id)).length;
+      return {
+        checked: on === ids.length,
+        indeterminate: on > 0 && on < ids.length,
+        onChange: (e: ChangeEvent<HTMLInputElement>) =>
+          setRowsExcluded(ids, !e.target.checked),
+      };
+    };
+
+    const body: ReactNode[] = [];
+    let lastGroup: string | undefined;
+    let lastItem: string | undefined;
+
+    rows.forEach((r, i) => {
+      if (r.groupLabel && r.groupLabel !== lastGroup) {
+        lastGroup = r.groupLabel;
+        // A new session restarts the item runs beneath it.
+        lastItem = undefined;
+        const ids = groupIds.get(r.groupLabel) ?? [];
+        body.push(
+          <TableRow key={`group-${i}`}>
+            <TableCell
+              padding="checkbox"
+              sx={{ py: 0.25, borderBottom: "none", backgroundColor: "rgba(91,94,166,0.05)" }}
+            >
+              <Checkbox size="small" {...selectionProps(ids)} />
+            </TableCell>
+            <TableCell
+              colSpan={columns - 1}
+              sx={{
+                py: 0.5, borderBottom: "none",
+                fontWeight: 700, fontSize: "0.72rem", letterSpacing: 0.3,
+                color: "text.secondary", backgroundColor: "rgba(91,94,166,0.05)",
+              }}
+            >
+              {r.groupLabel}
+            </TableCell>
+          </TableRow>,
+        );
+      }
+      const startsItem = r.itemKey !== lastItem;
+      lastItem = r.itemKey;
+      const off = excluded.has(r.id);
+      // Only the first row of an item repeats its label; a hairline above it
+      // keeps the grouping readable without drawing a full grid.
+      const cellSx = {
+        py: 0.4,
+        verticalAlign: "top" as const,
+        borderBottom: "none",
+        borderTop: startsItem && body.length > 0 ? "1px solid rgba(0,0,0,0.05)" : "none",
+        opacity: off ? 0.4 : 1,
+      };
+      body.push(
+        <TableRow key={`row-${i}`} hover>
+          <TableCell sx={{ ...cellSx, opacity: 1 }} padding="checkbox">
+            <Checkbox
+              size="small"
+              checked={!off}
+              onChange={(e) => setRowsExcluded([r.id], !e.target.checked)}
+            />
+          </TableCell>
+          {showItem && (
+            <TableCell sx={{ ...cellSx, width: 150 }}>
+              {startsItem && (
+                <>
+                  <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 600 }}>
+                    {r.itemLabel}
+                  </Typography>
+                  {r.itemSubLabel && (
+                    <Typography
+                      variant="caption"
+                      sx={{ display: "block", color: "text.secondary", wordBreak: "break-word" }}
+                    >
+                      {r.itemSubLabel}
+                    </Typography>
+                  )}
+                </>
+              )}
+            </TableCell>
+          )}
+          <TableCell sx={{ ...cellSx, width: showItem ? 110 : 180 }}>
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>{r.field}</Typography>
+          </TableCell>
+          <TableCell sx={{ ...cellSx, width: "35%" }}>
+            <Typography variant="body2" sx={{ opacity: 0.75, wordBreak: "break-word" }}>
+              <InlineValue segments={r.fromSegments} side="from" />
+            </Typography>
+          </TableCell>
+          <TableCell sx={cellSx}>
+            <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
+              <InlineValue segments={r.toSegments} side="to" />
+            </Typography>
+            {r.unmatched && (
+              <Chip size="small" color="warning" label={t("unmatchedSpeaker")} sx={{ mt: 0.25 }} />
+            )}
+          </TableCell>
+        </TableRow>,
+      );
+    });
+
+    return (
+      <Box sx={{ mb: 2 }}>
         <Typography variant="caption" sx={{ fontWeight: 700, textTransform: "uppercase", opacity: 0.7 }}>
           {title}
         </Typography>
-        {rows.map((r, i) => (
-          <Box key={i} sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", py: 0.25 }}>
-            <Typography variant="body2" sx={{ minWidth: 120, opacity: 0.8 }}>{r.label}</Typography>
-            <Typography variant="body2" sx={{ textDecoration: "line-through", opacity: 0.6 }}>{r.from || "—"}</Typography>
-            <Typography variant="body2">→</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600 }}>{r.to || "—"}</Typography>
-            {r.unmatched && <Chip size="small" color="warning" label={t("unmatchedSpeaker")} />}
-          </Box>
-        ))}
+        <Table
+          size="small"
+          sx={{
+            mt: 0.5,
+            tableLayout: "fixed",
+            "& th": {
+              py: 0.5, borderBottom: "1px solid rgba(0,0,0,0.12)",
+              fontWeight: 700, fontSize: "0.68rem", textTransform: "uppercase",
+              letterSpacing: 0.4, color: "text.secondary",
+            },
+          }}
+        >
+          <TableHead>
+            <TableRow>
+              <TableCell padding="checkbox">
+                <Checkbox size="small" {...selectionProps(sectionIds)} />
+              </TableCell>
+              {showItem && <TableCell sx={{ width: 150 }}>{itemHeader}</TableCell>}
+              <TableCell sx={{ width: showItem ? 110 : 180 }}>{t("colField")}</TableCell>
+              <TableCell sx={{ width: "35%" }}>{t("colCurrent")}</TableCell>
+              <TableCell>{t("colProposed")}</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>{body}</TableBody>
+        </Table>
       </Box>
     );
+  };
 
   return (
     <Paper
@@ -284,20 +394,45 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
       {result && (
         <Box sx={{ mt: 2 }}>
           <Divider sx={{ mb: 1.5 }} />
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{t("reviewTitle")}</Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{t("reviewTitle")}</Typography>
+            {totalChanges > 0 && (
+              <Chip
+                size="small"
+                color={selectedCount === 0 ? "default" : "primary"}
+                variant={selectedCount === totalChanges ? "filled" : "outlined"}
+                label={
+                  selectedCount === totalChanges
+                    ? t("changeCount", { smart_count: totalChanges })
+                    : t("changeCountSelected", { selected: selectedCount, total: totalChanges })
+                }
+              />
+            )}
+          </Box>
           {totalChanges === 0 ? (
             <Typography variant="body2" color="text.secondary">{t("noChanges")}</Typography>
           ) : (
             <>
-              {renderDiffs(t("sectionEvent"), eventDiffs)}
-              {renderDiffs(t("sectionSessions"), sessionDiffs)}
-              {renderDiffs(t("sectionVideos"), videoDiffs)}
-              {renderDiffs(t("sectionTracks"), trackDiffs)}
-              <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+              {/* Scrolls in place so a few hundred track rows can't push the
+                  Apply button off the bottom of the page. */}
+              <Box
+                sx={{
+                  maxHeight: REVIEW_MAX_HEIGHT, overflowY: "auto",
+                  backgroundColor: "background.paper",
+                  border: "1px solid rgba(0,0,0,0.08)", borderRadius: 1,
+                  px: 1.5, py: 1, mb: 1.5,
+                }}
+              >
+                {renderDiffs(t("sectionEvent"), "", eventDiffs)}
+                {renderDiffs(t("sectionSessions"), t("colSession"), sessionDiffs)}
+                {renderDiffs(t("sectionVideos"), t("colVideo"), videoDiffs)}
+                {renderDiffs(t("sectionTracks"), t("colTrack"), trackDiffs)}
+              </Box>
+              <Box sx={{ display: "flex", gap: 1 }}>
                 <Button
                   variant="contained" size="small"
                   onClick={() => void handleApply()}
-                  disabled={applying}
+                  disabled={applying || selectedCount === 0}
                   sx={{ textTransform: "none" }}
                 >
                   {applying ? t("applying") : t("apply")}
