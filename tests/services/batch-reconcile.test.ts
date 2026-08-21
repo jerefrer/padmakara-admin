@@ -22,6 +22,12 @@ vi.mock("@aws-sdk/client-batch", () => ({
       this.input = input;
     }
   },
+  TerminateJobCommand: class {
+    input: unknown;
+    constructor(input: unknown) {
+      this.input = input;
+    }
+  },
 }));
 
 vi.mock("../../src/db/index.ts", () => ({
@@ -30,7 +36,7 @@ vi.mock("../../src/db/index.ts", () => ({
   },
 }));
 
-import { reconcileReadAlongRows } from "../../src/services/batch-reconcile.ts";
+import { reconcileReadAlongRows, terminateBatchJob } from "../../src/services/batch-reconcile.ts";
 
 interface FakeRow {
   id: string;
@@ -206,5 +212,32 @@ describe("reconcileJobs (via reconcileReadAlongRows)", () => {
     ).resolves.toBeUndefined();
 
     expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+});
+
+describe("terminateBatchJob", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSend.mockResolvedValue({ jobs: [] });
+  });
+
+  it("sends a TerminateJobCommand with the given job id and reason", async () => {
+    await terminateBatchJob("batch-1", "Cancelled by an administrator");
+
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const command = mockSend.mock.calls[0]![0] as { input: { jobId: string; reason: string } };
+    expect(command.input).toEqual({ jobId: "batch-1", reason: "Cancelled by an administrator" });
+  });
+
+  it("never throws when AWS reports the job cannot be terminated (already finished)", async () => {
+    mockSend.mockRejectedValueOnce(new Error("ClientException: job is not in a terminable state"));
+
+    await expect(terminateBatchJob("batch-2", "reason")).resolves.toBeUndefined();
+  });
+
+  it("never throws on a generic AWS/network error", async () => {
+    mockSend.mockRejectedValueOnce(new Error("ThrottlingException"));
+
+    await expect(terminateBatchJob("batch-3", "reason")).resolves.toBeUndefined();
   });
 });

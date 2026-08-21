@@ -1,14 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Readable } from "stream";
 
-const { dbUpdateSets, findFirstMock, uploadedRef, uploadStreamMock, getObjectStreamMock } =
-  vi.hoisted(() => ({
-    dbUpdateSets: [] as Array<Record<string, unknown>>,
-    findFirstMock: vi.fn(),
-    uploadedRef: { buffer: Buffer.alloc(0) },
-    uploadStreamMock: vi.fn(),
-    getObjectStreamMock: vi.fn(),
-  }));
+const {
+  dbUpdateSets,
+  findFirstMock,
+  uploadedRef,
+  uploadStreamMock,
+  uploadFileMock,
+  getObjectStreamMock,
+} = vi.hoisted(() => ({
+  dbUpdateSets: [] as Array<Record<string, unknown>>,
+  findFirstMock: vi.fn(),
+  uploadedRef: { buffer: Buffer.alloc(0) },
+  uploadStreamMock: vi.fn(),
+  // Added when the ZIP builder moved to "write to temp file, then upload" — the mock
+  // was never updated, and the dead test suite hid it. Reads the file back before the
+  // generator deletes it, so tests can still assert on the real uploaded artifact.
+  uploadFileMock: vi.fn(async (_key: string, filePath: string, _contentType?: string) => {
+    const { readFile } = await import("fs/promises");
+    uploadedRef.buffer = await readFile(filePath);
+  }),
+  getObjectStreamMock: vi.fn(),
+}));
 
 vi.mock("../../src/db/index.ts", () => ({
   db: {
@@ -28,6 +41,7 @@ vi.mock("../../src/services/s3.ts", () => ({
   buildZipS3Key: (eventCode: string, requestId: string, filename?: string) =>
     `downloads/${eventCode}/${filename || requestId}.zip`,
   buildTrackS3Key: vi.fn(),
+  uploadFile: uploadFileMock,
   generatePresignedDownloadUrl: vi.fn(async () => "https://example.test/zip"),
 }));
 
@@ -81,21 +95,23 @@ describe("generateRetreatZip - streaming behaviour", () => {
     });
   });
 
-  it("pipes the archive stream straight to S3 instead of buffering a Buffer", async () => {
+  it("uploads the ZIP from a temp file instead of buffering it in memory", async () => {
     await generateRetreatZip("req-1", 42);
 
-    expect(uploadStreamMock).toHaveBeenCalledTimes(1);
-    const [key, stream, contentType] = uploadStreamMock.mock.calls[0]!;
+    // The archive is built to disk and handed to uploadFile as a path. The older design
+    // piped the live archive stream to uploadStream; that was replaced because the AWS
+    // SDK multipart uploader rejects Bun's Node streams. Either way the guarantee under
+    // test is the same: the whole ZIP is never held in memory as a Buffer.
+    expect(uploadStreamMock).not.toHaveBeenCalled();
+    expect(uploadFileMock).toHaveBeenCalledTimes(1);
 
-    // The upload receives the live archive stream, not a pre-built Buffer.
-    // (archiver uses the readable-stream polyfill, so it isn't an instanceof
-    // core Readable — assert on stream behaviour instead.)
-    expect(Buffer.isBuffer(stream)).toBe(false);
-    expect(typeof (stream as Readable).pipe).toBe("function");
+    const [key, filePath, contentType] = uploadFileMock.mock.calls[0]!;
+    expect(typeof filePath).toBe("string");
+    expect(Buffer.isBuffer(filePath)).toBe(false);
     expect(key).toBe("downloads/2024.04-GRP/spring-retreat.zip");
     expect(contentType).toBe("application/zip");
 
-    // What was streamed is a real, non-empty ZIP (local file header magic "PK").
+    // What was uploaded is a real, non-empty ZIP (local file header magic "PK").
     expect(uploadedRef.buffer.length).toBeGreaterThan(0);
     expect(uploadedRef.buffer.subarray(0, 2).toString("latin1")).toBe("PK");
   });

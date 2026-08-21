@@ -44,3 +44,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # git worktrees
 .worktrees/
 .superpowers/
+
+# Playwright MCP scratch output (console logs, page snapshots)
+.playwright-mcp/

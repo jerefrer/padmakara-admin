@@ -13,6 +13,7 @@ import { getVideoMeta } from "../services/bunny.ts";
 import { addCaption } from "../services/bunny-captions.ts";
 import { getObjectText, putObject } from "../services/s3.ts";
 import { bumpVersion } from "../services/sync-versions.ts";
+import { computeIntroDelta, applyIntroDeltaInTransaction } from "../services/video-burn.ts";
 
 const webhookRoutes = new Hono();
 
@@ -320,6 +321,116 @@ webhookRoutes.post("/subtitles", async (c) => {
     // version-gated sync + no-TTL cache pick up the newly available subtitles.
     await db.update(events).set({ updatedAt: new Date() }).where(eq(events.id, event.id));
     bumpVersion("events").catch((e) => console.error("[webhook] bumpVersion failed:", e));
+  }
+
+  return c.json({ ok: true });
+});
+
+/**
+ * POST /api/webhooks/video-burn
+ *
+ * Called by the AWS Batch container when a title-slide burn-in job
+ * finishes (or fails). Validates HMAC-SHA256 signature (same scheme as
+ * /read-along and /subtitles above), then updates the EXISTING
+ * event_videos row in place — never inserts a new row, since
+ * video_progress and bookmarks key on event_videos.id and must survive
+ * the swap to a re-burned Bunny video.
+ *
+ * Re-burn semantics: when this video already had a successful burn
+ * (burnedIntroMs was non-null) and the new intro length differs, every
+ * video_progress row for this video was timed against the OLD merged
+ * timeline and is now off by the delta, and every video_subtitles row's
+ * cues (also absolute-timed from the start of the merged video) can no
+ * longer be trusted. Both are corrected/flagged in the SAME transaction as
+ * the event_videos update, so a crash mid-way can never leave the row
+ * pointing at a new Bunny video while progress/subtitles still reflect the
+ * old timeline. See computeIntroDelta / applyIntroDeltaInTransaction in
+ * services/video-burn.ts. On a FIRST burn (burnedIntroMs was null) neither
+ * applies — there is nothing yet to desync.
+ *
+ * No auth middleware — public endpoint, HMAC-authenticated.
+ */
+webhookRoutes.post("/video-burn", async (c) => {
+  const signature = c.req.header("X-Webhook-Signature");
+  if (!signature) {
+    return c.json({ error: "Missing signature" }, 401);
+  }
+
+  const rawBody = await c.req.text();
+  const expected = createHmac("sha256", config.readAlong.webhookSecret)
+    .update(rawBody)
+    .digest("hex");
+
+  const signatureBuf = Buffer.from(signature);
+  const expectedBuf = Buffer.from(expected);
+  if (
+    signatureBuf.length !== expectedBuf.length ||
+    !timingSafeEqual(signatureBuf, expectedBuf)
+  ) {
+    return c.json({ error: "Invalid signature" }, 401);
+  }
+
+  const { jobId, videoId, status, bunnyVideoId, introMs, warning, error, masterS3Key } =
+    JSON.parse(rawBody);
+
+  if (!jobId || !videoId || !status) {
+    return c.json({ error: "Missing jobId, videoId, or status" }, 400);
+  }
+
+  console.log(`[webhook] Video burn ${status} for video ${videoId} (job ${jobId})`);
+
+  if (status === "completed" && bunnyVideoId) {
+    const video = await db.query.eventVideos.findFirst({
+      where: eq(eventVideos.id, videoId),
+    });
+    if (!video) {
+      console.warn(`[webhook] Video burn job ${jobId} references missing event_video ${videoId}`);
+      return c.json({ ok: true });
+    }
+
+    const newIntroMs = typeof introMs === "number" ? introMs : 0;
+    const { deltaMs } = computeIntroDelta(video.burnedIntroMs, newIntroMs);
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(eventVideos)
+        .set({
+          bunnyVideoId,
+          burnStatus: "done",
+          burnedIntroMs: newIntroMs,
+          burnError: null,
+          updatedAt: new Date(),
+          // Present on a URL-imported burn (see MASTER_SOURCE_URL in
+          // containers/video-burn/source.ts) — the container retains the
+          // untouched original in S3 before burning and reports its key
+          // back here so re-burns have a first-generation master, exactly
+          // like the S3-upload path already did from the start.
+          ...(typeof masterS3Key === "string" ? { masterS3Key } : {}),
+        })
+        .where(eq(eventVideos.id, videoId));
+
+      await applyIntroDeltaInTransaction(tx, videoId, deltaMs);
+    });
+
+    if (warning) {
+      // The merged video itself is fine (e.g. thumbnail extraction failed);
+      // surfaced for the admin to notice and re-trigger if they care.
+      console.warn(`[webhook] Video burn job ${jobId} completed with a warning: ${warning}`);
+    }
+
+    // Touch the parent event and bump the events sync version so the app's
+    // version-gated sync + no-TTL cache pick up the newly available video.
+    await db.update(events).set({ updatedAt: new Date() }).where(eq(events.id, video.eventId));
+    bumpVersion("events").catch((e) => console.error("[webhook] bumpVersion failed:", e));
+  } else {
+    await db
+      .update(eventVideos)
+      .set({
+        burnStatus: "failed",
+        burnError: error ?? "Video burn job failed",
+        updatedAt: new Date(),
+      })
+      .where(eq(eventVideos.id, videoId));
   }
 
   return c.json({ ok: true });

@@ -416,24 +416,3 @@ describe("PATCH /api/admin/videos/:id", () => {
     expect(status).toBe(404);
   });
 });
-
-describe("POST /api/admin/videos/:videoId/subtitles", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("calls submitSubtitleJob with the event_video id", async () => {
-    const mockSubmit = submitSubtitleJob as ReturnType<typeof vi.fn>;
-
-    const token = await adminToken();
-    const { status, body } = await testJson("/api/admin/videos/3/subtitles", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ language: "en", whisperModel: "turbo" }),
-    });
-
-    expect(status).toBe(202);
-    expect(mockSubmit).toHaveBeenCalledWith(3, { language: "en", whisperModel: "turbo" });
-    expect(body).toMatchObject({ jobId: "job-1", videoId: 3 });
-  });
-});

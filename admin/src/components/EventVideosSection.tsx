@@ -7,32 +7,29 @@
  */
 
 import AddIcon from "@mui/icons-material/Add";
-import AddLinkIcon from "@mui/icons-material/AddLink";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import MovieIcon from "@mui/icons-material/Movie";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import SlideshowIcon from "@mui/icons-material/Slideshow";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
 import Paper from "@mui/material/Paper";
-import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useEffect, useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import type { EventVideo } from "../utils/trackParser";
+import { AddVideoDialog } from "./AddVideoDialog";
 import { MediaPreviewDialog, type MediaSource } from "./MediaPreviewDialog";
+import { BurnStatusChip, SlideEditor, type PendingUploadSlides, useVideoSlides } from "./SlideEditor";
 import { TranslateDirChip, useFieldTranslate } from "./TranslatableField";
 import { LangTag, clickToEditSx, quietInputSx } from "./inlineEditKit";
 import { SubtitleChips, SubtitleDetails, useVideoSubtitles } from "./VideoSubtitles";
@@ -62,9 +59,24 @@ interface EventVideosSectionProps {
    *  setter so the parent's `videos` state stays in sync. */
   onVideosChange: (updater: (prev: EventVideo[]) => EventVideo[]) => void;
   /** Upload and URL-import still run through the parent — they share the
-   *  cross-cutting UploadProgress overlay wired up in EventEdit. */
-  onUpload: (file: File) => void;
-  onImportUrl: (url: string, title?: string) => Promise<void>;
+   *  cross-cutting UploadProgress overlay wired up in EventEdit.
+   *
+   *  Both also receive the admin's slide declaration from the AddVideoDialog
+   *  gate (drafted slides, or the "already has burnt-in slides" flag) —
+   *  onImportUrl now carries it too, since a URL import can go through the
+   *  burn pipeline exactly like a file upload. */
+  onUpload: (file: File, pending: PendingUploadSlides) => void;
+  onImportUrl: (url: string, title: string | undefined, pending: PendingUploadSlides) => Promise<void>;
+  /** Needed for the slide editor's image-line uploads and its "Generate
+   *  from event data" call. Optional so the section still renders before
+   *  this prop is threaded through from events.tsx (see integration
+   *  report) — the editor degrades gracefully (image upload disabled)
+   *  without it. */
+  eventCode?: string;
+  /** Numeric event id — needed so the draft slide editor's "Generate from
+   *  event data" can call the event-scoped defaults route before any video
+   *  row exists. */
+  eventId?: number;
 }
 
 export const EventVideosSection = ({
@@ -72,22 +84,15 @@ export const EventVideosSection = ({
   onVideosChange,
   onUpload,
   onImportUrl,
+  eventCode,
+  eventId,
 }: EventVideosSectionProps) => {
   const translate = useTranslate();
   const notify = useNotify();
   const [preview, setPreview] = useState<PreviewState | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [addVideoOpen, setAddVideoOpen] = useState(false);
 
   const sorted = [...videos].sort((a, b) => a.position - b.position);
-
-  const triggerPicker = () => fileInputRef.current?.click();
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // reset so picking the same file again still fires
-    if (file) onUpload(file);
-  };
 
   const patchVideo = async (videoId: number, patch: Record<string, unknown>) => {
     const res = await authFetch(`/api/admin/videos/${videoId}`, {
@@ -197,6 +202,7 @@ export const EventVideosSection = ({
             video={video}
             isFirst={idx === 0}
             isLast={idx === sorted.length - 1}
+            eventCode={eventCode}
             onUpdate={handleUpdate}
             onReorder={handleReorder}
             onDelete={handleDelete}
@@ -217,29 +223,13 @@ export const EventVideosSection = ({
           <Box sx={{ flex: 1 }} />
           <Button
             size="small"
-            startIcon={<AddLinkIcon sx={{ fontSize: 16 }} />}
-            onClick={() => setImportOpen(true)}
-            sx={{ textTransform: "none", fontSize: "0.75rem" }}
-          >
-            {translate("padmakara.videos.importUrl") || "Import from URL"}
-          </Button>
-          <Button
-            size="small"
             startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-            onClick={triggerPicker}
+            onClick={() => setAddVideoOpen(true)}
             sx={{ textTransform: "none", fontSize: "0.75rem" }}
           >
             {translate("padmakara.videos.add") || "Add video"}
           </Button>
         </Box>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="video/*,.mp4,.mov,.m4v,.mkv,.webm"
-          style={{ display: "none" }}
-          onChange={handleFileChange}
-        />
       </Paper>
 
       <MediaPreviewDialog
@@ -249,10 +239,13 @@ export const EventVideosSection = ({
         onClose={() => setPreview(null)}
       />
 
-      <ImportVideoUrlDialog
-        open={importOpen}
-        onClose={() => setImportOpen(false)}
-        onImport={onImportUrl}
+      <AddVideoDialog
+        open={addVideoOpen}
+        onClose={() => setAddVideoOpen(false)}
+        eventCode={eventCode}
+        eventId={eventId}
+        onUpload={onUpload}
+        onImportUrl={onImportUrl}
       />
     </Box>
   );
@@ -264,26 +257,30 @@ interface VideoRowProps {
   video: EventVideo;
   isFirst: boolean;
   isLast: boolean;
+  eventCode?: string;
   onUpdate: (videoId: number, patch: VideoTitlePatch) => Promise<void>;
   onReorder: (videoId: number, direction: -1 | 1) => Promise<void>;
   onDelete: (videoId: number) => Promise<void>;
   onPreview: (state: PreviewState) => void;
 }
 
-const VideoRow = ({ video, isFirst, isLast, onUpdate, onReorder, onDelete, onPreview }: VideoRowProps) => {
+const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDelete, onPreview }: VideoRowProps) => {
   const translate = useTranslate();
   const [editingTitle, setEditingTitle] = useState(false);
   const [edit, setEdit] = useState({ titleEn: video.titleEn ?? "", titlePt: video.titlePt ?? "" });
   const [deleting, setDeleting] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [subsOpen, setSubsOpen] = useState(false);
+  const [slidesOpen, setSlidesOpen] = useState(false);
   const subtitles = useVideoSubtitles(video.id);
+  const slides = useVideoSlides(video.id);
   // Subtitle generation reads the transcoded audio from Bunny; until the
   // duration is back-filled by the webhook the video is still processing.
   const canGenerateSubtitles = !!video.durationSeconds;
   const ft = useFieldTranslate();
   const doneRef = useRef(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const slideCount = slides.doc.intro.length + slides.doc.outro.length;
 
   const openEditor = () => {
     setEdit({ titleEn: video.titleEn ?? "", titlePt: video.titlePt ?? "" });
@@ -518,6 +515,20 @@ const VideoRow = ({ video, isFirst, isLast, onUpdate, onReorder, onDelete, onPre
           onToggle={() => setSubsOpen((o) => !o)}
         />
 
+        <BurnStatusChip status={slides.burnStatus} error={slides.burnError} />
+
+        <Tooltip
+          title={
+            slideCount > 0
+              ? translate("padmakara.slides.editButtonCount", { count: slideCount }) || `Slides (${slideCount})`
+              : translate("padmakara.slides.editButton") || "Slides"
+          }
+        >
+          <IconButton size="small" onClick={() => setSlidesOpen(true)}>
+            <SlideshowIcon sx={{ fontSize: 17, color: slideCount > 0 ? "#b91c1c" : "text.secondary" }} />
+          </IconButton>
+        </Tooltip>
+
         <IconButton
           size="small"
           onClick={() => handleReorderClick(-1)}
@@ -569,100 +580,26 @@ const VideoRow = ({ video, isFirst, isLast, onUpdate, onReorder, onDelete, onPre
           bunnyVideoId={video.bunnyVideoId}
         />
       </Collapse>
+
+      <SlideEditor
+        open={slidesOpen}
+        onClose={() => setSlidesOpen(false)}
+        title={
+          video.titleEn ||
+          video.titlePt ||
+          translate("padmakara.slides.dialogTitleFallback") ||
+          "Title slides"
+        }
+        eventCode={eventCode}
+        videoId={video.id}
+        initialDocument={slides.doc}
+        onSave={slides.save}
+        saving={slides.saving}
+        onGenerateDefaults={slides.generateDefaults}
+        generating={slides.generating}
+        burnStatus={slides.burnStatus}
+        burnError={slides.burnError}
+      />
     </Box>
-  );
-};
-
-/* ───────── Import-from-URL dialog ───────── */
-
-interface ImportVideoUrlDialogProps {
-  open: boolean;
-  onClose: () => void;
-  /** Rejects with a user-facing message shown inside the dialog. */
-  onImport: (url: string, title?: string) => Promise<void>;
-}
-
-const ImportVideoUrlDialog = ({ open, onClose, onImport }: ImportVideoUrlDialogProps) => {
-  const translate = useTranslate();
-  const [url, setUrl] = useState("");
-  const [title, setTitle] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleClose = () => {
-    if (submitting) return;
-    setUrl("");
-    setTitle("");
-    setError(null);
-    onClose();
-  };
-
-  const handleImport = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      await onImport(url.trim(), title.trim() || undefined);
-      setUrl("");
-      setTitle("");
-      onClose();
-    } catch (e: any) {
-      setError(e?.message || String(e));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle sx={{ fontWeight: 600 }}>
-        {translate("padmakara.videos.importUrlTitle") || "Import video from URL"}
-      </DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {translate("padmakara.videos.importUrlHelp") ||
-            "Paste a Google Drive share link or a direct link to a public video file."}
-        </Typography>
-        <TextField
-          autoFocus
-          fullWidth
-          size="small"
-          label={translate("padmakara.videos.importUrlField") || "Video URL"}
-          placeholder="https://drive.google.com/file/d/…"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          disabled={submitting}
-          sx={{ mb: 2 }}
-        />
-        <TextField
-          fullWidth
-          size="small"
-          label={translate("padmakara.videos.importTitleField") || "Title (optional)"}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          disabled={submitting}
-        />
-        {error && (
-          <Typography variant="body2" color="error" sx={{ mt: 1.5 }}>
-            {error}
-          </Typography>
-        )}
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={handleClose} disabled={submitting} color="inherit" sx={{ textTransform: "none" }}>
-          {translate("ra.action.cancel") || "Cancel"}
-        </Button>
-        <Button
-          onClick={handleImport}
-          disabled={submitting || !url.trim()}
-          variant="contained"
-          startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <AddLinkIcon sx={{ fontSize: 16 }} />}
-          sx={{ textTransform: "none" }}
-        >
-          {submitting
-            ? translate("padmakara.videos.importImporting") || "Importing…"
-            : translate("padmakara.videos.importStart") || "Import"}
-        </Button>
-      </DialogActions>
-    </Dialog>
   );
 };

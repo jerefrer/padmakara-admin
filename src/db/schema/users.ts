@@ -5,6 +5,7 @@ import {
   boolean,
   timestamp,
   integer,
+  numeric,
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -26,6 +27,14 @@ export const users = pgTable("users", {
   subscriptionStatus: text("subscription_status").notNull().default("none"), // "active" | "expired" | "none"
   subscriptionSource: text("subscription_source"), // "easypay" | "cash" | "admin" | "bank_transfer"
   subscriptionExpiresAt: timestamp("subscription_expires_at", { withTimezone: true }),
+  /**
+   * Set when the member cancels. Access continues until `subscriptionExpiresAt` — they
+   * paid for that period. Non-null means "active but will not renew", which is a
+   * different state from expired and needs to be shown differently in the UI.
+   */
+  subscriptionCancelledAt: timestamp("subscription_cancelled_at", { withTimezone: true }),
+  /** What they actually pay per period. Variable: €5 is a minimum, not a fixed price. */
+  subscriptionAmount: numeric("subscription_amount", { precision: 10, scale: 2 }),
   subscriptionNotes: text("subscription_notes"),
   easypaySubscriptionId: text("easypay_subscription_id").unique(),
   lastActivity: timestamp("last_activity", { withTimezone: true }),

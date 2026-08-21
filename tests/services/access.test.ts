@@ -24,9 +24,11 @@ import {
   filterAccessibleEvents,
   eventStatusVisibleTo,
   denialToHttpError,
+  hasActiveSubscription,
   AUDIENCE_SLUGS,
   type AccessDeniedReason,
 } from "../../src/services/access.ts";
+import { config } from "../../src/config.ts";
 import { AppError } from "../../src/lib/errors.ts";
 
 // Helpers
@@ -61,6 +63,60 @@ function mockSelectChain(results: any[]) {
 describe("Access Control Service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("hasActiveSubscription", () => {
+    const daysFromNow = (days: number) => new Date(Date.now() + days * 86_400_000);
+
+    it("is false when the status is not active", () => {
+      expect(
+        hasActiveSubscription({
+          subscriptionStatus: "expired",
+          subscriptionExpiresAt: daysFromNow(30),
+        }),
+      ).toBe(false);
+      expect(
+        hasActiveSubscription({
+          subscriptionStatus: "none",
+          subscriptionExpiresAt: null,
+        }),
+      ).toBe(false);
+    });
+
+    it("is true with no expiry date (admin-granted, open-ended)", () => {
+      expect(
+        hasActiveSubscription({ subscriptionStatus: "active", subscriptionExpiresAt: null }),
+      ).toBe(true);
+    });
+
+    it("is true before the paid-through date", () => {
+      expect(
+        hasActiveSubscription({
+          subscriptionStatus: "active",
+          subscriptionExpiresAt: daysFromNow(1),
+        }),
+      ).toBe(true);
+    });
+
+    it("stays true inside the grace window after expiry", () => {
+      // A renewal notification can arrive late or never — Easypay does not guarantee
+      // delivery. A member who has been charged must not lose access while we wait.
+      expect(
+        hasActiveSubscription({
+          subscriptionStatus: "active",
+          subscriptionExpiresAt: daysFromNow(-(config.subscription.graceDays - 1)),
+        }),
+      ).toBe(true);
+    });
+
+    it("is false once the grace window has passed", () => {
+      expect(
+        hasActiveSubscription({
+          subscriptionStatus: "active",
+          subscriptionExpiresAt: daysFromNow(-(config.subscription.graceDays + 1)),
+        }),
+      ).toBe(false);
+    });
   });
 
   describe("AUDIENCE_SLUGS", () => {

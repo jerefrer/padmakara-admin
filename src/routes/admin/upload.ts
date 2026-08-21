@@ -1,7 +1,13 @@
 import { Hono } from "hono";
 import { db } from "../../db/index.ts";
 import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key, buildEventFileS3Key } from "../../services/s3.ts";
-import { presignUploadSchema, presignTranscriptSchema, presignFileSchema, aiAssistSchema } from "../../lib/schemas.ts";
+import {
+  presignUploadSchema,
+  presignTranscriptSchema,
+  presignFileSchema,
+  presignVideoMasterSchema,
+  aiAssistSchema,
+} from "../../lib/schemas.ts";
 import {
   createVideo,
   deleteVideo,
@@ -64,6 +70,30 @@ uploadRoutes.post("/presign-file", async (c) => {
   const { eventCode, filename, contentType, fileType } = parsed.data;
   const s3Key = buildEventFileS3Key(eventCode, fileType, filename);
   const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
+  return c.json({ s3Key, uploadUrl });
+});
+
+/**
+ * POST /api/admin/upload/video/presign — presigned PUT for a video master
+ * recording (the pre-burn source file for the slide burn-in pipeline).
+ *
+ * Unlike the audio/document presign routes, this goes straight to S3 rather
+ * than Bunny: masters are retained (event_videos.master_s3_key) so a slide
+ * edit can re-burn without re-uploading, and the burn container needs S3
+ * access to the source file anyway.
+ */
+uploadRoutes.post("/video/presign", async (c) => {
+  const parsed = presignVideoMasterSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+  const { eventCode, filename, contentType } = parsed.data;
+  const s3Key = `events/${eventCode}/masters/${Date.now()}-${filename}`;
+  // 12h TTL — masters are multi-GB, so the browser PUT can run for hours on
+  // a slow connection. Mirrors the reasoning behind bunny/create's 48h TTL
+  // below: the signature must outlive the whole upload, not just the start
+  // of it, or a late-stage hiccup turns into an unrecoverable 403.
+  const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType, 12 * 3600);
   return c.json({ s3Key, uploadUrl });
 });
 

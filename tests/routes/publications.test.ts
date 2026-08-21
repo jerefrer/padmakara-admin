@@ -135,7 +135,9 @@ describe("GET /api/publications", () => {
         chainable([
           {
             subscriptionStatus: "active",
-            subscriptionExpiresAt: new Date(Date.now() - 86400000),
+            // Well past the grace window — one day past expiry still counts as a member
+            // (see hasActiveSubscription), so this has to model a genuinely lapsed one.
+            subscriptionExpiresAt: new Date(Date.now() - 30 * 86400000),
           },
         ]),
       )

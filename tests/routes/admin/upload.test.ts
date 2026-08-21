@@ -240,6 +240,88 @@ describe("POST /api/admin/upload/presign-transcript", () => {
 });
 
 // ---------------------------------------------------------------------------
+// video/presign (video master recordings — the burn pipeline's source file)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/admin/upload/video/presign", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns a namespaced S3 key and the presigned upload URL", async () => {
+    mockPresignUrl.mockResolvedValueOnce("https://s3.example.com/presigned-master-url");
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/video/presign", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        eventCode: "20240418-JKR-PP3-CCA",
+        filename: "master.mov",
+        contentType: "video/quicktime",
+      }),
+    });
+
+    expect(status).toBe(200);
+    expect((body as any).uploadUrl).toBe("https://s3.example.com/presigned-master-url");
+    expect((body as any).s3Key).toMatch(
+      /^events\/20240418-JKR-PP3-CCA\/masters\/\d+-master\.mov$/,
+    );
+    // Masters are multi-GB — the presign TTL must outlive the whole upload.
+    expect(mockPresignUrl).toHaveBeenCalledWith(
+      expect.stringContaining("events/20240418-JKR-PP3-CCA/masters/"),
+      "video/quicktime",
+      12 * 3600,
+    );
+  });
+
+  it("rejects path traversal in filename", async () => {
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/upload/video/presign", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        eventCode: "20240418-JKR-PP3-CCA",
+        filename: "../../etc/evil.mov",
+        contentType: "video/quicktime",
+      }),
+    });
+
+    expect(status).toBe(400);
+    expect((body as any).code).toBe("VALIDATION_ERROR");
+    expect(mockPresignUrl).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 without auth token", async () => {
+    const { status } = await testJson("/api/admin/upload/video/presign", {
+      method: "POST",
+      body: JSON.stringify({
+        eventCode: "20240418-JKR-PP3-CCA",
+        filename: "master.mov",
+        contentType: "video/quicktime",
+      }),
+    });
+
+    expect(status).toBe(401);
+  });
+
+  it("returns 403 for non-admin users", async () => {
+    const token = await createAccessToken({ sub: 2, email: "user@test.com", role: "user" });
+    const { status } = await testJson("/api/admin/upload/video/presign", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        eventCode: "20240418-JKR-PP3-CCA",
+        filename: "master.mov",
+        contentType: "video/quicktime",
+      }),
+    });
+
+    expect(status).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // rename-tracks (stateless — used by EventCreate before an event ID exists)
 // ---------------------------------------------------------------------------
 

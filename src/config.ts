@@ -60,6 +60,16 @@ export const config = {
     testing: env("EASYPAY_TESTING", "true") === "true",
   },
 
+  subscription: {
+    /**
+     * Days of access granted past `subscriptionExpiresAt` before we actually lock
+     * someone out. Absorbs a late or dropped renewal notification — which we know
+     * can happen, since Easypay notifications are fire-and-forget on their side.
+     * Erring towards a week of free access beats cutting off a member who paid.
+     */
+    graceDays: parseInt(env("SUBSCRIPTION_GRACE_DAYS", "7"), 10),
+  },
+
   urls: {
     frontend: env("FRONTEND_URL", "http://localhost:8081"),
     admin: env("ADMIN_URL", "http://localhost:5173"),
@@ -70,6 +80,23 @@ export const config = {
     jobDefinition: env("BATCH_JOB_DEFINITION", "padmakara-read-along"),
     jobQueue: env("BATCH_JOB_QUEUE", "padmakara-read-along-queue"),
     webhookSecret: env("READ_ALONG_WEBHOOK_SECRET", "dev-webhook-secret"),
+  },
+
+  // Title-slide burn-in pipeline (src/services/video-burn.ts). Shares the
+  // read-along webhook secret rather than adding a second one — the webhook
+  // route lives alongside the others and is authenticated the same way.
+  videoBurn: {
+    jobDefinition: env("BURN_JOB_DEFINITION", "padmakara-video-burn"),
+    // Defaults to the same queue read-along/subtitle jobs already use —
+    // override with BURN_JOB_QUEUE if the burn workload needs its own queue.
+    jobQueue: env("BURN_JOB_QUEUE", env("BATCH_JOB_QUEUE", "padmakara-read-along-queue")),
+    /**
+     * Object key of an outro logo stored in the app bucket, overriding the
+     * burn container's bundled default (the container ships its own copy
+     * at @builtin/padmakara-logo.png — see BUILTIN_LOGO_KEY in
+     * src/lib/slides/defaults.ts). Blank means "use the bundled logo".
+     */
+    outroLogoS3Key: env("BURN_OUTRO_LOGO_S3_KEY", ""),
   },
 
   bunny: {

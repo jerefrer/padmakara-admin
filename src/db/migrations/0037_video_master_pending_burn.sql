@@ -1,0 +1,11 @@
+-- A video awaiting slide burn-in exists before its Bunny video does.
+--
+-- The burn pipeline creates the event_videos row at upload time (holding the
+-- master's S3 key and the slide document), submits an AWS Batch job, and only
+-- learns the Bunny guid when the completion webhook fires. Between those two
+-- points the row legitimately has no bunny_video_id, so the NOT NULL
+-- constraint has to go.
+--
+-- Read paths that need a guid (playback, MP4 download, caption upload) guard
+-- on it being non-null and report the video as not yet ready.
+ALTER TABLE event_videos ALTER COLUMN bunny_video_id DROP NOT NULL;

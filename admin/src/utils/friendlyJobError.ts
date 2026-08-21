@@ -16,6 +16,10 @@ export type TranslateFn = (key: string, options?: Record<string, unknown>) => st
 export function friendlyJobError(raw: string | null | undefined, translate: TranslateFn): string {
   const text = (raw ?? "").toLowerCase();
 
+  if (text.includes("cancelled by")) {
+    return translate("padmakara.jobErrors.cancelled");
+  }
+
   if (text.includes("aged out") || text.includes("no longer tracked")) {
     return translate("padmakara.jobErrors.agedOut");
   }

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users } from "../db/schema/users.ts";
+import { paymentTransactions } from "../db/schema/payment-transactions.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
@@ -29,11 +30,79 @@ interface EasypayCheckoutResponse {
   [key: string]: unknown;
 }
 
-/** Shape of the Easypay GET /subscription/:id response we use. */
+/**
+ * Shape of the Easypay `GET /subscription/:id` response we use.
+ *
+ * Verified against the live sandbox API on 2026-07-30. Two things this response does
+ * NOT contain, despite earlier code assuming otherwise: there is no `order` object,
+ * and there is no top-level `status`. The user id travels in `customer.key`; the
+ * mandate/method state is `method.status` — which is not the same thing as the money
+ * having arrived, so it must not be used to grant access.
+ */
 interface EasypaySubscriptionResponse {
-  status: string;
-  order?: { key?: string; [key: string]: unknown };
+  id?: string;
+  key?: string;
+  value?: number;
+  currency?: string;
+  customer?: { key?: string; email?: string; [key: string]: unknown };
+  method?: { type?: string; status?: string; [key: string]: unknown };
   [key: string]: unknown;
+}
+
+// ─── Notification handling ───
+
+/**
+ * Easypay generic notifications carry `{id, key, type, status, messages, date}`.
+ *
+ * These sets come from Easypay's documentation, **not from observation**: we have never
+ * seen a real subscription capture notification, because the sandbox account cannot
+ * complete a card payment (card-on-file returns HTTP 500) and SEPA direct debit takes up
+ * to 14 days to confirm. So anything unrecognised is logged loudly and stored verbatim
+ * in `payment_transactions` rather than dropped — the first live notification is how we
+ * find out what these should really be.
+ */
+const PAYMENT_TYPES = new Set(["capture", "payment", "subscription"]);
+const REVERSAL_TYPES = new Set(["refund", "void", "chargeback", "dispute"]);
+const SUCCESS_STATUSES = new Set(["success", "paid", "active", "completed"]);
+
+type NotificationKind = "payment" | "payment_failed" | "reversal" | "unknown";
+
+function classifyNotification(
+  type: string | null,
+  status: string | null,
+): NotificationKind {
+  const t = (type ?? "").toLowerCase();
+  const s = (status ?? "").toLowerCase();
+  if (REVERSAL_TYPES.has(t)) return "reversal";
+  if (PAYMENT_TYPES.has(t)) {
+    return SUCCESS_STATUSES.has(s) ? "payment" : "payment_failed";
+  }
+  return "unknown";
+}
+
+/**
+ * The user id lives in `customer.key` (`user-{id}`, set when we create the checkout).
+ *
+ * We deliberately do not fall back to any value taken from the request body. This
+ * endpoint is unauthenticated, so a caller-supplied key would let anyone activate any
+ * account — and since the subscription resource has no `order.key` and its own `key`
+ * came back empty, that fallback was previously the *only* code path, not an edge case.
+ */
+function resolveUserId(subscription: EasypaySubscriptionResponse): number | null {
+  const match = /^user-(\d+)$/.exec(subscription.customer?.key ?? "");
+  return match ? parseInt(match[1]!, 10) : null;
+}
+
+/**
+ * Extend from the later of now and the current paid-through date: a renewal that
+ * arrives early must not shorten the period already paid for, and one that arrives
+ * late must not quietly swallow the days it was late by.
+ */
+function nextExpiry(current: Date | null): Date {
+  const now = new Date();
+  const base = current && current > now ? new Date(current) : now;
+  base.setMonth(base.getMonth() + 1);
+  return base;
 }
 
 // ─── Easypay API helpers ───
@@ -73,11 +142,15 @@ function mockCreateSubscription(userId: number) {
     .where(eq(users.id, userId));
 }
 
+/**
+ * Mirrors the real cancel: the member keeps access until the period they already paid
+ * for runs out, so this marks the cancellation rather than expiring the subscription.
+ */
 function mockCancelSubscription(userId: number) {
   return db
     .update(users)
     .set({
-      subscriptionStatus: "expired",
+      subscriptionCancelledAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId));
@@ -244,71 +317,159 @@ paymentRoutes.post("/webhook", async (c) => {
     return c.json({ received: true, mock: true });
   }
 
-  const body = await c.req.json();
-  const { id, key, type, status } = body;
+  const rawBody = await c.req.text();
 
-  console.log(`[EASYPAY WEBHOOK] type=${type} status=${status} id=${id} key=${key}`);
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return c.json({ received: true, ignored: "invalid json" });
+  }
+
+  const id = typeof body.id === "string" ? body.id : null;
+  const type = typeof body.type === "string" ? body.type : null;
+  const status = typeof body.status === "string" ? body.status : null;
+  const date = typeof body.date === "string" ? body.date : "";
+
+  console.log(`[EASYPAY WEBHOOK] type=${type} status=${status} id=${id}`);
 
   if (!id) {
-    return c.json({ received: true, ignored: true });
+    return c.json({ received: true, ignored: "no id" });
   }
 
-  // Verify the notification by querying Easypay for subscription details
+  // Idempotency. Easypay retries notifications, and a replay must not extend anyone's
+  // access twice. Claim the notification first: a duplicate loses on the unique
+  // dedupe_key and stops here before touching any user state.
+  const dedupeKey = `${id}:${type ?? "-"}:${status ?? "-"}:${date}`;
+  const claimed = await db
+    .insert(paymentTransactions)
+    .values({
+      notificationId: id,
+      notificationType: type,
+      notificationStatus: status,
+      dedupeKey,
+      action: "received",
+      rawPayload: body,
+    })
+    .onConflictDoNothing({ target: paymentTransactions.dedupeKey })
+    .returning({ id: paymentTransactions.id });
+
+  const txId = claimed[0]?.id;
+  if (!txId) {
+    console.log(`[EASYPAY WEBHOOK] duplicate, already processed: ${dedupeKey}`);
+    return c.json({ received: true, duplicate: true });
+  }
+
+  const recordOutcome = (fields: Record<string, unknown>) =>
+    db
+      .update(paymentTransactions)
+      .set(fields)
+      .where(eq(paymentTransactions.id, txId));
+
+  // Never act on the request body — re-read the subscription from Easypay and trust
+  // only what Easypay itself says about it.
+  let subscription: EasypaySubscriptionResponse;
   try {
-    const subscription = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${id}`);
-
-    // Extract userId from the order key (format: "user-{id}-{timestamp}")
-    const orderKey = subscription.order?.key || key || "";
-    const userIdMatch = orderKey.match(/^user-(\d+)/);
-    if (!userIdMatch) {
-      console.error(`[EASYPAY WEBHOOK] Cannot extract userId from key: ${orderKey}`);
-      return c.json({ received: true, ignored: true });
-    }
-
-    // userIdMatch[1] is defined — the regex has a required capturing group and we checked !userIdMatch above
-    const userId = parseInt(userIdMatch[1]!, 10);
-    const subStatus = subscription.status;
-
-    if (subStatus === "active") {
-      // Calculate expiry from frequency (1M = 1 month from now per cycle)
-      const expiresAt = new Date();
-      expiresAt.setMonth(expiresAt.getMonth() + 1);
-
-      await db
-        .update(users)
-        .set({
-          subscriptionStatus: "active",
-          subscriptionSource: "easypay",
-          easypaySubscriptionId: id,
-          subscriptionExpiresAt: expiresAt,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, userId));
-
-      console.log(`[EASYPAY WEBHOOK] Subscription activated for user ${userId}`);
-    } else if (subStatus === "inactive" || subStatus === "deleted") {
-      await db
-        .update(users)
-        .set({
-          subscriptionStatus: "expired",
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, userId));
-
-      console.log(`[EASYPAY WEBHOOK] Subscription cancelled for user ${userId}`);
-    }
+    subscription = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${id}`);
   } catch (err) {
-    // If we can't verify, log but don't fail — Easypay will retry
-    console.error(`[EASYPAY WEBHOOK] Failed to verify notification ${id}:`, err);
+    // Could be a notification about something that is not a subscription at all (the
+    // `id` namespace differs per resource type). Recorded, not retried: we always
+    // answer 200 so Easypay does not hammer us over something we will never handle.
+    console.error(`[EASYPAY WEBHOOK] could not verify ${id}:`, err);
+    await recordOutcome({ action: "unverified", note: String(err) });
+    return c.json({ received: true });
   }
 
+  const amount = typeof subscription.value === "number" ? String(subscription.value) : null;
+  const currency = typeof subscription.currency === "string" ? subscription.currency : null;
+  const userId = resolveUserId(subscription);
+
+  if (userId === null) {
+    console.error(
+      `[EASYPAY WEBHOOK] cannot attribute ${id} to a user — customer.key=${JSON.stringify(subscription.customer?.key)}`,
+    );
+    await recordOutcome({
+      action: "unresolved",
+      note: "customer.key did not match user-{id}",
+      rawSubscription: subscription,
+      amount,
+      currency,
+    });
+    return c.json({ received: true });
+  }
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user) {
+    console.error(`[EASYPAY WEBHOOK] ${id} references unknown user ${userId}`);
+    await recordOutcome({
+      action: "unresolved",
+      note: `user ${userId} not found`,
+      rawSubscription: subscription,
+      amount,
+      currency,
+    });
+    return c.json({ received: true });
+  }
+
+  const kind = classifyNotification(type, status);
+  const common = { userId, rawSubscription: subscription, amount, currency };
+
+  if (kind === "payment") {
+    const expiresAt = nextExpiry(user.subscriptionExpiresAt);
+    const wasActive = user.subscriptionStatus === "active";
+
+    await db
+      .update(users)
+      .set({
+        subscriptionStatus: "active",
+        subscriptionSource: "easypay",
+        easypaySubscriptionId: id,
+        subscriptionExpiresAt: expiresAt,
+        subscriptionAmount: amount ?? user.subscriptionAmount,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    await recordOutcome({ ...common, action: wasActive ? "extended" : "activated" });
+    console.log(
+      `[EASYPAY WEBHOOK] user ${userId} paid ${amount ?? "?"} ${currency ?? ""} — access through ${expiresAt.toISOString()}`,
+    );
+    return c.json({ received: true });
+  }
+
+  if (kind === "reversal") {
+    // The money went back. Close access now rather than at the paid-through date.
+    await db
+      .update(users)
+      .set({ subscriptionStatus: "expired", updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    await recordOutcome({ ...common, action: "reversed", note: `${type}/${status}` });
+    console.log(`[EASYPAY WEBHOOK] ${type} for user ${userId} — access closed`);
+    return c.json({ received: true });
+  }
+
+  // Failed charge, or a type we do not recognise: change nothing. Easypay retries twice
+  // on its own, and access lapses by itself at the paid-through date plus grace.
+  // Revoking here would cut off a paying member over one transient decline.
+  if (kind === "unknown") {
+    console.warn(
+      `[EASYPAY WEBHOOK] unrecognised type/status "${type}"/"${status}" for user ${userId} — stored, no action taken`,
+    );
+  }
+  await recordOutcome({ ...common, action: "ignored", note: kind });
   return c.json({ received: true });
 });
 
 /**
  * POST /api/payment/cancel
- * Cancels the user's Easypay subscription.
- * In mock mode: marks subscription as expired directly.
+ *
+ * Stops the subscription renewing. Access is **not** revoked: the member has paid
+ * through `subscriptionExpiresAt` and keeps it until then. Returns that date so the
+ * client can say when access actually ends.
+ *
+ * Cancellation being easy and immediate is also a Visa/Mastercard requirement for
+ * subscription merchants, so this endpoint must stay a single call with no friction.
  */
 paymentRoutes.post("/cancel", authMiddleware, async (c) => {
   const authUser = getUser(c);
@@ -318,31 +479,36 @@ paymentRoutes.post("/cancel", authMiddleware, async (c) => {
   });
   if (!user) throw AppError.notFound("User not found");
 
+  const accessUntil = user.subscriptionExpiresAt?.toISOString() ?? null;
+
   if (isMockMode) {
     console.log(`[MOCK PAYMENT] Cancelling subscription for user ${user.id}`);
     await mockCancelSubscription(user.id);
-    return c.json({ url: `${config.urls.frontend}/subscription/cancel` });
+    return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
   }
 
   if (!user.easypaySubscriptionId) {
     throw AppError.badRequest("No Easypay subscription found for this account");
   }
 
-  // Cancel subscription via Easypay API
+  // Stop future charges at Easypay.
   await easypayFetch(`/subscription/${user.easypaySubscriptionId}`, {
     method: "PATCH",
     body: JSON.stringify({ status: "inactive" }),
   });
 
+  // Record the cancellation but leave status and expiry alone — access runs out on its
+  // own at the paid-through date. Expiring it here would take away a period the member
+  // has already paid for.
   await db
     .update(users)
     .set({
-      subscriptionStatus: "expired",
+      subscriptionCancelledAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(users.id, user.id));
 
-  return c.json({ url: `${config.urls.frontend}/subscription/cancel` });
+  return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
 });
 
 export { paymentRoutes };

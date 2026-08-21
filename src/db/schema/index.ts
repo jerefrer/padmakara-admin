@@ -73,6 +73,12 @@ export {
   downloadRequestsRelations,
 } from "./download-requests.ts";
 
+// Payment ledger (every Easypay notification, verbatim)
+export {
+  paymentTransactions,
+  paymentTransactionsRelations,
+} from "./payment-transactions.ts";
+
 // Read-along jobs
 export {
   readAlongJobs,

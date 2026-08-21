@@ -11,9 +11,11 @@
  *   - a status line only while a Batch job is running or has failed.
  */
 
+import CancelIcon from "@mui/icons-material/Cancel";
 import CheckIcon from "@mui/icons-material/Check";
 import ClosedCaptionOutlinedIcon from "@mui/icons-material/ClosedCaptionOutlined";
 import DownloadIcon from "@mui/icons-material/Download";
+import ClearIcon from "@mui/icons-material/Close";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import ReplayIcon from "@mui/icons-material/Replay";
 import TranslateIcon from "@mui/icons-material/Translate";
@@ -28,7 +30,7 @@ import LinearProgress from "@mui/material/LinearProgress";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNotify, useTranslate } from "react-admin";
+import { Confirm, useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import { friendlyJobError } from "../utils/friendlyJobError";
 import { LANG_CHIP_COLORS, DEFAULT_LANG_CHIP, LangTag } from "./inlineEditKit";
@@ -72,10 +74,20 @@ export interface VideoSubtitlesState {
   failedJob: SubtitleJob | null;
   hasEn: boolean;
   busyLang: string | null;
-  generate: (lang?: string) => Promise<void>;
+  /**
+   * Whether the video's event has an English transcript on file — null
+   * while unknown (still loading, or the check failed silently). Gates the
+   * "no transcript" confirmation before generating/regenerating.
+   */
+  hasTranscript: boolean | null;
+  cancellingJobId: string | null;
+  generate: (lang?: string, acknowledgeNoTranscript?: boolean) => Promise<void>;
   translateTo: (lang: string) => Promise<void>;
   download: (lang: string) => Promise<void>;
   replace: (lang: string, file: File) => Promise<void>;
+  cancel: (jobId: string) => Promise<void>;
+  /** Delete a terminal job row (clears a read failure from the row). */
+  clearJob: (jobId: string) => Promise<void>;
 }
 
 export function useVideoSubtitles(videoId: number): VideoSubtitlesState {
@@ -85,6 +97,8 @@ export function useVideoSubtitles(videoId: number): VideoSubtitlesState {
   const [jobs, setJobs] = useState<SubtitleJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyLang, setBusyLang] = useState<string | null>(null);
+  const [hasTranscript, setHasTranscript] = useState<boolean | null>(null);
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -98,6 +112,21 @@ export function useVideoSubtitles(videoId: number): VideoSubtitlesState {
       // Silent — the 10s poll retries; surfacing every fetch error is noisy.
     } finally {
       setLoading(false);
+    }
+
+    // Independent of the fetch above — generation always targets English
+    // here, so that's the only language worth checking. A failure leaves
+    // hasTranscript at whatever it last was rather than clearing it.
+    try {
+      const res = await authFetch(
+        `/api/admin/subtitle-jobs/transcript-status?videoId=${videoId}&language=en`,
+      );
+      if (res.ok) {
+        const data = (await res.json()) as { hasTranscript: boolean };
+        setHasTranscript(data.hasTranscript);
+      }
+    } catch {
+      // Silent — see above.
     }
   }, [videoId]);
 
@@ -116,17 +145,17 @@ export function useVideoSubtitles(videoId: number): VideoSubtitlesState {
   }, [hasActiveJob, jobs, fetchData]);
 
   const post = useCallback(
-    async (lang: string, path: string) => {
+    async (lang: string, path: string, body: Record<string, unknown> = {}) => {
       setBusyLang(lang);
       try {
         const res = await authFetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify(body),
         });
         if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-          throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+          const errBody = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+          throw new Error(errBody.error?.message ?? `HTTP ${res.status}`);
         }
         notify(translate("padmakara.subtitles.submittedSuccess"), { type: "success" });
         await fetchData();
@@ -140,8 +169,13 @@ export function useVideoSubtitles(videoId: number): VideoSubtitlesState {
     [fetchData, notify, translate],
   );
 
+  // POSTs to /admin/subtitle-jobs rather than /admin/videos/:videoId/subtitles
+  // — the latter has no way to carry acknowledgeNoTranscript through, so it
+  // always refuses when the event has no transcript. This is the path that
+  // can pass the acknowledgement once the confirm dialog has been accepted.
   const generate = useCallback(
-    (lang = "en") => post(lang, `/api/admin/videos/${videoId}/subtitles`),
+    (lang = "en", acknowledgeNoTranscript = false) =>
+      post(lang, `/api/admin/subtitle-jobs`, { videoId, language: lang, acknowledgeNoTranscript }),
     [post, videoId],
   );
 
@@ -200,6 +234,52 @@ export function useVideoSubtitles(videoId: number): VideoSubtitlesState {
     [fetchData, notify, translate, videoId],
   );
 
+  const cancel = useCallback(
+    async (jobId: string) => {
+      setCancellingJobId(jobId);
+      try {
+        const res = await authFetch(`/api/admin/subtitle-jobs/${jobId}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+          throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+        }
+        notify(translate("padmakara.subtitles.cancelledSuccess"), { type: "success" });
+        await fetchData();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        notify(`${translate("padmakara.subtitles.cancelFailed")}: ${msg}`, { type: "error" });
+      } finally {
+        setCancellingJobId(null);
+      }
+    },
+    [fetchData, notify, translate],
+  );
+
+  /** Remove a finished job row so a read-and-understood failure stops
+   *  occupying the row. Terminal jobs only — the API enforces that too. */
+  const clearJob = useCallback(
+    async (jobId: string) => {
+      setCancellingJobId(jobId);
+      try {
+        const res = await authFetch(`/api/admin/subtitle-jobs/${jobId}`, { method: "DELETE" });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+          throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+        }
+        await fetchData();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        notify(`${translate("padmakara.subtitles.clearFailed")}: ${msg}`, { type: "error" });
+      } finally {
+        setCancellingJobId(null);
+      }
+    },
+    [fetchData, notify, translate],
+  );
+
   const activeJob = jobs.find((j) => !TERMINAL_STATUSES.has(j.status)) ?? null;
   // A failure is only worth surfacing while it is the latest word on the
   // matter — i.e. the most recent job failed and nothing runs right now.
@@ -213,10 +293,14 @@ export function useVideoSubtitles(videoId: number): VideoSubtitlesState {
     failedJob,
     hasEn: tracks.some((t) => t.language === "en"),
     busyLang,
+    hasTranscript,
+    cancellingJobId,
     generate,
     translateTo,
     download,
     replace,
+    cancel,
+    clearJob,
   };
 }
 
@@ -239,7 +323,7 @@ interface SubtitleChipsProps {
 
 export const SubtitleChips = ({ state, canGenerate, open, onToggle }: SubtitleChipsProps) => {
   const translate = useTranslate();
-  const { loading, tracks, activeJob, failedJob } = state;
+  const { loading, tracks, activeJob, failedJob, hasTranscript } = state;
   if (loading) return null;
 
   const langName = (lang: string) =>
@@ -309,20 +393,38 @@ export const SubtitleChips = ({ state, canGenerate, open, onToggle }: SubtitleCh
 
   if (chips.length === 0) {
     if (!canGenerate) return null; // still transcoding — nothing to offer yet
+    const noTranscript = hasTranscript === false;
     chips.push(
-      <Tooltip key="none" title={translate("padmakara.subtitles.generate")}>
+      <Tooltip
+        key="none"
+        title={
+          noTranscript
+            ? translate("padmakara.subtitles.noTranscriptWarning")
+            : translate("padmakara.subtitles.generate")
+        }
+      >
         <Chip
           label="CC"
           size="small"
           onClick={onToggle}
           aria-expanded={open}
-          icon={<ClosedCaptionOutlinedIcon sx={{ fontSize: 13 }} />}
+          icon={
+            noTranscript ? (
+              <WarningAmberIcon sx={{ fontSize: 13, color: "#b45309 !important" }} />
+            ) : (
+              <ClosedCaptionOutlinedIcon sx={{ fontSize: 13 }} />
+            )
+          }
           variant="outlined"
           sx={{
             ...chipBaseSx,
-            color: "text.disabled",
+            color: noTranscript ? "#b45309" : "text.disabled",
             borderStyle: "dashed",
-            "&:hover": { color: "text.secondary", backgroundColor: "rgba(91,94,166,0.04)" },
+            ...(noTranscript && { borderColor: "#f59e0b" }),
+            "&:hover": {
+              color: noTranscript ? "#b45309" : "text.secondary",
+              backgroundColor: noTranscript ? "#fffbeb" : "rgba(91,94,166,0.04)",
+            },
           }}
         />
       </Tooltip>,
@@ -342,12 +444,26 @@ interface SubtitleDetailsProps {
 
 export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDetailsProps) => {
   const translate = useTranslate();
-  const { tracks, activeJob, failedJob, hasEn, busyLang } = state;
+  const { tracks, activeJob, failedJob, hasEn, busyLang, hasTranscript, cancellingJobId } = state;
+  const [noTranscriptConfirmOpen, setNoTranscriptConfirmOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   const langName = (lang: string) =>
     translate(`padmakara.subtitles.langs.${lang}`, { _: lang.toUpperCase() });
   const missingTargets = TARGET_LANGS.filter((l) => !tracks.some((t) => t.language === l));
   const empty = tracks.length === 0 && !activeJob && !failedJob;
+
+  // English generation/regeneration reads the event transcript to guide
+  // Whisper; without one it still works, but produces materially worse
+  // output on names and Buddhist terminology. Route every path that ends up
+  // calling generate() through here so the confirmation is never skipped.
+  const requestGenerate = () => {
+    if (hasTranscript === false) {
+      setNoTranscriptConfirmOpen(true);
+    } else {
+      void state.generate();
+    }
+  };
 
   return (
     <Box
@@ -367,11 +483,21 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
         <Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <CircularProgress size={12} thickness={5} sx={{ color: "#b45309" }} />
-            <Typography variant="caption" sx={{ color: "#b45309", fontWeight: 600 }}>
+            <Typography variant="caption" sx={{ color: "#b45309", fontWeight: 600, flex: 1 }}>
               {translate("padmakara.subtitles.generatingLang", { language: langName(activeJob.language) })}
               {" · "}
               {translate(`padmakara.subtitles.status.${activeJob.status}`, { _: activeJob.status })}
             </Typography>
+            <Button
+              size="small"
+              color="inherit"
+              startIcon={<CancelIcon sx={{ fontSize: 13 }} />}
+              disabled={cancellingJobId !== null}
+              onClick={() => setCancelConfirmOpen(true)}
+              sx={{ textTransform: "none", fontSize: "0.72rem", py: 0, color: "text.secondary" }}
+            >
+              {translate("padmakara.subtitles.cancel")}
+            </Button>
           </Box>
           <LinearProgress sx={{ mt: 0.75, borderRadius: 1, height: 3 }} />
         </Box>
@@ -398,12 +524,22 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
             disabled={busyLang !== null}
             onClick={() =>
               failedJob.language === "en"
-                ? void state.generate()
+                ? requestGenerate()
                 : void state.translateTo(failedJob.language)
             }
             sx={{ textTransform: "none", fontSize: "0.72rem", py: 0 }}
           >
             {translate("padmakara.subtitles.retry")}
+          </Button>
+          <Button
+            size="small"
+            color="inherit"
+            startIcon={<ClearIcon sx={{ fontSize: 14 }} />}
+            disabled={busyLang !== null || state.cancellingJobId === failedJob.id}
+            onClick={() => void state.clearJob(failedJob.id)}
+            sx={{ textTransform: "none", fontSize: "0.72rem", py: 0, color: "text.secondary" }}
+          >
+            {translate("padmakara.subtitles.clear")}
           </Button>
         </Box>
       )}
@@ -481,16 +617,28 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
                 size="small"
                 variant="contained"
                 disableElevation
+                color={hasTranscript === false ? "warning" : "primary"}
                 startIcon={<ClosedCaptionOutlinedIcon sx={{ fontSize: 15 }} />}
                 disabled={busyLang !== null}
-                onClick={() => void state.generate()}
+                onClick={requestGenerate}
                 sx={{ textTransform: "none", fontSize: "0.72rem", py: 0.25 }}
               >
                 {translate("padmakara.subtitles.generate")}
               </Button>
-              <Typography variant="caption" color="text.secondary">
-                {translate("padmakara.subtitles.generateHint")}
-              </Typography>
+              {hasTranscript === false ? (
+                <Tooltip title={translate("padmakara.subtitles.noTranscriptWarning")}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, cursor: "help" }}>
+                    <WarningAmberIcon sx={{ fontSize: 13, color: "#b45309" }} />
+                    <Typography variant="caption" sx={{ color: "#b45309" }}>
+                      {translate("padmakara.subtitles.noTranscriptHint")}
+                    </Typography>
+                  </Box>
+                </Tooltip>
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  {translate("padmakara.subtitles.generateHint")}
+                </Typography>
+              )}
             </>
           )}
 
@@ -517,15 +665,32 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
           <Box sx={{ flex: 1 }} />
 
           {hasEn && (
-            <Tooltip title={translate("padmakara.subtitles.regenerateHint")}>
+            <Tooltip
+              title={
+                hasTranscript === false
+                  ? translate("padmakara.subtitles.noTranscriptWarning")
+                  : translate("padmakara.subtitles.regenerateHint")
+              }
+            >
               <span>
                 <Button
                   size="small"
                   color="inherit"
-                  startIcon={<ReplayIcon sx={{ fontSize: 13 }} />}
+                  startIcon={
+                    hasTranscript === false ? (
+                      <WarningAmberIcon sx={{ fontSize: 13, color: "#b45309" }} />
+                    ) : (
+                      <ReplayIcon sx={{ fontSize: 13 }} />
+                    )
+                  }
                   disabled={busyLang !== null}
-                  onClick={() => void state.generate()}
-                  sx={{ textTransform: "none", fontSize: "0.72rem", py: 0, color: "text.secondary" }}
+                  onClick={requestGenerate}
+                  sx={{
+                    textTransform: "none",
+                    fontSize: "0.72rem",
+                    py: 0,
+                    color: hasTranscript === false ? "#b45309" : "text.secondary",
+                  }}
                 >
                   {translate("padmakara.subtitles.regenerate")}
                 </Button>
@@ -533,9 +698,6 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
             </Tooltip>
           )}
 
-          <Typography variant="caption" sx={{ color: "text.disabled", fontFamily: "monospace" }}>
-            {bunnyVideoId.slice(0, 8)}
-          </Typography>
         </Box>
       )}
 
@@ -544,6 +706,33 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
         <Typography variant="caption" color="text.secondary">
           {translate("padmakara.subtitles.waitTranscoding")}
         </Typography>
+      )}
+
+      <Confirm
+        isOpen={noTranscriptConfirmOpen}
+        title={translate("padmakara.subtitles.noTranscriptConfirmTitle")}
+        content={translate("padmakara.subtitles.noTranscriptConfirmContent")}
+        confirm={translate("padmakara.subtitles.noTranscriptConfirmProceed")}
+        confirmColor="warning"
+        onConfirm={() => {
+          setNoTranscriptConfirmOpen(false);
+          void state.generate(undefined, true);
+        }}
+        onClose={() => setNoTranscriptConfirmOpen(false)}
+      />
+
+      {activeJob && (
+        <Confirm
+          isOpen={cancelConfirmOpen}
+          title={translate("padmakara.subtitles.cancelConfirmTitle")}
+          content={translate("padmakara.subtitles.cancelConfirmContent")}
+          confirmColor="warning"
+          onConfirm={() => {
+            setCancelConfirmOpen(false);
+            void state.cancel(activeJob.id);
+          }}
+          onClose={() => setCancelConfirmOpen(false)}
+        />
       )}
     </Box>
   );

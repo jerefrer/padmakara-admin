@@ -17,9 +17,11 @@ import { eventFiles } from "../../db/schema/event-files.ts";
 import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
-import { submitReadAlongJob, getReadAlongJobs } from "../../services/read-along.ts";
+import { submitReadAlongJob, getReadAlongJobs, cancelReadAlongJob } from "../../services/read-along.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 import { aiAssistEvent } from "../../services/ai-assist.ts";
+import { buildDefaultSlideDocument } from "../../lib/slides/defaults.ts";
+import { fetchSlideTemplateMetadata } from "../../services/slide-metadata.ts";
 
 const eventRoutes = new Hono();
 
@@ -424,6 +426,47 @@ eventRoutes.get("/:id/read-along", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const jobs = await getReadAlongJobs(id);
   return c.json({ jobs });
+});
+
+/**
+ * POST /admin/events/:id/read-along/:jobId/cancel
+ *
+ * Terminate a running/queued read-along job.
+ */
+eventRoutes.post("/:id/read-along/:jobId/cancel", async (c) => {
+  const jobId = c.req.param("jobId");
+  const result = await cancelReadAlongJob(jobId);
+  return c.json(result);
+});
+
+// ── Title slides (defaults only — event-scoped) ──────────────────────────
+
+/**
+ * POST /admin/events/:id/slides/defaults
+ *
+ * Generate the default 5-slide intro + logo outro from the event's own
+ * metadata — used by the admin's pre-upload draft slide editor, which has no
+ * event_video row yet (slides are always scoped to one; see
+ * EventVideosSection.tsx / AddVideoDialog.tsx). Falls back to the event's
+ * `startDate` for the date slide, since there is no video date to prefer.
+ *
+ * The video-scoped counterpart (POST /admin/videos/:id/slides/defaults in
+ * routes/admin/videos.ts) stays as-is — it correctly prefers the video's own
+ * `videoDate` once a video row exists. Both share the same metadata
+ * assembly via fetchSlideTemplateMetadata (src/services/slide-metadata.ts)
+ * so they can't quietly drift apart.
+ *
+ * Does NOT persist — the admin previews the result client-side and saves it
+ * (possibly edited) into the draft, which is only written to a real
+ * event_video row once the upload actually happens.
+ */
+eventRoutes.post("/:id/slides/defaults", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const meta = await fetchSlideTemplateMetadata(id);
+  if (!meta) throw AppError.notFound("Event not found");
+
+  const slides = buildDefaultSlideDocument(meta, () => crypto.randomUUID());
+  return c.json({ slides });
 });
 
 /**
