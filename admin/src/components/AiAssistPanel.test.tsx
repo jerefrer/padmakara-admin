@@ -164,6 +164,18 @@ describe("AiAssistPanel review table", () => {
     expect(padding(heading)).toBeGreaterThan(padding(value));
   });
 
+  it("leaves current and proposed the same width", async () => {
+    await ask(TWO_SESSIONS, TWO_SESSIONS_RESULT);
+
+    const headers = [...container.querySelectorAll("th")];
+    const width = (th: Element) => getComputedStyle(th).width;
+
+    // Under a fixed table layout, equal size comes from declaring no width on
+    // either — pinning current to a percentage starved proposed of the rest.
+    expect(width(headers[3]!)).toBe(width(headers[4]!));
+    expect(width(headers[3]!)).not.toMatch(/%|px/);
+  });
+
   it("splits a value so the words that moved are their own elements", async () => {
     await ask(
       [makeTrack({ rowKey: "t1", trackNumber: 4, titleEn: "Morning teaching part 1" })],

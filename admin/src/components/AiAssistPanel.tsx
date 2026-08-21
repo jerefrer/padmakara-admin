@@ -247,7 +247,7 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
           <TableRow key={`group-${i}`}>
             <TableCell
               padding="checkbox"
-              sx={{ py: 1, borderBottom: "none", backgroundColor: "rgba(91,94,166,0.06)" }}
+              sx={{ py: 1.5, borderBottom: "none", backgroundColor: "rgba(91,94,166,0.06)" }}
             >
               <Checkbox size="small" {...selectionProps(ids)} />
             </TableCell>
@@ -257,8 +257,8 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
                 // Deliberately roomier than a track row: the heading has to
                 // read as the band that opens a session, not as a thinner
                 // version of the rows under it.
-                py: 1, borderBottom: "none",
-                fontWeight: 700, fontSize: "0.8rem", letterSpacing: 0.3,
+                py: 1.5, borderBottom: "none",
+                fontWeight: 700, fontSize: "0.82rem", letterSpacing: 0.3,
                 color: "text.primary", backgroundColor: "rgba(91,94,166,0.06)",
               }}
             >
@@ -313,7 +313,10 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
           <TableCell sx={{ ...cellSx, width: showItem ? 110 : 180 }}>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>{r.field}</Typography>
           </TableCell>
-          <TableCell sx={{ ...cellSx, width: "35%" }}>
+          {/* No width on this cell or the next: with a fixed table layout the
+              undeclared columns split what the labels leave over, which is
+              the only way to keep current and proposed the same size. */}
+          <TableCell sx={cellSx}>
             <Typography variant="body2" sx={{ opacity: 0.75, wordBreak: "break-word" }}>
               <InlineValue segments={r.fromSegments} side="from" />
             </Typography>
@@ -354,7 +357,7 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
               </TableCell>
               {showItem && <TableCell sx={{ width: ITEM_COLUMN_WIDTH }}>{itemHeader}</TableCell>}
               <TableCell sx={{ width: showItem ? 110 : 180 }}>{t("colField")}</TableCell>
-              <TableCell sx={{ width: "35%" }}>{t("colCurrent")}</TableCell>
+              <TableCell>{t("colCurrent")}</TableCell>
               <TableCell>{t("colProposed")}</TableCell>
             </TableRow>
           </TableHead>
