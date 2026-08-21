@@ -23,7 +23,7 @@ import { issueMat, verifyMat } from "../services/media-access.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
-import { checkEventAccess, denialToHttpError } from "../services/access.ts";
+import { checkEventAccess, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
 
 const mediaRoutes = new Hono();
 
@@ -122,6 +122,21 @@ async function watermarkPdf(originalPdfBytes: Uint8Array, watermarkText: string)
     });
   }
   return await pdfDoc.save();
+}
+
+/**
+ * The line stamped on a gated document: the reader's full name and the email
+ * they signed in with, so a leaked copy points back to the account it came
+ * from. Falls back to the email alone when the profile carries no name.
+ */
+async function watermarkTextFor(authUser: { id: number; email: string }): Promise<string> {
+  const fullUser = await db.query.users.findFirst({
+    where: eq(users.id, authUser.id),
+  });
+  const userName = fullUser
+    ? [fullUser.firstName, fullUser.lastName].filter(Boolean).join(" ") || authUser.email
+    : authUser.email;
+  return `${userName} — ${authUser.email}`;
 }
 
 /**
@@ -598,17 +613,21 @@ mediaRoutes.get("/readalong/:trackId", async (c) => {
 });
 
 /**
- * GET /api/media/transcript/:transcriptId - Serve watermarked PDF
- * Requires authentication (watermark includes user name + email).
- * Add ?download=true for Content-Disposition: attachment.
+ * GET /api/media/transcript/:transcriptId - Serve a transcript PDF
+ *
+ * Access follows the parent event's audience, exactly like /audio and /video:
+ * a `free-anyone` event's transcript is readable without logging in, so a
+ * visitor who can browse and listen to a public event can also read along.
+ * Everything else still requires a session that satisfies the audience rules.
+ *
+ * Transcripts on gated events are watermarked with the reader's name + email.
+ * Public ones are not: the same bytes are downloadable anonymously anyway, so
+ * stamping the signed-in copies would deter nothing while making every
+ * download unique. Add ?download=true for Content-Disposition: attachment.
  */
 mediaRoutes.get("/transcript/:transcriptId", async (c) => {
   const transcriptId = parseInt(c.req.param("transcriptId"), 10);
   const authUser = getOptionalUser(c);
-
-  if (!authUser) {
-    throw AppError.unauthorized("Authentication required to view transcripts");
-  }
 
   const result = await getEventForTranscript(transcriptId);
   if (!result?.transcript) throw AppError.notFound("Transcript not found");
@@ -618,16 +637,13 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
+  } else if (!authUser) {
+    // Orphaned transcript: no event means no audience to gate on, so fall
+    // back to requiring a session rather than serving it to anyone.
+    throw AppError.unauthorized("Authentication required to view transcripts");
   }
 
-  // Get user's full name for watermark
-  const fullUser = await db.query.users.findFirst({
-    where: eq(users.id, authUser.id),
-  });
-  const userName = fullUser
-    ? [fullUser.firstName, fullUser.lastName].filter(Boolean).join(" ") || authUser.email
-    : authUser.email;
-  const watermarkText = `${userName} — ${authUser.email}`;
+  const isPublicEvent = result.event?.audience?.slug === AUDIENCE_SLUGS.PUBLIC;
 
   // Fetch original PDF from S3
   const presignedUrl = await generatePresignedDownloadUrl(result.transcript.s3Key);
@@ -637,8 +653,13 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
   }
   const originalPdfBytes = new Uint8Array(await pdfResponse.arrayBuffer());
 
-  // Add watermark: single centered line at bottom of each page
-  const watermarkedPdfBytes = await watermarkPdf(originalPdfBytes, watermarkText);
+  // Gated transcripts carry a per-reader watermark: single centered line at
+  // the bottom of each page. checkEventAccess has already rejected anonymous
+  // callers on every non-public audience, so the `!authUser` arm below only
+  // narrows the type — it is unreachable for a gated event.
+  const pdfBytes = isPublicEvent || !authUser
+    ? originalPdfBytes
+    : await watermarkPdf(originalPdfBytes, await watermarkTextFor(authUser));
 
   // Use original filename if available, fall back to generated name
   const rawFilename = result.transcript.originalFilename
@@ -655,11 +676,11 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
   const isDownload = c.req.query("download") === "true";
   const disposition = isDownload ? "attachment" : "inline";
 
-  return new Response(watermarkedPdfBytes, {
+  return new Response(pdfBytes, {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `${disposition}; filename="${asciiFilename}"; filename*=UTF-8''${utf8Filename}`,
-      "Content-Length": String(watermarkedPdfBytes.byteLength),
+      "Content-Length": String(pdfBytes.byteLength),
     },
   });
 });
