@@ -99,6 +99,77 @@ describe("aiAssistEvent", () => {
     expect(out.tracks[0]?.speakerUnmatched).toBeUndefined();
   });
 
+  it("applies a suggested language list to the track", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "t1", languages: ["tib", "en"] }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Set the languages to Tibetan / English",
+      tracks: [{ ...TRACKS[0]!, languages: ["en"] }],
+      roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([{ rowKey: "t1", languages: ["tib", "en"] }]);
+  });
+
+  it("puts a suggested language list back in canonical order", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "t1", languages: ["PT", "en", "tib", "en"] }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Mark it as trilingual",
+      tracks: [{ ...TRACKS[0]!, languages: ["en"] }],
+      roster: ROSTER, apiKey: "k",
+    });
+    // Canonical order (tib < en < pt < fr) and de-duplicated: the first entry
+    // becomes originalLanguage on apply, so the order is data, not display.
+    expect(out.tracks[0]?.languages).toEqual(["tib", "en", "pt"]);
+  });
+
+  it("drops unrecognized language codes and keeps the rest", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "t1", languages: ["en", "de", "sanskrit"] }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Add German", tracks: [{ ...TRACKS[0]!, languages: ["pt"] }],
+      roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks[0]?.languages).toEqual(["en"]);
+  });
+
+  it("ignores a language list left with nothing recognizable", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "t1", languages: ["de"], titleEn: "Opening" }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Set the languages to German",
+      tracks: [{ ...TRACKS[0]!, languages: ["en"] }],
+      roster: ROSTER, apiKey: "k",
+    });
+    // An empty list would strip the track of every language — worse than
+    // leaving it alone, so only the title change survives.
+    expect(out.tracks).toEqual([{ rowKey: "t1", titleEn: "Opening" }]);
+  });
+
+  it("drops a language list identical to the track's own", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [
+        { rowKey: "t1", languages: ["en"] },
+        { rowKey: "t2", languages: ["tib", "en"] },
+      ] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Set the languages to Tibetan / English on the non-PWR tracks",
+      tracks: [
+        { rowKey: "t1", originalFilename: "001.mp3", title: "a", speaker: "PWR", languages: ["en"] },
+        { rowKey: "t2", originalFilename: "002.mp3", title: "b", speaker: "KTGR", languages: ["en"] },
+      ],
+      roster: ROSTER, apiKey: "k",
+    });
+    // t1 keeps what it had, so it is not a change to review.
+    expect(out.tracks[0]?.languages).toBeUndefined();
+    expect(out.tracks[1]?.languages).toEqual(["tib", "en"]);
+  });
+
   it("strips markdown fences around the JSON object", async () => {
     mockMessagesCreate.mockResolvedValueOnce({
       content: [{ type: "text", text: "```json\n" + JSON.stringify({ tracks: [{ rowKey: "t1", titleEn: "X" }] }) + "\n```" }],

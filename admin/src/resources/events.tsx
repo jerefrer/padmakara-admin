@@ -2127,6 +2127,16 @@ export const EventCreate = () => {
               next = { ...next, titlePt: tSug.titlePt, titlePtReviewed: false };
             }
             if (tSug.speaker != null) next = { ...next, speaker: tSug.speaker };
+            // The suggested list arrives already cleaned and in canonical
+            // order, so its first entry is the source language — the same
+            // invariant the language chips maintain when toggled by hand.
+            if (tSug.languages?.length) {
+              next = {
+                ...next,
+                languages: tSug.languages,
+                originalLanguage: tSug.languages[0]!,
+              };
+            }
             return next;
           }),
         };
@@ -2358,6 +2368,7 @@ export const EventCreate = () => {
                 titleEn: tk.titleEn ?? "",
                 titlePt: tk.titlePt ?? "",
                 speaker: tk.speaker ?? "",
+                languages: tk.languages,
               }))}
               onApply={handleAiApply}
             />
@@ -2891,6 +2902,12 @@ export const EventEdit = () => {
       if (tr.titleEn !== undefined) { updates.titleEn = tr.titleEn; updates.titleEnReviewed = false; }
       if (tr.titlePt !== undefined) { updates.titlePt = tr.titlePt; updates.titlePtReviewed = false; }
       if (tr.speaker != null) updates.speaker = tr.speaker;
+      if (tr.languages?.length) {
+        updates.languages = tr.languages;
+        // Canonical order is guaranteed by the API, so the first entry is the
+        // source language — same rule as the manual chip toggles.
+        updates.originalLanguage = tr.languages[0]!;
+      }
       if (Object.keys(updates).length) await handleTrackUpdate(trackId, updates, { silent: true });
     }
     refresh();
@@ -3508,6 +3525,7 @@ export const EventEdit = () => {
             titleEn: tk.titleEn ?? "",
             titlePt: tk.titlePt ?? "",
             speaker: tk.speaker ?? "",
+            languages: tk.languages,
           }))}
           onApply={handleAiApply}
         />

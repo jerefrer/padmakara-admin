@@ -530,6 +530,11 @@ export const aiAssistSchema = z.object({
         titleEn: z.string().max(500).optional(),
         titlePt: z.string().max(500).optional(),
         speaker: z.string().max(100).optional().nullable(),
+        // The track's current spoken languages. Sent as context so an
+        // instruction can filter on them ("the Tibetan tracks") and so an
+        // unchanged list can be recognized as a no-op; the recognized codes
+        // are enforced in ai-assist.ts, which also cleans the reply.
+        languages: z.array(z.string().min(2).max(10)).max(10).optional(),
       }),
     )
     .max(5000),

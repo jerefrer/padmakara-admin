@@ -180,11 +180,12 @@ export const en = {
       sectionVideos: "Videos",
       videoDate: "Date",
       sectionTracks: "Tracks",
+      languages: "Languages",
       unmatchedSpeaker: "unmatched — review",
       applied: "AI changes applied — remember to save",
       failed: "AI request failed",
       batchHint:
-        "Works per track (rename, translate, fix casing, set speaker). " +
+        "Works per track (rename, translate, fix casing, set speaker, set languages). " +
         "Instructions needing a whole-event view — sequential numbering across all tracks, " +
         "or removing duplicates — aren't reliable on large events.",
     },

@@ -14,6 +14,7 @@ export interface RenameTrackRow {
   titleEn?: string;
   titlePt?: string;
   speaker?: string | null;
+  languages?: string[];
 }
 
 export interface RenameSuggestion {
@@ -22,6 +23,7 @@ export interface RenameSuggestion {
   titlePt?: string;
   speaker?: string;
   speakerUnmatched?: true;
+  languages?: string[];
 }
 
 export interface AiEventFields {
@@ -231,6 +233,38 @@ function parseAssistReply(text: string): Record<string, unknown> {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * The language codes a track may carry, in the canonical order they are
+ * stored in — `originalLanguage` is the first entry, so the order is data,
+ * not presentation. Mirrors LANGUAGE_MAP in track-parser.ts and
+ * LANGUAGE_CODES / LANG_PRIORITY in the admin track table: a code outside
+ * this list has no chip, no label and no filename round-trip, so a suggestion
+ * carrying one is dropped rather than written to the row.
+ */
+const TRACK_LANGUAGES = ["tib", "en", "pt", "fr"] as const;
+
+/**
+ * A suggested language list reduced to what we can actually store:
+ * lowercased, unrecognized codes dropped, de-duplicated, and put back in
+ * canonical order. Returns undefined when nothing recognizable is left —
+ * an empty list would strip the track of every language, which is worse than
+ * leaving it alone.
+ */
+function cleanLanguages(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const codes = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const code = item.trim().toLowerCase();
+    if ((TRACK_LANGUAGES as readonly string[]).includes(code)) codes.add(code);
+  }
+  const out = TRACK_LANGUAGES.filter((code) => codes.has(code));
+  return out.length ? [...out] : undefined;
+}
+
+const sameLanguages = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((code, i) => code === b[i]);
+
 const ASSIST_SYSTEM_PROMPT =
   "You are helping a Buddhist retreat administrator edit a retreat event in a " +
   "content management system. You receive the event's current fields, its " +
@@ -252,14 +286,19 @@ const ASSIST_SYSTEM_PROMPT =
   "for a date or one can be derived from the name. Correct an obviously " +
   "mistyped year in a filename (a 5-digit year, for instance) to the year it " +
   "plainly means.\n" +
-  '- "tracks": an array of { rowKey, titleEn?, titlePt?, speaker? } for tracks ' +
-  "that should change (rowKey unchanged). Each track has titleEn and titlePt " +
-  "— the title shown for that interface language, which may be empty — plus " +
-  "title, the track's current/original title; for older tracks titleEn and " +
-  "titlePt are often both empty and title is the only title filled in " +
-  "(usually English). To fill in or translate a track's title, set titleEn " +
-  "and/or titlePt (derive the translation from title when titleEn/titlePt " +
-  "are empty).\n" +
+  '- "tracks": an array of { rowKey, titleEn?, titlePt?, speaker?, languages? } ' +
+  "for tracks that should change (rowKey unchanged). Each track has titleEn " +
+  "and titlePt — the title shown for that interface language, which may be " +
+  "empty — plus title, the track's current/original title; for older tracks " +
+  "titleEn and titlePt are often both empty and title is the only title " +
+  "filled in (usually English). To fill in or translate a track's title, set " +
+  "titleEn and/or titlePt (derive the translation from title when " +
+  "titleEn/titlePt are empty). Each track also has languages — the languages " +
+  "actually spoken in that recording, as an array of codes, exactly one of " +
+  '"tib" (Tibetan), "en" (English), "pt" (Portuguese), "fr" (French) per ' +
+  "entry; no other code exists. Setting languages REPLACES the whole list, so " +
+  "list every language the track should end up with, in the order tib, en, " +
+  "pt, fr. Omit languages for a track whose list is already correct.\n" +
   "IMPORTANT: only suggest changes to a group when the instruction asks about " +
   "that group. An instruction about videos changes only videos; one about " +
   "track titles or speakers changes only tracks; leave every other key out. " +
@@ -360,6 +399,10 @@ async function runAssistBatch(args: {
       })
     : [];
 
+  // The rows this batch was given, to measure a suggested language list
+  // against the one the track already has.
+  const currentByKey = new Map(tracks.map((t) => [t.rowKey, t]));
+
   const outTracks: RenameSuggestion[] = Array.isArray(r.tracks)
     ? r.tracks.flatMap((item): RenameSuggestion[] => {
         if (typeof item !== "object" || item === null) return [];
@@ -367,6 +410,17 @@ async function runAssistBatch(args: {
         const sug: RenameSuggestion = { rowKey: String(s.rowKey ?? "") };
         if (typeof s.titleEn === "string") sug.titleEn = s.titleEn;
         if (typeof s.titlePt === "string") sug.titlePt = s.titlePt;
+        if (s.languages !== undefined) {
+          const langs = cleanLanguages(s.languages);
+          const current = currentByKey.get(sug.rowKey)?.languages;
+          // A list identical to the track's own is not a change. Instructions
+          // that name languages tend to make the model echo every track it
+          // looked at, which would otherwise draw an "English → English" row
+          // per track and bury the tracks that do change.
+          if (langs && !(current && sameLanguages(current, langs))) {
+            sug.languages = langs;
+          }
+        }
         if (typeof s.speaker === "string") {
           const resolved = resolveSpeaker(s.speaker, roster);
           sug.speaker = resolved.speaker;

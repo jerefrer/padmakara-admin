@@ -9,6 +9,7 @@ import Divider from "@mui/material/Divider";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import { useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
+import { languageLabel } from "../utils/trackParser";
 
 export interface AiAssistEventFields {
   titleEn?: string; titlePt?: string;
@@ -19,6 +20,7 @@ export interface AiAssistEventFields {
 export interface AiAssistTrack {
   rowKey: string; originalFilename: string; title: string;
   titleEn?: string; titlePt?: string; speaker?: string | null;
+  languages?: string[];
 }
 export interface AiAssistSession { rowKey: string; titleEn?: string; titlePt?: string; }
 export interface AiAssistVideo {
@@ -28,7 +30,10 @@ export interface AiAssistResult {
   event?: AiAssistEventFields;
   sessions: Array<{ rowKey: string; titleEn?: string; titlePt?: string }>;
   videos: Array<{ rowKey: string; titleEn?: string; titlePt?: string; videoDate?: string }>;
-  tracks: Array<{ rowKey: string; titleEn?: string; titlePt?: string; speaker?: string; speakerUnmatched?: true }>;
+  tracks: Array<{
+    rowKey: string; titleEn?: string; titlePt?: string;
+    speaker?: string; speakerUnmatched?: true; languages?: string[];
+  }>;
 }
 interface AiAssistPanelProps {
   event: AiAssistEventFields;
@@ -42,6 +47,10 @@ interface AiAssistPanelProps {
 }
 
 interface DiffRow { label: string; from: string; to: string; unmatched?: boolean; }
+
+/** "tib" + "en" → "Tibetan + English", the same names the track chips use. */
+const formatLanguages = (codes: string[] | undefined): string =>
+  (codes ?? []).map(languageLabel).join(" + ");
 
 // Every AiAssistEventFields key already has a human-readable label in
 // padmakara.events.* (the event details form uses the same fields), so the
@@ -153,6 +162,13 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
           from: cur?.speaker ?? "",
           to: tr.speaker,
           unmatched: tr.speakerUnmatched,
+        });
+      }
+      if (tr.languages !== undefined) {
+        rows.push({
+          label: `${trackLabel} · ${translate("padmakara.aiAssist.languages")}`,
+          from: formatLanguages(cur?.languages),
+          to: formatLanguages(tr.languages),
         });
       }
       return rows;
