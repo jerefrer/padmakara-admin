@@ -11,6 +11,10 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@slides/*": ["../src/lib/slides/*"]
+    },
     "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,

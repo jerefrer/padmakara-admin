@@ -50,6 +50,12 @@ export const events = pgTable("retreats", {
   s3Prefix: text("s3_prefix"),
   wixId: text("wix_id"),
   featuredAt: timestamp("featured_at", { withTimezone: true }),
+  // Video title-slide defaults (src/lib/slides/defaults.ts, intro slide 4/5).
+  // organizer falls back to a global default when null; creditLines/copyrightHolder
+  // override the global credits block for this event's videos.
+  organizer: text("organizer"),
+  creditLines: text("credit_lines").array().notNull().default([]),
+  copyrightHolder: text("copyright_holder"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

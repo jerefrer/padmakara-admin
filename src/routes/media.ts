@@ -181,7 +181,15 @@ mediaRoutes.get("/video/:videoId", async (c) => {
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
-  const urls = buildPlaybackUrls(result.video.bunnyVideoId);
+  // A video still in the slide burn-in pipeline has no Bunny video yet —
+  // the row exists from upload time so slides and burn status have
+  // somewhere to live. Report it as not-yet-ready rather than 500ing.
+  const bunnyVideoId = result.video.bunnyVideoId;
+  if (!bunnyVideoId) {
+    throw AppError.conflict("Video is still being processed and cannot be played yet");
+  }
+
+  const urls = buildPlaybackUrls(bunnyVideoId);
 
   // Issue a media access token (MAT) and build the HLS-proxy URL. The proxy
   // signs each Bunny URL on the fly and redirects, so native players get
@@ -192,7 +200,7 @@ mediaRoutes.get("/video/:videoId", async (c) => {
   const mat = await issueMat({
     userId: authUser?.id ?? 0,
     videoId,
-    bunnyVideoId: result.video.bunnyVideoId,
+    bunnyVideoId,
   });
 
   const baseUrl = proxyBaseUrl(c, videoId);
@@ -540,14 +548,19 @@ mediaRoutes.get("/video/:videoId/download", async (c) => {
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
   }
 
-  const meta = await getVideoMeta(result.video.bunnyVideoId);
+  const downloadGuid = result.video.bunnyVideoId;
+  if (!downloadGuid) {
+    throw AppError.conflict("Video is still being processed and cannot be downloaded yet");
+  }
+
+  const meta = await getVideoMeta(downloadGuid);
   const available = parseAvailableResolutions(meta.availableResolutions);
   const chosen = bestAvailableResolution(qualityParam, available);
   if (!chosen) {
     throw AppError.notFound("No downloadable variant available for this video");
   }
 
-  const { url, expiresAt } = buildMp4DownloadUrl(result.video.bunnyVideoId, chosen);
+  const { url, expiresAt } = buildMp4DownloadUrl(downloadGuid, chosen);
   return c.json({
     url,
     quality: chosen,

@@ -253,6 +253,20 @@
       "when": 1811382400000,
       "tag": "0035_payment_transactions",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1811468800000,
+      "tag": "0036_video_slides",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1811555200000,
+      "tag": "0037_video_master_pending_burn",
+      "breakpoints": true
     }
   ]
 }

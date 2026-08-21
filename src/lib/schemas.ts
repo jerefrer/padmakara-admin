@@ -190,13 +190,105 @@ export const updateEventVideoSchema = z.object({
   titleEn: z.string().max(200).optional().nullable(),
   titlePt: z.string().max(200).optional().nullable(),
   videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  hasBurnedSlides: z.boolean().optional(),
+  masterS3Key: z.string().optional().nullable(),
+});
+
+// Video title slides — admin-authored intro/outro title-card document,
+// stored as JSONB on event_videos.slides and rendered by the shared
+// renderer in src/lib/slides/render.ts (both the admin preview and the
+// burn container use it, so preview and burn can never drift). This
+// mirrors the SlideDocument/Slide/Line/Span shape in src/lib/slides/types.ts
+// exactly — the bounds below exist only to keep a malformed payload from
+// becoming an unrenderable or runaway-length burned video, not to add new
+// product rules.
+const slideSpanSchema = z.object({
+  text: z.string().max(300),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  underline: z.boolean().optional(),
+});
+
+const slideLineSizeSchema = z.enum(["sm", "md", "lg", "xl"]);
+
+const slideTextLineSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("text"),
+  spans: z.array(slideSpanSchema),
+  size: slideLineSizeSchema,
+  dim: z.boolean().optional(),
+});
+
+const slideImageLineSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("image"),
+  s3Key: z.string().min(1),
+  alt: z.string().optional(),
+});
+
+const slideSpacerLineSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("spacer"),
+});
+
+const slideLineSchema = z.discriminatedUnion("type", [
+  slideTextLineSchema,
+  slideImageLineSchema,
+  slideSpacerLineSchema,
+]);
+
+const slideSchema = z.object({
+  id: z.string().min(1),
+  durationMs: z.number().int().min(500).max(30000),
+  fadeMs: z.number().int().min(0).max(5000),
+  lines: z.array(slideLineSchema).max(12),
+});
+
+const slideSequenceSchema = z.array(slideSchema).max(20);
+
+export const slideDocumentSchema = z.object({
+  version: z.number().int(),
+  intro: slideSequenceSchema,
+  outro: slideSequenceSchema,
+});
+
+// PUT /admin/videos/:id/slides body.
+export const putEventVideoSlidesSchema = z.object({
+  slides: slideDocumentSchema,
+});
+
+// POST /admin/videos/:id/slides/image-urls body — resolve stored slide-image
+// s3Keys to presigned GET URLs for the admin preview. This schema only bounds
+// the shape of a well-formed request; the route itself is responsible for
+// restricting which keys actually get presigned (see its SECURITY comment).
+/**
+ * Create a video row from an uploaded master and queue its slide burn-in.
+ * `bunnyVideoId` is deliberately absent — it does not exist until the burn
+ * completes and the webhook supplies it.
+ */
+export const burnVideoSchema = z.object({
+  eventId: z.number().int().positive(),
+  masterS3Key: z.string().min(1).max(512),
+  slides: slideDocumentSchema,
+  position: z.number().int().min(0).optional(),
+  titleEn: z.string().max(200).nullable().optional(),
+  titlePt: z.string().max(200).nullable().optional(),
+  videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+});
+
+export const slideImageUrlsSchema = z.object({
+  s3Keys: z.array(z.string().min(1).max(512)).max(40),
 });
 
 // Import a video by URL (Google Drive share link or any public direct URL).
+// `slides` is optional — when supplied, the route hands the URL to the burn
+// container (MASTER_SOURCE_URL) instead of importing straight to Bunny; see
+// POST /admin/videos/import-url.
 export const importEventVideoUrlSchema = z.object({
   eventId: z.number().int(),
   url: z.string().min(1).max(2000),
   title: z.string().trim().min(1).max(200).optional(),
+  slides: slideDocumentSchema.optional(),
 });
 
 // Tracks (audio only — video lives on the parent event)
@@ -334,6 +426,16 @@ export const presignFileSchema = z.object({
   filename: safeFilenameSchema,
   contentType: z.string().min(1).max(200),
   fileType: eventFileTypeSchema,
+});
+
+// Presign upload for a video master recording (pre-burn source file), so the
+// browser can PUT it straight to S3 instead of routing multi-GB files
+// through Bunny's TUS endpoint. See services/bunny.ts buildTusCredentials
+// for the equivalent flow when slides are skipped.
+export const presignVideoMasterSchema = z.object({
+  eventCode: z.string().min(1).max(200),
+  filename: safeFilenameSchema,
+  contentType: z.string().min(1).max(200),
 });
 
 // Persist an event_files row after the S3 PUT completes.

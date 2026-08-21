@@ -82,6 +82,22 @@ export const config = {
     webhookSecret: env("READ_ALONG_WEBHOOK_SECRET", "dev-webhook-secret"),
   },
 
+  // Title-slide burn-in pipeline (src/services/video-burn.ts). Shares the
+  // read-along webhook secret rather than adding a second one — the webhook
+  // route lives alongside the others and is authenticated the same way.
+  videoBurn: {
+    jobDefinition: env("BURN_JOB_DEFINITION", "padmakara-video-burn"),
+    // Defaults to the same queue read-along/subtitle jobs already use —
+    // override with BURN_JOB_QUEUE if the burn workload needs its own queue.
+    jobQueue: env("BURN_JOB_QUEUE", env("BATCH_JOB_QUEUE", "padmakara-read-along-queue")),
+    /**
+     * Object key of an outro logo stored in the app bucket, overriding the
+     * burn container's bundled default (the container ships its own copy
+     * at @builtin/padmakara-logo.png — see BUILTIN_LOGO_KEY in
+     * src/lib/slides/defaults.ts). Blank means "use the bundled logo".
+     */
+    outroLogoS3Key: env("BURN_OUTRO_LOGO_S3_KEY", ""),
+  },
 
   bunny: {
     libraryId: env("BUNNY_STREAM_LIBRARY_ID", ""),

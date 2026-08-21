@@ -129,7 +129,7 @@ interface UploadVideoOpts {
  * point are non-fatal; only a genuine transcode failure (or the admin
  * cancelling) removes the row again.
  */
-export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
+export async function uploadVideoFile(opts: UploadVideoOpts): Promise<{ videoId: number | null }> {
   const { eventId, position, title, file, signal, onProgress, onTranscodingStart, onTranscodeStatus } = opts;
 
   // 1. Create the Bunny video record.
@@ -210,4 +210,84 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<void> {
     // itself succeeded, so don't fail the flow or touch the video.
     console.warn("[videoUploader] transcode polling stopped early (non-fatal):", err);
   }
+
+  // Surfaced so the caller can attach post-create state (e.g. recording that
+  // the admin declared this file already carries burnt-in slides).
+  return { videoId: rowId };
+}
+
+// ─── Burn-in path: upload the master to S3, then let AWS Batch merge slides ──
+
+/**
+ * Upload a video master for the slide burn-in pipeline.
+ *
+ * This is the OTHER upload path, taken whenever the admin has defined intro/
+ * outro slides. Rather than sending the file straight to Bunny over TUS (see
+ * uploadVideoFile above), the master goes to S3 and stays there: an AWS Batch
+ * job renders the slides, concatenates them around the master, and hands the
+ * merged file to Bunny. Keeping the master means a later slide edit re-burns
+ * from the original rather than from a Bunny re-download, so repeated edits
+ * never accumulate generation loss.
+ *
+ * Resolves as soon as the job is queued — burning happens asynchronously and
+ * the row's burnStatus reports progress. It does NOT wait for Bunny.
+ */
+export async function uploadVideoMaster(opts: {
+  eventId: number;
+  eventCode: string;
+  position: number;
+  title: string | null;
+  file: File;
+  slides: unknown;
+  signal: { cancelled: boolean; abort?: () => void };
+  onProgress?: (fraction: number) => void;
+  onBurnQueued?: () => void;
+}): Promise<{ videoId: number }> {
+  const { eventId, eventCode, position, title, file, slides, signal } = opts;
+  const contentType = file.type || "video/mp4";
+
+  // 1. Presign a PUT for the master. Long TTL — these are multi-GB files.
+  const presignRes = await authFetch(`${API_URL}/upload/video/presign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventCode, filename: file.name, contentType }),
+  });
+  if (!presignRes.ok) {
+    throw new Error(`Presign master failed (${presignRes.status}): ${await presignRes.text()}`);
+  }
+  const { s3Key, uploadUrl } = (await presignRes.json()) as { s3Key: string; uploadUrl: string };
+
+  // 2. PUT the bytes straight to S3, same shape as uploadManager.uploadFile.
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    signal.abort = () => xhr.abort();
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && opts.onProgress) opts.onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Master upload failed: ${xhr.status} ${xhr.statusText}`));
+    xhr.onerror = () => reject(new Error("Network error during master upload"));
+    xhr.onabort = () => reject(new UploadCancelledError());
+    xhr.send(file);
+  });
+
+  if (signal.cancelled) throw new UploadCancelledError();
+
+  // 3. Create the row (no Bunny video yet — bunnyVideoId stays null until the
+  //    completion webhook fires) and queue the Batch burn job.
+  const burnRes = await authFetch(`${API_URL}/videos/burn`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventId, position, titleEn: title ?? null, masterS3Key: s3Key, slides }),
+  });
+  if (!burnRes.ok) {
+    throw new Error(`Queueing burn job failed (${burnRes.status}): ${await burnRes.text()}`);
+  }
+  const { videoId } = (await burnRes.json()) as { videoId: number };
+  opts.onBurnQueued?.();
+  return { videoId };
 }
