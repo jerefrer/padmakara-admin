@@ -13,8 +13,23 @@
 
 export type TranslateFn = (key: string, options?: Record<string, unknown>) => string;
 
+/**
+ * Prefix the alignment pipeline puts on problems an administrator can act on —
+ * a missing transcript, the wrong transcript, markers that do not match the
+ * audio. These are written for a person and must survive to the screen; without
+ * this check they fell through to "the job crashed", which tells nobody
+ * anything.
+ */
+const TRANSCRIPT_PROBLEM = "transcript problem";
+
 export function friendlyJobError(raw: string | null | undefined, translate: TranslateFn): string {
   const text = (raw ?? "").toLowerCase();
+
+  if (text.startsWith(TRANSCRIPT_PROBLEM)) {
+    const dash = (raw ?? "").indexOf("\u2014");
+    const detail = dash === -1 ? (raw ?? "") : (raw ?? "").slice(dash + 1).trim();
+    return `${translate("padmakara.jobErrors.transcript")} — ${detail}`;
+  }
 
   if (text.includes("cancelled by")) {
     return translate("padmakara.jobErrors.cancelled");

@@ -790,6 +790,7 @@ export const pt = {
       },
     },
     jobErrors: {
+      transcript: "Problema com a transcrição",
       crashed: "O trabalho de geração falhou inesperadamente. Tenta novamente — se continuar a falhar, verifica os registos do servidor.",
       agedOut: "O trabalho já não pôde ser acompanhado pela AWS e o seu estado final é desconhecido. Volta a executá-lo.",
       missingCallback: "O trabalho terminou mas o resultado não foi recebido. Volta a executá-lo para concluir.",

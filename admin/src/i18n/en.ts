@@ -587,6 +587,7 @@ export const en = {
       },
     },
     jobErrors: {
+      transcript: "Transcript problem",
       crashed: "The generation job crashed unexpectedly. Try re-running it — if it keeps failing, check the server logs.",
       agedOut: "The job could no longer be tracked by AWS and its final state is unknown. Please re-run it.",
       missingCallback: "The job finished but the result was not received. Please re-run it to complete.",
