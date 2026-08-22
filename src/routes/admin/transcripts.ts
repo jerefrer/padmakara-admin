@@ -6,7 +6,7 @@ import { events } from "../../db/schema/retreats.ts";
 import { createTranscriptSchema, updateTranscriptSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
-import { deleteObject } from "../../services/s3.ts";
+import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 
 const transcriptRoutes = new Hono();
@@ -39,6 +39,25 @@ transcriptRoutes.post("/", async (c) => {
   const [row] = await db.insert(transcripts).values(data).returning();
   await touchParentEvent(row!.eventId);
   return c.json(row!, 201);
+});
+
+/**
+ * GET /:id/download-url — Returns a short-lived presigned S3 URL that forces
+ * the browser to download the transcript (Content-Disposition: attachment),
+ * so an admin can pull an existing PDF back out of the event form without
+ * going through the S3 console. Falls back to the S3 key's basename when the
+ * upload never recorded an original filename.
+ */
+transcriptRoutes.get("/:id/download-url", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const row = await db.query.transcripts.findFirst({ where: eq(transcripts.id, id) });
+  if (!row) throw AppError.notFound("Transcript not found");
+  if (!row.s3Key) throw AppError.badRequest("Transcript has no file", "NO_S3_KEY");
+
+  const filename =
+    row.originalFilename || row.s3Key.split("/").pop() || `transcript-${row.id}.pdf`;
+  const url = await generatePresignedAttachmentUrl(row.s3Key, filename, 600);
+  return c.json({ url, filename, expiresIn: 600 });
 });
 
 transcriptRoutes.patch("/:id", async (c) => {

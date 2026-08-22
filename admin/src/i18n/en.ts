@@ -345,6 +345,8 @@ export const en = {
       uploadSuccess: "Transcript uploaded",
       uploadFailed: "Transcript upload failed",
       saveFirst: "Save the event first, then upload transcripts",
+      download: "Download transcript",
+      downloadFailed: "Could not download transcript",
     },
     documents: {
       title: "Documents",

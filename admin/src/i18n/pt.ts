@@ -546,6 +546,8 @@ export const pt = {
       uploadSuccess: "Transcrição carregada",
       uploadFailed: "Falha ao carregar transcrição",
       saveFirst: "Guarde primeiro o evento e depois carregue as transcrições",
+      download: "Descarregar transcrição",
+      downloadFailed: "Não foi possível descarregar a transcrição",
     },
     documents: {
       title: "Documentos",

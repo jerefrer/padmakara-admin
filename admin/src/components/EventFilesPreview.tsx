@@ -1,13 +1,19 @@
+import { useState } from "react";
+import { useNotify, useTranslate } from "react-admin";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
+import IconButton from "@mui/material/IconButton";
+import CircularProgress from "@mui/material/CircularProgress";
+import DownloadIcon from "@mui/icons-material/Download";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import VideoFileIcon from "@mui/icons-material/VideoFile";
 import DescriptionIcon from "@mui/icons-material/Description";
 import TranslateIcon from "@mui/icons-material/Translate";
 import { type ParsedTrack, formatFileSize, languageLabel } from "../utils/trackParser";
+import { authFetch } from "../utils/authFetch";
 
 type FileType = "video" | "transcript" | "audio" | "other";
 
@@ -42,11 +48,20 @@ interface EventFilesPreviewProps {
   transcripts: any[];
 }
 
+/**
+ * A display row plus the identity needed to fetch the file back out of S3.
+ * `transcriptId` is absent for transcripts dropped but not yet saved — those
+ * rows render without a download button since there is nothing stored yet.
+ */
+type FileRowData = ParsedTrack & { transcriptId?: number; hasFile: boolean };
+
 export const EventFilesPreview = ({ transcripts }: EventFilesPreviewProps) => {
   if (transcripts.length === 0) return null;
 
   // Convert transcripts to tracks for display
-  const transcriptTracks: ParsedTrack[] = transcripts.map((t, idx) => ({
+  const transcriptTracks: FileRowData[] = transcripts.map((t, idx) => ({
+    transcriptId: typeof t.id === "number" ? t.id : undefined,
+    hasFile: Boolean(t.s3Key),
     trackNumber: 0,
     title: t.originalFilename || `Transcript ${idx + 1}`,
     speaker: null,
@@ -80,7 +95,7 @@ export const EventFilesPreview = ({ transcripts }: EventFilesPreviewProps) => {
 interface FileSectionProps {
   title: string;
   icon: React.ReactNode;
-  tracks: ParsedTrack[];
+  tracks: FileRowData[];
 }
 
 const FileSection = ({ title, icon, tracks }: FileSectionProps) => {
@@ -118,11 +133,36 @@ const FileRow = ({
   track,
   isLast,
 }: {
-  track: ParsedTrack;
+  track: FileRowData;
   isLast: boolean;
 }) => {
+  const translate = useTranslate();
+  const notify = useNotify();
+  const [downloading, setDownloading] = useState(false);
   const fileType = track.fileFormat ? getFileType(track.originalFilename) : "other";
   const icon = getFileIcon(fileType);
+
+  // Fetches a fresh presigned URL on click rather than holding one in state:
+  // the URL is short-lived, and the form can stay open far longer than that.
+  const handleDownload = async () => {
+    if (!track.transcriptId) return;
+    setDownloading(true);
+    try {
+      const res = await authFetch(`/api/admin/transcripts/${track.transcriptId}/download-url`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { url } = (await res.json()) as { url: string };
+      // Same-tab navigation dodges the popup blocker on a user-initiated
+      // click; Content-Disposition: attachment keeps the page in place.
+      window.location.href = url;
+    } catch (err) {
+      console.error("Transcript download failed:", err);
+      notify(translate("padmakara.transcript.downloadFailed") || "Could not download transcript", {
+        type: "error",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <Box
@@ -191,6 +231,19 @@ const FileRow = ({
       <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.7rem", minWidth: 50, textAlign: "right" }}>
         {formatFileSize(track.file.size)}
       </Typography>
+
+      {/* Download — only for saved rows that actually have a stored file */}
+      {track.transcriptId && track.hasFile && (
+        <IconButton
+          size="small"
+          onClick={handleDownload}
+          disabled={downloading}
+          sx={{ opacity: 0.5, "&:hover": { opacity: 1, color: "primary.main" } }}
+          title={translate("padmakara.transcript.download") || "Download transcript"}
+        >
+          {downloading ? <CircularProgress size={16} /> : <DownloadIcon sx={{ fontSize: 16 }} />}
+        </IconButton>
+      )}
     </Box>
   );
 };

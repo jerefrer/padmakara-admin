@@ -17,16 +17,21 @@ vi.mock("../../../src/db/index.ts", () => {
     },
   };
 });
-vi.mock("../../../src/services/s3.ts", () => ({ deleteObject: vi.fn(() => Promise.resolve()) }));
+vi.mock("../../../src/services/s3.ts", () => ({
+  deleteObject: vi.fn(() => Promise.resolve()),
+  generatePresignedAttachmentUrl: vi.fn(() => Promise.resolve("https://signed.example/t.pdf")),
+}));
 vi.mock("../../../src/services/sync-versions.ts", () => ({ bumpVersion: vi.fn(() => Promise.resolve()) }));
 
 import { db } from "../../../src/db/index.ts";
-import { deleteObject } from "../../../src/services/s3.ts";
+import { deleteObject, generatePresignedAttachmentUrl } from "../../../src/services/s3.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
 
 const mockReturning = (db as any)._returning as ReturnType<typeof vi.fn>;
 const mockValues = (db as any)._values as ReturnType<typeof vi.fn>;
 const mockDeleteObject = deleteObject as ReturnType<typeof vi.fn>;
+const mockAttachmentUrl = generatePresignedAttachmentUrl as ReturnType<typeof vi.fn>;
+const mockFindFirst = (db as any).query.transcripts.findFirst as ReturnType<typeof vi.fn>;
 const adminToken = () => createAccessToken({ sub: 1, email: "a@test.com", role: "admin" });
 
 describe("transcripts admin resource", () => {
@@ -53,6 +58,73 @@ describe("transcripts admin resource", () => {
     });
     expect(status).toBe(200);
     expect(mockDeleteObject).toHaveBeenCalledWith("events/E/transcripts/t.pdf");
+  });
+
+  it("returns a presigned attachment URL using the original filename", async () => {
+    mockFindFirst.mockResolvedValueOnce({
+      id: 11,
+      eventId: 3,
+      s3Key: "events/E/transcripts/abc.pdf",
+      originalFilename: "Chapter-Part_3_of_3.pdf",
+    });
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/transcripts/11/download-url", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      url: "https://signed.example/t.pdf",
+      filename: "Chapter-Part_3_of_3.pdf",
+    });
+    expect(mockAttachmentUrl).toHaveBeenCalledWith(
+      "events/E/transcripts/abc.pdf",
+      "Chapter-Part_3_of_3.pdf",
+      600,
+    );
+  });
+
+  it("falls back to the S3 key basename when no original filename was recorded", async () => {
+    mockFindFirst.mockResolvedValueOnce({
+      id: 12,
+      eventId: 3,
+      s3Key: "events/E/transcripts/abc.pdf",
+      originalFilename: null,
+    });
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/transcripts/12/download-url", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(status).toBe(200);
+    expect(body.filename).toBe("abc.pdf");
+  });
+
+  it("returns 400 when the transcript row has no file", async () => {
+    mockFindFirst.mockResolvedValueOnce({ id: 13, eventId: 3, s3Key: null });
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/transcripts/13/download-url", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(status).toBe(400);
+    expect(body.code).toBe("NO_S3_KEY");
+    expect(mockAttachmentUrl).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when the transcript does not exist", async () => {
+    mockFindFirst.mockResolvedValueOnce(null);
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/transcripts/999/download-url", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(status).toBe(404);
+  });
+
+  it("rejects non-admins on the download URL", async () => {
+    const token = await createAccessToken({ sub: 2, email: "u@test.com", role: "user" });
+    const { status } = await testJson("/api/admin/transcripts/11/download-url", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(status).toBe(403);
+    expect(mockAttachmentUrl).not.toHaveBeenCalled();
   });
 
   it("rejects non-admins", async () => {
