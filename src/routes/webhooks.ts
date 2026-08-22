@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { createHmac, timingSafeEqual } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { readAlongJobs } from "../db/schema/read-along-jobs.ts";
 import { tracks } from "../db/schema/tracks.ts";
@@ -303,6 +303,22 @@ webhookRoutes.post("/subtitles", async (c) => {
           updatedAt: new Date(),
         },
       });
+
+    // Translations are made from the English, so regenerating it leaves them
+    // describing subtitles that no longer exist. translateSubtitles() marks its
+    // siblings stale for the same reason; this path did not, so a regenerated
+    // video kept showing translations that looked current and were not.
+    if (language === "en") {
+      await db
+        .update(videoSubtitles)
+        .set({ stale: true, updatedAt: new Date() })
+        .where(
+          and(
+            eq(videoSubtitles.videoId, video.id),
+            ne(videoSubtitles.language, "en"),
+          ),
+        );
+    }
 
     if (video.bunnyVideoId) {
       await addCaption(video.bunnyVideoId, language, label ?? language, vtt);
