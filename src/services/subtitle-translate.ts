@@ -1,4 +1,4 @@
-export interface Cue { start: number; end: number; text: string }
+export interface Cue { start: number; end: number; text: string; spokenStart?: number }
 export interface Sentence { start: number; end: number; text: string; cueCount: number }
 
 const TS = /(\d{2}):(\d{2}):(\d{2})\.(\d{3})/;
@@ -76,6 +76,9 @@ export const MAX_CUE_SECONDS = 7;
 export const MIN_CUE_SECONDS = 0.833;
 export const MIN_GAP_SECONDS = 0.08;
 export const MAX_CHARS_PER_SECOND = 17;
+export const LEAD_IN_SECONDS = 0.5;
+export const CLUSTER_RELIEF_FACTOR = 2;
+export const DISTRESS_LEAD_IN_SECONDS = 3;
 
 /**
  * Words a Portuguese subtitle line may not end on. Breaking here separates an
@@ -145,18 +148,86 @@ export function wrapLines(text: string, maxLine = MAX_LINE): string {
  * reading speed, then cap it and leave a gap. Start times are never moved.
  */
 export function applyTiming(cues: Cue[]): Cue[] {
+  // Anchored on the cue: this runs again after other passes, and re-reading the
+  // shifted start would take another half second off every time.
+  const spoken = cues.map((c) => (c.spokenStart ??= c.start));
+  fit(cues, spoken, false);
+  sharePressure(cues);
+  fit(cues, spoken, true);
+  return cues;
+}
+
+/**
+ * Forward pass: finish each subtitle before moving to the next. A subtitle may
+ * appear slightly before its first word, which is conventional and uses silence
+ * that is otherwise wasted. Each start is bounded below by the previous
+ * subtitle's finished end, so overlaps cannot happen.
+ *
+ * `spoken` holds where the words actually begin, so running this more than once
+ * does not walk the subtitle further and further ahead of the speech.
+ */
+function fit(cues: Cue[], spoken: number[], relieveReadingSpeed: boolean): void {
+  let previousEnd: number | null = null;
   cues.forEach((cue, i) => {
+    const floor = previousEnd === null ? 0 : previousEnd + MIN_GAP_SECONDS;
+    const earliest = Math.max((spoken[i] ?? cue.start) - LEAD_IN_SECONDS, floor);
+    cue.start = Math.round(Math.min(cue.start, earliest) * 1000) / 1000;
+
     const next = cues[i + 1];
     const ceiling = next ? next.start - MIN_GAP_SECONDS : null;
 
     let end = Math.max(cue.end, cue.start + MIN_CUE_SECONDS);
-    const chars = cue.text.replace(/\n/g, " ").length;
-    end = Math.max(end, cue.start + chars / MAX_CHARS_PER_SECOND);
-    end = Math.min(end, cue.start + MAX_CUE_SECONDS);
+    if (relieveReadingSpeed) {
+      const chars = cue.text.replace(/\n/g, " ").length;
+      end = Math.max(end, cue.start + chars / MAX_CHARS_PER_SECOND);
+    }
     if (ceiling !== null) end = Math.min(end, Math.max(ceiling, cue.start));
-    cue.end = Math.round(end * 1000) / 1000;
+    end = Math.ceil(end * 1000) / 1000;
+    cue.end = Math.min(end, cue.start + MAX_CUE_SECONDS);
+    previousEnd = cue.end;
   });
-  return cues;
+}
+
+/**
+ * Even out a run of subtitles packed far past the reading speed, and let it
+ * reach back into any silence in front. Sharing time inside such a run only
+ * levels the rates; the run as a whole needs more room, and unused silence
+ * ahead of it is the only place to find any.
+ */
+function sharePressure(cues: Cue[]): void {
+  const rate = (c: Cue) => {
+    const span = c.end - c.start;
+    return span > 0 ? c.text.replace(/\n/g, " ").length / span : Infinity;
+  };
+
+  let i = 0;
+  while (i < cues.length) {
+    if (rate(cues[i]!) <= MAX_CHARS_PER_SECOND * CLUSTER_RELIEF_FACTOR) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j + 1 < cues.length && rate(cues[j + 1]!) > MAX_CHARS_PER_SECOND) j++;
+    const run = cues.slice(i, j + 1);
+    if (run.length > 1) {
+      const floor = i ? cues[i - 1]!.end + MIN_GAP_SECONDS : 0;
+      const earliest = Math.max(floor, run[0]!.start - DISTRESS_LEAD_IN_SECONDS);
+      run[0]!.start = Math.round(Math.min(run[0]!.start, earliest) * 1000) / 1000;
+
+      const window =
+        run[run.length - 1]!.end - run[0]!.start - MIN_GAP_SECONDS * (run.length - 1);
+      const weights = run.map((c) => c.text.replace(/\n/g, " ").length);
+      const total = weights.reduce((a, b) => a + b, 0) || 1;
+      let cursor = run[0]!.start;
+      run.forEach((cue, k) => {
+        cue.start = Math.round(cursor * 1000) / 1000;
+        cursor += (window * weights[k]!) / total;
+        cue.end = Math.round(cursor * 1000) / 1000;
+        cursor += MIN_GAP_SECONDS;
+      });
+    }
+    i = j + 1;
+  }
 }
 
 /** Split a translated sentence across [start,end] into ~cueCount cues, proportional to char length. */

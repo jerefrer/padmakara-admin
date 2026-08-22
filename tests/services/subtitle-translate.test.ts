@@ -266,3 +266,29 @@ describe("applyTiming", () => {
     expect(cps).toBeLessThanOrEqual(17 + 1e-6);
   });
 });
+
+describe("applyTiming — pressure relief", () => {
+  it("shares time across a run packed far past the reading speed", () => {
+    const cues = [
+      { start: 0, end: 3, text: "Palavras anteriores." },
+      { start: 10, end: 10.4, text: "não é uma montanha qualquer." },
+      { start: 10.5, end: 11.5, text: "De cada lado da montanha, o lado oriental," },
+      { start: 11.6, end: 12.2, text: "E o lado sul é da cor do lápis-lazúli." },
+      { start: 15, end: 18, text: "E assim, esta montanha não é só terra." },
+    ];
+    const before = Math.max(...cues.slice(1, 4).map((c) => c.text.length / (c.end - c.start)));
+    const out = applyTiming(cues);
+    const after = Math.max(...out.slice(1, 4).map((c) => c.text.length / (c.end - c.start)));
+    expect(after).toBeLessThan(before);
+    for (let i = 0; i < out.length - 1; i++) {
+      expect(out[i]!.end).toBeLessThanOrEqual(out[i + 1]!.start + 1e-9);
+    }
+  });
+
+  it("does not walk a subtitle further ahead each time it runs", () => {
+    const cues = [{ start: 10, end: 10.5, text: "Uma linha." }];
+    const once = applyTiming(cues.map((c) => ({ ...c })))[0]!.start;
+    const twice = applyTiming(applyTiming(cues.map((c) => ({ ...c }))))[0]!.start;
+    expect(twice).toBeCloseTo(once, 6);
+  });
+});
