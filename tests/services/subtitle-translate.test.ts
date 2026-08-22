@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { parseVtt, serializeVtt, groupIntoSentences, recueSentence , wrapLines, applyTiming, PT_WEAK_LINE_ENDINGS } from "../../src/services/subtitle-translate";
+import { parseVtt, serializeVtt, groupIntoSentences, recueSentence , wrapLines, applyTiming, PT_WEAK_LINE_ENDINGS, LEAD_IN_SECONDS } from "../../src/services/subtitle-translate";
 
 const SAMPLE = `WEBVTT
 
@@ -290,5 +290,36 @@ describe("applyTiming — pressure relief", () => {
     const once = applyTiming(cues.map((c) => ({ ...c })))[0]!.start;
     const twice = applyTiming(applyTiming(cues.map((c) => ({ ...c }))))[0]!.start;
     expect(twice).toBeCloseTo(once, 6);
+  });
+});
+
+describe("applyTiming — lead-in is need-based", () => {
+  it("leaves a comfortable subtitle on the start the audio gave it", () => {
+    const cues = [
+      { start: 10, end: 12, text: "Uma linha curta." },
+      { start: 30, end: 32, text: "Outra mais tarde." },
+    ];
+    const out = applyTiming(cues);
+    expect(out[0]!.start).toBe(10);
+    expect(out[1]!.start).toBe(30);
+  });
+
+  it("extends the end before reaching backwards", () => {
+    const cues = [{ start: 10, end: 10.4, text: "uma linha bastante densa de texto para ler" }];
+    const out = applyTiming(cues);
+    expect(out[0]!.start).toBe(10);
+    expect(out[0]!.end).toBeGreaterThan(10.4);
+  });
+
+  it("reaches back only when there is no room ahead", () => {
+    const cues = [
+      { start: 0, end: 0.5, text: "Antes." },
+      { start: 10, end: 10.4, text: "uma linha bastante densa de texto para ler" },
+      { start: 11.5, end: 13, text: "Logo a seguir." },
+    ];
+    const out = applyTiming(cues);
+    expect(out[1]!.start).toBeLessThan(10);
+    expect(out[1]!.start).toBeGreaterThanOrEqual(10 - LEAD_IN_SECONDS - 1e-6);
+    expect(out[0]!.start).toBe(0);
   });
 });

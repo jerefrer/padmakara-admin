@@ -170,20 +170,34 @@ function fit(cues: Cue[], spoken: number[], relieveReadingSpeed: boolean): void 
   let previousEnd: number | null = null;
   cues.forEach((cue, i) => {
     const floor = previousEnd === null ? 0 : previousEnd + MIN_GAP_SECONDS;
-    const earliest = Math.max((spoken[i] ?? cue.start) - LEAD_IN_SECONDS, floor);
-    cue.start = Math.round(Math.min(cue.start, earliest) * 1000) / 1000;
-
     const next = cues[i + 1];
     const ceiling = next ? next.start - MIN_GAP_SECONDS : null;
 
-    let end = Math.max(cue.end, cue.start + MIN_CUE_SECONDS);
-    if (relieveReadingSpeed) {
-      const chars = cue.text.replace(/\n/g, " ").length;
-      end = Math.max(end, cue.start + chars / MAX_CHARS_PER_SECOND);
+    const chars = cue.text.replace(/\n/g, " ").length;
+    let wanted = MIN_CUE_SECONDS;
+    if (relieveReadingSpeed) wanted = Math.max(wanted, chars / MAX_CHARS_PER_SECOND);
+    wanted = Math.min(wanted, MAX_CUE_SECONDS);
+
+    const settle = (start: number): number => {
+      let end = Math.max(cue.end, start + wanted);
+      if (ceiling !== null) end = Math.min(end, Math.max(ceiling, start));
+      end = Math.ceil(end * 1000) / 1000;
+      return Math.min(end, start + MAX_CUE_SECONDS);
+    };
+
+    // Holding a subtitle longer is free; showing it before it is spoken is not.
+    // Take what the silence ahead gives first, and only reach backwards for
+    // whatever is still missing — otherwise every subtitle drifts early to help
+    // the few that need it.
+    let end = settle(cue.start);
+    const shortfall = wanted - (end - cue.start);
+    if (shortfall > 1e-9) {
+      const earliest = Math.max((spoken[i] ?? cue.start) - LEAD_IN_SECONDS, floor);
+      cue.start = Math.round(Math.max(earliest, cue.start - shortfall) * 1000) / 1000;
+      end = settle(cue.start);
     }
-    if (ceiling !== null) end = Math.min(end, Math.max(ceiling, cue.start));
-    end = Math.ceil(end * 1000) / 1000;
-    cue.end = Math.min(end, cue.start + MAX_CUE_SECONDS);
+
+    cue.end = end;
     previousEnd = cue.end;
   });
 }
