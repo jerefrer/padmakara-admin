@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { parseVtt, serializeVtt, groupIntoSentences, recueSentence } from "../../src/services/subtitle-translate";
+import { parseVtt, serializeVtt, groupIntoSentences, recueSentence , wrapLines, applyTiming, PT_WEAK_LINE_ENDINGS } from "../../src/services/subtitle-translate";
 
 const SAMPLE = `WEBVTT
 
@@ -196,5 +196,73 @@ describe("translateSubtitles", () => {
     await expect(translateSubtitles(999, "fr", "claude-opus-4-8")).rejects.toThrow(
       "Event video not found",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Line shaping — the same standard the English side applies, in Portuguese
+// ---------------------------------------------------------------------------
+
+describe("wrapLines", () => {
+  it("keeps short text on one line", () => {
+    expect(wrapLines("Muito obrigado.")).toBe("Muito obrigado.");
+  });
+
+  it("never emits more than two lines", () => {
+    const text = "Isto é uma frase bastante longa que precisa de ser dividida em duas linhas para caber no ecrã";
+    expect(wrapLines(text).split("\n").length).toBeLessThanOrEqual(2);
+  });
+
+  it("never exceeds 42 characters on a line", () => {
+    const text = "Isto é uma frase bastante longa que precisa de ser dividida em duas linhas";
+    for (const line of wrapLines(text).split("\n")) {
+      expect(line.length).toBeLessThanOrEqual(42);
+    }
+  });
+
+  it("breaks straight after punctuation when there is some", () => {
+    const out = wrapLines("Ele parou por instantes, e depois continuou a falar devagar");
+    const [first] = out.split("\n");
+    expect(first!.endsWith(",")).toBe(true);
+  });
+
+  it("does not end a line on a Portuguese function word", () => {
+    const out = wrapLines("Muitas vezes temos esta ideia de que o caminho budista é muito difícil");
+    const parts = out.split("\n");
+    if (parts.length === 2) {
+      const last = parts[0]!.replace(/[ ,.;:!?]+$/, "").split(" ").pop()!.toLowerCase();
+      expect(PT_WEAK_LINE_ENDINGS.has(last)).toBe(false);
+    }
+  });
+});
+
+describe("applyTiming", () => {
+  it("never lets two subtitles overlap", () => {
+    const cues = [
+      { start: 0, end: 5, text: "Primeira." },
+      { start: 4, end: 8, text: "Segunda." },
+    ];
+    const out = applyTiming(cues);
+    expect(out[0]!.end).toBeLessThanOrEqual(out[1]!.start);
+  });
+
+  it("caps a subtitle at seven seconds", () => {
+    const out = applyTiming([{ start: 0, end: 97.6, text: "Uma linha." }]);
+    expect(out[0]!.end - out[0]!.start).toBeLessThanOrEqual(7 + 1e-6);
+  });
+
+  it("holds a very short subtitle long enough to read", () => {
+    const out = applyTiming([{ start: 1, end: 1.05, text: "Sim." }]);
+    expect(out[0]!.end - out[0]!.start).toBeGreaterThanOrEqual(0.833 - 1e-6);
+  });
+
+  it("uses following silence to bring the reading speed down", () => {
+    const cues = [
+      { start: 0, end: 1, text: "uma linha bastante densa de texto para ler depressa" },
+      { start: 30, end: 32, text: "Depois." },
+    ];
+    const out = applyTiming(cues);
+    const cps = out[0]!.text.length / (out[0]!.end - out[0]!.start);
+    expect(cps).toBeLessThanOrEqual(17 + 1e-6);
   });
 });

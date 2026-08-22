@@ -38,10 +38,11 @@ export function parseVtt(vtt: string): Cue[] {
 }
 
 export function serializeVtt(cues: Cue[]): string {
+  applyTiming(cues);
   const parts = ["WEBVTT", ""];
   for (const c of cues) {
     parts.push(`${fmtTs(c.start)} --> ${fmtTs(c.end)}`);
-    parts.push(wrapTwoLines(c.text));
+    parts.push(wrapLines(c.text));
     parts.push("");
   }
   return parts.join("\n") + "\n";
@@ -71,16 +72,91 @@ export function groupIntoSentences(cues: Cue[]): Sentence[] {
   return out;
 }
 
-function wrapTwoLines(text: string, maxLine = MAX_LINE): string {
-  const words = text.split(/\s+/);
-  let line = "";
-  const lines: string[] = [];
-  for (const w of words) {
-    const cand = `${line} ${w}`.trim();
-    if (cand.length > maxLine && line) { lines.push(line); line = w; } else line = cand;
+export const MAX_CUE_SECONDS = 7;
+export const MIN_CUE_SECONDS = 0.833;
+export const MIN_GAP_SECONDS = 0.08;
+export const MAX_CHARS_PER_SECOND = 17;
+
+/**
+ * Words a Portuguese subtitle line may not end on. Breaking here separates an
+ * article from its noun, a preposition from its complement, a clitic from its
+ * verb. The translation is ours to shape, but the break point is the cheapest
+ * thing to get right, so the rule costs nothing.
+ */
+export const PT_WEAK_LINE_ENDINGS = new Set([
+  "o", "a", "os", "as", "um", "uma", "uns", "umas",
+  "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+  "por", "pelo", "pela", "pelos", "pelas", "para", "com", "sem", "sob", "sobre",
+  "ao", "à", "aos", "às", "e", "ou", "mas", "nem", "que", "se", "porque",
+  "quando", "onde", "como", "qual", "quais", "cujo", "cuja",
+  "meu", "minha", "seu", "sua", "nosso", "nossa", "este", "esta", "esse",
+  "essa", "aquele", "aquela", "é", "são", "foi", "era", "ser", "estar",
+  "está", "tem", "têm", "há", "não", "muito", "mais", "já",
+]);
+
+function endsWeakly(line: string): boolean {
+  const last = line.replace(/[ ,.;:!?…]+$/, "").split(/\s+/).pop();
+  return !!last && PT_WEAK_LINE_ENDINGS.has(last.toLowerCase().replace(/[«»"'’‘]/g, ""));
+}
+
+/**
+ * Lay text out on at most two balanced lines, breaking at the best boundary:
+ * sentence-final punctuation first, then semicolon or colon, then comma or
+ * dash, then any other phrase boundary — and never leaving a function word
+ * stranded at the end of a line or a stub on either side.
+ */
+export function wrapLines(text: string, maxLine = MAX_LINE): string {
+  const clean = text.split(/\s+/).filter(Boolean).join(" ");
+  if (clean.length <= maxLine) return clean;
+
+  const words = clean.split(" ");
+  let best: number | null = null;
+  let bestScore: [number, number] | null = null;
+
+  for (let cut = 1; cut < words.length; cut++) {
+    const left = words.slice(0, cut).join(" ");
+    const right = words.slice(cut).join(" ");
+    if (left.length > maxLine || right.length > maxLine) continue;
+
+    const tail = words[cut - 1]!;
+    const punctuation = /[.!?…]$/.test(tail) ? 4
+      : /[;:]$/.test(tail) ? 3
+      : /[,—–]$/.test(tail) ? 2
+      : 0;
+    const stub = Math.min(left.length, right.length) >= 12 ? 0 : -2;
+    // Punctuation settles it: a comma is a real boundary even after "para".
+    const weak = punctuation === 0 && endsWeakly(left) ? -3 : 0;
+    const score: [number, number] = [
+      punctuation + stub + weak,
+      -Math.abs(left.length - right.length) / maxLine,
+    ];
+    if (!bestScore || score[0] > bestScore[0] || (score[0] === bestScore[0] && score[1] > bestScore[1])) {
+      best = cut;
+      bestScore = score;
+    }
   }
-  if (line) lines.push(line);
-  return lines.length <= 2 ? lines.join("\n") : lines.join(" ");
+  if (best === null) return clean;
+  return `${words.slice(0, best).join(" ")}\n${words.slice(best).join(" ")}`;
+}
+
+/**
+ * Give every subtitle a legal duration without disturbing its neighbours: hold
+ * it long enough to be read, lengthen into any following silence to relieve the
+ * reading speed, then cap it and leave a gap. Start times are never moved.
+ */
+export function applyTiming(cues: Cue[]): Cue[] {
+  cues.forEach((cue, i) => {
+    const next = cues[i + 1];
+    const ceiling = next ? next.start - MIN_GAP_SECONDS : null;
+
+    let end = Math.max(cue.end, cue.start + MIN_CUE_SECONDS);
+    const chars = cue.text.replace(/\n/g, " ").length;
+    end = Math.max(end, cue.start + chars / MAX_CHARS_PER_SECOND);
+    end = Math.min(end, cue.start + MAX_CUE_SECONDS);
+    if (ceiling !== null) end = Math.min(end, Math.max(ceiling, cue.start));
+    cue.end = Math.round(end * 1000) / 1000;
+  });
+  return cues;
 }
 
 /** Split a translated sentence across [start,end] into ~cueCount cues, proportional to char length. */
@@ -122,6 +198,58 @@ import { glossaryBlock } from "./glossary.js";
 const LANG_NAMES: Record<string, string> = { pt: "Portuguese", es: "Spanish", fr: "French" };
 const CHUNK = 80;
 
+/**
+ * European-Portuguese norms for the translator.
+ *
+ * Without these the model drifts into Brazilian forms — measured on the 14 April
+ * subtitles: "o fato de" four times (in Portugal a *fato* is a suit), four
+ * Brazilian progressive gerunds, "celular" and "banheiro". Roughly ten slips per
+ * video. The block sits in a cached system prompt, so it costs nothing per call.
+ */
+const PT_PT_STYLE = [
+  "EUROPEAN PORTUGUESE (Portugal), norma culta. Never Brazilian forms.",
+  "- Clitics: enclisis by default (chama-se, lembro-me, fá-lo). Proclisis when an",
+  "  attracting word precedes the verb in the same clause — negation (não, nunca,",
+  "  nem), subordinators (que, porque, quando, se, como, onde, quem), adverbs (já,",
+  "  ainda, sempre, só, também, talvez), quantifiers (tudo, todos, alguém), and in",
+  "  questions opened by an interrogative. So 'o que se chama' is correct — do not",
+  "  'fix' it to 'chama-se'. Mesoclisis in future/conditional with no attractor:",
+  "  dir-lhe-ei, dar-te-ia.",
+  "- Enclisis euphony: ver + o → vê-lo; faz + o → fá-lo; dão + o → dão-no;",
+  "  encontramos + nos → encontramo-nos.",
+  "- Article before the possessive, contracted with any preposition: a minha casa,",
+  "  da minha, na sua, à sua.",
+  "- Progressive is 'estar a + infinitive', never the gerund: 'está a fazer', not",
+  "  'está fazendo'; 'continuar a derramar', not 'continuar derramando'. Keep the",
+  "  gerund only in adverbial use ('sabendo isso, ...').",
+  "- Contractions: num, numa, noutro, nalgum, nisto, nisso, naquilo, disto, doutro.",
+  "- Address: never 'você'. Use tu or impersonal forms; plural 'vocês' with plural",
+  "  agreement.",
+  "- Spelling (1990 Agreement, Portugal): facto (de facto), contacto, receção,",
+  "  conceção, fenómeno, género, económico, tónico, académico. Never fato, contato,",
+  "  fenômeno, gênero.",
+  "- Lexicon: comboio, autocarro, ecrã, frigorífico, equipa, pequeno-almoço,",
+  "  casa de banho, telemóvel, rapaz/miúdo. Never trem, ônibus, tela, geladeira,",
+  "  time, café da manhã, banheiro, celular, garoto.",
+].join("\n");
+
+/**
+ * A speaker ID opens a turn in a question-and-answer exchange. It must survive
+ * translation in the same shape, or the subtitle stops saying who is talking.
+ */
+const SPEAKER_ID_RULE = [
+  "A sentence may open with a speaker ID in square brackets and uppercase, e.g.",
+  "'[STUDENT 1] Can you do it walking?'. Keep that shape: translate the role",
+  "([STUDENT 1] → [ESTUDANTE 1], [RINPOCHE] → [RINPOCHE]), keep it uppercase and",
+  "bracketed, keep it first, and never merge it into the sentence.",
+].join("\n");
+
+function styleBlock(targetLang: string): string {
+  const parts = [SPEAKER_ID_RULE];
+  if (targetLang === "pt") parts.unshift(PT_PT_STYLE);
+  return parts.join("\n\n");
+}
+
 const TranslationSchema = z.object({
   translations: z.array(
     z.object({
@@ -160,7 +288,7 @@ export async function translateSentences(
             `You are a subtitle translator for Buddhist retreat teachings. Translate each numbered ` +
             `English sentence into ${langName}, preserving the reverent register. Keep meaning faithful ` +
             `and natural; prefer concise phrasing suitable for on-screen subtitles. Return one translation ` +
-            `per input id, same ids.\n\n${glossaryBlock()}`,
+            `per input id, same ids.\n\n${styleBlock(targetLang)}\n\n${glossaryBlock()}`,
           cache_control: { type: "ephemeral" },
         },
       ],
