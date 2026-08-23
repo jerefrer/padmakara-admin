@@ -260,14 +260,36 @@ export function recueSentence(s: Sentence, translation: string): Cue[] {
   return cues;
 }
 
-/** Greedy split into n chunks at word boundaries, balancing length. */
+/** Whether a piece can be shown: at most two lines, neither over the limit. */
+function laysOut(text: string): boolean {
+  const lines = wrapLines(text).split("\n");
+  return lines.length <= 2 && lines.every((l) => l.length <= MAX_LINE);
+}
+
+/**
+ * Split a translation into pieces that each fit on screen.
+ *
+ * The English is split into as many subtitles as it needs; the translation is
+ * not the same length, so matching the English count is only a starting point.
+ * Splitting by count alone published lines of 117 characters — three times the
+ * limit — because nothing checked whether a piece could actually be displayed.
+ */
 function splitSentenceText(text: string, n: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
-  if (n <= 1 || words.length <= 1) return [text.trim()];
-  const target = Math.ceil(words.length / n);
-  const chunks: string[] = [];
-  for (let i = 0; i < words.length; i += target) chunks.push(words.slice(i, i + target).join(" "));
-  return chunks;
+  if (!words.length) return [text.trim()];
+
+  // Enough pieces for the English cue count, and enough for the text to fit.
+  let pieces = Math.max(n, Math.ceil(text.length / (MAX_LINE * 2)));
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const target = Math.ceil(words.length / pieces);
+    const chunks: string[] = [];
+    for (let i = 0; i < words.length; i += target) {
+      chunks.push(words.slice(i, i + target).join(" "));
+    }
+    if (chunks.every(laysOut) || target <= 1) return chunks;
+    pieces++;
+  }
+  return words.map((w) => w);
 }
 
 // ---------------------------------------------------------------------------

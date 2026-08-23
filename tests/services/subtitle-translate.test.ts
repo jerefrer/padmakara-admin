@@ -323,3 +323,39 @@ describe("applyTiming — lead-in is need-based", () => {
     expect(out[0]!.start).toBe(0);
   });
 });
+
+describe("recueSentence — pieces must fit on screen", () => {
+  it("never leaves a line longer than the limit", () => {
+    const sentence = {
+      start: 0, end: 12, cueCount: 2,
+      text: "irrelevant source",
+    };
+    const translation =
+      "Esta é uma frase bastante longa em português que não cabe de maneira " +
+      "nenhuma em duas linhas de quarenta e dois caracteres cada uma, por isso " +
+      "tem de ser dividida em mais legendas do que as duas originais.";
+    const cues = recueSentence(sentence, translation);
+    for (const cue of cues) {
+      for (const line of wrapLines(cue.text).split("\n")) {
+        expect(line.length).toBeLessThanOrEqual(42);
+      }
+      expect(wrapLines(cue.text).split("\n").length).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("keeps the whole translation, in order", () => {
+    const sentence = { start: 0, end: 12, cueCount: 2, text: "x" };
+    const translation =
+      "Primeira parte da frase, depois a segunda parte, e finalmente a terceira " +
+      "parte que a torna demasiado longa para caber em apenas duas legendas.";
+    const cues = recueSentence(sentence, translation);
+    expect(cues.map((c) => c.text).join(" ")).toBe(translation);
+  });
+
+  it("still spans exactly the sentence's time", () => {
+    const sentence = { start: 5, end: 17, cueCount: 2, text: "x" };
+    const cues = recueSentence(sentence, "Uma frase curta dividida em duas.");
+    expect(cues[0]!.start).toBe(5);
+    expect(cues[cues.length - 1]!.end).toBe(17);
+  });
+});
