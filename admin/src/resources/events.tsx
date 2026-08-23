@@ -551,6 +551,7 @@ export interface EventFormData {
   sessionThemesPtReviewed: boolean;
   startDate: string;
   endDate: string;
+  organizer: string;
   status: string;
   featuredAt: string | null;
 }
@@ -568,7 +569,7 @@ export const EMPTY_FORM: EventFormData = {
   titleEnReviewed: true, titlePtReviewed: true,
   mainThemesEnReviewed: true, mainThemesPtReviewed: true,
   sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
-  startDate: "", endDate: "", status: "draft",
+  startDate: "", endDate: "", organizer: "", status: "draft",
   featuredAt: null,
 };
 
@@ -1308,6 +1309,17 @@ export const EventFormFields = ({
               renderInput={(params) => (
                 <MuiTextField {...params} label={translate("padmakara.events.places")} placeholder={translate("padmakara.events.placesPlaceholder")} slotProps={{ inputLabel: { shrink: true } }} />
               )}
+            />
+          </Grid>
+          <Grid size={{ xs: 12 }}>
+            <MuiTextField
+              label={translate("padmakara.events.organizer")}
+              placeholder={translate("padmakara.events.organizerPlaceholder")}
+              helperText={translate("padmakara.events.organizerHelp")}
+              value={form.organizer}
+              onChange={updateField("organizer")}
+              fullWidth
+              slotProps={{ inputLabel: { shrink: true } }}
             />
           </Grid>
         </Grid>
@@ -2170,6 +2182,7 @@ export const EventCreate = () => {
           ...form,
           startDate: form.startDate || null,
           endDate: form.endDate || null,
+          organizer: form.organizer.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
           teacherIds: selectedTeachers.map((t) => ({ id: t.id, role: "teacher" as const })),
@@ -2674,6 +2687,7 @@ export const EventEdit = () => {
       sessionThemesPt: event.sessionThemesPt || "",
       startDate: event.startDate || "",
       endDate: event.endDate || "",
+      organizer: event.organizer || "",
       status: event.status || "draft",
       featuredAt: event.featuredAt || null,
       titleEnReviewed: event.titleEnReviewed ?? true,
@@ -3432,6 +3446,7 @@ export const EventEdit = () => {
           ...form,
           startDate: form.startDate || null,
           endDate: form.endDate || null,
+          organizer: form.organizer.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
           teacherIds: selectedTeachers.map((t) => ({ id: t.id, role: "teacher" as const })),

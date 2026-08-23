@@ -146,6 +146,7 @@ export const createEventSchema = z.object({
   audienceId: z.number().int().optional().nullable(),
   bibliography: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  organizer: z.string().max(200).optional().nullable(),
   status: z.enum(["draft", "published", "archived"]).optional().default("draft"),
   imageUrl: z.string().url().optional().nullable(),
   featuredAt: z.string().datetime().optional().nullable(),
