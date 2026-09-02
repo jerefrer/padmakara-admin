@@ -61,11 +61,27 @@ if [ ! -f /etc/systemd/system/padmakara-api.service ]; then
     sudo systemctl enable padmakara-api
 fi
 
-# --- Always sync Caddyfile ---
-if ! diff -q "$API_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile > /dev/null 2>&1; then
-    echo "[setup] Updating Caddyfile..."
+# --- Sync this application's vhost, and only this application's ---
+#
+# /etc/caddy/Caddyfile is shared with every other application on this box, so
+# it is installed when missing and never overwritten — see deploy/Caddyfile for
+# why. What this deploy owns is one file under /etc/caddy/sites/.
+if [ ! -d /etc/caddy/sites ]; then
+    echo "ERROR: /etc/caddy/sites does not exist. Run deploy/setup-server.sh as root once."
+    exit 1
+fi
+
+if [ ! -f /etc/caddy/Caddyfile ] || ! grep -q '^import /etc/caddy/sites' /etc/caddy/Caddyfile; then
+    echo "[setup] Installing the shared Caddy entry point..."
     sudo cp "$API_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
-    sudo systemctl restart caddy
+fi
+
+if ! diff -q "$API_DIR/deploy/padmakara-api.caddy" /etc/caddy/sites/padmakara-api.caddy > /dev/null 2>&1; then
+    echo "[setup] Updating this application's vhost..."
+    sudo cp "$API_DIR/deploy/padmakara-api.caddy" /etc/caddy/sites/padmakara-api.caddy
+    # reload, not restart: other applications are served by this same Caddy and
+    # have no reason to drop a connection because this one changed.
+    sudo systemctl reload caddy
 fi
 
 # --- Check .env exists ---

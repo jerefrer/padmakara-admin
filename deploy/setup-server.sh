@@ -51,6 +51,9 @@ padmakara ALL=(ALL) NOPASSWD: /usr/bin/systemctl start padmakara-api
 padmakara ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop padmakara-api
 padmakara ALL=(ALL) NOPASSWD: /usr/bin/systemctl status padmakara-api
 padmakara ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart caddy
+# reload is what deploy.sh uses: other applications share this Caddy and should
+# not lose a connection because this one's vhost changed.
+padmakara ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload caddy
 padmakara ALL=(ALL) NOPASSWD: /usr/bin/systemctl daemon-reload
 padmakara ALL=(ALL) NOPASSWD: /usr/bin/systemctl enable padmakara-api
 padmakara ALL=(ALL) NOPASSWD: /usr/bin/cp
@@ -115,6 +118,11 @@ apt-get install -y -qq caddy
 
 mkdir -p /var/log/caddy
 chown caddy:caddy /var/log/caddy
+
+# One directory, one file per application. /etc/caddy/Caddyfile holds only the
+# import that reads this; each repository owns the vhost it puts here, so no
+# deploy can disturb another application's configuration.
+mkdir -p /etc/caddy/sites
 
 # --- 10. Configure automatic security updates ---
 echo "[10/10] Configuring unattended-upgrades..."

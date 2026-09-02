@@ -1,0 +1,101 @@
+# Padmakara API, admin panel and web app.
+#
+# This file is this repository's, dropped into /etc/caddy/sites/ by deploy.sh.
+# /etc/caddy/Caddyfile holds nothing but the import that picks it up, so a
+# deploy here cannot disturb another application's vhost and another
+# application's deploy cannot disturb this one.
+
+# API — reverse proxy to Bun on localhost:3000
+api.padmakara.pt {
+	reverse_proxy localhost:3000 {
+		# These two make the trust model explicit rather than inherited.
+		#
+		# X-Forwarded-For was already safe: Caddy trusts no proxy by default, so
+		# it overwrites the header instead of appending the peer to whatever the
+		# caller sent. Verified on this box, Caddy 2.11.1, by proxying a request
+		# carrying `X-Forwarded-For: 1.2.3.4` through a block with and without
+		# this line — both delivered the real peer and nothing else. The line is
+		# therefore not a fix. It states in the file what the application
+		# depends on, so that a later `trusted_proxies` added for some other
+		# reason cannot quietly turn src/middleware/rate-limit.ts — which reads
+		# the first entry of the list — into a limiter the caller addresses.
+		#
+		# X-Real-IP is the one that was actually passing through untouched: the
+		# same test delivered the caller's `9.9.9.9` verbatim. Nothing exploits
+		# it today, because rate-limit.ts only falls back to it when
+		# X-Forwarded-For is absent and Caddy always sets that. It is set here
+		# so the fallback cannot become a hole the day a code path reads it
+		# first.
+		#
+		# If a CDN is ever put in front of this origin, both lines have to be
+		# revisited: the real client address would then arrive in a header from
+		# the CDN, and {remote_host} would be the CDN.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/api-access.log
+		format json
+	}
+}
+
+# Admin panel — static SPA with API proxy
+admin.padmakara.pt {
+	# Proxy API calls to Hono
+	handle /api/* {
+		reverse_proxy localhost:3000 {
+			# The same door onto the same application — see the note above.
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	# Serve admin SPA static files
+	handle {
+		root * /home/padmakara/padmakara-api/admin/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/admin-access.log
+		format json
+	}
+}
+
+# Web app — static Expo web build
+app.padmakara.pt {
+	root * /home/padmakara/padmakara-app/dist
+
+	try_files {path} /index.html
+	file_server
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	@static path /_expo/* /assets/*
+	header @static Cache-Control "public, max-age=31536000, immutable"
+
+	log {
+		output file /var/log/caddy/web-access.log
+		format json
+	}
+}

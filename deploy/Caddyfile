@@ -1,71 +1,24 @@
-# Padmakara — Caddy reverse proxy configuration
+# Padmakara — the shared Caddy entry point.
+#
 # Caddy automatically provisions and renews Let's Encrypt HTTPS certificates.
 #
-# DNS required: A records for api.padmakara.pt, app.padmakara.pt, admin.padmakara.pt
-# all pointing to the server IP.
+# This file belongs to no application, and no deploy script overwrites it.
+# Every site on this box lives in its own file under /etc/caddy/sites/, put
+# there by the repository that owns it:
+#
+#     /etc/caddy/sites/padmakara-api.caddy    ← this repository
+#     /etc/caddy/sites/tibetan-course.caddy   ← jerefrer/tibetan-course
+#
+# It used to hold the three vhosts directly, and deploy.sh copied it over
+# /etc/caddy/Caddyfile every time. That was fine while one application had the
+# machine to itself and became a trap the moment a second arrived: a vhost
+# added by anyone else survived exactly until the next API deploy. Splitting
+# the file is what removes that, permanently — deploying one application can no
+# longer touch another's configuration.
+#
+# deploy.sh installs this file only when it is missing. Editing it is a
+# deliberate act, not a side effect.
+#
+# DNS required: an A record per hostname, pointing at this server.
 
-# API — reverse proxy to Bun on localhost:3000
-api.padmakara.pt {
-	reverse_proxy localhost:3000
-
-	header {
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		-Server
-	}
-
-	log {
-		output file /var/log/caddy/api-access.log
-		format json
-	}
-}
-
-# Admin panel — static SPA with API proxy
-admin.padmakara.pt {
-	# Proxy API calls to Hono
-	handle /api/* {
-		reverse_proxy localhost:3000
-	}
-
-	# Serve admin SPA static files
-	handle {
-		root * /home/padmakara/padmakara-api/admin/dist
-		try_files {path} /index.html
-		file_server
-	}
-
-	header {
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
-		-Server
-	}
-
-	log {
-		output file /var/log/caddy/admin-access.log
-		format json
-	}
-}
-
-# Web app — static Expo web build
-app.padmakara.pt {
-	root * /home/padmakara/padmakara-app/dist
-
-	try_files {path} /index.html
-	file_server
-
-	header {
-		X-Content-Type-Options "nosniff"
-		X-Frame-Options "SAMEORIGIN"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		-Server
-	}
-
-	@static path /_expo/* /assets/*
-	header @static Cache-Control "public, max-age=31536000, immutable"
-
-	log {
-		output file /var/log/caddy/web-access.log
-		format json
-	}
-}
+import /etc/caddy/sites/*.caddy
