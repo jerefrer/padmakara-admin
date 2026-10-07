@@ -357,7 +357,7 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
   // Judge by real access, not the raw status: an admin-granted access whose date has
   // passed still reads "active", and those members must be able to join.
   if (hasActiveSubscription(user)) {
-    throw AppError.badRequest("You already have an active subscription");
+    throw AppError.badRequest("You are already a member");
   }
 
   const body = await c.req.json().catch(() => ({}));
@@ -508,7 +508,7 @@ paymentRoutes.get("/checkout/:id", async (c) => {
         : `${label} — €${formatted} / ${per}`;
   }
 
-  const successUrl = `${frontend}/membership/confirming?checkout=${encodeURIComponent(id)}`;
+  const successUrl = `${frontend}/membership/confirming?checkout=${encodeURIComponent(id)}${isUpdate ? "&mode=update" : ""}`;
   const closeUrl = `${frontend}/membership/closed`;
   const backUrl = `${frontend}/membership`;
 
@@ -969,18 +969,18 @@ paymentRoutes.post("/cancel", authMiddleware, async (c) => {
   // Already cancelled: a double tap or a retry must not hit Easypay again or move the
   // recorded cancellation date.
   if (user.subscriptionCancelledAt) {
-    return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
+    return c.json({ url: membershipUrl(), accessUntil });
   }
 
   if (isMockMode) {
     console.log(`[MOCK PAYMENT] Cancelling subscription for user ${user.id}`);
     await mockCancelSubscription(user.id);
     sendCancelledEmail(user);
-    return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
+    return c.json({ url: membershipUrl(), accessUntil });
   }
 
   if (!user.easypaySubscriptionId) {
-    throw AppError.badRequest("No Easypay subscription found for this account");
+    throw AppError.badRequest("This membership is not paid by card or Direct Debit, so there is nothing to cancel");
   }
 
   // Stop future charges at Easypay.
@@ -1001,7 +1001,7 @@ paymentRoutes.post("/cancel", authMiddleware, async (c) => {
     .where(eq(users.id, user.id));
 
   sendCancelledEmail(user);
-  return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
+  return c.json({ url: membershipUrl(), accessUntil });
 });
 
 // ─── Manage an existing membership ───

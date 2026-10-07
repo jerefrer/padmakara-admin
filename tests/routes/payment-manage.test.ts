@@ -289,8 +289,21 @@ describe("POST /api/payment/cancel", () => {
     const { status, body } = await post("cancel");
     expect(status).toBe(200);
     expect(patches()[0]!.body).toEqual({ status: "inactive" });
-    expect(body).toHaveProperty("url");
+    expect(body.url).toMatch(/\/membership$/);
     expect(body).toHaveProperty("accessUntil");
+  });
+
+  it("should point the already-cancelled answer at the membership page", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue(member({ subscriptionCancelledAt: new Date() }));
+    const { body } = await post("cancel");
+    expect(body.url).toMatch(/\/membership$/);
+  });
+
+  it("should explain in membership words when there is nothing at Easypay to cancel", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue(member({ easypaySubscriptionId: null }));
+    const { status, body } = await post("cancel");
+    expect(status).toBe(400);
+    expect(body.error).not.toMatch(/subscri/i);
   });
 
   it("should return the same body without calling Easypay when already cancelled", async () => {

@@ -100,7 +100,7 @@ describe("Payment routes (mock mode)", () => {
       });
 
       expect(status).toBe(400);
-      expect(body.error).toBe("You already have an active subscription");
+      expect(body.error).toBe("You are already a member");
     });
 
     it("activates subscription in mock mode", async () => {
@@ -217,7 +217,7 @@ describe("Payment routes (mock mode)", () => {
       });
 
       expect(status).toBe(200);
-      expect(body.url).toContain("/subscription/cancel");
+      expect(body.url).toMatch(/\/membership$/);
 
       // Cancelling must NOT revoke access: the member paid through
       // subscriptionExpiresAt and keeps it until then.
@@ -283,6 +283,16 @@ describe("Payment routes (mock mode)", () => {
       const html = await get("mode=update&amount=10&interval=month");
       expect(html).toContain("Update payment method");
       expect(html).not.toContain("Membership, monthly");
+    });
+
+    it("should mark the success redirect as an update when the page is in update mode", async () => {
+      const html = await get("mode=update&amount=10&interval=month");
+      expect(html).toContain("/membership/confirming?checkout=test-id&mode=update");
+    });
+
+    it("should not mark the success redirect as an update when joining", async () => {
+      const html = await get("amount=10&interval=month");
+      expect(html).not.toContain("mode=update");
     });
 
     it("redirects to the confirming and closed pages", async () => {
@@ -359,7 +369,7 @@ describe("Payment routes (mock mode)", () => {
 
       res = await testJson("/api/payment/cancel", { method: "POST", headers });
       expect(res.status).toBe(200);
-      expect(res.body.url).toContain("cancel");
+      expect(res.body.url).toMatch(/\/membership$/);
       expect(updateChain.set.mock.calls[0]![0].subscriptionCancelledAt).toBeInstanceOf(Date);
 
       // 3. Re-subscribe
