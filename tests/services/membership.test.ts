@@ -13,8 +13,11 @@ describe("parseContribution", () => {
   it("should accept a numeric string with two decimals", () => {
     expect(parseContribution("12.50", "month")).toEqual({ ok: true, amount: 12.5, interval: "month" });
   });
+  it.each([[19.99], [5.1], [16.35], [1.15 * 10]])("should accept the two-decimal amount %s", (amount) => {
+    expect(parseContribution(amount, "month").ok).toBe(true);
+  });
   it.each([
-    [4.99, "month"], [59, "year"], [1000.01, "month"], [5.555, "month"],
+    [4.99, "month"], [59, "year"], [1000.01, "month"], [5.555, "month"], [12.555, "month"],
     ["abc", "month"], [null, "month"], [NaN, "month"], [Infinity, "year"], [-5, "month"],
   ])("should reject amount %s for %s", (amount, interval) => {
     expect(parseContribution(amount, interval).ok).toBe(false);

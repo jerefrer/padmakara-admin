@@ -288,7 +288,7 @@ describe("Payment routes (mock mode)", () => {
       updateChain = mockUpdateChain();
       (db.update as any).mockReturnValue(updateChain);
 
-      res = await testJson("/api/payment/cancel", { method: "POST", headers, body: JSON.stringify({ amount: 5, interval: "month" }) });
+      res = await testJson("/api/payment/cancel", { method: "POST", headers });
       expect(res.status).toBe(200);
       expect(res.body.url).toContain("cancel");
       expect(updateChain.set.mock.calls[0]![0].subscriptionCancelledAt).toBeInstanceOf(Date);
