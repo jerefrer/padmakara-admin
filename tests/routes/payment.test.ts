@@ -146,6 +146,24 @@ describe("Payment routes (mock mode)", () => {
       expect(diffDays).toBeLessThan(32);
     });
 
+    it("should allow joining when an admin-granted access has lapsed but still reads active", async () => {
+      // Regression: status stays "active" when an admin-set expiry date passes, so the
+      // old guard told members who had lost access that they were already subscribed.
+      (db.query.users.findFirst as any).mockResolvedValue(
+        mockUser({
+          subscriptionStatus: "active",
+          subscriptionSource: "admin",
+          subscriptionExpiresAt: new Date(Date.now() - 60 * 86_400_000),
+        }),
+      );
+      (db.update as any).mockReturnValue(mockUpdateChain());
+
+      const headers = await authHeader();
+      const { status } = await testJson("/api/payment/subscribe", { method: "POST", headers });
+
+      expect(status).toBe(200);
+    });
+
     it("allows subscription after expiry", async () => {
       (db.query.users.findFirst as any).mockResolvedValue(
         mockUser({ subscriptionStatus: "expired" }),

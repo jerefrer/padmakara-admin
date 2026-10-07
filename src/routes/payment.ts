@@ -5,6 +5,7 @@ import { users } from "../db/schema/users.ts";
 import { paymentTransactions } from "../db/schema/payment-transactions.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
+import { hasActiveSubscription } from "../services/access.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 
 const EASYPAY_API_BASE = config.easypay.testing
@@ -177,7 +178,9 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
   });
   if (!user) throw AppError.notFound("User not found");
 
-  if (user.subscriptionStatus === "active") {
+  // Judge by real access, not the raw status: an admin-granted access whose date has
+  // passed still reads "active", and those members must be able to join.
+  if (hasActiveSubscription(user)) {
     throw AppError.badRequest("You already have an active subscription");
   }
 
