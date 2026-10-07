@@ -29,7 +29,7 @@ const EASYPAY_API_BASE = config.easypay.testing
   ? "https://api.test.easypay.pt/2.0"
   : "https://api.prod.easypay.pt/2.0";
 
-const EASYPAY_CHECKOUT_SDK = "https://cdn.easypay.pt/checkout/2.9.0/";
+const EASYPAY_CHECKOUT_SDK = "https://cdn.easypay.pt/checkout/2.9.1/";
 
 const isMockMode = !config.easypay.accountId;
 
@@ -350,6 +350,49 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
   return c.json({ url: checkoutPageUrl });
 });
 
+const CHECKOUT_COPY = {
+  en: {
+    title: "Padmakara — Payment",
+    update: "Update payment method",
+    monthly: "Membership, monthly",
+    yearly: "Membership, yearly",
+    perMonth: "month",
+    perYear: "year",
+    declined:
+      "Your payment was declined. Nothing was charged. Try another card, or pay by Direct Debit.",
+    footer: "🔒 Your card details go to Easypay, never to Padmakara.",
+    fatal: "We could not load the payment form. Nothing was charged.",
+    back: "Back to membership",
+  },
+  pt: {
+    title: "Padmakara — Pagamento",
+    update: "Atualizar o método de pagamento",
+    monthly: "Adesão mensal",
+    yearly: "Adesão anual",
+    perMonth: "mês",
+    perYear: "ano",
+    declined:
+      "O pagamento foi recusado. Nada foi cobrado. Experimente outro cartão ou pague por Débito Direto.",
+    footer: "🔒 Os dados do seu cartão vão para a Easypay, nunca para a Padmakara.",
+    fatal: "Não foi possível carregar o formulário de pagamento. Nada foi cobrado.",
+    back: "Voltar à adesão",
+  },
+} as const;
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** JSON for a script context: `<` is escaped so `</script>` cannot break out. */
+function scriptJson(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 /**
  * GET /api/payment/checkout/:id
  * Serves an HTML page that embeds the Easypay checkout SDK.
@@ -357,60 +400,115 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
  */
 paymentRoutes.get("/checkout/:id", async (c) => {
   const session = c.req.query("session");
-  const userId = c.req.query("userId");
-
   if (!session) {
     return c.text("Missing checkout session", 400);
   }
 
-  const successUrl = `${config.urls.frontend}/subscription/success?session_id=${c.req.param("id")}`;
-  const cancelUrl = `${config.urls.frontend}/subscription/cancel`;
+  const id = c.req.param("id");
+  const lang: "en" | "pt" = c.req.query("lang") === "pt" ? "pt" : "en";
+  const isUpdate = c.req.query("mode") === "update";
+  const interval = c.req.query("interval") === "year" ? "year" : "month";
+  const copy = CHECKOUT_COPY[lang];
+  const frontend = config.urls.frontend;
+
+  const amountRaw = c.req.query("amount");
+  const amount = amountRaw !== undefined && amountRaw.trim() !== "" ? Number(amountRaw) : NaN;
+  const amountOk = Number.isFinite(amount) && amount > 0 && amount < 100000;
+
+  let headline = "";
+  if (isUpdate) {
+    headline = copy.update;
+  } else if (amountOk) {
+    const label = interval === "year" ? copy.yearly : copy.monthly;
+    const per = interval === "year" ? copy.perYear : copy.perMonth;
+    const formatted = amount.toLocaleString(lang === "pt" ? "pt-PT" : "en-GB", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: false,
+    });
+    headline =
+      lang === "pt"
+        ? `${label} — ${formatted} € / ${per}`
+        : `${label} — €${formatted} / ${per}`;
+  }
+
+  const successUrl = `${frontend}/membership/confirming?checkout=${encodeURIComponent(id)}`;
+  const closeUrl = `${frontend}/membership/closed`;
+  const backUrl = `${frontend}/membership`;
 
   const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="${lang}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Padmakara — Payment</title>
+  <meta name="robots" content="noindex" />
+  <title>${escapeHtml(copy.title)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500;600&display=swap" rel="stylesheet" />
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fcf8f3; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
-    h2 { color: #5B5EA6; margin-bottom: 8px; font-size: 1.4rem; }
-    p { color: #666; margin-bottom: 20px; font-size: 0.9rem; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #ffffff; color: #333; min-height: 100vh; }
+    main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
+    header { text-align: center; margin-bottom: 20px; }
+    .brand { font-family: 'EB Garamond', Georgia, serif; font-weight: 600; letter-spacing: 0.18em; color: #9b1b1b; font-size: 1.6rem; }
+    .order { margin-top: 8px; color: #555; font-size: 1rem; }
+    #declined { display: none; background: #fdf1f1; border: 1px solid #e8bcbc; color: #7a1414; border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; font-size: 0.95rem; }
     #easypay-checkout { min-height: 400px; }
-    .error { color: #b91c1c; text-align: center; margin-top: 20px; }
-    .error-detail { color: #888; font-size: 0.8rem; margin-top: 8px; }
+    .error { color: #7a1414; text-align: center; margin-top: 20px; }
+    .error a { color: #9b1b1b; display: inline-block; margin-top: 12px; }
+    footer { text-align: center; color: #777; font-size: 0.85rem; margin-top: 20px; }
   </style>
 </head>
 <body>
-  <h2>Padmakara</h2>
-  <p>Complete your subscription payment</p>
-  <div id="easypay-checkout"></div>
+  <main>
+    <header>
+      <div class="brand">PADMAKARA</div>
+      ${headline ? `<p class="order">${escapeHtml(headline)}</p>` : ""}
+    </header>
+    <div id="declined" role="alert">${escapeHtml(copy.declined)}</div>
+    <div id="easypay-checkout"></div>
+    <footer>${escapeHtml(copy.footer)}</footer>
+  </main>
   <script src="${EASYPAY_CHECKOUT_SDK}"></script>
   <script>
-    var manifest = ${JSON.stringify({ id: c.req.param("id"), session })};
-    console.log('Checkout manifest:', manifest);
-    console.log('Testing mode:', ${config.easypay.testing});
+    var manifest = ${scriptJson({ id, session })};
+    var fatalCopy = ${scriptJson({ message: copy.fatal, back: copy.back, backUrl })};
     easypayCheckout.startCheckout(manifest, {
       id: 'easypay-checkout',
       display: 'inline',
-      testing: ${config.easypay.testing},
-      onSuccess: function(successInfo) {
-        console.log('Payment success:', successInfo);
-        window.location.href = ${JSON.stringify(successUrl)};
+      testing: ${config.easypay.testing ? "true" : "false"},
+      language: ${scriptJson(lang === "pt" ? "pt_PT" : "en")},
+      accentColor: '#9b1b1b',
+      buttonBackgroundColor: '#9b1b1b',
+      inputBorderRadius: 10,
+      buttonBorderRadius: 10,
+      buttonBoxShadow: false,
+      backgroundColor: '#ffffff',
+      hideSubscriptionSummary: false,
+      onSuccess: function() {
+        window.location.href = ${scriptJson(successUrl)};
       },
       onPaymentError: function(error) {
         console.warn('Payment error (retryable):', JSON.stringify(error));
+        document.getElementById('declined').style.display = 'block';
       },
       onError: function(error) {
         console.error('Checkout error (fatal):', JSON.stringify(error));
-        var detail = error && error.code ? error.code : JSON.stringify(error);
-        document.getElementById('easypay-checkout').innerHTML =
-          '<p class="error">Payment failed. Please try again.</p>' +
-          '<p class="error-detail">Error: ' + detail + '</p>';
+        var box = document.getElementById('easypay-checkout');
+        box.textContent = '';
+        var p = document.createElement('p');
+        p.className = 'error';
+        p.textContent = fatalCopy.message;
+        var a = document.createElement('a');
+        a.href = fatalCopy.backUrl;
+        a.textContent = fatalCopy.back;
+        p.appendChild(document.createElement('br'));
+        p.appendChild(a);
+        box.appendChild(p);
       },
       onClose: function() {
-        window.location.href = ${JSON.stringify(cancelUrl)};
+        window.location.href = ${scriptJson(closeUrl)};
       }
     });
   </script>

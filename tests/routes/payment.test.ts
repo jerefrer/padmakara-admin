@@ -261,6 +261,75 @@ describe("Payment routes (mock mode)", () => {
       const res = await testRequest("/api/payment/checkout/test-id");
       expect(res.status).toBe(400);
     });
+
+    const get = async (qs: string) =>
+      (await testRequest(`/api/payment/checkout/test-id?session=s&${qs}`)).text();
+
+    it("renders Portuguese when lang=pt", async () => {
+      const html = await get("amount=10&interval=month&lang=pt");
+      expect(html).toContain('<html lang="pt"');
+      expect(html).toContain('"pt_PT"');
+      expect(html).toContain("Adesão mensal");
+    });
+
+    it("defaults to English", async () => {
+      const html = await get("amount=10&interval=month");
+      expect(html).toContain('<html lang="en"');
+      expect(html).toContain('language: "en"');
+      expect(html).toContain("Membership, monthly");
+    });
+
+    it("shows the update label instead of the order line in update mode", async () => {
+      const html = await get("mode=update&amount=10&interval=month");
+      expect(html).toContain("Update payment method");
+      expect(html).not.toContain("Membership, monthly");
+    });
+
+    it("redirects to the confirming and closed pages", async () => {
+      const html = await get("amount=10&interval=year");
+      expect(html).toContain("/membership/confirming?checkout=test-id");
+      expect(html).toContain("/membership/closed");
+      expect(html).toContain("Membership, yearly");
+    });
+
+    it("pins the SDK version and is not indexable", async () => {
+      const html = await get("amount=10");
+      expect(html).toContain("2.9.1");
+      expect(html).toContain('<meta name="robots" content="noindex"');
+    });
+
+    it("omits the order line and does not inject markup for a malicious amount", async () => {
+      const html = await get("amount=%3Cscript%3Ealert(1)%3C%2Fscript%3E&interval=month");
+      expect(html).not.toContain("<script>alert");
+      expect(html).not.toContain("Membership, monthly");
+    });
+
+    it("omits the order line for a non-positive amount", async () => {
+      const html = await get("amount=-5&interval=month");
+      expect(html).not.toContain("Membership, monthly");
+    });
+
+    it("cannot be broken out of a script by a session value", async () => {
+      const html = await (
+        await testRequest("/api/payment/checkout/test-id?session=%3C%2Fscript%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E")
+      ).text();
+      expect(html).not.toContain("</script><script>alert");
+    });
+
+    it("falls back to defaults for unknown lang and mode", async () => {
+      const html = await get("lang=xx%22&mode=zzz&amount=10&interval=month");
+      expect(html).toContain('<html lang="en"');
+      expect(html).toContain("Membership, monthly");
+    });
+
+    it("keeps banned words out of the page text", async () => {
+      for (const lang of ["en", "pt"]) {
+        const html = (await get(`lang=${lang}&amount=10&interval=month`))
+          .replace(/https:\/\/cdn\.easypay\.pt\/[^"]*/g, "")
+          .replace(/hideSubscriptionSummary/g, "");
+        expect(html).not.toMatch(/subscription|subscrição|assinatura/i);
+      }
+    });
   });
 
   // ─── Full lifecycle ───
