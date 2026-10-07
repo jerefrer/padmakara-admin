@@ -1,5 +1,6 @@
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { config } from "../config.ts";
+import { renderBrandEmail, type Lang } from "./email-template.ts";
 
 const ses = new SESClient({
   region: config.aws.region,
@@ -11,16 +12,22 @@ const ses = new SESClient({
 
 /**
  * Send an email via AWS SES in production, or log to console in development.
+ *
+ * `text` is the plain-text twin of `html`. It is optional only so that a caller
+ * that has not been converted yet still compiles; every email we send has one,
+ * because HTML-only mail scores worse with spam filters and some readers see
+ * nothing else.
  */
 export async function sendEmail(options: {
   to: string;
   subject: string;
   html: string;
+  text?: string;
 }): Promise<void> {
   if (config.isDev) {
     console.log(`[EMAIL] To: ${options.to}`);
     console.log(`[EMAIL] Subject: ${options.subject}`);
-    console.log(`[EMAIL] Body: ${options.html}`);
+    console.log(`[EMAIL] Body: ${options.text ?? options.html}`);
     return;
   }
 
@@ -29,7 +36,10 @@ export async function sendEmail(options: {
     Destination: { ToAddresses: [options.to] },
     Message: {
       Subject: { Data: options.subject, Charset: "UTF-8" },
-      Body: { Html: { Data: options.html, Charset: "UTF-8" } },
+      Body: {
+        Html: { Data: options.html, Charset: "UTF-8" },
+        ...(options.text ? { Text: { Data: options.text, Charset: "UTF-8" } } : {}),
+      },
     },
   });
 
@@ -37,33 +47,38 @@ export async function sendEmail(options: {
   console.log(`[EMAIL] Sent to ${options.to}: ${options.subject}`);
 }
 
+/** "pt" gets Portuguese; anything else (including unknown or missing) gets English. */
+function lang(language: string | null | undefined): Lang {
+  return language === "pt" ? "pt" : "en";
+}
+
 export function buildMagicLinkEmail(
   magicLinkUrl: string,
   language: string,
-): { subject: string; html: string } {
-  if (language === "pt") {
+): { subject: string; html: string; text: string } {
+  if (lang(language) === "pt") {
     return {
       subject: "O seu link de acesso - Padmakara",
-      html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2>Padmakara</h2>
-          <p>Clique no link abaixo para aceder à sua conta:</p>
-          <p><a href="${magicLinkUrl}" style="display: inline-block; padding: 12px 24px; background: #9b1b1b; color: white; text-decoration: none; border-radius: 6px;">Aceder à minha conta</a></p>
-          <p style="color: #666; font-size: 14px;">Este link expira em 1 hora.</p>
-        </div>
-      `,
+      ...renderBrandEmail({
+        lang: "pt",
+        subject: "O seu link de acesso - Padmakara",
+        kicker: "Acesso",
+        paragraphs: ["Carregue no botão abaixo para aceder à sua conta."],
+        note: "Este link expira dentro de uma hora.",
+        button: { label: "Aceder à minha conta", href: magicLinkUrl },
+      }),
     };
   }
 
   return {
     subject: "Your login link - Padmakara",
-    html: `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Padmakara</h2>
-        <p>Click the link below to access your account:</p>
-        <p><a href="${magicLinkUrl}" style="display: inline-block; padding: 12px 24px; background: #9b1b1b; color: white; text-decoration: none; border-radius: 6px;">Access my account</a></p>
-        <p style="color: #666; font-size: 14px;">This link expires in 1 hour.</p>
-      </div>
-    `,
+    ...renderBrandEmail({
+      lang: "en",
+      subject: "Your login link - Padmakara",
+      kicker: "Access",
+      paragraphs: ["Click the button below to access your account."],
+      note: "This link expires in one hour.",
+      button: { label: "Access my account", href: magicLinkUrl },
+    }),
   };
 }

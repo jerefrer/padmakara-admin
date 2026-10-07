@@ -376,10 +376,10 @@ function graceEnd(expiresAt: Date): Date {
  * Fire-and-forget: a mail failure (sync or async) must never change the HTTP answer, least
  * of all to Easypay, which would retry the whole notification.
  */
-function sendMembershipEmail(to: string, build: () => { subject: string; html: string }): void {
+function sendMembershipEmail(to: string, build: () => { subject: string; html: string; text: string }): void {
   try {
-    const { subject, html } = build();
-    Promise.resolve(sendEmail({ to, subject, html })).catch((err) =>
+    const { subject, html, text } = build();
+    Promise.resolve(sendEmail({ to, subject, html, text })).catch((err) =>
       console.error(`[MEMBERSHIP EMAIL] could not send "${subject}" to ${to}:`, err),
     );
   } catch (err) {

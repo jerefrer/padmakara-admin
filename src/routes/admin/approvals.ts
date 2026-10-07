@@ -148,8 +148,7 @@ approvalRoutes.post("/:id/approve", async (c) => {
   );
   await sendEmail({
     to: request.email,
-    subject: emailContent.subject,
-    html: emailContent.html,
+    ...emailContent,
   });
 
   // Mark request as approved
