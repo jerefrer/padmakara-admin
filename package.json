@@ -16,7 +16,8 @@
     "db:studio": "bunx drizzle-kit studio",
     "db:seed": "bun run src/scripts/seed-from-csv.ts",
     "db:seed-content": "bun run src/scripts/seed-content.ts",
-    "pdf:naming": "bun run src/scripts/generate-naming-conventions-pdf.ts"
+    "pdf:naming": "bun run src/scripts/generate-naming-conventions-pdf.ts",
+    "email:preview": "bun run src/scripts/preview-emails.ts"
   },
   "devDependencies": {
     "@hono/node-server": "^1.19.9",
