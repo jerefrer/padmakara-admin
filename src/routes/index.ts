@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { config } from "../config.ts";
 import { auth } from "./auth.ts";
 import { admin } from "./admin/index.ts";
+import { emailAssetRoutes } from "./email-assets.ts";
 import { eventRoutes } from "./events.ts";
 import { groupRoutes } from "./groups.ts";
 import { contentRoutes } from "./content.ts";
@@ -26,6 +27,9 @@ api.route("/webhooks", webhookRoutes);
 
 // Payment (webhook + checkout page are public, subscribe/cancel require auth)
 api.route("/payment", paymentRoutes);
+
+// Images the emails point at (public: they load from an inbox, unauthenticated)
+api.route("/email-assets", emailAssetRoutes);
 
 // Admin (requires admin role)
 api.route("/admin", admin);
