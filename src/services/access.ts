@@ -42,15 +42,15 @@ export function denialToHttpError(reason: AccessDeniedReason): never {
     case "STATUS_HIDDEN":
       throw AppError.notFound("Event not found");
     case "AUTH_REQUIRED":
-      throw AppError.unauthorized("Authentication required");
+      throw new AppError(401, "Authentication required", "AUTH_REQUIRED");
     case "SUBSCRIPTION_REQUIRED":
-      throw AppError.forbidden("Active subscription required");
+      throw new AppError(403, "Active subscription required", "SUBSCRIPTION_REQUIRED");
     case "GROUP_MEMBERSHIP_REQUIRED":
-      throw AppError.forbidden("Group membership required");
+      throw new AppError(403, "Group membership required", "GROUP_MEMBERSHIP_REQUIRED");
     case "EVENT_ATTENDANCE_REQUIRED":
-      throw AppError.forbidden("Event attendance required");
+      throw new AppError(403, "Event attendance required", "EVENT_ATTENDANCE_REQUIRED");
     default:
-      throw AppError.forbidden("Access denied");
+      throw new AppError(403, "Access denied", "ACCESS_DENIED");
   }
 }
 

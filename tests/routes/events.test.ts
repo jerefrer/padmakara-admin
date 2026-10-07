@@ -625,3 +625,74 @@ describe("GET /api/events/featured — read-along enrichment", () => {
     expect(body).toBeNull();
   });
 });
+
+// ─── GET /api/events/:id/preview — unauthenticated locked-event preview ──────
+
+describe("GET /api/events/:id/preview", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const previewEvent = (over: Record<string, unknown> = {}) => ({
+    id: 700,
+    status: "published",
+    titleEn: "Spring Retreat",
+    titlePt: "Retiro de Primavera",
+    startDate: "2026-04-01",
+    endDate: "2026-04-05",
+    imageUrl: "https://img.example.com/hero.jpg",
+    s3Prefix: "events/SECRET/",
+    audience: { slug: "free-subscribers" },
+    eventTeachers: [{ teacher: { name: "Teacher One", avatarS3Key: "secret/key" } }],
+    sessions: [
+      { id: 1, tracks: [{ id: 9, s3Key: "events/SECRET/t.mp3" }] },
+      { id: 2, tracks: [] },
+    ],
+    videos: [{ bunnyVideoId: "vid-secret" }],
+    ...over,
+  });
+
+  it("should return a minimal preview without sessions when the event is free-subscribers", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(previewEvent());
+
+    const { status, body } = await testJson("/api/events/700/preview");
+
+    expect(status).toBe(200);
+    const b = body as any;
+    expect(b.id).toBe(700);
+    expect(b.titleEn).toBe("Spring Retreat");
+    expect(b.sessionCount).toBe(2);
+    expect(b.audience).toBe("free-subscribers");
+    expect(b.teachers).toEqual([{ name: "Teacher One" }]);
+    expect(b.imageUrl).toBe("https://img.example.com/hero.jpg");
+    expect(b.sessions).toBeUndefined();
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("SECRET");
+    expect(raw).not.toContain("vid-secret");
+  });
+
+  it("should return 404 when the event is for retreat group members", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(
+      previewEvent({ audience: { slug: "retreat-group-members" } }),
+    );
+    const { status } = await testJson("/api/events/700/preview");
+    expect(status).toBe(404);
+  });
+
+  it("should return 404 when the event is not published", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(undefined);
+    const { status } = await testJson("/api/events/701/preview");
+    expect(status).toBe(404);
+  });
+
+  it("should return 404 when the event does not exist", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(undefined);
+    const { status } = await testJson("/api/events/99999/preview");
+    expect(status).toBe(404);
+  });
+
+  it("should return 404 when the id is not a number", async () => {
+    const { status } = await testJson("/api/events/abc/preview");
+    expect(status).toBe(404);
+  });
+});

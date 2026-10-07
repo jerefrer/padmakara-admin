@@ -446,6 +446,21 @@ describe("checkEventAccess — status gate", () => {
 });
 
 describe("denialToHttpError", () => {
+  it.each([
+    ["AUTH_REQUIRED", 401, "AUTH_REQUIRED"],
+    ["SUBSCRIPTION_REQUIRED", 403, "SUBSCRIPTION_REQUIRED"],
+    ["GROUP_MEMBERSHIP_REQUIRED", 403, "GROUP_MEMBERSHIP_REQUIRED"],
+    ["EVENT_ATTENDANCE_REQUIRED", 403, "EVENT_ATTENDANCE_REQUIRED"],
+    ["ACCESS_DENIED", 403, "ACCESS_DENIED"],
+  ] as const)("should give %s status %i and code %s", (reason, status, code) => {
+    try { denialToHttpError(reason); } catch (e: any) {
+      expect(e.statusCode).toBe(status);
+      expect(e.code).toBe(code);
+      return;
+    }
+    throw new Error("did not throw");
+  });
+
   const cases: { reason: AccessDeniedReason; status: number }[] = [
     { reason: "STATUS_HIDDEN", status: 404 },
     { reason: "AUTH_REQUIRED", status: 401 },

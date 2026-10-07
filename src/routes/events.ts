@@ -247,6 +247,46 @@ eventRoutes.post("/public/:id/request-download", async (c) => {
   return c.json({ request_id: newRequest.id });
 });
 
+/**
+ * GET /api/events/:id/preview - Locked-event teaser (no auth)
+ * Only for published events in the free-subscribers audience. The response is built
+ * field by field: it is unauthenticated, so it must never carry track data, S3 keys
+ * or video ids. Any other event is a 404 so its existence is not revealed.
+ */
+eventRoutes.get("/:id/preview", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (!Number.isInteger(id)) {
+    throw AppError.notFound("Event not found");
+  }
+
+  const event = await db.query.events.findFirst({
+    where: and(eq(events.id, id), eq(events.status, "published")),
+    with: {
+      audience: true,
+      eventTeachers: { with: { teacher: true } },
+      sessions: { columns: { id: true } },
+    },
+  });
+
+  if (!event || event.audience?.slug !== AUDIENCE_SLUGS.SUBSCRIBERS) {
+    throw AppError.notFound("Event not found");
+  }
+
+  return c.json({
+    id: event.id,
+    titleEn: event.titleEn ?? null,
+    titlePt: event.titlePt ?? null,
+    startDate: event.startDate ?? null,
+    endDate: event.endDate ?? null,
+    imageUrl: event.imageUrl ?? null,
+    teachers: (event.eventTeachers ?? []).flatMap((et) =>
+      et.teacher ? [{ name: et.teacher.name }] : [],
+    ),
+    sessionCount: event.sessions?.length ?? 0,
+    audience: AUDIENCE_SLUGS.SUBSCRIBERS,
+  });
+});
+
 // ─── Authenticated endpoints ─────────────────────────────────────────────
 eventRoutes.use("/*", authMiddleware);
 
