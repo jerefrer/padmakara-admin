@@ -265,7 +265,10 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
 });
 
 describe("POST /api/payment/subscribe (real Easypay)", () => {
-  beforeEach(() => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let token: string;
+
+  beforeEach(async () => {
     vi.clearAllMocks();
     (db.query.users.findFirst as any).mockResolvedValue({
       id: 5,
@@ -274,12 +277,7 @@ describe("POST /api/payment/subscribe (real Easypay)", () => {
       lastName: "Member",
       subscriptionStatus: "none",
     });
-  });
-
-  it("should charge once at signup and start the recurring cycle a month later", async () => {
-    // Regression: capture_now plus a start_time a few minutes out made Easypay charge
-    // the first month twice (once at signup, once when the first cycle started).
-    const fetchMock = vi.fn(() =>
+    fetchMock = vi.fn(() =>
       Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ id: "chk-1", session: "sess" }),
@@ -287,19 +285,60 @@ describe("POST /api/payment/subscribe (real Easypay)", () => {
     );
     global.fetch = fetchMock as unknown as typeof fetch;
     const { createAccessToken } = await import("../../src/services/auth.ts");
-    const token = await createAccessToken({ sub: 5, email: "member@test.com", role: "user" });
+    token = await createAccessToken({ sub: 5, email: "member@test.com", role: "user" });
+  });
 
+  it("should charge once at signup and start the recurring cycle a month later", async () => {
+    // Regression: capture_now plus a start_time a few minutes out made Easypay charge
+    // the first month twice (once at signup, once when the first cycle started).
     const { status } = await testJson("/api/payment/subscribe", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount: 10, interval: "month" }),
     });
 
     expect(status).toBe(200);
     const sent = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
     expect(sent.payment.capture_now).toBe(true);
+    expect(sent.payment.frequency).toBe("1M");
+    expect(sent.order.value).toBe(10);
+    expect(sent.payment.capture.descriptive).toBe("Padmakara membership");
     const start = new Date(sent.payment.start_time.replace(" ", "T") + ":00Z");
     const daysOut = (start.getTime() - Date.now()) / 86_400_000;
     expect(daysOut).toBeGreaterThan(27);
     expect(daysOut).toBeLessThan(32);
+  });
+
+  it("should create a yearly membership starting its cycle a year later", async () => {
+    const { status } = await testJson("/api/payment/subscribe", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount: 120, interval: "year" }),
+    });
+    expect(status).toBe(200);
+    const sent = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
+    expect(sent.payment.frequency).toBe("1Y");
+    const days = (new Date(sent.payment.start_time.replace(" ", "T") + ":00Z").getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(360);
+  });
+
+  it.each([[{ amount: 1, interval: "month" }], [{ amount: 50, interval: "year" }], [{ amount: "x", interval: "month" }], [{}]])(
+    "should reject an invalid contribution %j with 400 and no Easypay call",
+    async (payload) => {
+      const res = await testJson("/api/payment/subscribe", {
+        method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(payload),
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe("INVALID_CONTRIBUTION");
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("should carry amount, interval and language on the checkout page URL", async () => {
+    const res = await testJson("/api/payment/subscribe", {
+      method: "POST", headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount: 10, interval: "month", language: "pt" }),
+    });
+    expect(res.body.url).toContain("amount=10&interval=month&lang=pt");
   });
 });

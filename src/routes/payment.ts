@@ -7,6 +7,15 @@ import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { hasActiveSubscription } from "../services/access.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
+import {
+  parseContribution,
+  frequencyFor,
+  intervalFromFrequency,
+  addInterval,
+  nextExpiry,
+  easypayDateTime,
+  type MembershipInterval,
+} from "../services/membership.ts";
 
 const EASYPAY_API_BASE = config.easypay.testing
   ? "https://api.test.easypay.pt/2.0"
@@ -43,6 +52,7 @@ interface EasypayCheckoutResponse {
 interface EasypaySubscriptionResponse {
   id?: string;
   key?: string;
+  frequency?: string;
   value?: number;
   currency?: string;
   customer?: { key?: string; email?: string; [key: string]: unknown };
@@ -97,18 +107,6 @@ function resolveUserId(subscription: EasypaySubscriptionResponse): number | null
   return match ? parseInt(match[1]!, 10) : null;
 }
 
-/**
- * Extend from the later of now and the current paid-through date: a renewal that
- * arrives early must not shorten the period already paid for, and one that arrives
- * late must not quietly swallow the days it was late by.
- */
-function nextExpiry(current: Date | null): Date {
-  const now = new Date();
-  const base = current && current > now ? new Date(current) : now;
-  base.setMonth(base.getMonth() + 1);
-  return base;
-}
-
 // ─── Easypay API helpers ───
 
 async function easypayFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
@@ -131,9 +129,8 @@ async function easypayFetch<T = unknown>(path: string, options: RequestInit = {}
 
 // ─── Mock mode helpers ───
 
-function mockCreateSubscription(userId: number) {
-  const expiresAt = new Date();
-  expiresAt.setMonth(expiresAt.getMonth() + 1);
+function mockCreateSubscription(userId: number, amount: number, interval: MembershipInterval) {
+  const expiresAt = addInterval(new Date(), interval);
   return db
     .update(users)
     .set({
@@ -141,6 +138,7 @@ function mockCreateSubscription(userId: number) {
       subscriptionSource: "easypay",
       easypaySubscriptionId: `mock_sub_${userId}`,
       subscriptionExpiresAt: expiresAt,
+      subscriptionAmount: String(amount),
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId));
@@ -184,22 +182,26 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
     throw AppError.badRequest("You already have an active subscription");
   }
 
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = parseContribution(body?.amount, body?.interval);
+  if (!parsed.ok) throw AppError.badRequest(parsed.error, "INVALID_CONTRIBUTION");
+  const { amount, interval } = parsed;
+  const language = body?.language === "pt" ? "pt" : "en";
+
   if (isMockMode) {
-    console.log(`[MOCK PAYMENT] Activating subscription for user ${user.id}`);
-    await mockCreateSubscription(user.id);
+    console.log(`[MOCK PAYMENT] Activating membership for user ${user.id}`);
+    await mockCreateSubscription(user.id, amount, interval);
     return c.json({
-      url: `${config.urls.frontend}/subscription/success?session_id=mock_session`,
+      url: `${config.urls.frontend}/membership/confirming?checkout=mock_session`,
     });
   }
 
   // Create Easypay checkout session
-  // capture_now charges the first month at signup. The recurring cycle must therefore
-  // start one month later: with start_time a few minutes out (as before), Easypay also
+  // capture_now charges the first period at signup. The recurring cycle must therefore
+  // start one interval later: with start_time a few minutes out (as before), Easypay also
   // ran the first cycle straight away and every new member was charged twice — observed
   // in the sandbox on 2026-10-07 (subscriptions b6fdf47b…, c7e8ea02…).
-  const firstRenewal = new Date();
-  firstRenewal.setMonth(firstRenewal.getMonth() + 1);
-  const startTime = firstRenewal.toISOString().replace("T", " ").slice(0, 16);
+  const label = interval === "year" ? "Padmakara membership (yearly)" : "Padmakara membership (monthly)";
 
   const checkoutData = await easypayFetch<EasypayCheckoutResponse>("/checkout", {
     method: "POST",
@@ -209,11 +211,11 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
         methods: ["cc", "dd"],
         type: "sale",
         capture: {
-          descriptive: "Padmakara — Monthly Subscription",
+          descriptive: "Padmakara membership",
         },
         currency: "EUR",
-        start_time: startTime,
-        frequency: "1M",
+        start_time: easypayDateTime(addInterval(new Date(), interval)),
+        frequency: frequencyFor(interval),
         expiration_time: "2030-12-31 23:59",
         capture_now: true,
         retries: 2,
@@ -221,14 +223,14 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
       order: {
         items: [
           {
-            description: "Padmakara Monthly Subscription",
+            description: label,
             quantity: 1,
-            key: `padmakara-monthly-user-${user.id}`,
-            value: 5,
+            key: `padmakara-membership-user-${user.id}`,
+            value: amount,
           },
         ],
         key: `user-${user.id}-${Date.now()}`,
-        value: 5,
+        value: amount,
       },
       customer: {
         name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
@@ -241,7 +243,7 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
 
   // Store the checkout session id so we can link it back in the webhook
   // The checkout page URL includes the manifest session for the SDK
-  const checkoutPageUrl = `${config.urls.backend}/api/payment/checkout/${checkoutData.id}?session=${encodeURIComponent(checkoutData.session)}&userId=${user.id}`;
+  const checkoutPageUrl = `${config.urls.backend}/api/payment/checkout/${checkoutData.id}?session=${encodeURIComponent(checkoutData.session)}&amount=${amount}&interval=${interval}&lang=${language}`;
 
   return c.json({ url: checkoutPageUrl });
 });
@@ -425,7 +427,7 @@ paymentRoutes.post("/webhook", async (c) => {
   const common = { userId, rawSubscription: subscription, amount, currency };
 
   if (kind === "payment") {
-    const expiresAt = nextExpiry(user.subscriptionExpiresAt);
+    const expiresAt = nextExpiry(user.subscriptionExpiresAt, intervalFromFrequency(subscription.frequency as string | undefined));
     const wasActive = user.subscriptionStatus === "active";
 
     await db

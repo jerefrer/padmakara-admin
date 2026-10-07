@@ -80,6 +80,7 @@ describe("Payment routes (mock mode)", () => {
       const { status, body } = await testJson("/api/payment/subscribe", {
         method: "POST",
         headers,
+        body: JSON.stringify({ amount: 5, interval: "month" }),
       });
 
       expect(status).toBe(404);
@@ -95,6 +96,7 @@ describe("Payment routes (mock mode)", () => {
       const { status, body } = await testJson("/api/payment/subscribe", {
         method: "POST",
         headers,
+        body: JSON.stringify({ amount: 5, interval: "month" }),
       });
 
       expect(status).toBe(400);
@@ -111,11 +113,12 @@ describe("Payment routes (mock mode)", () => {
       const { status, body } = await testJson("/api/payment/subscribe", {
         method: "POST",
         headers,
+        body: JSON.stringify({ amount: 5, interval: "month" }),
       });
 
       expect(status).toBe(200);
-      expect(body.url).toContain("/subscription/success");
-      expect(body.url).toContain("session_id=mock_session");
+      expect(body.url).toContain("/membership/confirming");
+      expect(body.url).toContain("checkout=mock_session");
 
       // Verify DB was updated
       expect(db.update).toHaveBeenCalled();
@@ -135,7 +138,7 @@ describe("Payment routes (mock mode)", () => {
       (db.update as any).mockReturnValue(updateChain);
 
       const headers = await authHeader();
-      await testJson("/api/payment/subscribe", { method: "POST", headers });
+      await testJson("/api/payment/subscribe", { method: "POST", headers, body: JSON.stringify({ amount: 5, interval: "month" }) });
 
       // calls[0] is non-null: the subscribe endpoint must have called db.update().set() at least once
       const setArg = updateChain.set.mock.calls[0]![0];
@@ -159,7 +162,7 @@ describe("Payment routes (mock mode)", () => {
       (db.update as any).mockReturnValue(mockUpdateChain());
 
       const headers = await authHeader();
-      const { status } = await testJson("/api/payment/subscribe", { method: "POST", headers });
+      const { status } = await testJson("/api/payment/subscribe", { method: "POST", headers, body: JSON.stringify({ amount: 5, interval: "month" }) });
 
       expect(status).toBe(200);
     });
@@ -176,10 +179,11 @@ describe("Payment routes (mock mode)", () => {
       const { status, body } = await testJson("/api/payment/subscribe", {
         method: "POST",
         headers,
+        body: JSON.stringify({ amount: 5, interval: "month" }),
       });
 
       expect(status).toBe(200);
-      expect(body.url).toContain("/subscription/success");
+      expect(body.url).toContain("/membership/confirming");
     });
   });
 
@@ -270,9 +274,9 @@ describe("Payment routes (mock mode)", () => {
       let updateChain = mockUpdateChain();
       (db.update as any).mockReturnValue(updateChain);
 
-      let res = await testJson("/api/payment/subscribe", { method: "POST", headers });
+      let res = await testJson("/api/payment/subscribe", { method: "POST", headers, body: JSON.stringify({ amount: 5, interval: "month" }) });
       expect(res.status).toBe(200);
-      expect(res.body.url).toContain("success");
+      expect(res.body.url).toContain("/membership/confirming");
       expect(updateChain.set).toHaveBeenCalledWith(
         expect.objectContaining({ subscriptionStatus: "active" }),
       );
@@ -284,7 +288,7 @@ describe("Payment routes (mock mode)", () => {
       updateChain = mockUpdateChain();
       (db.update as any).mockReturnValue(updateChain);
 
-      res = await testJson("/api/payment/cancel", { method: "POST", headers });
+      res = await testJson("/api/payment/cancel", { method: "POST", headers, body: JSON.stringify({ amount: 5, interval: "month" }) });
       expect(res.status).toBe(200);
       expect(res.body.url).toContain("cancel");
       expect(updateChain.set.mock.calls[0]![0].subscriptionCancelledAt).toBeInstanceOf(Date);
@@ -296,9 +300,9 @@ describe("Payment routes (mock mode)", () => {
       updateChain = mockUpdateChain();
       (db.update as any).mockReturnValue(updateChain);
 
-      res = await testJson("/api/payment/subscribe", { method: "POST", headers });
+      res = await testJson("/api/payment/subscribe", { method: "POST", headers, body: JSON.stringify({ amount: 5, interval: "month" }) });
       expect(res.status).toBe(200);
-      expect(res.body.url).toContain("success");
+      expect(res.body.url).toContain("/membership/confirming");
       expect(updateChain.set).toHaveBeenCalledWith(
         expect.objectContaining({ subscriptionStatus: "active" }),
       );
