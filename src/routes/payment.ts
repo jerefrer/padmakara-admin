@@ -836,6 +836,7 @@ paymentRoutes.get("/checkout/:id", async (c) => {
       },
       onError: function(error) {
         console.error('Checkout error (fatal):', JSON.stringify(error));
+        document.getElementById('declined').style.display = 'none';
         var box = document.getElementById('easypay-checkout');
         box.textContent = '';
         var p = document.createElement('p');

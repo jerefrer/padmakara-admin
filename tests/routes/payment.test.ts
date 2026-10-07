@@ -361,6 +361,16 @@ describe("Payment routes (mock mode)", () => {
       expect(new URL(m![1]!).pathname).toBe(path);
     });
 
+    it("should hide the declined banner when the checkout fails fatally", async () => {
+      const html = await get("amount=10&interval=month");
+      const onError = /onError: function\(error\) \{([\s\S]*?)\n      \},\n      onClose/.exec(html);
+      expect(onError).not.toBeNull();
+      expect(onError![1]).toContain("document.getElementById('declined').style.display = 'none'");
+      // ...and a retryable payment error still shows it.
+      const onPaymentError = /onPaymentError: function\(error\) \{([\s\S]*?)\n      \},\n      onError/.exec(html);
+      expect(onPaymentError![1]).toContain("document.getElementById('declined').style.display = 'block'");
+    });
+
     it("pins the SDK version and is not indexable", async () => {
       const html = await get("amount=10");
       expect(html).toContain("2.9.1");
