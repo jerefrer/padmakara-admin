@@ -489,6 +489,8 @@ describe("membership emails from the webhook", () => {
   });
 
   it("should not send a payment-failed email when access has already ended", async () => {
+    // A renewal of a subscription that was paid before keeps failing after the grace period.
+    selectReturns = [{ id: 1, action: "extended", note: null }];
     (db.query.users.findFirst as any).mockResolvedValue({
       id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "en",
       subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() - 30 * 86_400_000), subscriptionAmount: "5",

@@ -255,6 +255,25 @@ async function isFirstPaymentProcessing(
   }
 }
 
+/**
+ * Whether this Easypay subscription has ever been charged successfully. A failure on a
+ * subscription that was never paid is a first payment (a new or returning member); a
+ * failure on one that was paid before is a renewal, even after access has lapsed.
+ */
+async function hasBeenPaidBefore(subscriptionId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: paymentTransactions.id })
+    .from(paymentTransactions)
+    .where(
+      and(
+        eq(paymentTransactions.notificationId, subscriptionId),
+        inArray(paymentTransactions.action, ["activated", "extended"]),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
 /** ISO time of a first-payment failure the member has not retried yet, else null. */
 function firstPaymentFailedAt(
   user: { subscriptionStatus: string; subscriptionExpiresAt: Date | null; subscriptionCancelledAt: Date | null },
@@ -959,7 +978,7 @@ paymentRoutes.post("/webhook", async (c) => {
   // A first payment that failed: nothing was charged and there is no membership (or no
   // longer one: a lapsed member rejoining has a past expiry date). The checkout page itself
   // said "declined" for a card, but a Direct Debit fails days later.
-  if (kind === "payment_failed" && !hasActiveSubscription(user)) {
+  if (kind === "payment_failed" && !hasActiveSubscription(user) && !(await hasBeenPaidBefore(id))) {
     sendMembershipEmail(user.email, () =>
       buildFirstPaymentFailedEmail({
         lang: emailLanguage(user.preferredLanguage),
