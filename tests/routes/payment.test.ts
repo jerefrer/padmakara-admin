@@ -119,6 +119,8 @@ describe("Payment routes (mock mode)", () => {
       expect(status).toBe(200);
       expect(body.url).toContain("/membership/confirming");
       expect(body.url).toContain("checkout=mock_session");
+      expect(body.checkout).toEqual({ id: "mock_session", session: "mock" });
+      expect(body.testing).toBe(true);
 
       // Verify DB was updated
       expect(db.update).toHaveBeenCalled();

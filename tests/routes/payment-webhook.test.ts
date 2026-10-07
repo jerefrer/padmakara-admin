@@ -82,6 +82,7 @@ vi.mock("../../src/services/email.ts", () => ({
 
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
+import { config } from "../../src/config.ts";
 import { sendEmail } from "../../src/services/email.ts";
 import { testJson } from "../helpers.ts";
 import { db } from "../../src/db/index.ts";
@@ -1016,5 +1017,16 @@ describe("POST /api/payment/subscribe (real Easypay)", () => {
       body: JSON.stringify({ amount: 10, interval: "month", language: "pt" }),
     });
     expect(res.body.url).toContain("amount=10&interval=month&lang=pt");
+  });
+
+  it("should return the checkout manifest and the testing flag so the app can embed the form", async () => {
+    const res = await testJson("/api/payment/subscribe", {
+      method: "POST", headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount: 10, interval: "month" }),
+    });
+    expect(res.body.checkout).toEqual({ id: expect.any(String), session: expect.any(String) });
+    expect(res.body.checkout.id.length).toBeGreaterThan(0);
+    expect(res.body.checkout.session.length).toBeGreaterThan(0);
+    expect(res.body.testing).toBe(config.easypay.testing);
   });
 });

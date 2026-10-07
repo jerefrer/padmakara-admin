@@ -607,6 +607,8 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
     await mockCreateSubscription(user.id, amount, interval);
     return c.json({
       url: `${config.urls.frontend}/membership/confirming?checkout=mock_session`,
+      checkout: { id: "mock_session", session: "mock" },
+      testing: true,
     });
   }
 
@@ -685,7 +687,12 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
   // The checkout page URL includes the manifest session for the SDK
   const checkoutPageUrl = `${config.urls.backend}/api/payment/checkout/${checkoutData.id}?session=${encodeURIComponent(checkoutData.session)}&amount=${amount}&interval=${interval}&lang=${language}`;
 
-  return c.json({ url: checkoutPageUrl });
+  // url stays as the hosted-page fallback; the app embeds the form from checkout + testing.
+  return c.json({
+    url: checkoutPageUrl,
+    checkout: { id: checkoutData.id, session: checkoutData.session },
+    testing: config.easypay.testing,
+  });
 });
 
 const CHECKOUT_COPY = {
@@ -1483,6 +1490,8 @@ paymentRoutes.post("/update-method", authMiddleware, async (c) => {
 
   return c.json({
     url: `${config.urls.backend}/api/payment/checkout/${checkoutData.id}?session=${encodeURIComponent(checkoutData.session)}&amount=${amount}&interval=${interval}&lang=${language}&mode=update`,
+    checkout: { id: checkoutData.id, session: checkoutData.session },
+    testing: config.easypay.testing,
   });
 });
 

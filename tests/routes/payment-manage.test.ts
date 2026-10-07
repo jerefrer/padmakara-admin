@@ -32,6 +32,7 @@ vi.mock("../../src/services/email.ts", () => ({
   sendEmail: vi.fn(() => Promise.resolve()),
 }));
 
+import { config } from "../../src/config.ts";
 import { sendEmail } from "../../src/services/email.ts";
 import { testJson } from "../helpers.ts";
 import { db } from "../../src/db/index.ts";
@@ -255,6 +256,8 @@ describe("POST /api/payment/update-method", () => {
     expect(checkout().body.customer.key).toBe("user-7");
     expect(body.url).toContain("&mode=update");
     expect(body.url).toContain("&amount=40&interval=year&lang=pt");
+    expect(body.checkout).toEqual({ id: "chk-1", session: "sess-1" });
+    expect(body.testing).toBe(config.easypay.testing);
   });
 
   it("should not write a checkout ledger row, so a card update never blocks anything", async () => {
