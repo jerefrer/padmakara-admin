@@ -372,6 +372,22 @@ describe("GET /api/payment/checkout-status/:id", () => {
     expect(res.body).toEqual({ state: "failed", method: "card" });
   });
 
+  it.each([[404], [500]])("should answer pending, not an error, when Easypay answers %i", async (code) => {
+    global.fetch = vi.fn(() =>
+      Promise.resolve({ ok: false, status: code, text: () => Promise.resolve("boom") } as unknown as Response),
+    ) as unknown as typeof fetch;
+    const res = await status();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ state: "pending", method: null });
+  });
+
+  it("should answer pending when Easypay cannot be reached", async () => {
+    global.fetch = vi.fn(() => Promise.reject(new TypeError("fetch failed"))) as unknown as typeof fetch;
+    const res = await status();
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ state: "pending", method: null });
+  });
+
   it("should return pending for a card payment still in progress", async () => {
     stubEasypay({ payment: { status: "pending" }, method: { type: "cc" } });
     const res = await status();

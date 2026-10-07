@@ -1248,10 +1248,15 @@ paymentRoutes.get("/checkout-status/:id", authMiddleware, async (c) => {
   if (hasActiveSubscription(user)) return c.json({ state: "active", method: null });
   if (isMockMode) return c.json({ state: "pending", method: null });
 
-  const checkout = await easypayFetch<{
-    payment?: { status?: string; method?: { type?: string } };
-    method?: { type?: string };
-  }>(`/checkout/${encodeURIComponent(c.req.param("id"))}`);
+  // The app polls this every few seconds; one Easypay hiccup must not end the polling
+  // with an error screen, so "can't tell yet" is the same answer as "not settled yet".
+  let checkout: { payment?: { status?: string; method?: { type?: string } }; method?: { type?: string } };
+  try {
+    checkout = await easypayFetch(`/checkout/${encodeURIComponent(c.req.param("id"))}`);
+  } catch (err) {
+    console.error(`[MEMBERSHIP] could not read Easypay checkout ${c.req.param("id")}:`, err);
+    return c.json({ state: "pending", method: null });
+  }
 
   const method = methodKind(checkout.method?.type ?? checkout.payment?.method?.type);
   const paymentStatus = (checkout.payment?.status ?? "").toLowerCase();
