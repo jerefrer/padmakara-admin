@@ -956,9 +956,10 @@ paymentRoutes.post("/webhook", async (c) => {
       }),
     );
   }
-  // A first payment that failed: nothing was charged and there is no membership yet. The
-  // checkout page itself said "declined" for a card, but a Direct Debit fails days later.
-  if (kind === "payment_failed" && !user.subscriptionExpiresAt) {
+  // A first payment that failed: nothing was charged and there is no membership (or no
+  // longer one: a lapsed member rejoining has a past expiry date). The checkout page itself
+  // said "declined" for a card, but a Direct Debit fails days later.
+  if (kind === "payment_failed" && !hasActiveSubscription(user)) {
     sendMembershipEmail(user.email, () =>
       buildFirstPaymentFailedEmail({
         lang: emailLanguage(user.preferredLanguage),

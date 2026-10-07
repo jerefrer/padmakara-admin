@@ -519,6 +519,18 @@ describe("membership emails from the webhook", () => {
     expect(arg.html).toContain("/membership");
   });
 
+  it("should send the first-payment-failed email to a lapsed member whose rejoin payment fails", async () => {
+    // Their old expiry date is in the past: no access, so this is a first payment again.
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "en",
+      subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() - 30 * 86_400_000), subscriptionAmount: "5",
+    });
+    stubEasypay(easypaySubscription());
+    await notify({ ...capture, status: "failed" });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect((sendEmail as any).mock.calls[0][0].subject).toBe("Your Padmakara payment didn't go through");
+  });
+
   it("should not send the first-payment-failed email for a failed subscription_create", async () => {
     stubEasypay(easypaySubscription());
     await notify({ ...capture, type: "subscription_create", status: "failed" });
