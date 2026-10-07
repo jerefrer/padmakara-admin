@@ -9,6 +9,7 @@ import { hasActiveSubscription } from "../services/access.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import {
   parseContribution,
+  MIN_AMOUNT,
   frequencyFor,
   intervalFromFrequency,
   addInterval,
@@ -684,6 +685,12 @@ paymentRoutes.post("/cancel", authMiddleware, async (c) => {
 
   const accessUntil = user.subscriptionExpiresAt?.toISOString() ?? null;
 
+  // Already cancelled: a double tap or a retry must not hit Easypay again or move the
+  // recorded cancellation date.
+  if (user.subscriptionCancelledAt) {
+    return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
+  }
+
   if (isMockMode) {
     console.log(`[MOCK PAYMENT] Cancelling subscription for user ${user.id}`);
     await mockCancelSubscription(user.id);
@@ -712,6 +719,151 @@ paymentRoutes.post("/cancel", authMiddleware, async (c) => {
     .where(eq(users.id, user.id));
 
   return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
+});
+
+// ─── Manage an existing membership ───
+
+/**
+ * The signed-in user, who must be paying through Easypay with a real subscription. Admin
+ * grants, cash and bank transfers have nothing at Easypay to change.
+ */
+async function requireEasypayMember(userId: number) {
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user) throw AppError.notFound("User not found");
+  const subId = user.easypaySubscriptionId;
+  if (user.subscriptionSource !== "easypay" || !subId || subId.startsWith("mock_")) {
+    throw AppError.badRequest("This membership is not paid through card or direct debit", "NOT_EASYPAY_MEMBER");
+  }
+  return { user, subId };
+}
+
+/**
+ * POST /api/payment/amount
+ * The interval always comes from the Easypay subscription, never from the client, so the
+ * yearly floor cannot be dodged by claiming to be monthly.
+ */
+paymentRoutes.post("/amount", authMiddleware, async (c) => {
+  const { user, subId } = await requireEasypayMember(getUser(c).id);
+  if (!hasActiveSubscription(user)) {
+    throw AppError.badRequest("Your membership has ended. Please join again.", "NOT_EASYPAY_MEMBER");
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
+  const parsed = parseContribution(body?.amount, intervalFromFrequency(sub.frequency));
+  if (!parsed.ok) throw AppError.badRequest(parsed.error, "INVALID_CONTRIBUTION");
+
+  await easypayFetch(`/subscription/${subId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ value: parsed.amount }),
+  });
+  await db
+    .update(users)
+    .set({ subscriptionAmount: String(parsed.amount), updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+
+  return c.json({ amount: parsed.amount });
+});
+
+/**
+ * POST /api/payment/resume
+ * Undo a cancellation while access still runs. Renewal restarts at the paid-through date,
+ * so nothing is charged early.
+ */
+paymentRoutes.post("/resume", authMiddleware, async (c) => {
+  const { user, subId } = await requireEasypayMember(getUser(c).id);
+  if (!user.subscriptionCancelledAt) {
+    throw AppError.badRequest("This membership is not cancelled", "NOT_CANCELLED");
+  }
+  if (!hasActiveSubscription(user)) {
+    throw AppError.badRequest("Your membership has ended. Please join again.", "ACCESS_ENDED");
+  }
+
+  const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
+  // Inside the grace window the paid-through date is already past; Easypay needs a future start.
+  const soonest = new Date(Date.now() + 5 * 60 * 1000);
+  const restart =
+    user.subscriptionExpiresAt && user.subscriptionExpiresAt > soonest ? user.subscriptionExpiresAt : soonest;
+  await easypayFetch(`/subscription/${subId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      status: "active",
+      frequency: frequencyFor(intervalFromFrequency(sub.frequency)),
+      start_time: easypayDateTime(restart),
+    }),
+  });
+  await db
+    .update(users)
+    .set({ subscriptionCancelledAt: null, updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+
+  return c.json({ accessUntil: user.subscriptionExpiresAt?.toISOString() ?? null });
+});
+
+/**
+ * POST /api/payment/update-method
+ * Opens a fresh checkout to store a new card or mandate. The webhook swaps the new
+ * subscription in and deactivates the old one. While access still runs nothing is charged
+ * and the first cycle starts when the paid period ends; for a lapsed member it is a rejoin.
+ */
+paymentRoutes.post("/update-method", authMiddleware, async (c) => {
+  const { user, subId } = await requireEasypayMember(getUser(c).id);
+  const body = await c.req.json().catch(() => ({}));
+  const language = body?.language === "pt" ? "pt" : "en";
+
+  let amount = user.subscriptionAmount === null ? MIN_AMOUNT.month : Number(user.subscriptionAmount);
+  let interval: MembershipInterval = "month";
+  try {
+    const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
+    if (typeof sub.value === "number") amount = sub.value;
+    interval = intervalFromFrequency(sub.frequency);
+  } catch (err) {
+    console.error(`[UPDATE-METHOD] could not read Easypay subscription ${subId}, using stored values:`, err);
+  }
+
+  const active = hasActiveSubscription(user);
+  const soonest = new Date(Date.now() + 5 * 60 * 1000);
+  const startTime = active
+    ? user.subscriptionExpiresAt && user.subscriptionExpiresAt > soonest
+      ? user.subscriptionExpiresAt
+      : soonest
+    : addInterval(new Date(), interval);
+  const label = interval === "year" ? "Padmakara membership (yearly)" : "Padmakara membership (monthly)";
+
+  const checkoutData = await easypayFetch<EasypayCheckoutResponse>("/checkout", {
+    method: "POST",
+    body: JSON.stringify({
+      type: ["subscription"],
+      payment: {
+        methods: ["cc", "dd"],
+        type: "sale",
+        capture: { descriptive: "Padmakara membership" },
+        currency: "EUR",
+        start_time: easypayDateTime(startTime),
+        frequency: frequencyFor(interval),
+        expiration_time: "2030-12-31 23:59",
+        capture_now: !active,
+        retries: 2,
+      },
+      order: {
+        items: [
+          { description: label, quantity: 1, key: `padmakara-membership-user-${user.id}`, value: amount },
+        ],
+        key: `user-${user.id}-${Date.now()}`,
+        value: amount,
+      },
+      customer: {
+        name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
+        email: user.email,
+        phone_indicative: "+351",
+        key: `user-${user.id}`,
+      },
+    }),
+  });
+
+  return c.json({
+    url: `${config.urls.backend}/api/payment/checkout/${checkoutData.id}?session=${encodeURIComponent(checkoutData.session)}&amount=${amount}&interval=${interval}&lang=${language}&mode=update`,
+  });
 });
 
 export { paymentRoutes };
