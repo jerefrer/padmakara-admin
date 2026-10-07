@@ -22,6 +22,10 @@ describe("parseContribution", () => {
   ])("should reject amount %s for %s", (amount, interval) => {
     expect(parseContribution(amount, interval).ok).toBe(false);
   });
+  it("should return the amount rounded to cents when a sub-cent residue is within tolerance", () => {
+    expect(parseContribution(5.0000000001, "month")).toEqual({ ok: true, amount: 5, interval: "month" });
+    expect(parseContribution(1.15 * 10, "month")).toEqual({ ok: true, amount: 11.5, interval: "month" });
+  });
   it("should reject an unknown interval", () => {
     expect(parseContribution(10, "week").ok).toBe(false);
   });

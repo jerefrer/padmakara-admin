@@ -16,7 +16,6 @@ import {
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import {
   parseContribution,
-  MIN_AMOUNT,
   frequencyFor,
   intervalFromFrequency,
   addInterval,
@@ -259,6 +258,83 @@ function sendCancelledEmail(user: {
 }
 
 const membershipUrl = () => `${config.urls.frontend}/membership`;
+
+// ─── Which Easypay subscription is the member's ───
+
+/** Ledger notes that mark `id` as a subscription we replaced with a newer one. */
+const replacedNotes = (id: string) => [`replaced ${id}`, `replaced ${id}; deactivation failed`];
+
+async function wasReplaced(userId: number, id: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: paymentTransactions.id })
+    .from(paymentTransactions)
+    .where(and(eq(paymentTransactions.userId, userId), inArray(paymentTransactions.note, replacedNotes(id))))
+    .limit(1);
+  return rows.length > 0;
+}
+
+async function deactivateAtEasypay(id: string): Promise<boolean> {
+  try {
+    await easypayFetch(`/subscription/${id}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) });
+    return true;
+  } catch (err) {
+    console.error(`[EASYPAY WEBHOOK] could not deactivate subscription ${id}:`, err);
+    return false;
+  }
+}
+
+type Adoption =
+  /** `id` is already the stored subscription. */
+  | { outcome: "current" }
+  /** `id` was replaced earlier; it must never become the stored one again. */
+  | { outcome: "stale" }
+  /**
+   * `id` becomes the member's subscription: write `fields`. `previous` is the one it
+   * replaces; `stopped` is false when Easypay refused to deactivate it.
+   */
+  | {
+      outcome: "adopt";
+      previous: string | null;
+      stopped: boolean;
+      fields: { easypaySubscriptionId: string; subscriptionCancelledAt: null };
+    };
+
+/**
+ * Decide what a notification about subscription `id` means for the member's stored one,
+ * and stop the subscription it replaces. Shared by subscription_create and the capture
+ * branch because Easypay does not promise their order: a capture can arrive before (or
+ * without) its create, and a late notification can concern a subscription already replaced.
+ *
+ * Writes nothing to the user row: the caller does, so a caller that must fail (and have
+ * Easypay retry) can still do so with the user untouched.
+ */
+async function adoptSubscription(
+  user: { id: number; easypaySubscriptionId: string | null; subscriptionCancelledAt: Date | null },
+  id: string,
+): Promise<Adoption> {
+  const previous = user.easypaySubscriptionId ?? null;
+  if (previous === id) return { outcome: "current" };
+
+  if (await wasReplaced(user.id, id)) {
+    console.error(
+      `[EASYPAY WEBHOOK] notification for ${id}, which user ${user.id} replaced with ${previous ?? "nothing"} — keeping ${previous ?? "nothing"}, stopping ${id} again`,
+    );
+    // It should not be charging at all. Stopping it again is harmless if it is already inactive.
+    await deactivateAtEasypay(id);
+    return { outcome: "stale" };
+  }
+
+  // A cancellation already stopped the previous one at Easypay (/cancel PATCHes before it
+  // records subscriptionCancelledAt), and a mock id has nothing at Easypay to stop.
+  const needsStop = previous !== null && !previous.startsWith("mock_") && !user.subscriptionCancelledAt;
+  const stopped = needsStop ? await deactivateAtEasypay(previous) : true;
+  return {
+    outcome: "adopt",
+    previous,
+    stopped,
+    fields: { easypaySubscriptionId: id, subscriptionCancelledAt: null },
+  };
+}
 
 // ─── Routes ───
 
@@ -629,21 +705,29 @@ paymentRoutes.post("/webhook", async (c) => {
   // before classifyNotification and can never reach the payment branch. Access waits for the
   // capture.
   if ((type ?? "").toLowerCase() === "subscription_create" && (status ?? "").toLowerCase() === "success") {
-    const previous = user.easypaySubscriptionId;
-    if (previous && previous !== id) {
-      // A card update creates a fresh subscription: stop the old one so the member is not
-      // charged twice, and clear any cancellation since they are paying again.
-      await easypayFetch(`/subscription/${previous}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) })
-        .catch((err) => console.error(`[EASYPAY WEBHOOK] could not deactivate replaced subscription ${previous}:`, err));
-      await db
-        .update(users)
-        .set({ easypaySubscriptionId: id, subscriptionCancelledAt: null, updatedAt: new Date() })
-        .where(eq(users.id, userId));
-      await recordOutcome({ ...common, action: "method_updated", note: `replaced ${previous}` });
+    const adoption = await adoptSubscription(user, id);
+    if (adoption.outcome === "stale") {
+      await recordOutcome({ ...common, action: "ignored", note: `create on replaced ${id}` });
       return c.json({ received: true });
     }
-    if (!previous) {
-      await db.update(users).set({ easypaySubscriptionId: id, updatedAt: new Date() }).where(eq(users.id, userId));
+    if (adoption.outcome === "adopt" && !adoption.stopped) {
+      // The old subscription would keep charging. Give the claim back and fail, so Easypay
+      // retries this notification and the retry tries the deactivation again. Nothing on
+      // the user row has changed yet, so the retry starts clean.
+      console.error(
+        `[EASYPAY WEBHOOK] ${id} replaces ${adoption.previous} for user ${userId}, but ${adoption.previous} could not be stopped — answering 503 so Easypay retries`,
+      );
+      await db.delete(paymentTransactions).where(eq(paymentTransactions.id, txId));
+      return c.json({ received: false, retry: true }, 503);
+    }
+    if (adoption.outcome === "adopt") {
+      // A card update creates a fresh subscription: the old one is stopped so the member is
+      // not charged twice, and any cancellation is cleared since they are paying again.
+      await db.update(users).set({ ...adoption.fields, updatedAt: new Date() }).where(eq(users.id, userId));
+      if (adoption.previous) {
+        await recordOutcome({ ...common, action: "method_updated", note: `replaced ${adoption.previous}` });
+        return c.json({ received: true });
+      }
     }
     await recordOutcome({ ...common, action: "tokenized" });
     return c.json({ received: true });
@@ -653,21 +737,46 @@ paymentRoutes.post("/webhook", async (c) => {
 
   if (kind === "payment") {
     const expiresAt = nextExpiry(user.subscriptionExpiresAt, intervalFromFrequency(subscription.frequency as string | undefined));
-    const wasActive = user.subscriptionStatus === "active";
+    // Real access, not the stored status: a lapsed member still reads "active" and is
+    // joining again, so they get the welcome.
+    const wasActive = hasActiveSubscription(user);
+
+    // Money arrived, so access is extended whatever happens to the subscription ids. A
+    // capture can come before its subscription_create, so it may be the one that swaps
+    // the new subscription in; a capture on one already replaced must not swap it back.
+    const adoption = await adoptSubscription(user, id);
+    let note: string | null = null;
+    let idFields: Partial<Extract<Adoption, { outcome: "adopt" }>["fields"]> = {};
+    if (adoption.outcome === "stale") {
+      note = `capture on replaced ${id}`;
+    } else if (adoption.outcome === "adopt") {
+      idFields = adoption.fields;
+      if (adoption.previous) {
+        // Unlike subscription_create, a failed stop here does not fail the request: the
+        // capture must not be lost. The note marks the old id as replaced, so its next
+        // charge is recognised as stale and the stop is tried again then.
+        note = adoption.stopped ? `replaced ${adoption.previous}` : `replaced ${adoption.previous}; deactivation failed`;
+        if (!adoption.stopped) {
+          console.error(
+            `[EASYPAY WEBHOOK] user ${userId} now pays through ${id}, but ${adoption.previous} could not be stopped and may charge again`,
+          );
+        }
+      }
+    }
 
     await db
       .update(users)
       .set({
         subscriptionStatus: "active",
         subscriptionSource: "easypay",
-        easypaySubscriptionId: id,
+        ...idFields,
         subscriptionExpiresAt: expiresAt,
         subscriptionAmount: amount ?? user.subscriptionAmount,
         updatedAt: new Date(),
       })
       .where(eq(users.id, userId));
 
-    await recordOutcome({ ...common, action: wasActive ? "extended" : "activated" });
+    await recordOutcome({ ...common, action: wasActive ? "extended" : "activated", note });
     if (!wasActive) {
       const interval = intervalFromFrequency(subscription.frequency as string | undefined);
       sendMembershipEmail(user.email, () =>
@@ -709,7 +818,9 @@ paymentRoutes.post("/webhook", async (c) => {
     );
   }
   await recordOutcome({ ...common, action: "ignored", note: kind });
-  if (kind === "payment_failed" && user.subscriptionExpiresAt) {
+  // Only while access still runs: once it has ended the grace date is in the past, and a
+  // failed rejoin charge is answered by the checkout itself, not by a "renewal failed" email.
+  if (kind === "payment_failed" && user.subscriptionExpiresAt && hasActiveSubscription(user)) {
     const graceUntil = graceEnd(user.subscriptionExpiresAt);
     sendMembershipEmail(user.email, () =>
       buildPaymentFailedEmail({
@@ -983,15 +1094,24 @@ paymentRoutes.post("/update-method", authMiddleware, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const language = body?.language === "pt" ? "pt" : "en";
 
-  let amount = user.subscriptionAmount === null ? MIN_AMOUNT.month : Number(user.subscriptionAmount);
-  let interval: MembershipInterval = "month";
+  // The new checkout must repeat the current amount and interval exactly. Guessing either
+  // (say "month" for a yearly member) would charge the wrong amount, so without Easypay's
+  // answer there is no checkout.
+  let sub: EasypaySubscriptionResponse | null = null;
   try {
-    const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
-    if (typeof sub.value === "number") amount = sub.value;
-    interval = intervalFromFrequency(sub.frequency);
+    sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
   } catch (err) {
-    console.error(`[UPDATE-METHOD] could not read Easypay subscription ${subId}, using stored values:`, err);
+    console.error(`[UPDATE-METHOD] could not read Easypay subscription ${subId}:`, err);
   }
+  if (!sub || typeof sub.value !== "number" || (sub.frequency !== "1M" && sub.frequency !== "1Y")) {
+    throw new AppError(
+      502,
+      "We could not reach the payment provider. Nothing was changed. Please try again later.",
+      "EASYPAY_UNAVAILABLE",
+    );
+  }
+  const amount = sub.value;
+  const interval: MembershipInterval = intervalFromFrequency(sub.frequency);
 
   const active = hasActiveSubscription(user);
   const soonest = new Date(Date.now() + 5 * 60 * 1000);

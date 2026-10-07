@@ -17,6 +17,10 @@ vi.hoisted(() => {
 let insertReturns: Array<{ id: number }> = [{ id: 1 }];
 /** Every db.update() call, so tests can tell the users update from the ledger update. */
 let updateCalls: Array<{ table: unknown; set: Record<string, any> | null }> = [];
+/** Set per-test: what a ledger lookup (db.select) returns, e.g. a `replaced <id>` row. */
+let selectReturns: Array<Record<string, unknown>> = [];
+/** Every table passed to db.delete(), so tests can see a released claim. */
+let deleteCalls: unknown[] = [];
 
 vi.mock("../../src/db/index.ts", () => ({
   db: {
@@ -30,6 +34,17 @@ vi.mock("../../src/db/index.ts", () => ({
         })),
       })),
     })),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(() => Promise.resolve(selectReturns)),
+        })),
+      })),
+    })),
+    delete: vi.fn((table: unknown) => {
+      deleteCalls.push(table);
+      return { where: vi.fn(() => Promise.resolve(undefined)) };
+    }),
     update: vi.fn((table: unknown) => {
       const entry: { table: unknown; set: Record<string, any> | null } = {
         table,
@@ -80,6 +95,29 @@ function stubEasypay(payload: unknown, ok = true) {
   ) as unknown as typeof fetch;
 }
 
+/**
+ * Routes Easypay by method: GET /subscription/:id returns `sub`, PATCH answers
+ * `patchOk`. Records every call so tests can see which subscription was stopped.
+ */
+function stubEasypayRoutes(sub: unknown, { patchOk = true } = {}) {
+  global.fetch = vi.fn((_url: string, init: RequestInit = {}) => {
+    const ok = (init.method ?? "GET") === "PATCH" ? patchOk : true;
+    const payload = (init.method ?? "GET") === "GET" ? sub : {};
+    return Promise.resolve({
+      ok,
+      status: ok ? 200 : 500,
+      json: () => Promise.resolve(payload),
+      text: () => Promise.resolve(JSON.stringify(payload)),
+    } as unknown as Response);
+  }) as unknown as typeof fetch;
+}
+
+function patchedUrls(): string[] {
+  return (global.fetch as any).mock.calls
+    .filter((c: any[]) => c[1]?.method === "PATCH")
+    .map((c: any[]) => c[0] as string);
+}
+
 function notify(body: Record<string, unknown>) {
   return testJson("/api/payment/webhook", {
     method: "POST",
@@ -108,6 +146,8 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
     vi.clearAllMocks();
     insertReturns = [{ id: 1 }];
     updateCalls = [];
+    selectReturns = [];
+    deleteCalls = [];
     (db.query.users.findFirst as any).mockResolvedValue({
       id: 7,
       subscriptionStatus: "none",
@@ -290,6 +330,99 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
     expect(ledgerUpdate()).toMatchObject({ action: "method_updated" });
   });
 
+  it("should deactivate the stored subscription and adopt the new one when a capture arrives before its subscription_create", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() + 10 * 86_400_000),
+      subscriptionAmount: "10", easypaySubscriptionId: "sub-old", subscriptionCancelledAt: null,
+    });
+    stubEasypayRoutes(easypaySubscription());
+
+    const { status } = await notify(capture);
+
+    expect(status).toBe(200);
+    expect(patchedUrls()).toEqual([expect.stringContaining("/subscription/sub-old")]);
+    expect(usersUpdate()).toMatchObject({ easypaySubscriptionId: "sub-abc", subscriptionCancelledAt: null });
+    expect(ledgerUpdate()).toMatchObject({ action: "extended", note: "replaced sub-old" });
+  });
+
+  it("should clear the cancellation without stopping the old subscription again when a cancelled lapsed member rejoins", async () => {
+    // Cancel already PATCHed the old subscription inactive before recording subscriptionCancelledAt.
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() - 30 * 86_400_000),
+      subscriptionAmount: "10", easypaySubscriptionId: "sub-old", subscriptionCancelledAt: new Date(Date.now() - 60 * 86_400_000),
+    });
+    stubEasypayRoutes(easypaySubscription());
+
+    await notify(capture);
+
+    expect(patchedUrls()).toEqual([]);
+    expect(usersUpdate()).toMatchObject({ easypaySubscriptionId: "sub-abc", subscriptionCancelledAt: null });
+  });
+
+  it("should extend access but keep the stored id when a capture arrives for an already-replaced subscription", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() + 10 * 86_400_000),
+      subscriptionAmount: "10", easypaySubscriptionId: "sub-new", subscriptionCancelledAt: null,
+    });
+    selectReturns = [{ id: 3 }]; // ledger: sub-abc was replaced by sub-new
+    stubEasypayRoutes(easypaySubscription());
+
+    const { status } = await notify(capture);
+
+    expect(status).toBe(200);
+    const set = usersUpdate()!;
+    expect(set.subscriptionExpiresAt).toBeInstanceOf(Date);
+    expect(set).not.toHaveProperty("easypaySubscriptionId");
+    expect(set).not.toHaveProperty("subscriptionCancelledAt");
+    // It should not be charging at all: try once more to stop it.
+    expect(patchedUrls()).toEqual([expect.stringContaining("/subscription/sub-abc")]);
+    expect(ledgerUpdate()).toMatchObject({ action: "extended", note: "capture on replaced sub-abc" });
+  });
+
+  it("should still extend access and record the failure when the old subscription cannot be stopped on a capture", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() + 10 * 86_400_000),
+      subscriptionAmount: "10", easypaySubscriptionId: "sub-old", subscriptionCancelledAt: null,
+    });
+    stubEasypayRoutes(easypaySubscription(), { patchOk: false });
+
+    const { status } = await notify(capture);
+
+    expect(status).toBe(200);
+    expect(deleteCalls).toEqual([]);
+    expect(usersUpdate()).toMatchObject({ easypaySubscriptionId: "sub-abc", subscriptionCancelledAt: null });
+    expect(ledgerUpdate()).toMatchObject({ action: "extended", note: "replaced sub-old; deactivation failed" });
+  });
+
+  it("should release the claim and answer 503 when the old subscription cannot be stopped on subscription_create", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() + 10 * 86_400_000),
+      subscriptionAmount: "10", easypaySubscriptionId: "sub-old", subscriptionCancelledAt: null,
+    });
+    stubEasypayRoutes(easypaySubscription({ id: "sub-new" }), { patchOk: false });
+
+    const { status } = await notify({ id: "sub-new", key: "", type: "subscription_create", status: "success", messages: [], date: "2026-10-07 14:06:15" });
+
+    expect(status).toBe(503);
+    expect(deleteCalls).toEqual([paymentTransactions]);
+    expect(usersUpdate()).toBeNull();
+  });
+
+  it("should not adopt an already-replaced subscription when its subscription_create arrives late", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() + 10 * 86_400_000),
+      subscriptionAmount: "10", easypaySubscriptionId: "sub-new", subscriptionCancelledAt: null,
+    });
+    selectReturns = [{ id: 3 }];
+    stubEasypayRoutes(easypaySubscription({ id: "sub-abc" }));
+
+    const { status } = await notify({ id: "sub-abc", key: "", type: "subscription_create", status: "success", messages: [], date: "2026-10-07 14:06:15" });
+
+    expect(status).toBe(200);
+    expect(usersUpdate()).toBeNull();
+    expect(ledgerUpdate()).toMatchObject({ action: "ignored", note: "create on replaced sub-abc" });
+  });
+
   it("should extend a yearly member by a year", async () => {
     stubEasypay(easypaySubscription({ frequency: "1Y" }));
     await notify(capture);
@@ -303,6 +436,8 @@ describe("membership emails from the webhook", () => {
     vi.clearAllMocks();
     insertReturns = [{ id: 1 }];
     updateCalls = [];
+    selectReturns = [];
+    deleteCalls = [];
     (db.query.users.findFirst as any).mockResolvedValue({
       id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "pt",
       subscriptionStatus: "none", subscriptionExpiresAt: null, subscriptionAmount: null,
@@ -345,6 +480,27 @@ describe("membership emails from the webhook", () => {
     grace.setDate(grace.getDate() + 7);
     const expected = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(grace);
     expect(arg.html).toContain(expected);
+  });
+
+  it("should not send a payment-failed email when access has already ended", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "en",
+      subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() - 30 * 86_400_000), subscriptionAmount: "5",
+    });
+    stubEasypay(easypaySubscription());
+    await notify({ ...capture, status: "failed" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("should welcome a lapsed member whose stored status still reads active when they rejoin", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "en",
+      subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() - 30 * 86_400_000), subscriptionAmount: "5",
+    });
+    stubEasypay(easypaySubscription());
+    await notify(capture);
+    expect(ledgerUpdate()).toMatchObject({ action: "activated" });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
   it("should skip the failed email when there is no expiry date", async () => {

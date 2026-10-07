@@ -247,7 +247,9 @@ describe("POST /api/payment/update-method", () => {
     expect(body.url).toContain("&mode=update");
   });
 
-  it("should fall back to the stored amount and month when Easypay cannot be read", async () => {
+  it("should answer 502 EASYPAY_UNAVAILABLE and open no checkout when Easypay cannot be read", async () => {
+    // Regression: falling back to "month" + the stored amount could give a yearly member a
+    // monthly charge at the yearly amount.
     stubEasypay();
     const original = global.fetch as any;
     global.fetch = vi.fn((url: string, init: RequestInit = {}) =>
@@ -255,12 +257,21 @@ describe("POST /api/payment/update-method", () => {
         ? Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve("boom") } as unknown as Response)
         : original(url, init),
     ) as unknown as typeof fetch;
-    (db.query.users.findFirst as any).mockResolvedValue(member({ subscriptionAmount: "12.50" }));
+    (db.query.users.findFirst as any).mockResolvedValue(member({ subscriptionAmount: "120.00" }));
 
-    const { body } = await post("update-method", {});
-    expect(checkout().body.order.value).toBe(12.5);
-    expect(checkout().body.payment.frequency).toBe("1M");
-    expect(body.url).toContain("&amount=12.5&interval=month");
+    const { status, body } = await post("update-method", {});
+    expect(status).toBe(502);
+    expect(body.code).toBe("EASYPAY_UNAVAILABLE");
+    expect(body.error).not.toMatch(/subscri/i);
+    expect(calls.find((c) => c.url.endsWith("/checkout"))).toBeUndefined();
+  });
+
+  it("should answer 502 EASYPAY_UNAVAILABLE when Easypay returns no frequency", async () => {
+    stubEasypay({ id: "sub-abc", value: 120 });
+    const { status, body } = await post("update-method", {});
+    expect(status).toBe(502);
+    expect(body.code).toBe("EASYPAY_UNAVAILABLE");
+    expect(calls.find((c) => c.url.endsWith("/checkout"))).toBeUndefined();
   });
 
   it("should return NOT_EASYPAY_MEMBER for an admin-granted member", async () => {

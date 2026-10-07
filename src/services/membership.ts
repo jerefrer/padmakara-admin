@@ -21,10 +21,12 @@ export function parseContribution(
   if (Math.abs(value * 100 - Math.round(value * 100)) > 1e-6) {
     return { ok: false, error: "Amount can have at most two decimals" };
   }
+  // The tolerance above lets float residue through (11.499999999999998); send Easypay cents.
+  const cents = Math.round(value * 100) / 100;
   const min = MIN_AMOUNT[interval];
-  if (value < min) return { ok: false, error: `Minimum contribution is €${min}` };
-  if (value > MAX_AMOUNT) return { ok: false, error: `Maximum contribution is €${MAX_AMOUNT}` };
-  return { ok: true, amount: value, interval };
+  if (cents < min) return { ok: false, error: `Minimum contribution is €${min}` };
+  if (cents > MAX_AMOUNT) return { ok: false, error: `Maximum contribution is €${MAX_AMOUNT}` };
+  return { ok: true, amount: cents, interval };
 }
 
 export function frequencyFor(interval: MembershipInterval): "1M" | "1Y" {
