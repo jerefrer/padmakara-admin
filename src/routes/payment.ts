@@ -423,8 +423,33 @@ paymentRoutes.post("/webhook", async (c) => {
     return c.json({ received: true });
   }
 
-  const kind = classifyNotification(type, status);
   const common = { userId, rawSubscription: subscription, amount, currency };
+
+  // subscription_create is a stored card or a signed mandate, never money, so it is handled
+  // before classifyNotification and can never reach the payment branch. Access waits for the
+  // capture.
+  if ((type ?? "").toLowerCase() === "subscription_create" && (status ?? "").toLowerCase() === "success") {
+    const previous = user.easypaySubscriptionId;
+    if (previous && previous !== id) {
+      // A card update creates a fresh subscription: stop the old one so the member is not
+      // charged twice, and clear any cancellation since they are paying again.
+      await easypayFetch(`/subscription/${previous}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) })
+        .catch((err) => console.error(`[EASYPAY WEBHOOK] could not deactivate replaced subscription ${previous}:`, err));
+      await db
+        .update(users)
+        .set({ easypaySubscriptionId: id, subscriptionCancelledAt: null, updatedAt: new Date() })
+        .where(eq(users.id, userId));
+      await recordOutcome({ ...common, action: "method_updated", note: `replaced ${previous}` });
+      return c.json({ received: true });
+    }
+    if (!previous) {
+      await db.update(users).set({ easypaySubscriptionId: id, updatedAt: new Date() }).where(eq(users.id, userId));
+    }
+    await recordOutcome({ ...common, action: "tokenized" });
+    return c.json({ received: true });
+  }
+
+  const kind = classifyNotification(type, status);
 
   if (kind === "payment") {
     const expiresAt = nextExpiry(user.subscriptionExpiresAt, intervalFromFrequency(subscription.frequency as string | undefined));

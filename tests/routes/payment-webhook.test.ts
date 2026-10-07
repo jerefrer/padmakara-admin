@@ -262,6 +262,35 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
     expect(res.status).toBe(200);
     expect(res.body.received).toBe(true);
   });
+
+  const create = { id: "sub-new", key: "", type: "subscription_create", status: "success", messages: [], date: "2026-10-07 14:06:15" };
+
+  it("should not grant access on subscription_create", async () => {
+    stubEasypay(easypaySubscription({ id: "sub-new" }));
+    await notify(create);
+    expect(usersUpdate()?.subscriptionStatus).toBeUndefined();
+    expect(ledgerUpdate()).toMatchObject({ action: "tokenized" });
+  });
+
+  it("should swap the stored subscription and deactivate the old one on a card update", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() + 10 * 86_400_000),
+      subscriptionAmount: "10", easypaySubscriptionId: "sub-old", subscriptionCancelledAt: null,
+    });
+    stubEasypay(easypaySubscription({ id: "sub-new" }));
+    await notify(create);
+    const calls = (global.fetch as any).mock.calls.map((c: any[]) => [c[0], c[1]?.method]);
+    expect(calls).toContainEqual([expect.stringContaining("/subscription/sub-old"), "PATCH"]);
+    expect(usersUpdate()).toMatchObject({ easypaySubscriptionId: "sub-new", subscriptionCancelledAt: null });
+    expect(ledgerUpdate()).toMatchObject({ action: "method_updated" });
+  });
+
+  it("should extend a yearly member by a year", async () => {
+    stubEasypay(easypaySubscription({ frequency: "1Y" }));
+    await notify(capture);
+    const days = ((usersUpdate()!.subscriptionExpiresAt as Date).getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(360);
+  });
 });
 
 describe("POST /api/payment/subscribe (real Easypay)", () => {
