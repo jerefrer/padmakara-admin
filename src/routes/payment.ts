@@ -190,9 +190,13 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
   }
 
   // Create Easypay checkout session
-  const now = new Date();
-  now.setMinutes(now.getMinutes() + 5); // Start 5 min from now
-  const startTime = now.toISOString().replace("T", " ").slice(0, 16);
+  // capture_now charges the first month at signup. The recurring cycle must therefore
+  // start one month later: with start_time a few minutes out (as before), Easypay also
+  // ran the first cycle straight away and every new member was charged twice — observed
+  // in the sandbox on 2026-10-07 (subscriptions b6fdf47b…, c7e8ea02…).
+  const firstRenewal = new Date();
+  firstRenewal.setMonth(firstRenewal.getMonth() + 1);
+  const startTime = firstRenewal.toISOString().replace("T", " ").slice(0, 16);
 
   const checkoutData = await easypayFetch<EasypayCheckoutResponse>("/checkout", {
     method: "POST",

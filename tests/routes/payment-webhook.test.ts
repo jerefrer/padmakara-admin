@@ -263,3 +263,43 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
     expect(res.body.received).toBe(true);
   });
 });
+
+describe("POST /api/payment/subscribe (real Easypay)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 5,
+      email: "member@test.com",
+      firstName: "Test",
+      lastName: "Member",
+      subscriptionStatus: "none",
+    });
+  });
+
+  it("should charge once at signup and start the recurring cycle a month later", async () => {
+    // Regression: capture_now plus a start_time a few minutes out made Easypay charge
+    // the first month twice (once at signup, once when the first cycle started).
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ id: "chk-1", session: "sess" }),
+      } as unknown as Response),
+    );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const { createAccessToken } = await import("../../src/services/auth.ts");
+    const token = await createAccessToken({ sub: 5, email: "member@test.com", role: "user" });
+
+    const { status } = await testJson("/api/payment/subscribe", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(status).toBe(200);
+    const sent = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
+    expect(sent.payment.capture_now).toBe(true);
+    const start = new Date(sent.payment.start_time.replace(" ", "T") + ":00Z");
+    const daysOut = (start.getTime() - Date.now()) / 86_400_000;
+    expect(daysOut).toBeGreaterThan(27);
+    expect(daysOut).toBeLessThan(32);
+  });
+});
