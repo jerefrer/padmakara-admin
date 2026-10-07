@@ -129,6 +129,38 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
     expect(set!.subscriptionExpiresAt).toBeInstanceOf(Date);
   });
 
+  it("activates on subscription_capture, the type Easypay really sends", async () => {
+    // Shape copied from the first live notification (2026-09-09), with status flipped.
+    stubEasypay(easypaySubscription());
+
+    await notify({
+      id: "sub-abc",
+      key: "",
+      type: "subscription_capture",
+      status: "success",
+      messages: [],
+      date: "2026-10-09 11:50:06",
+    });
+
+    expect(usersUpdate()).toMatchObject({ subscriptionStatus: "active" });
+  });
+
+  it("leaves access alone on a failed subscription_capture (AM04 insufficient funds)", async () => {
+    stubEasypay(easypaySubscription());
+
+    await notify({
+      id: "sub-abc",
+      key: "",
+      type: "subscription_capture",
+      status: "failed",
+      messages: ["AM04 - Insuficiência de fundos"],
+      date: "2026-09-09 11:50:06",
+    });
+
+    expect(usersUpdate()).toBeNull();
+    expect(ledgerUpdate()).toMatchObject({ action: "ignored", note: "payment_failed" });
+  });
+
   it("ignores the caller-supplied key and uses only Easypay's customer.key", async () => {
     // The body claims user 99; Easypay says user 7. Only Easypay is authoritative —
     // this endpoint is unauthenticated, so trusting the body would be an account takeover.

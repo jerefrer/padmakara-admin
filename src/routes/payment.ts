@@ -61,7 +61,10 @@ interface EasypaySubscriptionResponse {
  * in `payment_transactions` rather than dropped — the first live notification is how we
  * find out what these should really be.
  */
-const PAYMENT_TYPES = new Set(["capture", "payment", "subscription"]);
+// "subscription_capture" is the type Easypay actually sent for a monthly charge — first
+// observed live on 2026-08-09 / 2026-09-09 (see payment_transactions id 1). Without it a
+// successful renewal would have been stored and ignored, never extending access.
+const PAYMENT_TYPES = new Set(["subscription_capture", "capture", "payment", "subscription"]);
 const REVERSAL_TYPES = new Set(["refund", "void", "chargeback", "dispute"]);
 const SUCCESS_STATUSES = new Set(["success", "paid", "active", "completed"]);
 
