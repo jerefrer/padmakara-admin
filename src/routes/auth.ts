@@ -20,6 +20,7 @@ import {
   refreshTokenExpiresAt,
   type TokenPayload,
 } from "../services/auth.ts";
+import { hasActiveSubscription } from "../services/access.ts";
 import { sendEmail, buildMagicLinkEmail } from "../services/email.ts";
 import { AppError } from "../lib/errors.ts";
 import {
@@ -41,6 +42,24 @@ import {
 
 const auth = new Hono();
 
+/** `hasAccess` is the real entitlement (grace days included); status alone can be stale. */
+function subscriptionForApp(user: {
+  subscriptionStatus: string;
+  subscriptionSource: string | null;
+  subscriptionExpiresAt: Date | null;
+  subscriptionCancelledAt: Date | null;
+  subscriptionAmount: string | null;
+}) {
+  return {
+    status: user.subscriptionStatus as "active" | "expired" | "none",
+    source: user.subscriptionSource,
+    expiresAt: user.subscriptionExpiresAt?.toISOString() || null,
+    cancelledAt: user.subscriptionCancelledAt?.toISOString() || null,
+    amount: user.subscriptionAmount === null || user.subscriptionAmount === undefined ? null : Number(user.subscriptionAmount),
+    hasAccess: hasActiveSubscription(user),
+  };
+}
+
 /**
  * Format a user record for the mobile app's expected shape.
  * The app stores this as the User object in AsyncStorage.
@@ -58,6 +77,8 @@ async function formatUserForApp(user: {
   subscriptionStatus: string;
   subscriptionSource: string | null;
   subscriptionExpiresAt: Date | null;
+  subscriptionCancelledAt: Date | null;
+  subscriptionAmount: string | null;
   lastActivity: Date | null;
   createdAt: Date;
 }) {
@@ -83,11 +104,7 @@ async function formatUserForApp(user: {
       biometricEnabled: false,
       notifications: true,
     },
-    subscription: {
-      status: user.subscriptionStatus as "active" | "expired" | "none",
-      source: user.subscriptionSource,
-      expiresAt: user.subscriptionExpiresAt?.toISOString() || null,
-    },
+    subscription: subscriptionForApp(user),
     created_at: user.createdAt.toISOString(),
     last_login: user.lastActivity?.toISOString() || user.createdAt.toISOString(),
   };
@@ -832,6 +849,7 @@ auth.get("/me", authMiddleware, async (c) => {
     role: user.role,
     isVerified: user.isVerified,
     createdAt: user.createdAt,
+    subscription: subscriptionForApp(user),
   });
 });
 

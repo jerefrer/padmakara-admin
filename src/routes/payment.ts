@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users } from "../db/schema/users.ts";
 import { paymentTransactions } from "../db/schema/payment-transactions.ts";
@@ -156,6 +156,58 @@ function mockCancelSubscription(userId: number) {
       updatedAt: new Date(),
     })
     .where(eq(users.id, userId));
+}
+
+// ─── Membership read model ───
+
+export interface MembershipView {
+  state: "none" | "active" | "cancelled" | "payment_failed" | "lapsed";
+  source: "easypay" | "admin" | "cash" | "bank_transfer" | null;
+  amount: number | null;
+  interval: MembershipInterval | null;
+  accessUntil: string | null;
+  graceUntil: string | null;
+  cancelledAt: string | null;
+  method: { type: "card" | "direct_debit"; lastFour: string | null; brand: string | null } | null;
+  history: { date: string; amount: number | null; outcome: "paid" | "failed" | "refunded" }[];
+}
+
+/** Ledger notification types that describe a charge attempt (not card storage). */
+const CAPTURE_TYPES = ["subscription_capture", "capture"];
+const HISTORY_LIMIT = 12;
+
+/**
+ * Where the member stands. `lastCapture` is the newest capture row in the ledger: a
+ * failed charge only matters while access is still running, since a lapsed member is
+ * simply lapsed whatever the last charge did.
+ */
+export function membershipState(
+  user: {
+    subscriptionStatus: string;
+    subscriptionExpiresAt: Date | null;
+    subscriptionCancelledAt: Date | null;
+  },
+  lastCapture: { action: string; note: string | null } | null,
+): MembershipView["state"] {
+  if (user.subscriptionStatus === "none" && !user.subscriptionExpiresAt) return "none";
+  if (!hasActiveSubscription(user)) return "lapsed";
+  if (user.subscriptionCancelledAt) return "cancelled";
+  if (lastCapture?.action === "ignored" && lastCapture.note === "payment_failed") return "payment_failed";
+  return "active";
+}
+
+function methodKind(type: unknown): "card" | "direct_debit" | null {
+  const t = typeof type === "string" ? type.toLowerCase() : "";
+  if (t === "cc") return "card";
+  if (t === "dd") return "direct_debit";
+  return null;
+}
+
+function historyOutcome(action: string, note: string | null): "paid" | "failed" | "refunded" | null {
+  if (action === "activated" || action === "extended") return "paid";
+  if (action === "ignored" && note === "payment_failed") return "failed";
+  if (action === "reversed") return "refunded";
+  return null;
 }
 
 // ─── Routes ───
@@ -496,6 +548,120 @@ paymentRoutes.post("/webhook", async (c) => {
   }
   await recordOutcome({ ...common, action: "ignored", note: kind });
   return c.json({ received: true });
+});
+
+/**
+ * GET /api/payment/membership
+ * Everything the membership page shows. The Easypay lookup (card details, interval) is
+ * best effort: if Easypay is down the page still renders, just without those two fields.
+ */
+paymentRoutes.get("/membership", authMiddleware, async (c) => {
+  const authUser = getUser(c);
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, authUser.id) });
+  if (!user) throw AppError.notFound("User not found");
+
+  const rows = await db
+    .select({
+      notificationType: paymentTransactions.notificationType,
+      action: paymentTransactions.action,
+      note: paymentTransactions.note,
+      amount: paymentTransactions.amount,
+      createdAt: paymentTransactions.createdAt,
+    })
+    .from(paymentTransactions)
+    .where(
+      and(
+        eq(paymentTransactions.userId, user.id),
+        inArray(paymentTransactions.notificationType, [...CAPTURE_TYPES, ...REVERSAL_TYPES]),
+      ),
+    )
+    .orderBy(desc(paymentTransactions.createdAt))
+    .limit(50);
+
+  const captures = rows.filter((r) => CAPTURE_TYPES.includes(r.notificationType ?? ""));
+  const state = membershipState(user, captures[0] ?? null);
+
+  const history: MembershipView["history"] = [];
+  for (const r of rows) {
+    const outcome = historyOutcome(r.action, r.note);
+    if (!outcome) continue;
+    history.push({
+      date: r.createdAt.toISOString(),
+      amount: r.amount === null ? null : Number(r.amount),
+      outcome,
+    });
+    if (history.length === HISTORY_LIMIT) break;
+  }
+
+  let method: MembershipView["method"] = null;
+  let interval: MembershipView["interval"] = null;
+  const subId = user.easypaySubscriptionId;
+  if (user.subscriptionSource === "easypay" && subId && !subId.startsWith("mock_")) {
+    try {
+      const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
+      interval = sub.frequency ? intervalFromFrequency(sub.frequency) : null;
+      const kind = methodKind(sub.method?.type);
+      if (kind) {
+        const m = sub.method as Record<string, unknown>;
+        const lastFour = m.last_four ?? m.last_digits;
+        const brand = m.card_type ?? m.brand;
+        method = {
+          type: kind,
+          lastFour: typeof lastFour === "string" ? lastFour : null,
+          brand: typeof brand === "string" ? brand : null,
+        };
+      }
+    } catch (err) {
+      console.error(`[MEMBERSHIP] could not read Easypay subscription ${subId}:`, err);
+    }
+  }
+
+  let graceUntil: string | null = null;
+  if (state === "payment_failed" && user.subscriptionExpiresAt) {
+    const g = new Date(user.subscriptionExpiresAt);
+    g.setDate(g.getDate() + config.subscription.graceDays);
+    graceUntil = g.toISOString();
+  }
+
+  const view: MembershipView = {
+    state,
+    source: user.subscriptionSource as MembershipView["source"],
+    amount: user.subscriptionAmount === null ? null : Number(user.subscriptionAmount),
+    interval,
+    accessUntil: user.subscriptionExpiresAt?.toISOString() ?? null,
+    graceUntil,
+    cancelledAt: user.subscriptionCancelledAt?.toISOString() ?? null,
+    method,
+    history,
+  };
+  return c.json(view);
+});
+
+/**
+ * GET /api/payment/checkout-status/:id
+ * Lets the app show progress after the checkout page closes. Direct debit takes days to
+ * settle, so "processing" is a normal, non-error state and not the same as "pending".
+ */
+paymentRoutes.get("/checkout-status/:id", authMiddleware, async (c) => {
+  const authUser = getUser(c);
+
+  const user = await db.query.users.findFirst({ where: eq(users.id, authUser.id) });
+  if (!user) throw AppError.notFound("User not found");
+
+  if (hasActiveSubscription(user)) return c.json({ state: "active", method: null });
+  if (isMockMode) return c.json({ state: "pending", method: null });
+
+  const checkout = await easypayFetch<{
+    payment?: { status?: string; method?: { type?: string } };
+    method?: { type?: string };
+  }>(`/checkout/${encodeURIComponent(c.req.param("id"))}`);
+
+  const method = methodKind(checkout.method?.type ?? checkout.payment?.method?.type);
+  const paymentStatus = (checkout.payment?.status ?? "").toLowerCase();
+  if (["failed", "error", "deleted"].includes(paymentStatus)) return c.json({ state: "failed", method });
+  if (method === "direct_debit") return c.json({ state: "processing", method });
+  return c.json({ state: "pending", method });
 });
 
 /**

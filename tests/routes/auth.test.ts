@@ -389,6 +389,39 @@ describe("Auth routes", () => {
     });
   });
 
+  describe("GET /api/auth/me subscription", () => {
+    async function meWith(expiredDaysAgo: number) {
+      const token = await createAccessToken({ sub: 1, email: "m@test.com", role: "user" });
+      (db.query.users.findFirst as any).mockResolvedValue({
+        id: 1,
+        email: "m@test.com",
+        firstName: "M",
+        lastName: "U",
+        dharmaName: null,
+        preferredLanguage: "en",
+        role: "user",
+        isVerified: true,
+        createdAt: new Date("2024-01-01"),
+        subscriptionStatus: "active",
+        subscriptionSource: "easypay",
+        subscriptionExpiresAt: new Date(Date.now() - expiredDaysAgo * 86400000),
+        subscriptionCancelledAt: null,
+        subscriptionAmount: "5.00",
+      });
+      return testJson("/api/auth/me", { headers: { Authorization: `Bearer ${token}` } });
+    }
+
+    it("should report hasAccess true when access expired 3 days ago (grace)", async () => {
+      const { body } = await meWith(3);
+      expect(body.subscription).toMatchObject({ status: "active", hasAccess: true, amount: 5, cancelledAt: null });
+    });
+
+    it("should report hasAccess false when access expired 30 days ago", async () => {
+      const { body } = await meWith(30);
+      expect(body.subscription.hasAccess).toBe(false);
+    });
+  });
+
   describe("POST /api/auth/logout", () => {
     it("returns 401 without auth header", async () => {
       const { status } = await testJson("/api/auth/logout", {
