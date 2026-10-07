@@ -53,6 +53,8 @@ export function buildWelcomeEmail(p: {
   retreatsUrl: string;
 }): { subject: string; html: string } {
   const date = formatDate(p.nextPaymentAt, p.lang);
+  // Without a known amount, say nothing about it rather than "€0".
+  const hasAmount = Number.isFinite(p.amount) && p.amount > 0;
   const amount = `€${p.amount}`;
   if (p.lang === "pt") {
     const per = p.interval === "year" ? "ano" : "mês";
@@ -63,7 +65,7 @@ export function buildWelcomeEmail(p: {
         p.firstName,
         [
           "Obrigado por se juntar à Padmakara. A sua adesão torna possível partilhar estes ensinamentos.",
-          `A sua contribuição de ${amount} por ${per} é renovada automaticamente a ${date}. Pode alterá-la ou cancelá-la a qualquer momento na sua página de adesão.`,
+          `A sua contribuição${hasAmount ? ` de ${amount} por ${per}` : ""} é renovada automaticamente a ${date}. Pode alterá-la ou cancelá-la a qualquer momento na sua página de adesão.`,
         ],
         button(p.retreatsUrl, "Ir para os meus retiros") + button(p.manageUrl, "Gerir a minha adesão"),
       ),
@@ -76,7 +78,7 @@ export function buildWelcomeEmail(p: {
       p.firstName,
       [
         "Thank you for joining Padmakara. Your membership helps make these teachings available.",
-        `Your contribution of ${amount} per ${p.interval} renews automatically on ${date}. You can change or cancel it at any time from your membership page.`,
+        `Your contribution${hasAmount ? ` of ${amount} per ${p.interval}` : ""} renews automatically on ${date}. You can change or cancel it at any time from your membership page.`,
       ],
       button(p.retreatsUrl, "Go to my retreats") + button(p.manageUrl, "Manage my membership"),
     ),

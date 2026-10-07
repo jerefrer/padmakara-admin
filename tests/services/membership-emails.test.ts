@@ -79,6 +79,19 @@ describe("membership emails", () => {
     expect(welcome("pt").html).toContain("15 de novembro de 2026");
   });
 
+  it.each([[0], [NaN]])("should not mention an amount of %s in the welcome email", (amount) => {
+    for (const lang of ["en", "pt"] as const) {
+      const html = buildWelcomeEmail({
+        lang, firstName: "Ana", amount, interval: "month", nextPaymentAt: date,
+        manageUrl: "https://app.test/membership", retreatsUrl: "https://app.test/",
+      }).html;
+      expect(html).not.toContain("€");
+      expect(html).not.toMatch(/NaN|undefined/);
+      expect(html).toContain(lang === "pt" ? "15 de novembro de 2026" : "15 November 2026");
+      expect(html).toContain(lang === "pt" ? "Gerir a minha adesão" : "Manage my membership");
+    }
+  });
+
   it("should link to the right URLs", () => {
     const html = welcome("en").html;
     expect(html).toContain('href="https://app.test/membership"');
