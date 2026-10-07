@@ -778,6 +778,79 @@ describe("membership emails from the webhook", () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
+  describe("one failure email per failure, not per Easypay retry (E6)", () => {
+    const DAYMS = 86_400_000;
+    /**
+     * A ledger that answers the dedupe lookup the way Postgres would: the current row (id 1)
+     * and one earlier `payment_failed` row for sub-abc, filtered by the query's own
+     * notification id, note, cutoff date and "not this row" condition.
+     */
+    function ledgerWithEarlierFailure(daysAgo: number | null) {
+      const rows = [
+        { id: 1, notificationId: "sub-abc", note: "payment_failed", createdAt: new Date() },
+        ...(daysAgo === null ? [] : [{ id: 99, notificationId: "sub-abc", note: "payment_failed", createdAt: new Date(Date.now() - daysAgo * DAYMS) }]),
+      ];
+      selectResolver = ({ sql, params }) => {
+        if (!params.includes("payment_failed")) return [];
+        const cutoffRaw = params.find((p) => p instanceof Date || (typeof p === "string" && /^\d{4}-\d\d-\d\dT/.test(p)));
+        const cutoff = cutoffRaw === undefined ? null : new Date(cutoffRaw as string | Date);
+        return rows.filter(
+          (r) =>
+            params.includes(r.notificationId) &&
+            (cutoff === null || r.createdAt >= cutoff) &&
+            !(/<>/.test(sql) && params.includes(r.id)),
+        );
+      };
+    }
+    const renewalMember = () =>
+      (db.query.users.findFirst as any).mockResolvedValue({
+        id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "en",
+        subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() + 2 * DAYMS), subscriptionAmount: "5",
+      });
+    const failedNotification = { ...capture, status: "failed" };
+
+    it("should send the renewal email on the first failure", async () => {
+      renewalMember();
+      ledgerWithEarlierFailure(null);
+      stubEasypay(easypaySubscription());
+      await notify(failedNotification);
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not send a second renewal email when the same subscription failed again within 7 days", async () => {
+      renewalMember();
+      ledgerWithEarlierFailure(2);
+      stubEasypay(easypaySubscription());
+      const { status } = await notify(failedNotification);
+      expect(status).toBe(200);
+      expect(sendEmail).not.toHaveBeenCalled();
+      expect(ledgerUpdate()).toMatchObject({ action: "ignored", note: "payment_failed" });
+    });
+
+    it("should send the renewal email again when the earlier failure was 8 days ago", async () => {
+      renewalMember();
+      ledgerWithEarlierFailure(8);
+      stubEasypay(easypaySubscription());
+      await notify(failedNotification);
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not send a second first-payment-failed email within 7 days", async () => {
+      // default member: no access, subscription never paid
+      ledgerWithEarlierFailure(1);
+      stubEasypay(easypaySubscription());
+      await notify(failedNotification);
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("should send the first-payment-failed email again after 8 days", async () => {
+      ledgerWithEarlierFailure(8);
+      stubEasypay(easypaySubscription());
+      await notify(failedNotification);
+      expect(sendEmail).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("should not send an email for an unrecognised notification type", async () => {
     stubEasypay(easypaySubscription());
     await notify({ ...capture, type: "something-new" });

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, gte, ne } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users } from "../db/schema/users.ts";
 import { paymentTransactions } from "../db/schema/payment-transactions.ts";
@@ -280,6 +280,30 @@ async function hasBeenPaidBefore(subscriptionId: string): Promise<boolean> {
       and(
         eq(paymentTransactions.notificationId, subscriptionId),
         inArray(paymentTransactions.action, ["activated", "extended"]),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+const FAILURE_EMAIL_WINDOW_DAYS = 7;
+
+/**
+ * Whether another `payment_failed` row for this subscription (not the one being processed,
+ * `currentTxId`) was recorded in the last {@link FAILURE_EMAIL_WINDOW_DAYS} days, which means
+ * the member was already emailed about this failure.
+ */
+async function alreadyToldAboutFailure(subscriptionId: string, currentTxId: number): Promise<boolean> {
+  const since = new Date(Date.now() - FAILURE_EMAIL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const rows = await db
+    .select({ id: paymentTransactions.id })
+    .from(paymentTransactions)
+    .where(
+      and(
+        eq(paymentTransactions.notificationId, subscriptionId),
+        eq(paymentTransactions.note, "payment_failed"),
+        gte(paymentTransactions.createdAt, since),
+        ne(paymentTransactions.id, currentTxId),
       ),
     )
     .limit(1);
@@ -1080,10 +1104,26 @@ paymentRoutes.post("/webhook", async (c) => {
     );
   }
   await recordOutcome({ ...common, action: "ignored", note: kind });
+  if (kind !== "payment_failed") return c.json({ received: true });
+
   // Only while access still runs: once it has ended the grace date is in the past, and a
   // failed rejoin charge is answered by the checkout itself, not by a "renewal failed" email.
-  if (kind === "payment_failed" && user.subscriptionExpiresAt && hasActiveSubscription(user)) {
-    const graceUntil = graceEnd(user.subscriptionExpiresAt);
+  const renewalFailed = !!user.subscriptionExpiresAt && hasActiveSubscription(user);
+  // A first payment that failed: nothing was charged and there is no membership (or no
+  // longer one: a lapsed member rejoining has a past expiry date). The checkout page itself
+  // said "declined" for a card, but a Direct Debit fails days later.
+  const firstPaymentFailed = !renewalFailed && !hasActiveSubscription(user) && !(await hasBeenPaidBefore(id));
+  if (!renewalFailed && !firstPaymentFailed) return c.json({ received: true });
+
+  // Easypay sends one failed notification per retry (`retries: 2`): one email per failure
+  // episode is enough, so stay quiet if this subscription already had one lately.
+  if (await alreadyToldAboutFailure(id, txId)) {
+    console.log(`[EASYPAY WEBHOOK] ${id} failed again within ${FAILURE_EMAIL_WINDOW_DAYS} days — no second email`);
+    return c.json({ received: true });
+  }
+
+  if (renewalFailed) {
+    const graceUntil = graceEnd(user.subscriptionExpiresAt!);
     sendMembershipEmail(user.email, () =>
       buildPaymentFailedEmail({
         lang: emailLanguage(user.preferredLanguage),
@@ -1092,11 +1132,7 @@ paymentRoutes.post("/webhook", async (c) => {
         updateUrl: membershipUrl(),
       }),
     );
-  }
-  // A first payment that failed: nothing was charged and there is no membership (or no
-  // longer one: a lapsed member rejoining has a past expiry date). The checkout page itself
-  // said "declined" for a card, but a Direct Debit fails days later.
-  if (kind === "payment_failed" && !hasActiveSubscription(user) && !(await hasBeenPaidBefore(id))) {
+  } else {
     sendMembershipEmail(user.email, () =>
       buildFirstPaymentFailedEmail({
         lang: emailLanguage(user.preferredLanguage),
