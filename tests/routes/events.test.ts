@@ -685,6 +685,22 @@ describe("GET /api/events/:id/preview", () => {
     expect(status).toBe(404);
   });
 
+  it("should ask the database only for the published event with that id", async () => {
+    // The mock returns whatever it is told, so the status filter is only provable by
+    // reading the query it was given: a draft is a 404 because this where clause excludes it.
+    mockDb.query.events.findFirst.mockResolvedValueOnce(undefined);
+    await testJson("/api/events/701/preview");
+
+    expect(mockDb.query.events.findFirst).toHaveBeenCalledTimes(1);
+    const callArg = mockDb.query.events.findFirst.mock.calls[0]![0] as { where?: unknown };
+    const rendered = new PgDialect().sqlToQuery(callArg.where as SQL);
+    expect(rendered.sql).toMatch(/"status" = \$\d+/);
+    expect(rendered.sql).toMatch(/"id" = \$\d+/);
+    expect(rendered.params).toContain("published");
+    expect(rendered.params).toContain(701);
+    expect(rendered.params).not.toContain("draft");
+  });
+
   it("should return 404 when the event does not exist", async () => {
     mockDb.query.events.findFirst.mockResolvedValueOnce(undefined);
     const { status } = await testJson("/api/events/99999/preview");

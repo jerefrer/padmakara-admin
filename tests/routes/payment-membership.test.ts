@@ -12,6 +12,8 @@ vi.hoisted(() => {
 
 /** Set per-test: what the ledger query returns (newest first, as the DB would). */
 let ledgerRows: Array<Record<string, any>> = [];
+/** Every argument handed to `.orderBy()`, so tests can see how the ledger was sorted. */
+let orderByArgs: unknown[] = [];
 
 vi.mock("../../src/db/index.ts", () => ({
   db: {
@@ -21,9 +23,10 @@ vi.mock("../../src/db/index.ts", () => ({
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
-          orderBy: vi.fn(() => ({
-            limit: vi.fn(() => Promise.resolve(ledgerRows)),
-          })),
+          orderBy: vi.fn((...args: unknown[]) => {
+            orderByArgs.push(...args);
+            return { limit: vi.fn(() => Promise.resolve(ledgerRows)) };
+          }),
         })),
       })),
     })),
@@ -34,6 +37,8 @@ import { testJson } from "../helpers.ts";
 import { db } from "../../src/db/index.ts";
 import { createAccessToken } from "../../src/services/auth.ts";
 import { membershipState } from "../../src/routes/payment.ts";
+import { PgDialect } from "drizzle-orm/pg-core";
+import type { SQL } from "drizzle-orm";
 
 const DAY = 24 * 60 * 60 * 1000;
 const daysFromNow = (n: number) => new Date(Date.now() + n * DAY);
@@ -210,6 +215,25 @@ describe("GET /api/payment/membership", () => {
     expect(body.history.map((h: any) => h.outcome)).toEqual(["failed", "paid", "refunded", "paid"]);
     expect(body.history[0]).toEqual({ date: "2026-09-09T10:00:00.000Z", amount: 5, outcome: "failed" });
     expect(body.history[2].amount).toBeNull();
+  });
+});
+
+describe("GET /api/payment/membership ledger ordering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ledgerRows = [];
+    orderByArgs = [];
+    (db.query.users.findFirst as any).mockResolvedValue(member());
+    stubEasypay({ id: "sub-abc", frequency: "1M" });
+  });
+
+  it("should ask the database for the newest ledger rows first", async () => {
+    // The route trusts the database to sort (the history and the "newest capture" both
+    // read rows[0] as the newest), so the query's ORDER BY is the behaviour to pin.
+    await getMembership();
+    expect(orderByArgs).toHaveLength(1);
+    const rendered = new PgDialect().sqlToQuery(orderByArgs[0] as SQL);
+    expect(rendered.sql).toMatch(/"created_at" desc$/);
   });
 });
 

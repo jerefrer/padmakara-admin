@@ -227,6 +227,42 @@ describe("Payment routes (mock mode)", () => {
     });
   });
 
+  describe("mock-mode Easypay isolation", () => {
+    it("should not call Easypay when cancelling a mock subscription", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(
+        mockUser({ subscriptionStatus: "active", easypaySubscriptionId: "mock_sub_1" }),
+      );
+      (db.update as any).mockReturnValue(mockUpdateChain());
+      const fetchSpy = vi.fn();
+      const original = global.fetch;
+      global.fetch = fetchSpy as unknown as typeof fetch;
+      try {
+        const { status } = await testJson("/api/payment/cancel", { method: "POST", headers: await authHeader() });
+        expect(status).toBe(200);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        global.fetch = original;
+      }
+    });
+
+    it("should report checkout-status as pending without calling Easypay when no access exists yet", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(mockUser());
+      const fetchSpy = vi.fn();
+      const original = global.fetch;
+      global.fetch = fetchSpy as unknown as typeof fetch;
+      try {
+        const { status, body } = await testJson("/api/payment/checkout-status/mock_session", {
+          headers: await authHeader(),
+        });
+        expect(status).toBe(200);
+        expect(body).toEqual({ state: "pending", method: null });
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        global.fetch = original;
+      }
+    });
+  });
+
   // ─── POST /api/payment/webhook ───
 
   describe("POST /api/payment/webhook", () => {
@@ -277,6 +313,16 @@ describe("Payment routes (mock mode)", () => {
       expect(html).toContain('<html lang="en"');
       expect(html).toContain('language: "en"');
       expect(html).toContain("Membership, monthly");
+    });
+
+    it.each([
+      ["en", "month", "10", "Membership, monthly — €10.00 / month"],
+      ["en", "year", "120", "Membership, yearly — €120.00 / year"],
+      ["pt", "month", "10", "Adesão mensal — 10,00 € / mês"],
+      ["pt", "year", "120", "Adesão anual — 120,00 € / ano"],
+    ])("should format the order line for %s %s", async (lang, interval, amount, line) => {
+      const html = await get(`lang=${lang}&interval=${interval}&amount=${amount}`);
+      expect(html).toContain(`<p class="order">${line}</p>`);
     });
 
     it("shows the update label instead of the order line in update mode", async () => {

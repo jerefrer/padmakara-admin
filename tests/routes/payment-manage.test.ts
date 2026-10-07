@@ -185,6 +185,32 @@ describe("POST /api/payment/resume", () => {
     expect(dbWrites[0]).toMatchObject({ subscriptionCancelledAt: null });
   });
 
+  it("should answer with an error and keep the cancellation when Easypay refuses the reactivation", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue(cancelled());
+    stubEasypay({ id: "sub-abc", frequency: "1M", value: 5 });
+    const original = global.fetch as any;
+    global.fetch = vi.fn((url: string, init: RequestInit = {}) =>
+      init.method === "PATCH"
+        ? Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve("boom") } as unknown as Response)
+        : original(url, init),
+    ) as unknown as typeof fetch;
+
+    const { status } = await post("resume");
+    expect(status).toBeGreaterThanOrEqual(500);
+    expect(dbWrites).toHaveLength(0);
+  });
+
+  it("should restart five minutes from now when the paid-through date is already past but still within grace", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue(cancelled({ subscriptionExpiresAt: daysFromNow(-2) }));
+    const before = Date.now();
+    const { status } = await post("resume");
+    expect(status).toBe(200);
+    const start = new Date(patches()[0]!.body.start_time.replace(" ", "T") + ":00Z").getTime();
+    expect(start).toBeGreaterThanOrEqual(before + 4 * 60 * 1000);
+    expect(start).toBeLessThanOrEqual(before + 7 * 60 * 1000);
+    expect(dbWrites[0]).toMatchObject({ subscriptionCancelledAt: null });
+  });
+
   it("should return NOT_CANCELLED when the member has not cancelled", async () => {
     const { status, body } = await post("resume");
     expect(status).toBe(400);
