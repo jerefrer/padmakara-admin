@@ -410,9 +410,12 @@ const membershipUrl = () => `${config.urls.frontend}/membership`;
 // ─── Which Easypay subscription is the member's ───
 
 /**
- * How a stop at Easypay went. A 4xx means Easypay answered and refused, which for a stop
- * is "it is already inactive" — retrying would loop forever — whereas a network error or a
- * 5xx says nothing about the subscription and is worth another try.
+ * How a stop at Easypay went. Only a 404 means the subscription is gone, so there is
+ * nothing left to stop and retrying would loop forever. Stopping an already inactive
+ * subscription is not an error at Easypay (it answers "ok" — observed in the sandbox on
+ * 2026-10-07), so any other 4xx (bad credentials, a malformed request) is a real failure:
+ * treating it as stopped would leave the old card charging. Those, network errors and
+ * 5xx are retried.
  */
 type StopResult = "stopped" | "already_inactive" | "failed";
 
@@ -445,9 +448,9 @@ async function deactivateAtEasypay(id: string): Promise<StopResult> {
     await easypayFetch(`/subscription/${id}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) });
     return "stopped";
   } catch (err) {
-    if (err instanceof EasypayHttpError && err.easypayStatus >= 400 && err.easypayStatus < 500) {
+    if (err instanceof EasypayHttpError && err.easypayStatus === 404) {
       console.warn(
-        `[EASYPAY WEBHOOK] Easypay answered ${err.easypayStatus} to stopping subscription ${id} — treating it as already stopped`,
+        `[EASYPAY WEBHOOK] Easypay answered ${err.easypayStatus} to stopping subscription ${id} — treating it as gone`,
       );
       return "already_inactive";
     }

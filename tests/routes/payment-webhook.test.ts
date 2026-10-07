@@ -547,12 +547,27 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
       expect(ledgerUpdate()).toMatchObject({ note: "capture on replaced sub-old" });
     });
 
-    it.each([[400], [409], [422]])("should treat an HTTP %i from the deactivation as already stopped", async (code) => {
+    it.each([[400], [401], [409], [422]])(
+      "should treat an HTTP %i from the deactivation as a failure to retry, not as stopped",
+      async (code) => {
+        (db.query.users.findFirst as any).mockResolvedValue(withAccess());
+        stubEasypayById({ "sub-new": easypaySubscription({ id: "sub-new" }) }, { patchStatus: code });
+        const { status } = await notify(create);
+        expect(status).toBe(503);
+        expect(deleteCalls).toEqual([paymentTransactions]);
+        expect(usersUpdate()).toBeNull();
+      },
+    );
+
+    it("should treat a 403 from the deactivation as a failure, not as already stopped", async () => {
+      // Stopping an already inactive subscription answers "ok" at Easypay, so a 403 (bad
+      // credentials) says nothing about the old card: it must be retried, not assumed stopped.
       (db.query.users.findFirst as any).mockResolvedValue(withAccess());
-      stubEasypayById({ "sub-new": easypaySubscription({ id: "sub-new" }) }, { patchStatus: code });
+      stubEasypayById({ "sub-new": easypaySubscription({ id: "sub-new" }) }, { patchStatus: 403 });
       const { status } = await notify(create);
-      expect(status).toBe(200);
-      expect(usersUpdate()).toMatchObject({ easypaySubscriptionId: "sub-new" });
+      expect(status).toBe(503);
+      expect(deleteCalls).toEqual([paymentTransactions]);
+      expect(usersUpdate()).toBeNull();
     });
 
     it("should still release the claim and answer 503 when the deactivation gets a 500", async () => {
