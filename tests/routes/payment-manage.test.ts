@@ -156,11 +156,12 @@ describe("POST /api/payment/amount", () => {
     expect(body.code).toBe("NOT_EASYPAY_MEMBER");
   });
 
-  it("should return NOT_EASYPAY_MEMBER when access has ended", async () => {
+  it("should return ACCESS_ENDED when access has ended", async () => {
     (db.query.users.findFirst as any).mockResolvedValue(member({ subscriptionExpiresAt: daysFromNow(-30) }));
     const { status, body } = await post("amount", { amount: 15 });
     expect(status).toBe(400);
-    expect(body.code).toBe("NOT_EASYPAY_MEMBER");
+    expect(body.code).toBe("ACCESS_ENDED");
+    expect(body.error).toBe("Your membership has ended. Please join again.");
     expect(patches()).toHaveLength(0);
   });
 });
@@ -306,6 +307,15 @@ describe("POST /api/payment/update-method", () => {
     expect(status).toBe(502);
     expect(body.code).toBe("EASYPAY_UNAVAILABLE");
     expect(calls.find((c) => c.url.endsWith("/checkout"))).toBeUndefined();
+  });
+
+  it("should refuse a cancelled member and open no checkout", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue(member({ subscriptionCancelledAt: new Date() }));
+    const { status, body } = await post("update-method", {});
+    expect(status).toBe(400);
+    expect(body.code).toBe("MEMBERSHIP_CANCELLED");
+    expect(body.error).toBe("Resume your membership before changing the payment method.");
+    expect(calls).toEqual([]);
   });
 
   it("should return NOT_EASYPAY_MEMBER for an admin-granted member", async () => {

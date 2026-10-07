@@ -1347,7 +1347,7 @@ async function requireEasypayMember(userId: number) {
 paymentRoutes.post("/amount", authMiddleware, async (c) => {
   const { user, subId } = await requireEasypayMember(getUser(c).id);
   if (!hasActiveSubscription(user)) {
-    throw AppError.badRequest("Your membership has ended. Please join again.", "NOT_EASYPAY_MEMBER");
+    throw AppError.badRequest("Your membership has ended. Please join again.", "ACCESS_ENDED");
   }
 
   const body = await c.req.json().catch(() => ({}));
@@ -1410,6 +1410,12 @@ paymentRoutes.post("/resume", authMiddleware, async (c) => {
  */
 paymentRoutes.post("/update-method", authMiddleware, async (c) => {
   const { user, subId } = await requireEasypayMember(getUser(c).id);
+  // A new card for a membership that is ending would start charging it again (the webhook
+  // stops the new subscription, but the member should not be led into paying for nothing).
+  // Once access has ended there is nothing to resume: they join again instead.
+  if (user.subscriptionCancelledAt && hasActiveSubscription(user)) {
+    throw AppError.badRequest("Resume your membership before changing the payment method.", "MEMBERSHIP_CANCELLED");
+  }
   const body = await c.req.json().catch(() => ({}));
   const language = body?.language === "pt" ? "pt" : "en";
 
