@@ -1,0 +1,528 @@
+<title>Padmakara Membership Flow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,500;0,600;1,500&family=Source+Sans+3:wght@400;500;600&display=swap">
+<style>
+/* Layout: a review sheet. Each flow is a row of phone screens, left to right in the order a member meets them, with the reasoning under each screen. Light only. */
+:root {
+  --ground: #f5f4f2;
+  --paper: #ffffff;
+  --ink: #2c2a28;
+  --muted: #6b6762;
+  --line: #e8e6e3;
+  --burgundy: #9b1b1b;
+  --burgundy-deep: #7b1616;
+  --blush: #f8f1f1;
+  --ok: #15803d;
+  --ok-soft: #f0fdf4;
+  --warn: #b45309;
+  --warn-soft: #fffbeb;
+  --bad: #b91c1c;
+  --bad-soft: #fef2f2;
+  --display: "EB Garamond", Georgia, "Times New Roman", serif;
+  --body: "Source Sans 3", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; padding-inline: 20px; padding-block: 40px 80px; }
+.wrap { max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 4vw, 42px); color: var(--burgundy); letter-spacing: .01em; }
+h2 { font-size: 26px; }
+.intro { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+.intro p { margin: 12px 0 0; max-width: 62ch; color: var(--ink); }
+.assume { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+.assume h3 { font-size: 18px; margin-bottom: 8px; }
+.assume ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--muted); }
+.assume b { color: var(--ink); font-weight: 600; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--burgundy); }
+.flow-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; max-width: 70ch; }
+.flow-head p { margin: 0; color: var(--muted); }
+.row { display: flex; gap: 28px; overflow-x: auto; padding-bottom: 12px; align-items: flex-start; }
+.screen { flex: 0 0 300px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.label { font-size: 13px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.label .n { font-variant-numeric: tabular-nums; color: var(--burgundy); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.note b { color: var(--ink); font-weight: 600; }
+.tag { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--line); color: var(--muted); }
+.tag.web { background: var(--blush); color: var(--burgundy); }
+.tag.ios { background: #eef2f7; color: #475569; }
+
+/* phone */
+.phone { background: var(--paper); border: 1px solid var(--line); border-radius: 26px; height: 600px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 1px 0 rgba(0,0,0,.02), 0 12px 32px -18px rgba(60,40,30,.25); }
+.bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px 10px; border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.bar .brand { font-family: var(--display); font-size: 17px; color: var(--burgundy); font-weight: 600; letter-spacing: .03em; }
+.body { flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+.ph-title { font-family: var(--display); font-size: 23px; line-height: 1.2; }
+.ph-sub { color: var(--muted); font-size: 13.5px; margin: 0; }
+.thumb { height: 110px; border-radius: 10px; background: linear-gradient(135deg, #e9dcd4, #c9a99a); position: relative; }
+.thumb span { position: absolute; left: 10px; bottom: 8px; color: #fff; font-family: var(--display); font-size: 16px; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.lock { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--blush); }
+.lock .t { font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.btn { display: block; width: 100%; text-align: center; border-radius: 10px; padding: 12px 14px; font-weight: 600; font-size: 15px; border: 1px solid var(--burgundy); background: var(--burgundy); color: #fff; font-family: var(--body); cursor: pointer; }
+.btn:focus-visible, .chip:focus-visible, .seg button:focus-visible { outline: 2px solid var(--burgundy-deep); outline-offset: 2px; }
+.btn.ghost { background: var(--paper); color: var(--burgundy); }
+.btn.quiet { background: transparent; border-color: transparent; color: var(--muted); font-weight: 500; padding: 8px; }
+.link { color: var(--burgundy); font-weight: 600; font-size: 14px; text-align: center; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--ground); border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: transparent; border-radius: 8px; padding: 8px; font: 600 14px var(--body); color: var(--muted); cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.chip { border: 1px solid var(--line); background: var(--paper); border-radius: 10px; padding: 10px 4px; font: 600 15px var(--body); color: var(--ink); cursor: pointer; font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] { border-color: var(--burgundy); background: var(--blush); color: var(--burgundy); }
+.custom { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 14px; color: var(--muted); }
+.custom input { border: 0; outline: 0; font: 600 15px var(--body); width: 70px; color: var(--ink); background: transparent; }
+.why { font-size: 13px; color: var(--ink); border-left: 2px solid var(--burgundy); padding-left: 10px; margin: 0; font-style: italic; font-family: var(--display); font-size: 15px; line-height: 1.4; }
+.summary { border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 4px; font-size: 13.5px; }
+.summary .big { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fine { font-size: 11.5px; color: var(--muted); text-align: center; margin: 0; }
+.fine u { text-decoration-color: var(--line); }
+.order { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 12px; border-radius: 10px; background: var(--ground); font-size: 13.5px; }
+.order b { font-variant-numeric: tabular-nums; }
+.ep { border: 1px dashed #c8c3bd; border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+.ep .cap { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.methods { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.m { border: 1px solid var(--line); border-radius: 8px; padding: 8px 4px; text-align: center; font-size: 12.5px; font-weight: 600; }
+.m.on { border-color: var(--ink); }
+.m.off { color: #b9b4ae; border-style: dashed; }
+.field { border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 13.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.field.filled { color: var(--ink); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.secure { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; justify-content: center; }
+.center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 12px; padding-inline: 8px; }
+.spinner { width: 38px; height: 38px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--burgundy); animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.medal { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; font-size: 26px; }
+.medal.ok { background: var(--ok-soft); color: var(--ok); }
+.medal.wait { background: var(--warn-soft); color: var(--warn); }
+.medal.bad { background: var(--bad-soft); color: var(--bad); }
+.list { display: grid; gap: 8px; text-align: left; width: 100%; font-size: 13.5px; }
+.list div { display: flex; gap: 8px; }
+.list div::before { content: "✓"; color: var(--ok); font-weight: 700; }
+.banner { border-radius: 10px; padding: 10px 12px; font-size: 13px; display: grid; gap: 4px; }
+.banner.bad { background: var(--bad-soft); color: #7f1d1d; }
+.banner.warn { background: var(--warn-soft); color: #78350f; }
+.banner b { font-weight: 600; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 10px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; width: fit-content; }
+.status.ok { background: var(--ok-soft); color: var(--ok); }
+.status.warn { background: var(--warn-soft); color: var(--warn); }
+.status.muted { background: var(--ground); color: var(--muted); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13.5px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.actions { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.actions div { padding: 12px 14px; font-size: 14px; display: flex; justify-content: space-between; border-top: 1px solid var(--line); }
+.actions div:first-child { border-top: 0; }
+.actions .danger { color: var(--bad); }
+.actions span:last-child { color: var(--muted); }
+.history { font-size: 13px; display: grid; gap: 6px; }
+.history div { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; color: var(--muted); }
+.history div b { color: var(--ink); font-weight: 500; }
+.sheet-bg { flex: 1; background: rgba(44,42,40,.38); display: flex; align-items: flex-end; }
+.sheet { background: var(--paper); border-radius: 18px 18px 0 0; padding: 20px 18px 22px; display: grid; gap: 12px; width: 100%; }
+.dim { opacity: .45; }
+.mail { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 6px; font-size: 13.5px; }
+.mail .subj { font-weight: 600; }
+.mail .from { font-size: 12px; color: var(--muted); }
+.mail p { margin: 0; color: var(--muted); }
+.mails { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.patterns { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+.pat { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 16px; font-size: 13.5px; display: grid; gap: 4px; }
+.pat b { font-family: var(--display); font-size: 17px; font-weight: 600; }
+.pat span { color: var(--muted); }
+@media (max-width: 820px) { .intro { grid-template-columns: 1fr; } }
+</style>
+
+<div class="wrap">
+
+  <header class="intro">
+    <div>
+      <span class="eyebrow">Proposal · payments UX</span>
+      <h1 style="margin-top:8px">Padmakara Membership Flow</h1>
+      <p>Every screen a member meets, from a locked retreat to cancelling, laid out in order. Each step reuses a pattern people already know from sites they pay every month, so nothing here needs explaining.</p>
+      <p>Everywhere in the app we say <b>membership</b> and <b>contribution</b>, never "subscription". It suits the spirit of a dharma community, and it is what Apple requires of the iPhone app anyway.</p>
+    </div>
+    <aside class="assume">
+      <h3>Open decisions this mockup assumes</h3>
+      <ul>
+        <li><b>€5 a month minimum</b>, with €10 and €20 suggested and any amount above allowed.</li>
+        <li><b>Yearly at the same price</b>, twelve months in one payment, no discount, as André asked.</li>
+        <li><b>Card and Direct Debit</b> for monthly. Yearly adds <b>MB WAY</b> and <b>Multibanco</b>, which only work for one-off payments.</li>
+        <li>The €15 one-off retreat purchase and the 5 € / 10 € tiers are not drawn. They fit in later without changing these screens.</li>
+      </ul>
+    </aside>
+  </header>
+
+  <section>
+    <div class="flow-head">
+      <span class="eyebrow">A · Meeting the paywall</span>
+      <h2>A locked retreat says what it is and how to get in</h2>
+      <p>Today the lock banner leads to Settings, which has no way to pay. The web lock leads straight to the contribution page. The iPhone app may not show a price or a pay button, so it states the fact plainly and stops there.</p>
+    </div>
+    <div class="row">
+      <figure class="screen">
+        <div class="label"><span class="n">1</span> Retreat page, signed out or not a member <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span class="brand">PADMAKARA</span><span>≡</span></div>
+          <div class="body">
+            <div class="thumb"><span>Spring Retreat 2026</span></div>
+            <div class="ph-title">Mind Training I</div>
+            <p class="ph-sub">Pema Wangyal Rinpoche · Dordogne · 12 sessions · transcripts in English and Portuguese</p>
+            <div class="lock">
+              <div class="t">🔒 Recordings for members</div>
+              <p class="ph-sub" style="color:var(--ink)">Members of the Padmakara community can listen to every retreat they are part of, and read the transcripts.</p>
+              <a class="btn">Become a member · from €5/month</a>
+              <a class="link">Already a member? Sign in</a>
+            </div>
+          </div>
+        </div>
+        <p class="note"><b>Pattern:</b> the soft paywall used by news sites and Substack. The content stays visible, the lock sits where the recordings would be, and the price floor is stated up front so nobody is surprised two screens later.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">2</span> Same retreat in the iPhone app <span class="tag ios">iOS</span></div>
+        <div class="phone">
+          <div class="bar"><span class="brand">PADMAKARA</span><span>‹</span></div>
+          <div class="body">
+            <div class="thumb"><span>Spring Retreat 2026</span></div>
+            <div class="ph-title">Mind Training I</div>
+            <p class="ph-sub">Pema Wangyal Rinpoche · Dordogne · 12 sessions</p>
+            <div class="lock" style="background:var(--ground)">
+              <div class="t">🔒 Available to members</div>
+              <p class="ph-sub" style="color:var(--ink)">Once your account has access, these recordings appear here automatically.</p>
+              <a class="btn ghost">Sign in</a>
+            </div>
+          </div>
+        </div>
+        <p class="note"><b>Apple rule:</b> no price, no "join" button, no link to the website, unless Apple grants the Reader app link entitlement later. Kindle and Netflix work exactly this way. A member who joins on the web signs in here and finds everything unlocked.</p>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="flow-head">
+      <span class="eyebrow">B · Joining</span>
+      <h2>Choose, pay, and know where you stand at every moment</h2>
+      <p>Four screens, the same rhythm as the Guardian or Wikipedia contribution pages: pick an amount, see a plain summary, pay inside a page that still feels like Padmakara, then a clear result. The amounts and the toggle on screen 3 are live, click them.</p>
+    </div>
+    <div class="row">
+      <figure class="screen">
+        <div class="label"><span class="n">3</span> Choose your contribution <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span>‹ Back</span><span class="brand">PADMAKARA</span><span style="width:34px"></span></div>
+          <div class="body">
+            <div class="ph-title">Become a member</div>
+            <div class="seg" role="group" aria-label="How often">
+              <button id="f-month" aria-pressed="true">Monthly</button>
+              <button id="f-year" aria-pressed="false">Yearly</button>
+            </div>
+            <div class="chips" role="group" aria-label="Amount">
+              <button class="chip" data-v="5" aria-pressed="false">€5</button>
+              <button class="chip" data-v="10" aria-pressed="true">€10</button>
+              <button class="chip" data-v="20" aria-pressed="false">€20</button>
+              <button class="chip" data-v="other" aria-pressed="false">Other</button>
+            </div>
+            <label class="custom" id="custom" hidden for="amt">€ <input id="amt" inputmode="decimal" value="15"> <span id="custom-unit">per month · minimum €5</span></label>
+            <p class="why">Your contribution keeps the teachings available. It funds recording and archiving, and also translation, transcription and the retreats themselves.</p>
+            <div class="summary">
+              <span class="big" id="sum-line">€10 every month</span>
+              <span class="ph-sub" id="sum-detail">Renews automatically. Cancel anytime from your account.</span>
+            </div>
+            <a class="btn">Continue to payment</a>
+            <p class="fine">By continuing you accept the <u>membership terms</u> and the <u>refund policy</u>.</p>
+          </div>
+        </div>
+        <p class="note"><b>Why this shape:</b> the summary line repeats amount, frequency and how to cancel in one glance. Visa and Mastercard require exactly those three before any recurring charge, so the bank's review is satisfied by the design itself.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">4</span> Payment <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span>‹ Change</span><span class="brand">PADMAKARA</span><span style="width:34px"></span></div>
+          <div class="body">
+            <div class="order"><span>Membership, monthly</span><b>€10.00 / month</b></div>
+            <div class="ep">
+              <span class="cap">Secure form by Easypay</span>
+              <div class="methods"><span class="m on">Card</span><span class="m">Direct Debit</span><span class="m off">MB WAY</span></div>
+              <div class="field filled">Maria Silva</div>
+              <div class="field filled">+351 912 345 678</div>
+              <div class="field">Card number</div>
+              <div class="two"><div class="field">MM / YY</div><div class="field">CVV</div></div>
+              <a class="btn">Pay €10.00</a>
+            </div>
+            <p class="secure">🔒 Your card details go to Easypay, never to Padmakara.</p>
+          </div>
+        </div>
+        <p class="note"><b>What changes from today:</b> the page is in the member's language, the order line stays visible, name, email and phone come pre-filled so only payment details remain. MB WAY greys out on monthly with a short reason, because it cannot charge again on its own.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">5</span> Confirming <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span></span><span class="brand">PADMAKARA</span><span></span></div>
+          <div class="body center">
+            <div class="spinner" aria-hidden="true"></div>
+            <div class="ph-title" style="font-size:21px">Confirming your payment…</div>
+            <p class="ph-sub">This usually takes a few seconds. You can keep this page open.</p>
+          </div>
+        </div>
+        <p class="note"><b>Fixes a real bug:</b> today the app announces "Membership activated" the moment the form closes, before the bank has answered. This screen waits until our server has actually received Easypay's confirmation, then moves on by itself.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">6</span> Welcome <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span></span><span class="brand">PADMAKARA</span><span></span></div>
+          <div class="body center">
+            <div class="medal ok">✓</div>
+            <div class="ph-title">Welcome to Padmakara</div>
+            <p class="ph-sub">Thank you, Maria. Your membership is active.</p>
+            <div class="list">
+              <div>Recordings and transcripts of your retreats</div>
+              <div>Listening on the iPhone app with the same account</div>
+              <div>A receipt has been sent to maria@example.pt</div>
+            </div>
+            <a class="btn" style="margin-top:6px">Go to my retreats</a>
+          </div>
+        </div>
+        <p class="note">Ends on the content the person came for, the way Spotify drops you back into the song you tried to play.</p>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="flow-head">
+      <span class="eyebrow">B′ · When it doesn't go straight through</span>
+      <h2>Every outcome gets its own clear screen</h2>
+      <p>These replace two misleading pages we have today: "Membership cancelled" shown to someone who only closed the form, and "activated" shown before any payment arrived.</p>
+    </div>
+    <div class="row">
+      <figure class="screen">
+        <div class="label"><span class="n">7</span> Card declined <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span>‹ Change</span><span class="brand">PADMAKARA</span><span style="width:34px"></span></div>
+          <div class="body">
+            <div class="order"><span>Membership, monthly</span><b>€10.00 / month</b></div>
+            <div class="banner bad"><b>Your card was declined.</b><span>Nothing was charged. Try another card, or pay by Direct Debit.</span></div>
+            <div class="ep">
+              <span class="cap">Secure form by Easypay</span>
+              <div class="methods"><span class="m on">Card</span><span class="m">Direct Debit</span><span class="m off">MB WAY</span></div>
+              <div class="field">Card number</div>
+              <div class="two"><div class="field">MM / YY</div><div class="field">CVV</div></div>
+              <a class="btn">Pay €10.00</a>
+            </div>
+          </div>
+        </div>
+        <p class="note">The member stays on the same page with the order intact. "Nothing was charged" answers the first worry anyone has after a failure.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">8</span> Direct Debit pending <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span></span><span class="brand">PADMAKARA</span><span></span></div>
+          <div class="body center">
+            <div class="medal wait">⏳</div>
+            <div class="ph-title" style="font-size:21px">Your bank is processing the payment</div>
+            <p class="ph-sub">Direct Debit can take a few days to clear. We'll email you as soon as your membership is active, and the recordings will unlock by themselves.</p>
+            <a class="btn ghost">Back to Padmakara</a>
+          </div>
+        </div>
+        <p class="note"><b>Decision to make:</b> unlock immediately and trust the mandate, or wait for the money. The safer default drawn here is to wait.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">9</span> Form closed without paying <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span>‹ Back</span><span class="brand">PADMAKARA</span><span style="width:34px"></span></div>
+          <div class="body center">
+            <div class="ph-title" style="font-size:21px">No payment was made</div>
+            <p class="ph-sub">You can come back whenever you like. Your choice of €10 a month is kept.</p>
+            <a class="btn">Try again</a>
+            <a class="btn quiet">Not now</a>
+          </div>
+        </div>
+        <p class="note">A neutral page instead of today's "Membership cancelled", which tells someone they cancelled something they never had.</p>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="flow-head">
+      <span class="eyebrow">C · Managing the membership</span>
+      <h2>One account page with everything in view</h2>
+      <p>Status, amount, next payment, payment method and history on one page, actions listed underneath, the way Spotify, Netflix and every bank app lay it out. Today the button labelled "Manage" cancels the membership in one tap with no warning. That goes away.</p>
+    </div>
+    <div class="row">
+      <figure class="screen">
+        <div class="label"><span class="n">10</span> Account, active member <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span>‹ Account</span><span class="brand">PADMAKARA</span><span style="width:34px"></span></div>
+          <div class="body">
+            <div class="ph-title">Your membership</div>
+            <div class="card">
+              <span class="status ok">● Active</span>
+              <dl class="kv">
+                <dt>Contribution</dt><dd>€10 / month</dd>
+                <dt>Next payment</dt><dd>7 Nov 2026</dd>
+                <dt>Paid with</dt><dd>Visa •••• 4242</dd>
+              </dl>
+            </div>
+            <div class="actions">
+              <div><span>Change amount</span><span>›</span></div>
+              <div><span>Update payment method</span><span>›</span></div>
+              <div class="danger"><span>Cancel membership</span><span>›</span></div>
+            </div>
+            <div class="history">
+              <div><b>7 Oct 2026</b><span>€10.00 · Paid</span></div>
+              <div><b>7 Sep 2026</b><span>€10.00 · Paid</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">Changing the amount is supported directly by Easypay. Updating the card needs a short check with them before we promise it.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">11</span> Cancelling <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar dim"><span>‹ Account</span><span class="brand">PADMAKARA</span><span style="width:34px"></span></div>
+          <div class="sheet-bg">
+            <div class="sheet">
+              <div class="ph-title" style="font-size:21px">Cancel your membership?</div>
+              <p class="ph-sub" style="color:var(--ink)">You keep full access until <b>7 November 2026</b>, the end of the month you already paid for. No further payments will be taken.</p>
+              <a class="btn ghost">Keep my membership</a>
+              <a class="btn" style="background:var(--bad);border-color:var(--bad)">Cancel membership</a>
+            </div>
+          </div>
+        </div>
+        <p class="note">Two steps, no guilt-tripping, and the end date stated before the decision. Easy cancellation is also a card scheme requirement for recurring payments.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">12</span> Cancelled, still active <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span>‹ Account</span><span class="brand">PADMAKARA</span><span style="width:34px"></span></div>
+          <div class="body">
+            <div class="ph-title">Your membership</div>
+            <div class="card">
+              <span class="status muted">Ends 7 Nov 2026</span>
+              <p class="ph-sub" style="color:var(--ink);margin:0">Your access continues until then. No further payments will be taken.</p>
+            </div>
+            <a class="btn">Resume membership</a>
+            <div class="history">
+              <div><b>7 Oct 2026</b><span>€10.00 · Paid</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">Resuming before the end date restarts payments on 7 November, so nothing is charged twice.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">13</span> A renewal failed <span class="tag web">web</span></div>
+        <div class="phone">
+          <div class="bar"><span>‹ Account</span><span class="brand">PADMAKARA</span><span style="width:34px"></span></div>
+          <div class="body">
+            <div class="ph-title">Your membership</div>
+            <div class="banner warn"><b>Your payment on 7 November didn't go through.</b><span>Your access continues until 14 November. Update your payment method to keep it.</span></div>
+            <a class="btn">Update payment method</a>
+            <div class="card">
+              <span class="status warn">● Payment needed</span>
+              <dl class="kv">
+                <dt>Contribution</dt><dd>€10 / month</dd>
+                <dt>Card</dt><dd>Visa •••• 4242 · expired</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
+        <p class="note">Uses the 7 days of grace already built into the server. The same message goes out by email, so nobody loses access without warning.</p>
+      </figure>
+
+      <figure class="screen">
+        <div class="label"><span class="n">14</span> Account in the iPhone app <span class="tag ios">iOS</span></div>
+        <div class="phone">
+          <div class="bar"><span></span><span class="brand">PADMAKARA</span><span></span></div>
+          <div class="body">
+            <div class="ph-title">Account</div>
+            <div class="card">
+              <span class="status ok">● Full access</span>
+              <p class="ph-sub" style="color:var(--ink);margin:0">Maria Silva · maria@example.pt</p>
+            </div>
+            <div class="actions">
+              <div><span>Language</span><span>Português ›</span></div>
+              <div><span>Downloads</span><span>›</span></div>
+              <div><span>Sign out</span><span></span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">Shows access, never money. Same Apple rule as screen 2.</p>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="flow-head">
+      <span class="eyebrow">D · Emails</span>
+      <h2>Four messages, each sent by us</h2>
+      <p>Easypay sends nothing to the member on a successful payment, so all of these come from Padmakara, in the member's language.</p>
+    </div>
+    <div class="mails">
+      <div class="mail"><span class="from">Padmakara · right after joining</span><span class="subj">Welcome, your membership is active</span><p>Amount and frequency, next payment date, a link to the retreats, and how to cancel. Required by the card schemes for recurring payments.</p></div>
+      <div class="mail"><span class="from">Padmakara · yearly members only, 7 days before</span><span class="subj">Your yearly membership renews on 7 Oct</span><p>Amount, date, and a link to change or cancel. Expected for long renewal periods.</p></div>
+      <div class="mail"><span class="from">Padmakara · when a renewal fails</span><span class="subj">We couldn't take your payment</span><p>Access continues until the grace date, with one button to update the payment method.</p></div>
+      <div class="mail"><span class="from">Padmakara · after cancelling</span><span class="subj">Your membership ends on 7 Nov</span><p>Confirms the end date and offers to resume with one click.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="flow-head">
+      <span class="eyebrow">Where each pattern comes from</span>
+      <h2>Familiar on purpose</h2>
+    </div>
+    <div class="patterns">
+      <div class="pat"><b>Soft paywall</b><span>Substack, news sites. The content stays in view with a lock where it would play.</span></div>
+      <div class="pat"><b>Contribution picker</b><span>The Guardian, Wikipedia. Frequency toggle, suggested amounts, a free amount, and one sentence on what the money does.</span></div>
+      <div class="pat"><b>Membership page</b><span>Spotify, Netflix. Status, next payment and card in one card, actions listed below.</span></div>
+      <div class="pat"><b>Reader app</b><span>Kindle, Netflix on iPhone. Sign in only, everything bought elsewhere appears by itself.</span></div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  var freq = "month", amount = 10;
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  var custom = document.getElementById("custom"), amt = document.getElementById("amt");
+  var fm = document.getElementById("f-month"), fy = document.getElementById("f-year");
+  function render() {
+    var val = amount === "other" ? parseFloat(String(amt.value).replace(",", ".")) : amount;
+    var line = document.getElementById("sum-line"), detail = document.getElementById("sum-detail");
+    var min = freq === "month" ? 5 : 60;
+    document.getElementById("custom-unit").textContent = freq === "month" ? "per month · minimum €5" : "per year · minimum €60";
+    if (!val || val < min) { line.textContent = "Minimum €" + min; detail.textContent = "Please choose €" + min + " or more."; return; }
+    var shown = Math.round(val * 100) / 100;
+    if (freq === "month") { line.textContent = "€" + shown + " every month"; detail.textContent = "Renews automatically. Cancel anytime from your account."; }
+    else { line.textContent = "€" + shown + " every year"; detail.textContent = "Paid once a year. We remind you 7 days before it renews. Cancel anytime."; }
+  }
+  chips.forEach(function (c) {
+    c.addEventListener("click", function () {
+      chips.forEach(function (o) { o.setAttribute("aria-pressed", String(o === c)); });
+      amount = c.dataset.v === "other" ? "other" : Number(c.dataset.v) * (freq === "year" ? 12 : 1);
+      custom.hidden = c.dataset.v !== "other";
+      render();
+    });
+  });
+  amt.addEventListener("input", render);
+  function setFreq(f) {
+    freq = f;
+    fm.setAttribute("aria-pressed", String(f === "month")); fy.setAttribute("aria-pressed", String(f === "year"));
+    chips.forEach(function (c) { if (c.dataset.v !== "other") c.textContent = "€" + Number(c.dataset.v) * (f === "year" ? 12 : 1); });
+    var pressed = chips.filter(function (c) { return c.getAttribute("aria-pressed") === "true"; })[0];
+    amount = pressed.dataset.v === "other" ? "other" : Number(pressed.dataset.v) * (f === "year" ? 12 : 1);
+    render();
+  }
+  fm.addEventListener("click", function () { setFreq("month"); });
+  fy.addEventListener("click", function () { setFreq("year"); });
+  render();
+})();
+</script>
