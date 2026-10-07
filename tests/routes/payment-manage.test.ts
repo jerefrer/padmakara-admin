@@ -27,6 +27,11 @@ vi.mock("../../src/db/index.ts", () => ({
   },
 }));
 
+vi.mock("../../src/services/email.ts", () => ({
+  sendEmail: vi.fn(() => Promise.resolve()),
+}));
+
+import { sendEmail } from "../../src/services/email.ts";
 import { testJson } from "../helpers.ts";
 import { db } from "../../src/db/index.ts";
 import { createAccessToken } from "../../src/services/auth.ts";
@@ -288,5 +293,20 @@ describe("POST /api/payment/cancel", () => {
     expect(typeof body.url).toBe("string");
     expect(global.fetch).not.toHaveBeenCalled();
     expect(dbWrites).toHaveLength(0);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("should send one cancelled email on the first cancellation", async () => {
+    await post("cancel");
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const arg = (sendEmail as any).mock.calls[0][0];
+    expect(arg.to).toBe("member@test.com");
+    expect(arg.subject).toContain("Your Padmakara membership ends on");
+  });
+
+  it("should still answer 200 when the cancelled email fails", async () => {
+    (sendEmail as any).mockImplementationOnce(() => Promise.reject(new Error("SES down")));
+    const { status } = await post("cancel");
+    expect(status).toBe(200);
   });
 });

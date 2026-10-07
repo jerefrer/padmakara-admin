@@ -46,6 +46,11 @@ vi.mock("../../src/db/index.ts", () => ({
   },
 }));
 
+vi.mock("../../src/services/email.ts", () => ({
+  sendEmail: vi.fn(() => Promise.resolve()),
+}));
+
+import { sendEmail } from "../../src/services/email.ts";
 import { testJson } from "../helpers.ts";
 import { db } from "../../src/db/index.ts";
 import { users } from "../../src/db/schema/users.ts";
@@ -290,6 +295,83 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
     await notify(capture);
     const days = ((usersUpdate()!.subscriptionExpiresAt as Date).getTime() - Date.now()) / 86_400_000;
     expect(days).toBeGreaterThan(360);
+  });
+});
+
+describe("membership emails from the webhook", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    insertReturns = [{ id: 1 }];
+    updateCalls = [];
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "pt",
+      subscriptionStatus: "none", subscriptionExpiresAt: null, subscriptionAmount: null,
+    });
+    (sendEmail as any).mockImplementation(() => Promise.resolve());
+  });
+
+  it("should send one welcome email on first activation", async () => {
+    stubEasypay(easypaySubscription({ value: 12 }));
+    await notify(capture);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const arg = (sendEmail as any).mock.calls[0][0];
+    expect(arg.to).toBe("member@test.com");
+    expect(arg.subject).toBe("Bem-vindo à Padmakara");
+    expect(arg.html).toContain("€12");
+  });
+
+  it("should not send an email when the payment only extends access", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "en",
+      subscriptionStatus: "active", subscriptionExpiresAt: new Date(Date.now() + 5 * 86_400_000), subscriptionAmount: "5",
+    });
+    stubEasypay(easypaySubscription());
+    await notify(capture);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("should send a payment-failed email with the grace date on a failed capture", async () => {
+    const expiry = new Date(Date.now() + 2 * 86_400_000);
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "en",
+      subscriptionStatus: "active", subscriptionExpiresAt: expiry, subscriptionAmount: "5",
+    });
+    stubEasypay(easypaySubscription());
+    await notify({ ...capture, status: "failed" });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const arg = (sendEmail as any).mock.calls[0][0];
+    expect(arg.subject).toBe("We couldn't take your Padmakara contribution");
+    const grace = new Date(expiry);
+    grace.setDate(grace.getDate() + 7);
+    const expected = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(grace);
+    expect(arg.html).toContain(expected);
+  });
+
+  it("should skip the failed email when there is no expiry date", async () => {
+    stubEasypay(easypaySubscription());
+    await notify({ ...capture, status: "failed" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("should not send an email for an unrecognised notification type", async () => {
+    stubEasypay(easypaySubscription());
+    await notify({ ...capture, type: "something-new" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("should still answer 200 when the mail fails", async () => {
+    (sendEmail as any).mockImplementation(() => Promise.reject(new Error("SES down")));
+    stubEasypay(easypaySubscription());
+    const { status, body } = await notify(capture);
+    expect(status).toBe(200);
+    expect(body.received).toBe(true);
+  });
+
+  it("should still answer 200 when the mail throws synchronously", async () => {
+    (sendEmail as any).mockImplementation(() => { throw new Error("boom"); });
+    stubEasypay(easypaySubscription());
+    const { status } = await notify(capture);
+    expect(status).toBe(200);
   });
 });
 

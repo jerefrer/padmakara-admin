@@ -6,6 +6,13 @@ import { paymentTransactions } from "../db/schema/payment-transactions.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { hasActiveSubscription } from "../services/access.ts";
+import { sendEmail } from "../services/email.ts";
+import {
+  buildWelcomeEmail,
+  buildPaymentFailedEmail,
+  buildCancelledEmail,
+  emailLanguage,
+} from "../services/membership-emails.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import {
   parseContribution,
@@ -210,6 +217,48 @@ function historyOutcome(action: string, note: string | null): "paid" | "failed" 
   if (action === "reversed") return "refunded";
   return null;
 }
+
+/** Last day of the grace window after a paid-through date. */
+function graceEnd(expiresAt: Date): Date {
+  const g = new Date(expiresAt);
+  g.setDate(g.getDate() + config.subscription.graceDays);
+  return g;
+}
+
+/**
+ * Fire-and-forget: a mail failure (sync or async) must never change the HTTP answer, least
+ * of all to Easypay, which would retry the whole notification.
+ */
+function sendMembershipEmail(to: string, build: () => { subject: string; html: string }): void {
+  try {
+    const { subject, html } = build();
+    Promise.resolve(sendEmail({ to, subject, html })).catch((err) =>
+      console.error(`[MEMBERSHIP EMAIL] could not send "${subject}" to ${to}:`, err),
+    );
+  } catch (err) {
+    console.error(`[MEMBERSHIP EMAIL] could not send to ${to}:`, err);
+  }
+}
+
+function sendCancelledEmail(user: {
+  email: string;
+  firstName: string | null;
+  preferredLanguage: string | null;
+  subscriptionExpiresAt: Date | null;
+}): void {
+  const accessUntil = user.subscriptionExpiresAt;
+  if (!accessUntil) return;
+  sendMembershipEmail(user.email, () =>
+    buildCancelledEmail({
+      lang: emailLanguage(user.preferredLanguage),
+      firstName: user.firstName,
+      accessUntil,
+      resumeUrl: membershipUrl(),
+    }),
+  );
+}
+
+const membershipUrl = () => `${config.urls.frontend}/membership`;
 
 // ─── Routes ───
 
@@ -521,6 +570,20 @@ paymentRoutes.post("/webhook", async (c) => {
       .where(eq(users.id, userId));
 
     await recordOutcome({ ...common, action: wasActive ? "extended" : "activated" });
+    if (!wasActive) {
+      const interval = intervalFromFrequency(subscription.frequency as string | undefined);
+      sendMembershipEmail(user.email, () =>
+        buildWelcomeEmail({
+          lang: emailLanguage(user.preferredLanguage),
+          firstName: user.firstName,
+          amount: Number(amount ?? user.subscriptionAmount ?? 0),
+          interval,
+          nextPaymentAt: expiresAt,
+          manageUrl: membershipUrl(),
+          retreatsUrl: `${config.urls.frontend}/`,
+        }),
+      );
+    }
     console.log(
       `[EASYPAY WEBHOOK] user ${userId} paid ${amount ?? "?"} ${currency ?? ""} — access through ${expiresAt.toISOString()}`,
     );
@@ -548,6 +611,17 @@ paymentRoutes.post("/webhook", async (c) => {
     );
   }
   await recordOutcome({ ...common, action: "ignored", note: kind });
+  if (kind === "payment_failed" && user.subscriptionExpiresAt) {
+    const graceUntil = graceEnd(user.subscriptionExpiresAt);
+    sendMembershipEmail(user.email, () =>
+      buildPaymentFailedEmail({
+        lang: emailLanguage(user.preferredLanguage),
+        firstName: user.firstName,
+        graceUntil,
+        updateUrl: membershipUrl(),
+      }),
+    );
+  }
   return c.json({ received: true });
 });
 
@@ -620,9 +694,7 @@ paymentRoutes.get("/membership", authMiddleware, async (c) => {
 
   let graceUntil: string | null = null;
   if (state === "payment_failed" && user.subscriptionExpiresAt) {
-    const g = new Date(user.subscriptionExpiresAt);
-    g.setDate(g.getDate() + config.subscription.graceDays);
-    graceUntil = g.toISOString();
+    graceUntil = graceEnd(user.subscriptionExpiresAt).toISOString();
   }
 
   const view: MembershipView = {
@@ -694,6 +766,7 @@ paymentRoutes.post("/cancel", authMiddleware, async (c) => {
   if (isMockMode) {
     console.log(`[MOCK PAYMENT] Cancelling subscription for user ${user.id}`);
     await mockCancelSubscription(user.id);
+    sendCancelledEmail(user);
     return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
   }
 
@@ -718,6 +791,7 @@ paymentRoutes.post("/cancel", authMiddleware, async (c) => {
     })
     .where(eq(users.id, user.id));
 
+  sendCancelledEmail(user);
   return c.json({ url: `${config.urls.frontend}/subscription/cancel`, accessUntil });
 });
 
