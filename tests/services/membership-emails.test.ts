@@ -3,6 +3,7 @@ import {
   buildWelcomeEmail,
   buildPaymentFailedEmail,
   buildCancelledEmail,
+  buildFirstPaymentFailedEmail,
   emailLanguage,
 } from "../../src/services/membership-emails.ts";
 
@@ -17,6 +18,9 @@ const failed = (lang: "en" | "pt", firstName: string | null = "Ana") =>
 const cancelled = (lang: "en" | "pt", firstName: string | null = "Ana") =>
   buildCancelledEmail({ lang, firstName, accessUntil: date, resumeUrl: "https://app.test/membership" });
 
+const firstFailed = (lang: "en" | "pt", firstName: string | null = "Ana") =>
+  buildFirstPaymentFailedEmail({ lang, firstName, joinUrl: "https://app.test/membership" });
+
 describe("emailLanguage", () => {
   it("should return pt only for pt", () => {
     expect(emailLanguage("pt")).toBe("pt");
@@ -24,6 +28,35 @@ describe("emailLanguage", () => {
     expect(emailLanguage(null)).toBe("en");
     expect(emailLanguage(undefined)).toBe("en");
     expect(emailLanguage("fr")).toBe("en");
+  });
+});
+
+describe("first payment failed email", () => {
+  it("should use the specified subjects per language", () => {
+    expect(firstFailed("en").subject).toBe("Your Padmakara payment didn't go through");
+    expect(firstFailed("pt").subject).toBe("O seu pagamento Padmakara não foi concluído");
+  });
+
+  it("should say nothing was charged and link to the membership page with a try-again button", () => {
+    const en = firstFailed("en").html;
+    expect(en).toContain("Nothing was charged");
+    expect(en).toContain("Try again");
+    expect(en).toContain('href="https://app.test/membership"');
+    const pt = firstFailed("pt").html;
+    expect(pt).toContain("Nada foi cobrado");
+    expect(pt).toContain("Tentar novamente");
+  });
+
+  it("should escape the first name", () => {
+    const html = firstFailed("en", `<script>alert("x")</script>`).html;
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("should never use the banned words", () => {
+    for (const e of [firstFailed("en"), firstFailed("pt")]) {
+      expect(`${e.subject} ${e.html}`).not.toMatch(/subscription|subscribe|subscrição|subscrever|subscricao|assinatura/i);
+    }
   });
 });
 

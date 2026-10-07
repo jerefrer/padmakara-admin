@@ -152,3 +152,37 @@ export function buildCancelledEmail(p: {
     ),
   };
 }
+
+/** A first payment (no membership yet) was refused: nothing was charged, nothing started. */
+export function buildFirstPaymentFailedEmail(p: {
+  lang: Lang;
+  firstName: string | null;
+  joinUrl: string;
+}): { subject: string; html: string } {
+  if (p.lang === "pt") {
+    return {
+      subject: "O seu pagamento Padmakara não foi concluído",
+      html: layout(
+        "pt",
+        p.firstName,
+        [
+          "Não foi possível concluir o seu pagamento. Nada foi cobrado e a sua adesão ainda não começou.",
+          "Pode tentar novamente com outro cartão ou conta bancária.",
+        ],
+        button(p.joinUrl, "Tentar novamente"),
+      ),
+    };
+  }
+  return {
+    subject: "Your Padmakara payment didn't go through",
+    html: layout(
+      "en",
+      p.firstName,
+      [
+        "We could not complete your payment. Nothing was charged and your membership has not started.",
+        "You can try again with another card or bank account.",
+      ],
+      button(p.joinUrl, "Try again"),
+    ),
+  };
+}

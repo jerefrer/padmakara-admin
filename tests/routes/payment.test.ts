@@ -302,6 +302,19 @@ describe("Payment routes (mock mode)", () => {
       expect(html).toContain("Membership, yearly");
     });
 
+    it.each([
+      ["en", "", "Cancel and return to Padmakara", "/membership/closed"],
+      ["pt", "", "Cancelar e voltar à Padmakara", "/membership/closed"],
+      ["en", "&mode=update", "Cancel and return to Padmakara", "/membership"],
+      ["pt", "&mode=update", "Cancelar e voltar à Padmakara", "/membership"],
+    ])("should link out of the page (%s%s)", async (lang, mode, label, path) => {
+      const html = await get(`lang=${lang}${mode}&amount=10&interval=month`);
+      const m = /<a class="cancel" href="([^"]+)">([^<]+)<\/a>/.exec(html);
+      expect(m).not.toBeNull();
+      expect(m![2]).toBe(label);
+      expect(new URL(m![1]!).pathname).toBe(path);
+    });
+
     it("pins the SDK version and is not indexable", async () => {
       const html = await get("amount=10");
       expect(html).toContain("2.9.1");

@@ -11,6 +11,7 @@ import {
   buildWelcomeEmail,
   buildPaymentFailedEmail,
   buildCancelledEmail,
+  buildFirstPaymentFailedEmail,
   emailLanguage,
 } from "../services/membership-emails.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
@@ -168,7 +169,7 @@ function mockCancelSubscription(userId: number) {
 // ─── Membership read model ───
 
 export interface MembershipView {
-  state: "none" | "active" | "cancelled" | "payment_failed" | "lapsed";
+  state: "none" | "active" | "cancelled" | "payment_failed" | "lapsed" | "processing";
   source: "easypay" | "admin" | "cash" | "bank_transfer" | null;
   amount: number | null;
   interval: MembershipInterval | null;
@@ -177,11 +178,101 @@ export interface MembershipView {
   cancelledAt: string | null;
   method: { type: "card" | "direct_debit"; lastFour: string | null; brand: string | null } | null;
   history: { date: string; amount: number | null; outcome: "paid" | "failed" | "refunded" }[];
+  /** A first payment (no access yet) failed within the last 14 days and has not been retried. */
+  lastPaymentFailedAt: string | null;
 }
 
 /** Ledger notification types that describe a charge attempt (not card storage). */
 const CAPTURE_TYPES = ["subscription_capture", "capture"];
 const HISTORY_LIMIT = 12;
+
+/**
+ * Ledger row `subscribe` writes when it creates a checkout. Direct Debit sends no
+ * subscription_create, and a checkout can sit at the bank for days with no notification at
+ * all, so this is the only trace that a first payment is under way.
+ */
+const CHECKOUT_TYPE = "checkout";
+/** Ledger types that say where a first payment stands; the newest one decides. */
+const PROGRESS_TYPES = [CHECKOUT_TYPE, "subscription_create", ...CAPTURE_TYPES];
+/** How long a first payment may stay "in flight" / "failed" before we stop talking about it. */
+const FIRST_PAYMENT_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+interface LedgerRow {
+  notificationType: string | null;
+  notificationId: string;
+  action: string;
+  note: string | null;
+  createdAt: Date;
+}
+
+const newestProgressRow = <T extends { notificationType: string | null }>(rows: T[]): T | undefined =>
+  rows.find((r) => PROGRESS_TYPES.includes(r.notificationType ?? ""));
+
+const isRecent = (at: Date) => Date.now() - at.getTime() <= FIRST_PAYMENT_WINDOW_MS;
+
+/** Ledger rows for the first-payment checks, newest first. */
+async function loadProgressRows(userId: number): Promise<LedgerRow[]> {
+  return db
+    .select({
+      notificationType: paymentTransactions.notificationType,
+      notificationId: paymentTransactions.notificationId,
+      action: paymentTransactions.action,
+      note: paymentTransactions.note,
+      createdAt: paymentTransactions.createdAt,
+    })
+    .from(paymentTransactions)
+    .where(and(eq(paymentTransactions.userId, userId), inArray(paymentTransactions.notificationType, PROGRESS_TYPES)))
+    .orderBy(desc(paymentTransactions.createdAt))
+    .limit(50);
+}
+
+/**
+ * True while a first payment is at the bank: the member has no access, the newest sign of
+ * life in the ledger is the checkout we created (within 14 days), and Easypay says that
+ * checkout is a Direct Debit that has not failed. An abandoned card checkout is not
+ * processing. Any Easypay error fails open (not processing) so nobody is locked out of paying.
+ * `rows` is newest first.
+ */
+async function isFirstPaymentProcessing(
+  user: { subscriptionStatus: string; subscriptionExpiresAt: Date | null; subscriptionCancelledAt: Date | null },
+  rows: Array<Pick<LedgerRow, "notificationType" | "notificationId" | "action" | "createdAt">>,
+): Promise<boolean> {
+  if (hasActiveSubscription(user)) return false;
+  const newest = newestProgressRow(rows);
+  if (!newest || newest.notificationType !== CHECKOUT_TYPE || newest.action !== "checkout_created") return false;
+  if (!isRecent(newest.createdAt)) return false;
+  try {
+    const checkout = await easypayFetch<{
+      payment?: { status?: string; method?: { type?: string } };
+      method?: { type?: string };
+    }>(`/checkout/${encodeURIComponent(newest.notificationId)}`);
+    const method = methodKind(checkout.method?.type ?? checkout.payment?.method?.type);
+    const status = (checkout.payment?.status ?? "").toLowerCase();
+    return method === "direct_debit" && !["failed", "error", "deleted"].includes(status);
+  } catch (err) {
+    console.error(`[MEMBERSHIP] could not read Easypay checkout ${newest.notificationId}:`, err);
+    return false;
+  }
+}
+
+/** ISO time of a first-payment failure the member has not retried yet, else null. */
+function firstPaymentFailedAt(
+  user: { subscriptionStatus: string; subscriptionExpiresAt: Date | null; subscriptionCancelledAt: Date | null },
+  rows: Array<Pick<LedgerRow, "notificationType" | "action" | "note" | "createdAt">>,
+): string | null {
+  if (hasActiveSubscription(user)) return null;
+  const newest = newestProgressRow(rows);
+  if (
+    newest &&
+    CAPTURE_TYPES.includes(newest.notificationType ?? "") &&
+    newest.action === "ignored" &&
+    newest.note === "payment_failed" &&
+    isRecent(newest.createdAt)
+  ) {
+    return newest.createdAt.toISOString();
+  }
+  return null;
+}
 
 /**
  * Where the member stands. `lastCapture` is the newest capture row in the ledger: a
@@ -195,7 +286,9 @@ export function membershipState(
     subscriptionCancelledAt: Date | null;
   },
   lastCapture: { action: string; note: string | null } | null,
+  processing = false,
 ): MembershipView["state"] {
+  if (processing) return "processing";
   if (user.subscriptionStatus === "none" && !user.subscriptionExpiresAt) return "none";
   if (!hasActiveSubscription(user)) return "lapsed";
   if (user.subscriptionCancelledAt) return "cancelled";
@@ -374,6 +467,11 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
     });
   }
 
+  // A Direct Debit still at the bank must not be paid for a second time.
+  if (await isFirstPaymentProcessing(user, await loadProgressRows(user.id))) {
+    throw new AppError(409, "Your first payment is still being processed.", "MEMBERSHIP_PROCESSING");
+  }
+
   // Create Easypay checkout session
   // capture_now charges the first period at signup. The recurring cycle must therefore
   // start one interval later: with start_time a few minutes out (as before), Easypay also
@@ -419,6 +517,27 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
     }),
   });
 
+  // The only trace of a Direct Debit in flight (see CHECKOUT_TYPE). Never fatal: the
+  // checkout exists at Easypay either way.
+  try {
+    await db
+      .insert(paymentTransactions)
+      .values({
+        userId: user.id,
+        notificationId: checkoutData.id,
+        notificationType: CHECKOUT_TYPE,
+        notificationStatus: null,
+        dedupeKey: `${CHECKOUT_TYPE}:${checkoutData.id}`,
+        action: "checkout_created",
+        amount: String(amount),
+        currency: "EUR",
+        rawPayload: { checkoutId: checkoutData.id, amount, interval },
+      })
+      .onConflictDoNothing({ target: paymentTransactions.dedupeKey });
+  } catch (err) {
+    console.error(`[PAYMENT] could not record checkout ${checkoutData.id}:`, err);
+  }
+
   // Store the checkout session id so we can link it back in the webhook
   // The checkout page URL includes the manifest session for the SDK
   const checkoutPageUrl = `${config.urls.backend}/api/payment/checkout/${checkoutData.id}?session=${encodeURIComponent(checkoutData.session)}&amount=${amount}&interval=${interval}&lang=${language}`;
@@ -439,6 +558,7 @@ const CHECKOUT_COPY = {
     footer: "🔒 Your card details go to Easypay, never to Padmakara.",
     fatal: "We could not load the payment form. Nothing was charged.",
     back: "Back to membership",
+    cancel: "Cancel and return to Padmakara",
   },
   pt: {
     title: "Padmakara — Pagamento",
@@ -452,6 +572,7 @@ const CHECKOUT_COPY = {
     footer: "🔒 Os dados do seu cartão vão para a Easypay, nunca para a Padmakara.",
     fatal: "Não foi possível carregar o formulário de pagamento. Nada foi cobrado.",
     back: "Voltar à adesão",
+    cancel: "Cancelar e voltar à Padmakara",
   },
 } as const;
 
@@ -511,6 +632,7 @@ paymentRoutes.get("/checkout/:id", async (c) => {
   const successUrl = `${frontend}/membership/confirming?checkout=${encodeURIComponent(id)}${isUpdate ? "&mode=update" : ""}`;
   const closeUrl = `${frontend}/membership/closed`;
   const backUrl = `${frontend}/membership`;
+  const cancelUrl = isUpdate ? backUrl : closeUrl;
 
   const html = `<!DOCTYPE html>
 <html lang="${lang}">
@@ -533,6 +655,8 @@ paymentRoutes.get("/checkout/:id", async (c) => {
     #easypay-checkout { min-height: 400px; }
     .error { color: #7a1414; text-align: center; margin-top: 20px; }
     .error a { color: #9b1b1b; display: inline-block; margin-top: 12px; }
+    .cancel-row { text-align: center; margin-top: 16px; }
+    .cancel-row a { color: #9b1b1b; font-size: 0.95rem; }
     footer { text-align: center; color: #777; font-size: 0.85rem; margin-top: 20px; }
   </style>
 </head>
@@ -544,6 +668,7 @@ paymentRoutes.get("/checkout/:id", async (c) => {
     </header>
     <div id="declined" role="alert">${escapeHtml(copy.declined)}</div>
     <div id="easypay-checkout"></div>
+    <p class="cancel-row"><a class="cancel" href="${escapeHtml(cancelUrl)}">${escapeHtml(copy.cancel)}</a></p>
     <footer>${escapeHtml(copy.footer)}</footer>
   </main>
   <script src="${EASYPAY_CHECKOUT_SDK}"></script>
@@ -831,6 +956,17 @@ paymentRoutes.post("/webhook", async (c) => {
       }),
     );
   }
+  // A first payment that failed: nothing was charged and there is no membership yet. The
+  // checkout page itself said "declined" for a card, but a Direct Debit fails days later.
+  if (kind === "payment_failed" && !user.subscriptionExpiresAt) {
+    sendMembershipEmail(user.email, () =>
+      buildFirstPaymentFailedEmail({
+        lang: emailLanguage(user.preferredLanguage),
+        firstName: user.firstName,
+        joinUrl: membershipUrl(),
+      }),
+    );
+  }
   return c.json({ received: true });
 });
 
@@ -848,6 +984,7 @@ paymentRoutes.get("/membership", authMiddleware, async (c) => {
   const rows = await db
     .select({
       notificationType: paymentTransactions.notificationType,
+      notificationId: paymentTransactions.notificationId,
       action: paymentTransactions.action,
       note: paymentTransactions.note,
       amount: paymentTransactions.amount,
@@ -857,14 +994,15 @@ paymentRoutes.get("/membership", authMiddleware, async (c) => {
     .where(
       and(
         eq(paymentTransactions.userId, user.id),
-        inArray(paymentTransactions.notificationType, [...CAPTURE_TYPES, ...REVERSAL_TYPES]),
+        inArray(paymentTransactions.notificationType, [...PROGRESS_TYPES, ...REVERSAL_TYPES]),
       ),
     )
     .orderBy(desc(paymentTransactions.createdAt))
     .limit(50);
 
   const captures = rows.filter((r) => CAPTURE_TYPES.includes(r.notificationType ?? ""));
-  const state = membershipState(user, captures[0] ?? null);
+  const processing = await isFirstPaymentProcessing(user, rows);
+  const state = membershipState(user, captures[0] ?? null, processing);
 
   const history: MembershipView["history"] = [];
   for (const r of rows) {
@@ -916,6 +1054,7 @@ paymentRoutes.get("/membership", authMiddleware, async (c) => {
     cancelledAt: user.subscriptionCancelledAt?.toISOString() ?? null,
     method,
     history,
+    lastPaymentFailedAt: firstPaymentFailedAt(user, rows),
   };
   return c.json(view);
 });

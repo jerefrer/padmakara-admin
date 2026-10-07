@@ -213,6 +213,106 @@ describe("GET /api/payment/membership", () => {
   });
 });
 
+describe("first payment in flight", () => {
+  const noAccess = () => member({ subscriptionStatus: "none", subscriptionExpiresAt: null, subscriptionSource: null, easypaySubscriptionId: null, subscriptionAmount: null });
+  const ago = (days: number) => new Date(Date.now() - days * DAY);
+  const checkout = (days: number) => ({ notificationType: "checkout", notificationId: "chk-9", action: "checkout_created", note: null, amount: "5.00", createdAt: ago(days) });
+  const capture = (days: number, action: string, note: string | null = null) => ({ notificationType: "subscription_capture", notificationId: "sub-9", action, note, amount: "5.00", createdAt: ago(days) });
+  const ddPending = { payment: { status: "pending" }, method: { type: "DD" } };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ledgerRows = [];
+    (db.query.users.findFirst as any).mockResolvedValue(noAccess());
+    stubEasypay(ddPending);
+  });
+
+  it("should report processing when a Direct Debit checkout is pending at Easypay", async () => {
+    ledgerRows = [checkout(1)];
+    const { body } = await getMembership();
+    expect(body.state).toBe("processing");
+    expect(body.lastPaymentFailedAt).toBeNull();
+    expect((global.fetch as any).mock.calls[0][0]).toContain("/checkout/chk-9");
+  });
+
+  it("should not report processing for a card checkout the member abandoned", async () => {
+    stubEasypay({ payment: { status: "pending" }, method: { type: "cc" } });
+    ledgerRows = [checkout(1)];
+    const { body } = await getMembership();
+    expect(body.state).toBe("none");
+  });
+
+  it("should not report processing when the Direct Debit payment failed at Easypay", async () => {
+    stubEasypay({ payment: { status: "failed" }, method: { type: "dd" } });
+    ledgerRows = [checkout(1)];
+    const { body } = await getMembership();
+    expect(body.state).toBe("none");
+  });
+
+  it("should end processing once a capture row is newer than the checkout row", async () => {
+    ledgerRows = [capture(0.5, "ignored", "payment_failed"), checkout(1)];
+    const { body } = await getMembership();
+    expect(body.state).toBe("none");
+  });
+
+  it("should not report processing when the checkout row is older than 14 days", async () => {
+    ledgerRows = [checkout(20)];
+    const { body } = await getMembership();
+    expect(body.state).toBe("none");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("should fail open, not processing, when Easypay errors", async () => {
+    stubEasypay({}, false);
+    ledgerRows = [checkout(1)];
+    const { status, body } = await getMembership();
+    expect(status).toBe(200);
+    expect(body.state).toBe("none");
+  });
+
+  it("should not report processing for a member who has access", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue(member());
+    ledgerRows = [checkout(1)];
+    stubEasypay({ id: "sub-abc", frequency: "1M" });
+    const { body } = await getMembership();
+    expect(body.state).toBe("active");
+  });
+
+  it("should set lastPaymentFailedAt from a failed first capture", async () => {
+    const row = capture(1, "ignored", "payment_failed");
+    ledgerRows = [row, checkout(2)];
+    const { body } = await getMembership();
+    expect(body.state).toBe("none");
+    expect(body.lastPaymentFailedAt).toBe(row.createdAt.toISOString());
+  });
+
+  it("should clear lastPaymentFailedAt when a newer checkout means the member is retrying", async () => {
+    stubEasypay({ payment: { status: "pending" }, method: { type: "cc" } });
+    ledgerRows = [checkout(0.1), capture(1, "ignored", "payment_failed")];
+    const { body } = await getMembership();
+    expect(body.lastPaymentFailedAt).toBeNull();
+  });
+
+  it("should not set lastPaymentFailedAt when the failed capture is older than 14 days", async () => {
+    ledgerRows = [capture(20, "ignored", "payment_failed")];
+    const { body } = await getMembership();
+    expect(body.lastPaymentFailedAt).toBeNull();
+  });
+
+  it("should not set lastPaymentFailedAt for a member who has access", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue(member());
+    ledgerRows = [capture(1, "ignored", "payment_failed")];
+    const { body } = await getMembership();
+    expect(body.lastPaymentFailedAt).toBeNull();
+  });
+
+  it("should not list checkout rows in the history", async () => {
+    ledgerRows = [checkout(1)];
+    const { body } = await getMembership();
+    expect(body.history).toEqual([]);
+  });
+});
+
 describe("GET /api/payment/checkout-status/:id", () => {
   async function status(id = "chk-1") {
     return testJson(`/api/payment/checkout-status/${id}`, { headers: await authHeader() });

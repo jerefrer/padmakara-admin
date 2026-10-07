@@ -18,6 +18,7 @@ vi.mock("../../src/db/index.ts", () => ({
     query: {
       users: { findFirst: vi.fn() },
     },
+    insert: vi.fn(),
     update: vi.fn(() => ({
       set: vi.fn((values: Record<string, any>) => {
         dbWrites.push(values);
@@ -227,6 +228,13 @@ describe("POST /api/payment/update-method", () => {
     expect(checkout().body.customer.key).toBe("user-7");
     expect(body.url).toContain("&mode=update");
     expect(body.url).toContain("&amount=40&interval=year&lang=pt");
+  });
+
+  it("should not write a checkout ledger row, so a card update never blocks anything", async () => {
+    (db.query.users.findFirst as any).mockResolvedValue(member({ subscriptionExpiresAt: daysFromNow(20) }));
+    stubEasypay({ id: "sub-abc", frequency: "1M", value: 5 });
+    await post("update-method", {});
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it("should use now plus five minutes when the paid-through date is already past", async () => {

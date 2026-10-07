@@ -21,6 +21,8 @@ let updateCalls: Array<{ table: unknown; set: Record<string, any> | null }> = []
 let selectReturns: Array<Record<string, unknown>> = [];
 /** Every table passed to db.delete(), so tests can see a released claim. */
 let deleteCalls: unknown[] = [];
+/** Every payload passed to db.insert().values(), so tests can see ledger rows we write. */
+let insertedValues: Array<Record<string, any>> = [];
 
 vi.mock("../../src/db/index.ts", () => ({
   db: {
@@ -28,16 +30,20 @@ vi.mock("../../src/db/index.ts", () => ({
       users: { findFirst: vi.fn() },
     },
     insert: vi.fn(() => ({
-      values: vi.fn(() => ({
+      values: vi.fn((v: Record<string, any>) => {
+        insertedValues.push(v);
+        return {
         onConflictDoNothing: vi.fn(() => ({
           returning: vi.fn(() => Promise.resolve(insertReturns)),
         })),
-      })),
+        };
+      }),
     })),
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
           limit: vi.fn(() => Promise.resolve(selectReturns)),
+          orderBy: vi.fn(() => ({ limit: vi.fn(() => Promise.resolve(selectReturns)) })),
         })),
       })),
     })),
@@ -503,9 +509,19 @@ describe("membership emails from the webhook", () => {
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
-  it("should skip the failed email when there is no expiry date", async () => {
+  it("should send the first-payment-failed email once, and not the renewal one, when there is no expiry date", async () => {
     stubEasypay(easypaySubscription());
     await notify({ ...capture, status: "failed" });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    const arg = (sendEmail as any).mock.calls[0][0];
+    expect(arg.to).toBe("member@test.com");
+    expect(arg.subject).toBe("O seu pagamento Padmakara não foi concluído");
+    expect(arg.html).toContain("/membership");
+  });
+
+  it("should not send the first-payment-failed email for a failed subscription_create", async () => {
+    stubEasypay(easypaySubscription());
+    await notify({ ...capture, type: "subscription_create", status: "failed" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
@@ -537,6 +553,8 @@ describe("POST /api/payment/subscribe (real Easypay)", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    selectReturns = [];
+    insertedValues = [];
     (db.query.users.findFirst as any).mockResolvedValue({
       id: 5,
       email: "member@test.com",
@@ -574,6 +592,56 @@ describe("POST /api/payment/subscribe (real Easypay)", () => {
     const daysOut = (start.getTime() - Date.now()) / 86_400_000;
     expect(daysOut).toBeGreaterThan(27);
     expect(daysOut).toBeLessThan(32);
+  });
+
+  it("should record a checkout_created ledger row after creating the checkout", async () => {
+    const res = await testJson("/api/payment/subscribe", {
+      method: "POST", headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount: 10, interval: "month" }),
+    });
+    expect(res.status).toBe(200);
+    expect(insertedValues).toHaveLength(1);
+    expect(insertedValues[0]).toMatchObject({
+      userId: 5, notificationId: "chk-1", notificationType: "checkout", notificationStatus: null,
+      dedupeKey: "checkout:chk-1", action: "checkout_created", amount: "10", currency: "EUR",
+      rawPayload: { checkoutId: "chk-1", amount: 10, interval: "month" },
+    });
+  });
+
+  it("should answer 409 MEMBERSHIP_PROCESSING without creating a new checkout while a Direct Debit is pending", async () => {
+    selectReturns = [
+      { notificationType: "checkout", notificationId: "chk-0", action: "checkout_created", note: null, amount: "10", createdAt: new Date(Date.now() - 86_400_000) },
+    ];
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: () => Promise.resolve({ payment: { status: "pending" }, method: { type: "dd" } }) } as unknown as Response),
+    );
+    const res = await testJson("/api/payment/subscribe", {
+      method: "POST", headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount: 10, interval: "month" }),
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("MEMBERSHIP_PROCESSING");
+    expect(JSON.stringify(res.body)).toContain("Your first payment is still being processed.");
+    const urls = fetchMock.mock.calls.map((c: any[]) => c[0] as string);
+    expect(urls.some((u) => u.endsWith("/checkout"))).toBe(false);
+    expect(insertedValues).toHaveLength(0);
+  });
+
+  it("should still create a checkout when the pending checkout was a card", async () => {
+    selectReturns = [
+      { notificationType: "checkout", notificationId: "chk-0", action: "checkout_created", note: null, amount: "10", createdAt: new Date(Date.now() - 86_400_000) },
+    ];
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(url.endsWith("/chk-0") ? { payment: { status: "pending" }, method: { type: "cc" } } : { id: "chk-1", session: "sess" }),
+      } as unknown as Response),
+    );
+    const res = await testJson("/api/payment/subscribe", {
+      method: "POST", headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount: 10, interval: "month" }),
+    });
+    expect(res.status).toBe(200);
   });
 
   it("should create a yearly membership starting its cycle a year later", async () => {
