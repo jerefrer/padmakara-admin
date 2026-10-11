@@ -21,6 +21,7 @@ import {
   type PairableTrack,
   type UnpairedReason,
 } from "../services/track-pairing.ts";
+import { bumpVersion } from "../services/sync-versions.ts";
 
 const EXECUTE = process.argv.includes("--execute");
 const eventArg = process.argv.find((a) => a.startsWith("--event="));
@@ -137,5 +138,12 @@ await db.transaction(async (tx) => {
   }
 });
 
-console.log(`\nApplied: ${totalPairs} pairs linked, ${totalMoved} tracks renumbered.`);
+// Writing straight to the database bypasses the admin routes, which are
+// what normally bump this counter. Without the bump, clients keep serving
+// the old numbering from cache and the renumbering never reaches a device.
+await bumpVersion("events");
+
+console.log(
+  `\nApplied: ${totalPairs} pairs linked, ${totalMoved} tracks renumbered, events sync version bumped.`,
+);
 process.exit(0);
