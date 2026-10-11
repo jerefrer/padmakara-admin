@@ -8,12 +8,24 @@
  * instead — `286 [TIB] KPS Motivation.mp3`, `287 [ENG] KPS Motivation.mp3` —
  * so every pair currently renders as two unrelated rows.
  *
- * The rule here is deliberately the strictest one the data supports: a
- * translation pairs only with the track *immediately* before it, and only
- * when the titles match. Every pair in the archive has that shape, and
- * adjacency is what keeps the ambiguous cases out — a session holding
- * "Verse 88" three times in Tibetan and once in English has no single right
- * answer, so the rule declines rather than guesses.
+ * Two conventions coexist in the archive, so there are two rules, tried in
+ * this order:
+ *
+ * 1. **Shared number.** The older recordings already pair by number —
+ *    `001 JKR Initial Prayers.mp3` beside `001 TRAD Oracoes Iniciais.mp3`.
+ *    Nothing needs renumbering there, only the `original_track_id` link, and
+ *    titles cannot be compared because the Portuguese one is genuinely
+ *    translated. The shared number is the evidence, so it is trusted over the
+ *    titles — but only when exactly one original holds that number.
+ * 2. **Adjacency and title.** The newer recordings number sequentially —
+ *    `286 [TIB] KPS Motivation.mp3`, `287 [ENG] KPS Motivation.mp3` — so the
+ *    translation has to move onto its original's number. Here a translation
+ *    pairs only with the track *immediately* before it, titles matching.
+ *
+ * Both rules are the strictest the data supports, because neither has a safe
+ * answer when the shape is ambiguous: a session holding "Verse 88" three
+ * times in Tibetan and once in English, or an English track sitting *before*
+ * its Tibetan original. Those decline rather than guess.
  */
 
 /** The track fields the pairing rule reads. */
@@ -39,7 +51,8 @@ export type UnpairedReason =
   | "preceding-is-a-translation"
   | "title-differs"
   | "same-language-as-original"
-  | "original-already-paired";
+  | "original-already-paired"
+  | "ambiguous-shared-number";
 
 export interface UnpairedTrack {
   trackId: number;
@@ -78,6 +91,14 @@ export function planSessionPairing(tracks: PairableTrack[]): PairPlan {
   const unpaired: UnpairedTrack[] = [];
   const claimed = new Set<number>();
 
+  const originalsByNumber = new Map<number, PairableTrack[]>();
+  for (const track of ordered) {
+    if (track.isTranslation) continue;
+    const atNumber = originalsByNumber.get(track.trackNumber) ?? [];
+    atNumber.push(track);
+    originalsByNumber.set(track.trackNumber, atNumber);
+  }
+
   for (const [i, track] of ordered.entries()) {
     if (!track.isTranslation) continue;
 
@@ -89,6 +110,46 @@ export function planSessionPairing(tracks: PairableTrack[]): PairPlan {
         reason,
       });
 
+    const pair = (original: PairableTrack) => {
+      claimed.add(original.id);
+      // Emitted even when the numbers already match: a pair is a pair, and
+      // the `original_track_id` link is worth recording whether or not any
+      // renumbering follows from it. Callers compare the two numbers to tell
+      // which rows actually move.
+      pairs.push({
+        translationId: track.id,
+        originalId: original.id,
+        fromTrackNumber: track.trackNumber,
+        toTrackNumber: original.trackNumber,
+      });
+    };
+
+    // Rule 1 — an original already sits at this number. Titles are not
+    // compared: in the older recordings the translated title is a real
+    // translation, and the shared number is the stronger evidence anyway.
+    const sharing = originalsByNumber.get(track.trackNumber) ?? [];
+    if (sharing.length > 0) {
+      const candidates = sharing.filter(
+        (o) => o.originalLanguage !== track.originalLanguage,
+      );
+      if (candidates.length > 1) {
+        decline("ambiguous-shared-number");
+        continue;
+      }
+      const [original] = candidates;
+      if (!original) {
+        decline("same-language-as-original");
+        continue;
+      }
+      if (claimed.has(original.id)) {
+        decline("original-already-paired");
+        continue;
+      }
+      pair(original);
+      continue;
+    }
+
+    // Rule 2 — nothing at this number, so the translation has to move.
     const previous = i > 0 ? ordered[i - 1] : undefined;
     if (!previous) {
       decline("no-preceding-track");
@@ -114,17 +175,7 @@ export function planSessionPairing(tracks: PairableTrack[]): PairPlan {
       continue;
     }
 
-    claimed.add(previous.id);
-    // Emitted even when the numbers already match: a pair is a pair, and the
-    // `original_track_id` link is worth recording whether or not any
-    // renumbering follows from it. Callers compare the two numbers to tell
-    // which rows actually move.
-    pairs.push({
-      translationId: track.id,
-      originalId: previous.id,
-      fromTrackNumber: track.trackNumber,
-      toTrackNumber: previous.trackNumber,
-    });
+    pair(previous);
   }
 
   return { pairs, unpaired };

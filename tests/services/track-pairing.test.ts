@@ -107,6 +107,49 @@ describe("planSessionPairing", () => {
     expect(plan.unpaired[0]?.reason).toBe("same-language-as-original");
   });
 
+  it("pairs on a shared number even when the titles differ", () => {
+    // The older recordings number their pairs together and translate the
+    // title: `001 JKR Initial Prayers.mp3` beside `001 TRAD Oracoes
+    // Iniciais.mp3`. Nothing moves; only the link is recorded.
+    const plan = planSessionPairing([
+      { id: 1, trackNumber: 1, title: "Initial Prayers", isTranslation: false, originalLanguage: "en" },
+      translation(2, 1, "Oracoes Iniciais", "pt"),
+      { id: 3, trackNumber: 2, title: "Introduction", isTranslation: false, originalLanguage: "en" },
+      translation(4, 2, "Introdução", "pt"),
+    ]);
+
+    expect(plan.pairs).toEqual([
+      { translationId: 2, originalId: 1, fromTrackNumber: 1, toTrackNumber: 1 },
+      { translationId: 4, originalId: 3, fromTrackNumber: 2, toTrackNumber: 2 },
+    ]);
+    expect(plan.unpaired).toEqual([]);
+  });
+
+  it("declines when two originals of different languages share the number", () => {
+    const plan = planSessionPairing([
+      { id: 1, trackNumber: 7, title: "Teaching", isTranslation: false, originalLanguage: "tib" },
+      { id: 2, trackNumber: 7, title: "Teaching", isTranslation: false, originalLanguage: "en" },
+      translation(3, 7, "Ensinamento", "pt"),
+    ]);
+
+    expect(plan.pairs).toEqual([]);
+    expect(plan.unpaired[0]?.reason).toBe("ambiguous-shared-number");
+  });
+
+  it("prefers the shared number over the track immediately before it", () => {
+    // Track 2 sits right before track 3 and shares its title, but track 3's
+    // own number is already held by track 1 — the stronger evidence.
+    const plan = planSessionPairing([
+      { id: 1, trackNumber: 5, title: "Refuge", isTranslation: false, originalLanguage: "en" },
+      original(2, 4, "Refúgio"),
+      translation(3, 5, "Refúgio", "pt"),
+    ]);
+
+    expect(plan.pairs).toEqual([
+      { translationId: 3, originalId: 1, fromTrackNumber: 5, toTrackNumber: 5 },
+    ]);
+  });
+
   it("still records a pair that already shares a number, so it gets the link", () => {
     const plan = planSessionPairing([
       original(1, 286, "Motivation"),
