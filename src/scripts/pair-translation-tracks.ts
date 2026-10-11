@@ -41,11 +41,16 @@ const allSessions = await db.query.sessions.findMany({
   with: { tracks: true },
 });
 
+type PlanPairs = ReturnType<typeof planSessionPairing>["pairs"];
+
 interface PlannedSession {
   sessionId: number;
   eventId: number;
-  pairs: ReturnType<typeof planSessionPairing>["pairs"];
-  moved: ReturnType<typeof planSessionPairing>["pairs"];
+  pairs: PlanPairs;
+  /** Pairs whose row does not already say what the plan says. */
+  writes: PlanPairs;
+  /** Of those, the ones whose track number changes. */
+  moved: PlanPairs;
 }
 
 const planned: PlannedSession[] = [];
@@ -78,9 +83,27 @@ for (const session of allSessions) {
     collisions.push(`session ${session.id}: ${c}`);
   }
 
-  const moved = plan.pairs.filter((p) => p.fromTrackNumber !== p.toTrackNumber);
+  // A re-run should be a genuine no-op, so only rows that disagree with the
+  // plan are written — and the sync-version bump below hangs off that, since
+  // bumping it makes every client refetch.
+  const current = new Map(session.tracks.map((t) => [t.id, t]));
+  const writes = plan.pairs.filter((p) => {
+    const row = current.get(p.translationId);
+    return (
+      row !== undefined &&
+      (row.originalTrackId !== p.originalId || row.trackNumber !== p.toTrackNumber)
+    );
+  });
+  const moved = writes.filter((p) => p.fromTrackNumber !== p.toTrackNumber);
+
   if (plan.pairs.length > 0) {
-    planned.push({ sessionId: session.id, eventId: session.eventId, pairs: plan.pairs, moved });
+    planned.push({
+      sessionId: session.id,
+      eventId: session.eventId,
+      pairs: plan.pairs,
+      writes,
+      moved,
+    });
   }
 }
 
@@ -96,11 +119,13 @@ for (const s of planned) {
 }
 
 const totalPairs = planned.reduce((n, s) => n + s.pairs.length, 0);
+const totalWrites = planned.reduce((n, s) => n + s.writes.length, 0);
 const totalMoved = planned.reduce((n, s) => n + s.moved.length, 0);
 
 console.log(`\nSummary:`);
 console.log(`  Sessions with pairs: ${planned.length}`);
-console.log(`  Pairs linked:        ${totalPairs}`);
+console.log(`  Pairs recognised:    ${totalPairs}`);
+console.log(`  Rows to write:       ${totalWrites}`);
 console.log(`  Tracks renumbered:   ${totalMoved}`);
 
 if (declines.size > 0) {
@@ -121,6 +146,11 @@ if (!EXECUTE) {
   process.exit(0);
 }
 
+if (totalWrites === 0) {
+  console.log("\nNothing to write — every pair already says what the plan says.");
+  process.exit(0);
+}
+
 await db.transaction(async (tx) => {
   for (const s of planned) {
     for (const p of s.moved) {
@@ -129,7 +159,7 @@ await db.transaction(async (tx) => {
         .set({ trackNumber: p.fromTrackNumber + TEMP_OFFSET })
         .where(eq(tracksTable.id, p.translationId));
     }
-    for (const p of s.pairs) {
+    for (const p of s.writes) {
       await tx
         .update(tracksTable)
         .set({ trackNumber: p.toTrackNumber, originalTrackId: p.originalId })
@@ -141,9 +171,11 @@ await db.transaction(async (tx) => {
 // Writing straight to the database bypasses the admin routes, which are
 // what normally bump this counter. Without the bump, clients keep serving
 // the old numbering from cache and the renumbering never reaches a device.
+// It hangs off `totalWrites` so a no-op run does not make every client
+// refetch for nothing.
 await bumpVersion("events");
 
 console.log(
-  `\nApplied: ${totalPairs} pairs linked, ${totalMoved} tracks renumbered, events sync version bumped.`,
+  `\nApplied: ${totalWrites} rows written, ${totalMoved} renumbered, events sync version bumped.`,
 );
 process.exit(0);
