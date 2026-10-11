@@ -310,6 +310,11 @@ export const pt = {
       published: "Publicado",
       archived: "Arquivado",
       statusChanged: "Estado alterado para %{status}",
+      originalLanguage: "Idioma Original",
+      originalLanguageHelper: "O idioma em que o evento foi ensinado. Sempre mostrado na app.",
+      langTib: "Tibetano",
+      langEn: "Inglês",
+      langPt: "Português",
       // List
       code: "Código",
       title: "Título",

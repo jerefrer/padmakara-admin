@@ -109,6 +109,14 @@ export const en = {
       published: "Published",
       archived: "Archived",
       statusChanged: "Status changed to %{status}",
+      // Original language — the language the event was taught in. The app
+      // always shows it, so a Tibetan teaching is never hidden behind its
+      // translation.
+      originalLanguage: "Original Language",
+      originalLanguageHelper: "The language the event was taught in. Always shown in the app.",
+      langTib: "Tibetan",
+      langEn: "English",
+      langPt: "Portuguese",
       // List
       code: "Code",
       title: "Title",
