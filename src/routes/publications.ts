@@ -9,6 +9,10 @@ import {
 import { AppError } from "../lib/errors.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { canUserSeeSubscriberContent } from "../services/access.ts";
+import {
+  canOpenPublication,
+  publicationsOpenedByLinkedEvents,
+} from "../services/publication-access.ts";
 
 export const publicationRoutes = new Hono();
 
@@ -19,8 +23,8 @@ export const publicationRoutes = new Hono();
  *   sort: "title" | "author" | "recent" (default: "title")
  *   language: filter by language
  *
- * If user is authenticated with active subscription or admin role,
- * subscriber-only publications are included.
+ * Each publication is listed only to callers who can open it: see
+ * services/publication-access.ts for the rule per access level.
  */
 publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
   const sort = c.req.query("sort") || "title";
@@ -40,17 +44,23 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
     filtered = filtered.filter((p) => p.language === language);
   }
 
-  // Separate public vs subscriber-only
-  const publicPubs = filtered.filter((p) => p.accessLevel === "public");
-  const subscriberPubs = filtered.filter(
-    (p) => p.accessLevel === "subscribers",
+  const isAdmin = authUser?.role === "admin" || authUser?.role === "superadmin";
+  const openedByEvents = await publicationsOpenedByLinkedEvents(
+    authUser,
+    filtered.filter((p) => p.accessLevel === "events").map((p) => p.id),
+  );
+  const visiblePubs = filtered.filter((p) =>
+    canOpenPublication(p.accessLevel, {
+      isAdmin,
+      canSeeSubscriber,
+      openedByLinkedEvent: openedByEvents.has(p.id),
+    }),
   );
 
-  const hasHiddenPublications = !canSeeSubscriber && subscriberPubs.length > 0;
-
-  const visiblePubs = canSeeSubscriber
-    ? [...publicPubs, ...subscriberPubs]
-    : publicPubs;
+  // Drives the "become a member" banner, so it counts only what membership
+  // would open: a member missing a retreat's texts gains nothing by joining.
+  const hasHiddenPublications =
+    !canSeeSubscriber && filtered.some((p) => p.accessLevel === "subscribers");
 
   // Sort
   const sorted = [...visiblePubs].sort((a, b) => {
@@ -107,6 +117,8 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
  * Public publications: open to anyone (auth not required).
  * Subscribers-only publications: require authenticated user with active
  * subscription (or admin/superadmin role).
+ * Event publications: require a user who can open one of its linked events.
+ * Any other access level is refused.
  *
  * Returns { url: string, expiresIn: 3600 }.
  */
@@ -127,14 +139,21 @@ publicationRoutes.get("/:id/pdf", optionalAuthMiddleware, async (c) => {
     throw AppError.notFound("Publication not found");
   }
 
-  if (publication.accessLevel === "subscribers") {
+  if (publication.accessLevel !== "public") {
     if (!authUser) {
       throw AppError.unauthorized();
     }
-    const canSee = await canUserSeeSubscriberContent(authUser);
-    if (!canSee) {
+    const isAdmin = authUser.role === "admin" || authUser.role === "superadmin";
+    const canSeeSubscriber =
+      publication.accessLevel === "subscribers" && (await canUserSeeSubscriberContent(authUser));
+    const openedByLinkedEvent =
+      publication.accessLevel === "events" &&
+      (await publicationsOpenedByLinkedEvents(authUser, [publication.id])).has(publication.id);
+    if (!canOpenPublication(publication.accessLevel, { isAdmin, canSeeSubscriber, openedByLinkedEvent })) {
       throw AppError.forbidden(
-        "Active subscription required to access this publication",
+        publication.accessLevel === "events"
+          ? "This publication is reserved for the participants of its events"
+          : "Active subscription required to access this publication",
       );
     }
   }

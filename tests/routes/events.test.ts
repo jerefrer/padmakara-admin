@@ -344,6 +344,33 @@ describe("GET /api/events/:id — draft visibility", () => {
   });
 });
 
+describe("GET /api/events/:id — related publications", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should list the event's own publications to whoever can open the event, and no member-only ones to a non-member", async () => {
+    // Arrange: a non-member opens a public event linked to four publications.
+    const pub = (id: number, accessLevel: string) => ({
+      publication: { id, title: `Pub ${id}`, subtitle: null, accessLevel, coverImageS3Key: null },
+    });
+    mockDb.query.events.findFirst.mockResolvedValueOnce({
+      ...draftPublicEvent,
+      status: "published",
+      eventPublications: [pub(1, "public"), pub(2, "subscribers"), pub(3, "events"), pub(4, "retreat-only")],
+    });
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
+
+    // Act
+    const { body } = await testJson("/api/events/42", { headers: await bearerToken("user") });
+
+    // Assert: a text that inherits the event's audience is open to anyone who
+    // reached this page; an unknown access level never is.
+    const ids = (body.relatedPublications as Array<{ id: number }>).map((p) => p.id);
+    expect(ids).toEqual([1, 3]);
+  });
+});
+
 // ─── Admin draft list (GET /api/events) ──────────────────────────────────────
 
 describe("GET /api/events — admin draft list", () => {

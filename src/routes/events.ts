@@ -12,6 +12,7 @@ import { authMiddleware, optionalAuthMiddleware, getUser, getOptionalUser } from
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
 import { checkEventAccess, filterAccessibleEvents, canUserSeeSubscriberContent, eventStatusVisibleTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
+import { canOpenPublication } from "../services/publication-access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
@@ -482,14 +483,18 @@ eventRoutes.get("/:id", async (c) => {
     await enrichTracksWithSpeakerNames(session.tracks ?? []);
   }
 
-  // Build related publications with presigned cover URLs.
-  // Hide subscribers-only publications from non-subscribers so the event page
-  // never advertises content the user cannot open.
+  // Build related publications with presigned cover URLs, listing only what
+  // the user can open so the event page never advertises a locked text. A
+  // publication that inherits its events' audience is open here by
+  // definition: the user just passed this event's access check.
   const canSeeSubscriber = await canUserSeeSubscriberContent(user);
+  const isAdmin = user.role === "admin" || user.role === "superadmin";
   const relatedPublications = ((event as any).eventPublications || [])
     .filter((ep: any) => ep.publication)
     .map((ep: any) => ep.publication)
-    .filter((pub: any) => canSeeSubscriber || pub.accessLevel === "public");
+    .filter((pub: any) =>
+      canOpenPublication(pub.accessLevel, { isAdmin, canSeeSubscriber, openedByLinkedEvent: true }),
+    );
 
   const relatedPubsWithUrls = await Promise.all(
     relatedPublications.map(async (pub: any) => ({
