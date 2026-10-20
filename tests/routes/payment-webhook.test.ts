@@ -736,7 +736,7 @@ describe("membership emails from the webhook", () => {
     await notify({ ...capture, status: "failed" });
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const arg = (sendEmail as any).mock.calls[0][0];
-    expect(arg.subject).toBe("We couldn't take your Padmakara contribution");
+    expect(arg.subject).toBe("We couldn't take your Padmakara donation");
     const grace = new Date(expiry);
     grace.setDate(grace.getDate() + 7);
     const expected = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" }).format(grace);
@@ -929,11 +929,27 @@ describe("POST /api/payment/subscribe (real Easypay)", () => {
     expect(sent.payment.capture_now).toBe(true);
     expect(sent.payment.frequency).toBe("1M");
     expect(sent.order.value).toBe(10);
-    expect(sent.payment.capture.descriptive).toBe("Padmakara membership");
+    expect(sent.payment.capture.descriptive).toBe("Donativo Padmakara");
     const start = new Date(sent.payment.start_time.replace(" ", "T") + ":00Z");
     const daysOut = (start.getTime() - Date.now()) / 86_400_000;
     expect(daysOut).toBeGreaterThan(27);
     expect(daysOut).toBeLessThan(32);
+  });
+
+  it.each([
+    ["pt", "month", "Donativo mensal Padmakara"],
+    ["pt", "year", "Donativo anual Padmakara"],
+    ["en", "month", "Padmakara donation (monthly)"],
+    ["en", "year", "Padmakara donation (yearly)"],
+  ])("should name the %s %s payment a donation on the Easypay form", async (language, interval, label) => {
+    const amount = interval === "year" ? 60 : 10;
+    await testJson("/api/payment/subscribe", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ amount, interval, language }),
+    });
+    const sent = JSON.parse((fetchMock.mock.calls[0] as any)[1].body);
+    expect(sent.order.items[0].description).toBe(label);
   });
 
   it("should record a checkout_created ledger row after creating the checkout", async () => {

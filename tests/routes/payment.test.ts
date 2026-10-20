@@ -307,21 +307,21 @@ describe("Payment routes (mock mode)", () => {
       const html = await get("amount=10&interval=month&lang=pt");
       expect(html).toContain('<html lang="pt"');
       expect(html).toContain('"pt_PT"');
-      expect(html).toContain("Adesão mensal");
+      expect(html).toContain("Donativo mensal");
     });
 
     it("defaults to English", async () => {
       const html = await get("amount=10&interval=month");
       expect(html).toContain('<html lang="en"');
       expect(html).toContain('language: "en"');
-      expect(html).toContain("Membership, monthly");
+      expect(html).toContain("Monthly donation");
     });
 
     it.each([
-      ["en", "month", "10", "Membership, monthly — €10.00 / month"],
-      ["en", "year", "120", "Membership, yearly — €120.00 / year"],
-      ["pt", "month", "10", "Adesão mensal — 10,00 € / mês"],
-      ["pt", "year", "120", "Adesão anual — 120,00 € / ano"],
+      ["en", "month", "10", "Monthly donation — €10.00 / month"],
+      ["en", "year", "120", "Yearly donation — €120.00 / year"],
+      ["pt", "month", "10", "Donativo mensal — 10,00 € / mês"],
+      ["pt", "year", "120", "Donativo anual — 120,00 € / ano"],
     ])("should format the order line for %s %s", async (lang, interval, amount, line) => {
       const html = await get(`lang=${lang}&interval=${interval}&amount=${amount}`);
       expect(html).toContain(`<p class="order">${line}</p>`);
@@ -330,7 +330,7 @@ describe("Payment routes (mock mode)", () => {
     it("shows the update label instead of the order line in update mode", async () => {
       const html = await get("mode=update&amount=10&interval=month");
       expect(html).toContain("Update payment method");
-      expect(html).not.toContain("Membership, monthly");
+      expect(html).not.toContain("Monthly donation");
     });
 
     it("should mark the success redirect as an update when the page is in update mode", async () => {
@@ -347,7 +347,7 @@ describe("Payment routes (mock mode)", () => {
       const html = await get("amount=10&interval=year");
       expect(html).toContain("/membership/confirming?checkout=test-id");
       expect(html).toContain("/membership/closed");
-      expect(html).toContain("Membership, yearly");
+      expect(html).toContain("Yearly donation");
     });
 
     it.each([
@@ -382,12 +382,12 @@ describe("Payment routes (mock mode)", () => {
     it("omits the order line and does not inject markup for a malicious amount", async () => {
       const html = await get("amount=%3Cscript%3Ealert(1)%3C%2Fscript%3E&interval=month");
       expect(html).not.toContain("<script>alert");
-      expect(html).not.toContain("Membership, monthly");
+      expect(html).not.toContain("Monthly donation");
     });
 
     it("omits the order line for a non-positive amount", async () => {
       const html = await get("amount=-5&interval=month");
-      expect(html).not.toContain("Membership, monthly");
+      expect(html).not.toContain("Monthly donation");
     });
 
     it("cannot be broken out of a script by a session value", async () => {
@@ -400,7 +400,7 @@ describe("Payment routes (mock mode)", () => {
     it("falls back to defaults for unknown lang and mode", async () => {
       const html = await get("lang=xx%22&mode=zzz&amount=10&interval=month");
       expect(html).toContain('<html lang="en"');
-      expect(html).toContain("Membership, monthly");
+      expect(html).toContain("Monthly donation");
     });
 
     it("keeps banned words out of the page text", async () => {

@@ -64,8 +64,8 @@ describe("membership emails", () => {
   it("should use the specified subjects per language", () => {
     expect(welcome("en").subject).toBe("Welcome to Padmakara");
     expect(welcome("pt").subject).toBe("Bem-vindo à Padmakara");
-    expect(failed("en").subject).toBe("We couldn't take your Padmakara contribution");
-    expect(failed("pt").subject).toBe("Não foi possível processar a sua contribuição Padmakara");
+    expect(failed("en").subject).toBe("We couldn't take your Padmakara donation");
+    expect(failed("pt").subject).toBe("Não foi possível processar o seu donativo Padmakara");
     expect(cancelled("en").subject).toBe("Your Padmakara membership ends on 15 November 2026");
     expect(cancelled("pt").subject).toBe("A sua adesão à Padmakara termina a 15 de novembro de 2026");
   });

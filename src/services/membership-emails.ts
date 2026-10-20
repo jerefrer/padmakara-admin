@@ -71,8 +71,8 @@ export function buildWelcomeEmail(p: {
       subject: "Bem-vindo à Padmakara",
       firstName: p.firstName,
       paragraphs: [
-        "Obrigado por se juntar à Padmakara. A sua adesão torna possível partilhar estes ensinamentos.",
-        `A sua contribuição${hasAmount ? ` de ${amount} por ${per}` : ""} é renovada automaticamente a ${date}. Pode alterá-la ou cancelá-la a qualquer momento na sua página de adesão.`,
+        "Obrigado por se juntar à Padmakara como associado benemérito. O seu apoio torna possível partilhar estes ensinamentos.",
+        `O seu donativo${hasAmount ? ` de ${amount} por ${per}` : ""} é renovado automaticamente a ${date}. Pode alterá-lo ou cancelá-lo a qualquer momento na sua página de adesão.`,
       ],
       button: { label: "Ir para os meus retiros", href: p.retreatsUrl },
       secondary: { label: "Gerir a minha adesão", href: p.manageUrl },
@@ -84,8 +84,8 @@ export function buildWelcomeEmail(p: {
     subject: "Welcome to Padmakara",
     firstName: p.firstName,
     paragraphs: [
-      "Thank you for joining Padmakara. Your membership helps make these teachings available.",
-      `Your contribution${hasAmount ? ` of ${amount} per ${p.interval}` : ""} renews automatically on ${date}. You can change or cancel it at any time from your membership page.`,
+      "Thank you for joining Padmakara as a benefactor member. Your support helps make these teachings available.",
+      `Your donation${hasAmount ? ` of ${amount} per ${p.interval}` : ""} renews automatically on ${date}. You can change or cancel it at any time from your membership page.`,
     ],
     button: { label: "Go to my retreats", href: p.retreatsUrl },
     secondary: { label: "Manage my membership", href: p.manageUrl },
@@ -103,10 +103,10 @@ export function buildPaymentFailedEmail(p: {
   if (p.lang === "pt") {
     return membershipEmail({
       lang: "pt",
-      subject: "Não foi possível processar a sua contribuição Padmakara",
+      subject: "Não foi possível processar o seu donativo Padmakara",
       firstName: p.firstName,
       paragraphs: [
-        "Não conseguimos processar a sua última contribuição.",
+        "Não conseguimos processar o seu último donativo.",
         `O seu acesso continua até ${date}. Atualize o seu método de pagamento para o manter.`,
       ],
       button: { label: "Atualizar método de pagamento", href: p.updateUrl },
@@ -115,10 +115,10 @@ export function buildPaymentFailedEmail(p: {
 
   return membershipEmail({
     lang: "en",
-    subject: "We couldn't take your Padmakara contribution",
+    subject: "We couldn't take your Padmakara donation",
     firstName: p.firstName,
     paragraphs: [
-      "We were unable to process your latest contribution.",
+      "We were unable to process your latest donation.",
       `Your access continues until ${date}. Update your payment method to keep it.`,
     ],
     button: { label: "Update payment method", href: p.updateUrl },

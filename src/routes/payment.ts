@@ -622,7 +622,12 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
   // start one interval later: with start_time a few minutes out (as before), Easypay also
   // ran the first cycle straight away and every new member was charged twice — observed
   // in the sandbox on 2026-10-07 (subscriptions b6fdf47b…, c7e8ea02…).
-  const label = interval === "year" ? "Padmakara membership (yearly)" : "Padmakara membership (monthly)";
+  // Benefactor associates (Estatutos, art. 3.º, 1, b)) give a regular donation: the
+  // payment form and the bank statement say so, in the member's language.
+  const label =
+    language === "pt"
+      ? interval === "year" ? "Donativo anual Padmakara" : "Donativo mensal Padmakara"
+      : interval === "year" ? "Padmakara donation (yearly)" : "Padmakara donation (monthly)";
 
   const checkoutData = await easypayFetch<EasypayCheckoutResponse>("/checkout", {
     method: "POST",
@@ -632,7 +637,7 @@ paymentRoutes.post("/subscribe", authMiddleware, async (c) => {
         methods: ["cc", "dd"],
         type: "sale",
         capture: {
-          descriptive: "Padmakara membership",
+          descriptive: "Donativo Padmakara",
         },
         currency: "EUR",
         start_time: easypayDateTime(addInterval(new Date(), interval)),
@@ -699,8 +704,8 @@ const CHECKOUT_COPY = {
   en: {
     title: "Padmakara — Payment",
     update: "Update payment method",
-    monthly: "Membership, monthly",
-    yearly: "Membership, yearly",
+    monthly: "Monthly donation",
+    yearly: "Yearly donation",
     perMonth: "month",
     perYear: "year",
     declined:
@@ -713,8 +718,8 @@ const CHECKOUT_COPY = {
   pt: {
     title: "Padmakara — Pagamento",
     update: "Atualizar o método de pagamento",
-    monthly: "Adesão mensal",
-    yearly: "Adesão anual",
+    monthly: "Donativo mensal",
+    yearly: "Donativo anual",
     perMonth: "mês",
     perYear: "ano",
     declined:
@@ -1455,7 +1460,12 @@ paymentRoutes.post("/update-method", authMiddleware, async (c) => {
       ? user.subscriptionExpiresAt
       : soonest
     : addInterval(new Date(), interval);
-  const label = interval === "year" ? "Padmakara membership (yearly)" : "Padmakara membership (monthly)";
+  // Benefactor associates (Estatutos, art. 3.º, 1, b)) give a regular donation: the
+  // payment form and the bank statement say so, in the member's language.
+  const label =
+    language === "pt"
+      ? interval === "year" ? "Donativo anual Padmakara" : "Donativo mensal Padmakara"
+      : interval === "year" ? "Padmakara donation (yearly)" : "Padmakara donation (monthly)";
 
   const checkoutData = await easypayFetch<EasypayCheckoutResponse>("/checkout", {
     method: "POST",

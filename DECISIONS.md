@@ -48,3 +48,17 @@
 **Revisit if:** a real feature needs a video↔session link (e.g. jump from a session's transcript to the matching video timestamp) — add a join table then, not a FK on videos.
 
 ---
+
+## 2026-10-20 — App membership = benefactor associates giving a regular donation
+
+**Chosen:** User decision (André, for Associação Padmakara): people who join in the app become *associados beneméritos* (Estatutos, art. 3.º, 1, b), no voting rights) and give a regular donation with a minimum amount. Access to recordings rests on the statutes' right of associates to receive the Association's publications "nas condições definidas pela Direção", to be settled in writing by a Board deliberation. Every user-facing payment text says "donation"/"donativo": the Easypay item and bank descriptor, the hosted checkout page, the app's payment and manage screens, the emails and the terms.
+
+**Alternatives:** (a) a sale of access with VAT. Rejected by the association: it doesn't want to charge VAT. (b) A full membership fee (*quota de associado*). Rejected because full associates get voting rights and must be invited to general meetings. (c) Two definitions in the terms: a purchase towards the consumer and a donation towards the tax office. Rejected on our advice, because the terms would contradict the receipts.
+
+**Why:** It is one consistent description for the member, the terms and the receipts, which the association issues monthly from Easypay data in its AT-certified software, outside this system. It also matches how the association already takes regular donations through Easypay.
+
+**Trade-offs:** The tax treatment of a donation that comes with a benefit is the association's call and its accountant's. It was flagged to them as a question and is not settled here. The terms carry `[[article]]`/`[[date]]` placeholders until the Board deliberation exists.
+
+**Revisit if:** the accountant advises otherwise, or the Board deliberation sets different conditions.
+
+---
