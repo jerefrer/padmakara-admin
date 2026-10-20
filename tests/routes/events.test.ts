@@ -409,6 +409,38 @@ describe("GET /api/events — admin draft list", () => {
   });
 });
 
+describe("GET /api/events — session summary for list screens", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should load each event's sessions with the track fields list screens count", async () => {
+    // Arrange: the teacher page counts sessions, sums track durations and
+    // collects track languages from this list. Without sessions every
+    // signed-in user saw "0 sessions" and no audio icon.
+    mockDb.query.events.findMany.mockResolvedValueOnce([]);
+
+    // Act
+    await testJson("/api/events", { headers: await bearerToken("admin") });
+
+    // Assert
+    // Safe: the handler calls findMany exactly once on the admin path.
+    const callArg = mockDb.query.events.findMany.mock.calls[0]![0] as {
+      with?: {
+        sessions?: { columns?: Record<string, boolean>; with?: { tracks?: { columns?: Record<string, boolean> } } };
+        transcripts?: unknown;
+      };
+    };
+    expect(callArg.with?.sessions?.with?.tracks?.columns).toEqual({
+      id: true,
+      duration: true,
+      languages: true,
+      originalLanguage: true,
+    });
+    expect(callArg.with?.transcripts).toBeTruthy();
+  });
+});
+
 // ─── POST /api/events/:id/request-download — status-hidden returns 404 ───────
 
 describe("POST /api/events/:id/request-download — STATUS_HIDDEN returns 404", () => {

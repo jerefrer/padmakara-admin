@@ -86,6 +86,26 @@ const eventWithSessions = {
   },
 } as const;
 
+/**
+ * The signed-in event list. List screens (teacher page, group page) count an
+ * event's sessions, sum its track durations and collect its track languages,
+ * so they need a session summary — but not the full track rows, which only the
+ * event detail endpoint serves. Without it every signed-in user saw "0
+ * sessions" and no audio icon on events that do have audio.
+ */
+const eventListWith = {
+  ...eventWith,
+  sessions: {
+    columns: { id: true },
+    with: {
+      tracks: {
+        columns: { id: true, duration: true, languages: true, originalLanguage: true },
+      },
+    },
+  },
+  transcripts: { columns: { id: true } },
+} as const;
+
 // ─── Public endpoints (no auth) ──────────────────────────────────────────
 
 /**
@@ -397,7 +417,7 @@ eventRoutes.get("/", async (c) => {
     const data = await db.query.events.findMany({
       where: inArray(events.status, ["published", "draft"]),
       orderBy: (r, { desc }) => [desc(r.startDate)],
-      with: eventWith,
+      with: eventListWith,
     });
     await resolveEventsTeacherUrls(data);
     await resolveEventsGroupUrls(data);
@@ -418,7 +438,7 @@ eventRoutes.get("/", async (c) => {
   const allEvents = await db.query.events.findMany({
     where: eq(events.status, "published"),
     orderBy: (r, { desc }) => [desc(r.startDate)],
-    with: eventWith,
+    with: eventListWith,
   });
 
   // Filter by access control
