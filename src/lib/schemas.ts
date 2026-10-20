@@ -108,6 +108,10 @@ export const createAudienceSchema = z.object({
 export const updateAudienceSchema = createAudienceSchema.partial();
 
 // Publications
+
+/** Who may open a publication — see services/publication-access.ts. */
+export const PUBLICATION_ACCESS_LEVELS = ["public", "subscribers", "events"] as const;
+
 export const createPublicationSchema = z.object({
   title: z.string().min(1).max(300),
   subtitle: z.string().max(300).optional().nullable(),
@@ -120,7 +124,7 @@ export const createPublicationSchema = z.object({
   pdfS3Key: z.string().min(1),
   fileSizeBytes: z.number().int().min(0).optional().nullable(),
   pageCount: z.number().int().min(0).optional().nullable(),
-  accessLevel: z.enum(["public", "subscribers"]).optional().default("public"),
+  accessLevel: z.enum(PUBLICATION_ACCESS_LEVELS).optional().default("public"),
 });
 
 export const updatePublicationSchema = createPublicationSchema.partial();

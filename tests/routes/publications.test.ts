@@ -15,6 +15,17 @@ vi.mock("../../src/db/index.ts", () => {
   };
 });
 
+const { mockOpenedByLinkedEvents } = vi.hoisted(() => ({
+  mockOpenedByLinkedEvents: vi.fn((_user: unknown, _ids: number[]) => Promise.resolve(new Set<number>())),
+}));
+
+// The linked-event lookup is tested on its own; here it only says which
+// "events" publications this caller can open.
+vi.mock("../../src/services/publication-access.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/publication-access.ts")>();
+  return { ...actual, publicationsOpenedByLinkedEvents: mockOpenedByLinkedEvents };
+});
+
 vi.mock("../../src/services/s3.ts", () => ({
   generatePresignedDownloadUrl: vi.fn(() =>
     Promise.resolve("https://s3.example.com/signed-url"),
@@ -376,3 +387,92 @@ describe("GET /api/publications/:id/pdf", () => {
     expect(status).toBe(400);
   });
 });
+
+// ─── Publications that inherit their events' audience ───────────────────
+
+function makeRetreatPublication(overrides: Record<string, any> = {}) {
+  return makePublication({
+    id: 3,
+    title: "The Excellent Path of Liberation",
+    accessLevel: "events",
+    pdfS3Key: "publications/pdfs/laphur.pdf",
+    ...overrides,
+  });
+}
+
+async function userToken() {
+  const token = await createAccessToken({ sub: 1, email: "user@test.com", role: "user" });
+  return { Authorization: `Bearer ${token}` };
+}
+
+describe("publications with access level \"events\"", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSelect.mockImplementation(() => ({ from: mockFrom }));
+    mockOpenedByLinkedEvents.mockResolvedValue(new Set());
+  });
+
+  it("should list a retreat text for a participant of one of its retreats", async () => {
+    mockFrom
+      .mockReturnValueOnce(chainable([{ subscriptionStatus: "none", subscriptionExpiresAt: null }]))
+      .mockReturnValueOnce(chainable([makeRetreatPublication()]));
+    mockOpenedByLinkedEvents.mockResolvedValue(new Set([3]));
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    expect(body.publications.map((p: any) => p.id)).toEqual([3]);
+    expect(mockOpenedByLinkedEvents).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), [3]);
+  });
+
+  it("should hide a retreat text from a member who did not attend its retreats", async () => {
+    // André: texts given at a retreat must not be open to every member.
+    mockFrom
+      .mockReturnValueOnce(chainable([{ subscriptionStatus: "active", subscriptionExpiresAt: null }]))
+      .mockReturnValueOnce(chainable([makeRetreatPublication()]));
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    expect(body.publications).toEqual([]);
+    // The hidden-publications flag drives the "become a member" banner, and
+    // joining would not open a retreat text, so it stays off for a member.
+    expect(body.hasHiddenPublications).toBe(false);
+  });
+
+  it("should refuse a retreat text's PDF to a member who did not attend its retreats", async () => {
+    // An events publication never looks up the subscription.
+    mockFrom.mockReturnValueOnce(chainable([makeRetreatPublication()]));
+
+    const { status } = await testJson("/api/publications/3/pdf", { headers: await userToken() });
+
+    expect(status).toBe(403);
+  });
+
+  it("should give a retreat text's PDF to a participant of one of its retreats", async () => {
+    // An events publication never looks up the subscription.
+    mockFrom.mockReturnValueOnce(chainable([makeRetreatPublication()]));
+    mockOpenedByLinkedEvents.mockResolvedValue(new Set([3]));
+
+    const { status, body } = await testJson("/api/publications/3/pdf", { headers: await userToken() });
+
+    expect(status).toBe(200);
+    expect(body.url).toBe("https://s3.example.com/signed-url");
+  });
+
+  it("should ask a signed-out visitor to sign in for a retreat text's PDF", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makeRetreatPublication()]));
+
+    const { status } = await testJson("/api/publications/3/pdf");
+
+    expect(status).toBe(401);
+  });
+
+  it("should refuse a PDF whose access level is unknown, even to a member", async () => {
+    // Anything but "subscribers" used to be served to everyone.
+    mockFrom.mockReturnValueOnce(chainable([makeRetreatPublication({ accessLevel: "retreat-only" })]));
+
+    const { status } = await testJson("/api/publications/3/pdf", { headers: await userToken() });
+
+    expect(status).toBe(403);
+  });
+});
+

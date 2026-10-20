@@ -687,6 +687,8 @@ export const en = {
       accessLevel: "Access Level",
       accessPublic: "Public",
       accessSubscribers: "Subscribers",
+      accessEvents: "Like its events",
+      accessEventsHelper: "\"Like its events\": open to anyone who can open at least one of the events this publication is linked to.",
       langPt: "Portuguese",
       langEn: "English",
       langFr: "French",

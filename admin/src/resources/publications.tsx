@@ -48,6 +48,7 @@ import {
 const ACCESS_LEVEL_CHOICES = [
   { id: "public", name: "padmakara.publications.accessPublic" },
   { id: "subscribers", name: "padmakara.publications.accessSubscribers" },
+  { id: "events", name: "padmakara.publications.accessEvents" },
 ];
 
 const LANGUAGE_CHOICES = [
@@ -601,7 +602,7 @@ export const PublicationEdit = () => {
               <SelectInput source="language" label="padmakara.publications.language" choices={LANGUAGE_CHOICES} validate={required()} />
               <DateInput source="publicationDate" label="padmakara.publications.publicationDate" />
               <TextInput source="version" label="padmakara.publications.version" helperText={translate("padmakara.publications.versionHelper")} />
-              <SelectInput source="accessLevel" label="padmakara.publications.accessLevel" choices={ACCESS_LEVEL_CHOICES} validate={required()} />
+              <SelectInput source="accessLevel" label="padmakara.publications.accessLevel" choices={ACCESS_LEVEL_CHOICES} validate={required()} helperText={translate("padmakara.publications.accessEventsHelper")} />
             </Box>
 
             <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>

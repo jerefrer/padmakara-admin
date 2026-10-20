@@ -887,6 +887,8 @@ export const pt = {
       accessLevel: "Nível de Acesso",
       accessPublic: "Público",
       accessSubscribers: "Subscritores",
+      accessEvents: "Como os seus eventos",
+      accessEventsHelper: "\"Como os seus eventos\": aberta a quem puder abrir pelo menos um dos eventos a que esta publicação está ligada.",
       langPt: "Português",
       langEn: "Inglês",
       langFr: "Francês",
