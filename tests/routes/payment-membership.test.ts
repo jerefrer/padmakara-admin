@@ -166,13 +166,17 @@ describe("GET /api/payment/membership", () => {
     expect(body.cancelledAt).toBe(at.toISOString());
   });
 
-  it("should report payment_failed with graceUntil seven days after accessUntil", async () => {
+  // Calendar days, not 7 × 24h: across a daylight-saving change the two differ by an hour,
+  // and access (hasActiveSubscription) counts calendar days too.
+  it("should report payment_failed with graceUntil seven calendar days after accessUntil", async () => {
     const expires = daysFromNow(-2);
     (db.query.users.findFirst as any).mockResolvedValue(member({ subscriptionExpiresAt: expires }));
     ledgerRows = [failedCapture];
     const { body } = await getMembership();
     expect(body.state).toBe("payment_failed");
-    expect(new Date(body.graceUntil).getTime() - new Date(body.accessUntil).getTime()).toBe(7 * DAY);
+    const expected = new Date(body.accessUntil);
+    expected.setDate(expected.getDate() + 7);
+    expect(body.graceUntil).toBe(expected.toISOString());
   });
 
   it("should report lapsed once access and grace are over", async () => {
