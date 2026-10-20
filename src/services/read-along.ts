@@ -53,11 +53,15 @@ export async function submitReadAlongJob(
   const skipPages = options.skipPages ?? 7;
   const whisperModel = options.whisperModel ?? "turbo";
 
-  // Build the audio S3 key list. Only original-language tracks are aligned —
-  // translation tracks (e.g. Portuguese voice-over of an English teaching) are
-  // skipped because the PDF is in the original language and aligning a
-  // different-language audio against it produces useless output. Filtering
-  // here also halves cost/wall-time vs. the container's prefix-listing fallback.
+  // Build the audio S3 key list: every track spoken in the transcript's
+  // language. Aligning audio in another language against the PDF produces
+  // useless output, so a Portuguese voice-over of an English teaching is left
+  // out — by its language, not by being a translation. A Tibetan teaching's
+  // transcript is its English translation, so there the English translation
+  // tracks are exactly the ones that match it; excluding translations aligned
+  // the event's other English talks instead, which are not in the PDF.
+  // Filtering here also halves cost/wall-time vs. the container's
+  // prefix-listing fallback.
   const audioTracks = await db
     .select({ s3Key: tracks.s3Key })
     .from(tracks)
@@ -66,7 +70,6 @@ export async function submitReadAlongJob(
       and(
         eq(sessions.eventId, eventId),
         eq(tracks.originalLanguage, language),
-        eq(tracks.isTranslation, false),
         isNotNull(tracks.s3Key),
       ),
     );
@@ -77,7 +80,7 @@ export async function submitReadAlongJob(
 
   if (audioS3Keys.length === 0) {
     throw AppError.badRequest(
-      `No ${language} original-language tracks found for event ${event.eventCode}`,
+      `No ${language} tracks found for event ${event.eventCode}`,
       "NO_ELIGIBLE_TRACKS",
     );
   }
