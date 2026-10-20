@@ -56,13 +56,15 @@ export function markUrl(): string {
 }
 
 /**
- * Saying why a message arrived is what separates a real notification from
- * something that looks like spam, and it is the one line a reader checks when
- * they do not recognise the sender.
+ * Saying who sent a message and why it reached them is what separates a real
+ * notification from spam, and it is the one line a reader checks when they do
+ * not recognise the sender. Named after the sender and the address, not after
+ * "activity on your account" — that is the wording of a security alert, and
+ * it made a welcome letter read like one.
  */
 const FOOTER: Record<Lang, string> = {
-  en: "You are receiving this message because of activity on your Padmakara account.",
-  pt: "Está a receber esta mensagem devido a atividade na sua conta Padmakara.",
+  en: "This email was sent by Associação Padmakara to the address you use for the Padmakara app. Any questions? Write to info@padmakara.pt.",
+  pt: "Este email foi enviado pela Associação Padmakara para o endereço que usa na aplicação Padmakara. Alguma dúvida? Escreva para info@padmakara.pt.",
 };
 
 export interface BrandEmail {

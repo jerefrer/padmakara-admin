@@ -72,8 +72,8 @@ describe("brand shell", () => {
   });
 
   it("should say why the message arrived, in the reader's language", () => {
-    expect(full().html).toContain("activity on your Padmakara account");
-    expect(bare().html).toContain("atividade na sua conta Padmakara");
+    expect(full().html).toContain("to the address you use for the Padmakara app");
+    expect(bare().html).toContain("para o endereço que usa na aplicação Padmakara");
     expect(full().html).toContain('<html lang="en">');
     expect(bare().html).toContain('<html lang="pt">');
   });
@@ -121,7 +121,7 @@ describe("plain-text twin", () => {
     expect(text).toContain("A quiet aside.");
     expect(text).toContain("Go to my retreats: https://app.test/");
     expect(text).toContain("Manage my membership: https://app.test/membership");
-    expect(text).toContain("You are receiving this message because of activity on your Padmakara account.");
+    expect(text).toContain("This email was sent by Associação Padmakara to the address you use for the Padmakara app.");
   });
 
   it("should carry no markup and no HTML entities", () => {
