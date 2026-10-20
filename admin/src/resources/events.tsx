@@ -309,6 +309,17 @@ const eventFilters = [
     optionText="nameEn"
   />,
   <SelectInput
+    key="originalLanguage"
+    source="originalLanguage"
+    label="padmakara.events.originalLanguage"
+    helperText="padmakara.events.originalLanguageHelper"
+    choices={[
+      { id: "tib", name: "padmakara.events.langTib" },
+      { id: "en", name: "padmakara.events.langEn" },
+      { id: "pt", name: "padmakara.events.langPt" },
+    ]}
+  />,
+  <SelectInput
     key="status"
     source="status"
     label="padmakara.events.status"

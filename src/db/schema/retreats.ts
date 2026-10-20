@@ -45,6 +45,14 @@ export const events = pgTable("retreats", {
   }),
   bibliography: text("bibliography"),
   notes: text("notes"),
+  /**
+   * The language the event was taught in ('tib', 'en', 'pt', ...).
+   *
+   * Distinct from `tracks.originalLanguage`, which is per-file. This is what
+   * the app shows by default on a first visit: the original is always
+   * included, so a Tibetan teaching never appears to be the translator's.
+   */
+  originalLanguage: text("original_language").notNull().default("en"),
   status: text("status").notNull().default("draft"),
   imageUrl: text("image_url"),
   s3Prefix: text("s3_prefix"),
