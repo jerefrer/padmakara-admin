@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import { eq, or, ilike } from "drizzle-orm";
+import { and, eq, or, ilike } from "drizzle-orm";
 import sharp from "sharp";
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../../db/index.ts";
-import { publications } from "../../db/schema/publications.ts";
+import { publications, eventPublications } from "../../db/schema/publications.ts";
 import { teachers } from "../../db/schema/teachers.ts";
 import { createPublicationSchema, updatePublicationSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
@@ -153,11 +153,37 @@ async function extractPdfMetadata(
 
 const publicationRoutes = new Hono();
 
+/** Replace the events a publication is linked to. */
+async function setLinkedEvents(publicationId: number, eventIds: number[]): Promise<void> {
+  await db.delete(eventPublications).where(eq(eventPublications.publicationId, publicationId));
+  const unique = [...new Set(eventIds)];
+  if (unique.length > 0) {
+    await db
+      .insert(eventPublications)
+      .values(unique.map((eventId) => ({ eventId, publicationId })));
+  }
+}
+
+/** The app lists an event's related publications, so a change of links changes its cache. */
+function bumpEventsVersion(): void {
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
+}
+
+async function getLinkedEventIds(publicationId: number): Promise<number[]> {
+  const links = await db
+    .select({ eventId: eventPublications.eventId })
+    .from(eventPublications)
+    .where(eq(eventPublications.publicationId, publicationId));
+  return links.map((l) => l.eventId);
+}
+
 const columns: Record<string, any> = {
   id: publications.id,
   title: publications.title,
   language: publications.language,
-  accessLevel: publications.accessLevel,
+  audienceId: publications.audienceId,
   publicationDate: publications.publicationDate,
   createdAt: publications.createdAt,
 };
@@ -179,12 +205,17 @@ publicationRoutes.get("/", async (c) => {
   const orderBy = buildOrderBy(_sort, _order, columns);
   const q = c.req.query("q");
 
-  const where = q
-    ? or(
-        ilike(publications.title, `%${q}%`),
-        ilike(publications.subtitle, `%${q}%`),
-      )
-    : undefined;
+  const audienceId = parseInt(c.req.query("audienceId") ?? "", 10);
+
+  const where = and(
+    q
+      ? or(
+          ilike(publications.title, `%${q}%`),
+          ilike(publications.subtitle, `%${q}%`),
+        )
+      : undefined,
+    Number.isNaN(audienceId) ? undefined : eq(publications.audienceId, audienceId),
+  );
 
   const [data, total] = await Promise.all([
     db.select().from(publications).where(where).orderBy(orderBy!).limit(limit).offset(offset),
@@ -372,7 +403,7 @@ publicationRoutes.get("/:id", async (c) => {
     where: eq(publications.id, id),
   });
   if (!pub) throw AppError.notFound("Publication not found");
-  return c.json(await addCoverImageUrl(pub));
+  return c.json({ ...(await addCoverImageUrl(pub)), eventIds: await getLinkedEventIds(id) });
 });
 
 /**
@@ -380,7 +411,7 @@ publicationRoutes.get("/:id", async (c) => {
  */
 publicationRoutes.post("/", async (c) => {
   const body = await c.req.json();
-  const data = createPublicationSchema.parse(body);
+  const { eventIds, ...data } = createPublicationSchema.parse(body);
 
   let { pageCount, fileSizeBytes, coverImageS3Key } = data;
   if (data.pdfS3Key) {
@@ -398,10 +429,12 @@ publicationRoutes.post("/", async (c) => {
     .insert(publications)
     .values({ ...data, pageCount, fileSizeBytes, coverImageS3Key })
     .returning();
+  await setLinkedEvents(pub!.id, eventIds);
+  if (eventIds.length > 0) bumpEventsVersion();
   bumpVersion("publications").catch((err) =>
     console.error("[sync] failed to bump publications version:", err),
   );
-  return c.json(pub!, 201);
+  return c.json({ ...pub!, eventIds: [...new Set(eventIds)] }, 201);
 });
 
 /**
@@ -410,7 +443,9 @@ publicationRoutes.post("/", async (c) => {
 publicationRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
-  const data = updatePublicationSchema.parse(body);
+  const { eventIds, ...data } = updatePublicationSchema.parse(body);
+  // The schema defaults eventIds to [] — only replace the links when sent.
+  const sendsEventIds = Object.prototype.hasOwnProperty.call(body, "eventIds");
 
   // Fetch existing record so we can detect a real PDF change and force cover
   // regeneration when it happens. The version label usually appears on the
@@ -450,10 +485,14 @@ publicationRoutes.put("/:id", async (c) => {
     .where(eq(publications.id, id))
     .returning();
   if (!pub) throw AppError.notFound("Publication not found");
+  if (sendsEventIds && eventIds) {
+    await setLinkedEvents(id, eventIds);
+    bumpEventsVersion();
+  }
   bumpVersion("publications").catch((err) =>
     console.error("[sync] failed to bump publications version:", err),
   );
-  return c.json(pub);
+  return c.json({ ...pub, eventIds: await getLinkedEventIds(id) });
 });
 
 /**
@@ -469,6 +508,7 @@ publicationRoutes.delete("/:id", async (c) => {
   bumpVersion("publications").catch((err) =>
     console.error("[sync] failed to bump publications version:", err),
   );
+  bumpEventsVersion();
   return c.json(pub);
 });
 

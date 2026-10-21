@@ -58,6 +58,18 @@ vi.mock("../../src/services/s3.ts", () => ({
   generatePresignedDownloadUrl: vi.fn(() => Promise.resolve("https://s3.example.com/file")),
 }));
 
+// Who can open which publication is tested on its own
+// (tests/services/publication-access); here it only says which ones this caller may open.
+const { mockOpenablePublications } = vi.hoisted(() => ({
+  mockOpenablePublications: vi.fn(
+    (_user: unknown, _pubs: { id: number; audienceId: number | null }[]) =>
+      Promise.resolve(new Set<number>()),
+  ),
+}));
+vi.mock("../../src/services/publication-access.ts", () => ({
+  openablePublications: mockOpenablePublications,
+}));
+
 import { createAccessToken } from "../../src/services/auth.ts";
 
 describe("Events Routes - Download Request Logic", () => {
@@ -349,25 +361,34 @@ describe("GET /api/events/:id — related publications", () => {
     vi.clearAllMocks();
   });
 
-  it("should list the event's own publications to whoever can open the event, and no member-only ones to a non-member", async () => {
-    // Arrange: a non-member opens a public event linked to four publications.
-    const pub = (id: number, accessLevel: string) => ({
-      publication: { id, title: `Pub ${id}`, subtitle: null, accessLevel, coverImageS3Key: null },
+  it("should list only the linked publications the caller can open, each decided on its own audience", async () => {
+    // Arrange: a user opens an event linked to three publications and may open two.
+    const pub = (id: number, audienceId: number) => ({
+      publication: { id, title: `Pub ${id}`, subtitle: null, audienceId, coverImageS3Key: null },
     });
     mockDb.query.events.findFirst.mockResolvedValueOnce({
       ...draftPublicEvent,
       status: "published",
-      eventPublications: [pub(1, "public"), pub(2, "subscribers"), pub(3, "events"), pub(4, "retreat-only")],
+      eventPublications: [pub(1, 7), pub(2, 8), pub(3, 9)],
     });
     mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
+    mockOpenablePublications.mockResolvedValueOnce(new Set([1, 3]));
 
     // Act
     const { body } = await testJson("/api/events/42", { headers: await bearerToken("user") });
 
-    // Assert: a text that inherits the event's audience is open to anyone who
-    // reached this page; an unknown access level never is.
+    // Assert: passing the event's own check does not open a publication; the
+    // access decision gets each publication's audience.
     const ids = (body.relatedPublications as Array<{ id: number }>).map((p) => p.id);
     expect(ids).toEqual([1, 3]);
+    expect(mockOpenablePublications).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "user" }),
+      [
+        expect.objectContaining({ id: 1, audienceId: 7 }),
+        expect.objectContaining({ id: 2, audienceId: 8 }),
+        expect.objectContaining({ id: 3, audienceId: 9 }),
+      ],
+    );
   });
 });
 
