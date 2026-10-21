@@ -20,6 +20,9 @@ export { tracks, tracksRelations } from "./tracks.ts";
 export { transcripts, transcriptsRelations } from "./transcripts.ts";
 export { eventFiles, eventFilesRelations } from "./event-files.ts";
 
+// Library metadata (Wix CSV export)
+export { libraryRecords } from "./library-records.ts";
+
 // Publications
 export {
   publications,

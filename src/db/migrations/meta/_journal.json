@@ -281,6 +281,13 @@
       "when": 1811728000000,
       "tag": "0039_publication_audiences",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1811814400000,
+      "tag": "0040_library_records",
+      "breakpoints": true
     }
   ]
 }

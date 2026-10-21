@@ -93,6 +93,7 @@ import { uploadVideoFile, uploadVideoMaster } from "../utils/videoUploader";
 import { authFetch } from "../utils/authFetch";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "../components/TranslatableField";
+import { LibraryMetadataButton } from "../components/LibraryMetadataButton";
 import {
   type ParsedTrack,
   type InferredSession,
@@ -563,6 +564,13 @@ export interface EventFormData {
   startDate: string;
   endDate: string;
   organizer: string;
+  bibliography: string;
+  /** Wix ID of the library record the event was filled from (retreats.wix_id). */
+  wixId: string | null;
+  /** Imported library CSV fields that have no column of their own. */
+  librarySnapshot: Record<string, unknown> | null;
+  /** Teachers (ids from the selected list) saved with the 'guest' role. */
+  guestTeacherIds: number[];
   status: string;
   featuredAt: string | null;
 }
@@ -580,7 +588,9 @@ export const EMPTY_FORM: EventFormData = {
   titleEnReviewed: true, titlePtReviewed: true,
   mainThemesEnReviewed: true, mainThemesPtReviewed: true,
   sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
-  startDate: "", endDate: "", organizer: "", status: "draft",
+  startDate: "", endDate: "", organizer: "", bibliography: "",
+  wixId: null, librarySnapshot: null, guestTeacherIds: [],
+  status: "draft",
   featuredAt: null,
 };
 
@@ -1066,6 +1076,18 @@ export const EventFormFields = ({
         </Tooltip>
       </Box>
 
+      {/* ── Library metadata — fill the form from the association's CSV ── */}
+      <LibraryMetadataButton
+        form={form} setForm={setForm}
+        selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
+        selectedPlaces={selectedPlaces} setSelectedPlaces={setSelectedPlaces}
+        selectedGroups={selectedGroups} setSelectedGroups={setSelectedGroups}
+        selectedEventType={selectedEventType} setSelectedEventType={setSelectedEventType}
+        selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
+        allGroups={allGroups} allEventTypes={allEventTypes} allAudiences={allAudiences}
+        eventId={eventId}
+      />
+
       {/* ── Auto-translate bar — the one place that fills every empty EN/PT
              target (event fields, session titles and track titles — persisted
              rows in the edit view, preview state in the create flow), with a
@@ -1329,6 +1351,18 @@ export const EventFormFields = ({
               helperText={translate("padmakara.events.organizerHelp")}
               value={form.organizer}
               onChange={updateField("organizer")}
+              fullWidth
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+          </Grid>
+          <Grid size={{ xs: 12 }}>
+            <MuiTextField
+              label={translate("padmakara.library.bibliography")}
+              placeholder={translate("padmakara.library.bibliographyPlaceholder")}
+              value={form.bibliography}
+              onChange={updateField("bibliography")}
+              multiline
+              minRows={2}
               fullWidth
               slotProps={{ inputLabel: { shrink: true } }}
             />
@@ -2194,9 +2228,13 @@ export const EventCreate = () => {
           startDate: form.startDate || null,
           endDate: form.endDate || null,
           organizer: form.organizer.trim() || null,
+          bibliography: form.bibliography.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
-          teacherIds: selectedTeachers.map((t) => ({ id: t.id, role: "teacher" as const })),
+          teacherIds: selectedTeachers.map((t) => ({
+            id: t.id,
+            role: form.guestTeacherIds.includes(t.id) ? ("guest" as const) : ("teacher" as const),
+          })),
           placeIds: selectedPlaces.map((p) => p.id),
           groupIds: selectedGroups.map((g) => g.id),
         },
@@ -2699,6 +2737,12 @@ export const EventEdit = () => {
       startDate: event.startDate || "",
       endDate: event.endDate || "",
       organizer: event.organizer || "",
+      bibliography: event.bibliography || "",
+      wixId: event.wixId ?? null,
+      librarySnapshot: event.librarySnapshot ?? null,
+      guestTeacherIds: (event.eventTeachers ?? [])
+        .filter((rt: any) => rt.role === "guest")
+        .map((rt: any) => rt.teacherId),
       status: event.status || "draft",
       featuredAt: event.featuredAt || null,
       titleEnReviewed: event.titleEnReviewed ?? true,
@@ -3458,9 +3502,13 @@ export const EventEdit = () => {
           startDate: form.startDate || null,
           endDate: form.endDate || null,
           organizer: form.organizer.trim() || null,
+          bibliography: form.bibliography.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
-          teacherIds: selectedTeachers.map((t) => ({ id: t.id, role: "teacher" as const })),
+          teacherIds: selectedTeachers.map((t) => ({
+            id: t.id,
+            role: form.guestTeacherIds.includes(t.id) ? ("guest" as const) : ("teacher" as const),
+          })),
           placeIds: selectedPlaces.map((p) => p.id),
           groupIds: selectedGroups.map((g) => g.id),
         },
