@@ -151,6 +151,10 @@ export const createEventSchema = z.object({
   bibliography: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   organizer: z.string().max(200).optional().nullable(),
+  // Link to the library record the event was filled from (library_records.wix_id)
+  // and the imported CSV fields that have no column of their own.
+  wixId: z.string().max(100).optional().nullable(),
+  librarySnapshot: z.record(z.string(), z.unknown()).optional().nullable(),
   // The language the event was taught in. Drives which languages the app
   // shows a user arriving at the event for the first time.
   originalLanguage: z.enum(["tib", "en", "pt"]).optional(),

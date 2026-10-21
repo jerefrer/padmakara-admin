@@ -7,6 +7,7 @@ import {
   integer,
   primaryKey,
   boolean,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { teachers } from "./teachers.ts";
@@ -56,7 +57,10 @@ export const events = pgTable("retreats", {
   status: text("status").notNull().default("draft"),
   imageUrl: text("image_url"),
   s3Prefix: text("s3_prefix"),
+  /** Wix ID of the library record this event was filled from (library_records.wix_id). */
   wixId: text("wix_id"),
+  /** Imported library CSV fields that have no column of their own. */
+  librarySnapshot: jsonb("library_snapshot").$type<Record<string, unknown>>(),
   featuredAt: timestamp("featured_at", { withTimezone: true }),
   // Video title-slide defaults (src/lib/slides/defaults.ts, intro slide 4/5).
   // organizer falls back to a global default when null; creditLines/copyrightHolder
