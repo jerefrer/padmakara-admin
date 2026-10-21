@@ -1,4 +1,5 @@
-import { Admin, Resource } from "react-admin";
+import { Admin, Resource, CustomRoutes } from "react-admin";
+import { Route } from "react-router-dom";
 import { dataProvider } from "./dataProvider";
 import { authProvider } from "./authProvider";
 import { i18nProvider } from "./i18n";
@@ -13,6 +14,7 @@ import { EventTypeList, EventTypeEdit, EventTypeCreate } from "./resources/event
 import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audiences";
 import { UserList, UserEdit } from "./resources/users";
 import { ApprovalList } from "./resources/approvals";
+import { LibraryPage } from "./pages/LibraryPage";
 import { PublicationList, PublicationEdit, PublicationCreate } from "./resources/publications";
 
 const App = () => (
@@ -87,6 +89,9 @@ const App = () => (
     {/* List-less resources: used programmatically via the data provider
         from the event form (Documents section, transcript persistence) —
         no dedicated list/edit/create screens. */}
+    <CustomRoutes>
+      <Route path="/library" element={<LibraryPage />} />
+    </CustomRoutes>
     <Resource name="event-files" />
     <Resource name="transcripts" />
   </Admin>
