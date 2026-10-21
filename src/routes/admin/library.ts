@@ -258,11 +258,11 @@ libraryRoutes.post("/entities", async (c) => {
   }).from(teachers);
   const usedAbbreviations = new Set(existingTeachers.map((t) => t.abbreviation.toLowerCase()));
 
-  const teacherOut: { name: string; id: number }[] = [];
+  const teacherOut: { name: string; id: number; abbreviation: string }[] = [];
   for (const name of body.teachers) {
     const found = findTeacher(name, existingTeachers);
     if (found) {
-      teacherOut.push({ name, id: found.id });
+      teacherOut.push({ name, id: found.id, abbreviation: found.abbreviation });
       continue;
     }
     const base = abbreviationFromName(name);
@@ -274,17 +274,17 @@ libraryRoutes.post("/entities", async (c) => {
       .values({ name: name.trim(), abbreviation, aliases: [] })
       .returning({ id: teachers.id });
     existingTeachers.push({ id: created!.id, name: name.trim(), abbreviation, aliases: [] });
-    teacherOut.push({ name, id: created!.id });
+    teacherOut.push({ name, id: created!.id, abbreviation });
   }
 
   const existingPlaces = await db.select({
     id: places.id, name: places.name, abbreviation: places.abbreviation, location: places.location,
   }).from(places);
-  const placeOut: { location: string; id: number; name: string }[] = [];
+  const placeOut: { location: string; id: number; name: string; abbreviation: string | null }[] = [];
   for (const location of body.places) {
     const found = findPlace(location, existingPlaces);
     if (found) {
-      placeOut.push({ location, id: found.id, name: found.name });
+      placeOut.push({ location, id: found.id, name: found.name, abbreviation: found.abbreviation });
       continue;
     }
     const name = placeNameFromLocation(location);
@@ -293,7 +293,7 @@ libraryRoutes.post("/entities", async (c) => {
       .values({ name, location: location.trim() })
       .returning({ id: places.id });
     existingPlaces.push({ id: created!.id, name, abbreviation: null, location: location.trim() });
-    placeOut.push({ location, id: created!.id, name });
+    placeOut.push({ location, id: created!.id, name, abbreviation: null });
   }
 
   return c.json({ teachers: teacherOut, places: placeOut });

@@ -210,10 +210,10 @@ describe("POST /api/admin/library/entities", () => {
       body: JSON.stringify({ teachers: ["teacher a", "Wulstan Fletcher"], places: ["UBP, Lisboa", "Hotel do Sado, Setúbal"] }),
     });
     expect(status).toBe(200);
-    expect(body.teachers).toEqual([{ name: "teacher a", id: 1 }, { name: "Wulstan Fletcher", id: 99 }]);
+    expect(body.teachers).toEqual([{ name: "teacher a", id: 1, abbreviation: "TA" }, { name: "Wulstan Fletcher", id: 99, abbreviation: "WF" }]);
     expect(body.places).toEqual([
-      { location: "UBP, Lisboa", id: 5, name: "UBP" },
-      { location: "Hotel do Sado, Setúbal", id: 99, name: "Hotel do Sado" },
+      { location: "UBP, Lisboa", id: 5, name: "UBP", abbreviation: "UBP" },
+      { location: "Hotel do Sado, Setúbal", id: 99, name: "Hotel do Sado", abbreviation: null },
     ]);
     const created = d._insertValues.mock.calls.map((c: any) => c[0]);
     expect(created).toEqual([

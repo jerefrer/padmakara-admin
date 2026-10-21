@@ -37,6 +37,13 @@ export interface LibraryRecordInput {
   raw: Record<string, string>;
 }
 
+/** The export has typos like "2019-02-30"; Postgres rejects those, so drop them. */
+function validDate(date: string | null): string | null {
+  if (!date) return null;
+  const t = new Date(`${date}T00:00:00Z`);
+  return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === date ? date : null;
+}
+
 /** Raised for an upload that is not a library export. */
 export class LibraryCsvError extends Error {}
 
@@ -79,8 +86,8 @@ export function parseLibraryCsv(text: string): LibraryRecordInput[] {
       place: row.place,
       designation: row.designation,
       dateRange: row.dateRange,
-      startDate,
-      endDate,
+      startDate: validDate(startDate),
+      endDate: validDate(endDate),
       raw,
     });
   }
@@ -408,7 +415,7 @@ export interface MappingRef {
   audiences: RefNamed[];
 }
 
-export interface MappedTeacher { id: number; name: string; role: "teacher" | "guest" }
+export interface MappedTeacher { id: number; name: string; abbreviation: string; role: "teacher" | "guest" }
 
 /** Event field values a record produces (keys match the admin event form). */
 export interface MappingResult {
@@ -418,7 +425,9 @@ export interface MappingResult {
     startDate: string | null;
     endDate: string | null;
     mainThemesPt: string | null;
+    mainThemesEn: string | null;
     sessionThemesPt: string | null;
+    sessionThemesEn: string | null;
     bibliography: string | null;
     organizer: string | null;
     eventTypeId: number | null;
@@ -435,7 +444,7 @@ export interface MappingResult {
     audience: { id: number; nameEn: string; namePt: string | null } | null;
     groups: { id: number; nameEn: string; namePt: string | null }[];
     teachers: MappedTeacher[];
-    places: { id: number; name: string }[];
+    places: { id: number; name: string; abbreviation: string | null }[];
   };
   /** CSV values with no matching row yet; created on apply if the admin agrees. */
   unresolved: {
@@ -521,7 +530,7 @@ export function mapRecordToEvent(
     if (found) {
       if (!teacherIds.some((t) => t.id === found.id)) {
         teacherIds.push({ id: found.id, role: person.role });
-        resolvedTeachers.push({ id: found.id, name: found.name, role: person.role });
+        resolvedTeachers.push({ id: found.id, name: found.name, abbreviation: found.abbreviation, role: person.role });
       }
     } else if (!unresolvedTeachers.some((t) => fold(t.name) === fold(person.name))) {
       unresolvedTeachers.push(person);
@@ -552,14 +561,19 @@ export function mapRecordToEvent(
     importedAt: now.toISOString(),
   };
 
+  const mainLang = detectLanguage(row.mainThemes, "pt");
+  const sessionLang = detectLanguage(row.sessionThemes, "en");
+
   return {
     wixId: row.wixId,
     fields: {
       titlePt: row.title || null,
       startDate,
       endDate,
-      mainThemesPt: row.mainThemes || null,
-      sessionThemesPt: row.sessionThemes || null,
+      mainThemesPt: mainLang === "pt" ? row.mainThemes || null : null,
+      mainThemesEn: mainLang === "en" ? row.mainThemes || null : null,
+      sessionThemesPt: sessionLang === "pt" ? row.sessionThemes || null : null,
+      sessionThemesEn: sessionLang === "en" ? row.sessionThemes || null : null,
       bibliography: row.bibliography || null,
       organizer: organizations.length > 0 ? organizations.join(", ") : null,
       eventTypeId: eventType?.id ?? null,
@@ -575,7 +589,7 @@ export function mapRecordToEvent(
       audience,
       groups: group ? [group] : [],
       teachers: resolvedTeachers,
-      places: place ? [{ id: place.id, name: place.name }] : [],
+      places: place ? [{ id: place.id, name: place.name, abbreviation: place.abbreviation }] : [],
     },
     unresolved: {
       teachers: unresolvedTeachers,
@@ -584,6 +598,26 @@ export function mapRecordToEvent(
       audience: row.audience && !audience ? row.audience : null,
     },
   };
+}
+
+const EN_WORDS = new Set(["the", "of", "and", "to", "in", "is", "on", "with", "day", "session", "sessions", "morning", "afternoon", "for", "this"]);
+// One-letter words (a, e, o) are left out: "a" is an English word too.
+const PT_WORDS = new Set(["de", "da", "do", "das", "dos", "os", "as", "que", "pelo", "pela", "nos", "nas", "para", "em", "com", "um", "uma", "sessao", "sessoes", "dia", "manha", "tarde"]);
+
+/**
+ * Guess whether a themes text is English or Portuguese by counting common
+ * words. The export mixes both (the session summaries are mostly English, the
+ * main themes mostly Portuguese), and a text must land in the matching
+ * language field; `fallback` decides ties and word-less text.
+ */
+export function detectLanguage(text: string, fallback: "en" | "pt"): "en" | "pt" {
+  let en = 0;
+  let pt = 0;
+  for (const w of fold(text).split(" ")) {
+    if (EN_WORDS.has(w)) en++;
+    if (PT_WORDS.has(w)) pt++;
+  }
+  return en > pt ? "en" : pt > en ? "pt" : fallback;
 }
 
 /** Short name for a new place, the way the seed derived it. */

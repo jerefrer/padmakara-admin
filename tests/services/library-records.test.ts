@@ -7,6 +7,7 @@ import {
   searchRecords,
   suggestRecords,
   mapRecordToEvent,
+  detectLanguage,
   type MappingRef,
 } from "../../src/services/library-records.ts";
 
@@ -42,6 +43,11 @@ describe("parseLibraryCsv", () => {
     const rows = parseLibraryCsv(csv(SAMATHA, SAMATHA.replace("Śamatha", "Other"), ",x,No id,,,,,,,,,,,"));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.title).toContain("Śamatha");
+  });
+
+  it("should drop a calendar-invalid date instead of failing the import", () => {
+    const rows = parseLibraryCsv(csv(SAMATHA.replace("2016-11-05 a 2016-11-08", "2016-02-30 a 2016-11-08")));
+    expect(rows[0]).toMatchObject({ startDate: null, endDate: "2016-11-08" });
   });
 
   it("should reject a file that is not a library export", () => {
@@ -155,6 +161,16 @@ describe("suggestRecords", () => {
   });
 });
 
+describe("detectLanguage", () => {
+  it("should tell English from Portuguese and fall back on ties", () => {
+    expect(detectLanguage("Day 1 | Morning Sessions of the teachings", "pt")).toBe("en");
+    expect(detectLanguage("Ensinamentos sobre a natureza da mente", "en")).toBe("pt");
+    expect(detectLanguage("Śāntideva", "en")).toBe("en");
+    expect(detectLanguage("Day 1 | Summary: a root cause of the self", "pt")).toBe("en");
+    expect(detectLanguage("", "pt")).toBe("pt");
+  });
+});
+
 describe("mapRecordToEvent", () => {
   const ref: MappingRef = {
     teachers: [{ id: 1, name: "Khenchen Pema Sherab Rinpoche", abbreviation: "KPS", aliases: [] }],
@@ -180,6 +196,9 @@ describe("mapRecordToEvent", () => {
       wixId: "w1",
     });
     expect(m.fields.mainThemesPt).toBe("Tema com\nvárias linhas");
+    // The session summaries are English in the export, so they land in the EN field.
+    expect(m.fields.sessionThemesEn).toBe("Śāntideva | Day 1");
+    expect(m.fields.sessionThemesPt).toBeNull();
     expect(m.fields.bibliography).toBe("Bibliografia");
   });
 
