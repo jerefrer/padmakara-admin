@@ -30,6 +30,8 @@ import {
   FunctionField,
   List,
   NumberField,
+  ReferenceField,
+  ReferenceInput,
   required,
   SaveButton,
   SelectInput,
@@ -39,17 +41,21 @@ import {
   Toolbar,
   useDataProvider,
   useDelete,
+  useLocaleState,
   useNotify,
   useRecordContext,
   useRedirect,
   useTranslate,
 } from "react-admin";
 
-const ACCESS_LEVEL_CHOICES = [
-  { id: "public", name: "padmakara.publications.accessPublic" },
-  { id: "subscribers", name: "padmakara.publications.accessSubscribers" },
-  { id: "events", name: "padmakara.publications.accessEvents" },
+/** Audience slugs for which the linked events decide who gets access. */
+const EVENT_BASED_AUDIENCE_SLUGS = [
+  "event-participants",
+  "retreat-group-members",
+  "received-initiation",
+  "available-on-request-only",
 ];
+const PUBLIC_AUDIENCE_SLUG = "free-anyone";
 
 const LANGUAGE_CHOICES = [
   { id: "pt", name: "padmakara.publications.langPt" },
@@ -264,16 +270,166 @@ function useTeachers() {
   return teachers;
 }
 
+// ─── Audience + linked events ───────────────────────────────────────────────
+
+interface AudienceOption {
+  id: number;
+  slug: string;
+  nameEn: string;
+  namePt?: string | null;
+}
+
+interface EventOption {
+  id: number;
+  eventCode: string;
+  titleEn?: string | null;
+  titlePt?: string | null;
+}
+
+function audienceName(a: AudienceOption, locale: string): string {
+  return locale === "pt" && a.namePt ? a.namePt : a.nameEn;
+}
+
+function eventLabel(e: EventOption, locale: string): string {
+  const title = (locale === "pt" && e.titlePt ? e.titlePt : e.titleEn) ?? "";
+  return title ? `${e.eventCode} — ${title}` : e.eventCode;
+}
+
+/**
+ * Audience select and linked-events multi-select, side by side because they
+ * are one setting: for the participant / group / initiation / on-request
+ * audiences, the linked events decide who gets access. Controlled, so both the
+ * react-hook-form edit page and the state-driven create page can use it.
+ */
+function AudienceAndEventsFields({
+  audienceId,
+  eventIds,
+  onChange,
+}: {
+  audienceId: number | null | undefined;
+  eventIds: number[];
+  onChange: (next: { audienceId?: number; eventIds?: number[] }) => void;
+}) {
+  const translate = useTranslate();
+  const dataProvider = useDataProvider();
+  const [locale] = useLocaleState();
+  const [audienceOptions, setAudienceOptions] = useState<AudienceOption[]>([]);
+  const [eventOptions, setEventOptions] = useState<EventOption[]>([]);
+
+  useEffect(() => {
+    dataProvider
+      .getList<AudienceOption>("audiences", {
+        pagination: { page: 1, perPage: 500 },
+        sort: { field: "displayOrder", order: "ASC" },
+        filter: {},
+      })
+      .then(({ data }) => setAudienceOptions(data));
+    dataProvider
+      .getList<EventOption>("events", {
+        pagination: { page: 1, perPage: 1000 },
+        sort: { field: "startDate", order: "DESC" },
+        filter: {},
+      })
+      .then(({ data }) => setEventOptions(data));
+  }, [dataProvider]);
+
+  // A new publication starts public, as before.
+  useEffect(() => {
+    if (audienceId == null && audienceOptions.length > 0) {
+      const open = audienceOptions.find((a) => a.slug === PUBLIC_AUDIENCE_SLUG);
+      if (open) onChange({ audienceId: open.id });
+    }
+  }, [audienceId, audienceOptions, onChange]);
+
+  const audience = audienceOptions.find((a) => a.id === audienceId) ?? null;
+  const eventBased = !!audience && EVENT_BASED_AUDIENCE_SLUGS.includes(audience.slug);
+  const selectedEvents = eventIds
+    .map((id) => eventOptions.find((e) => e.id === id))
+    .filter((e): e is EventOption => !!e);
+  const needsEvents = eventBased && eventIds.length === 0;
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2, width: "100%" }}>
+      <MuiTextField
+        label={translate("padmakara.publications.audience")}
+        select
+        required
+        value={audience ? audience.id : ""}
+        onChange={(e) => onChange({ audienceId: Number(e.target.value) })}
+        slotProps={{ inputLabel: { shrink: true } }}
+        sx={{ minWidth: 260, maxWidth: 400 }}
+      >
+        {audienceOptions.map((a) => (
+          <MenuItem key={a.id} value={a.id}>
+            {audienceName(a, locale)}
+          </MenuItem>
+        ))}
+      </MuiTextField>
+      <Autocomplete
+        multiple
+        options={eventOptions}
+        getOptionLabel={(e) => eventLabel(e, locale)}
+        value={selectedEvents}
+        onChange={(_, v) => onChange({ eventIds: v.map((e) => e.id) })}
+        isOptionEqualToValue={(o, v) => o.id === v.id}
+        renderInput={(params) => (
+          <MuiTextField
+            {...params}
+            label={translate("padmakara.publications.linkedEvents")}
+            placeholder={translate("padmakara.publications.linkedEventsPlaceholder")}
+            error={needsEvents}
+            helperText={translate(
+              needsEvents
+                ? "padmakara.publications.linkedEventsNeeded"
+                : "padmakara.publications.linkedEventsHelper",
+            )}
+            slotProps={{ inputLabel: { shrink: true } }}
+          />
+        )}
+      />
+    </Box>
+  );
+}
+
+/** Chip with the locale-aware name of the audience in context. */
+function AudienceChip() {
+  const record = useRecordContext<AudienceOption>();
+  const [locale] = useLocaleState();
+  if (!record) return null;
+  return <Chip label={audienceName(record, locale)} size="small" variant="outlined" />;
+}
+
+/** Edit-page wrapper: reads and writes the audience and events on the form. */
+function AudienceAndEventsInput() {
+  const { watch, setValue } = useFormContext();
+  const audienceId = watch("audienceId") as number | null | undefined;
+  const eventIds = (watch("eventIds") as number[] | undefined) ?? [];
+  const handleChange = useCallback(
+    (next: { audienceId?: number; eventIds?: number[] }) => {
+      if (next.audienceId !== undefined) {
+        setValue("audienceId", next.audienceId, { shouldDirty: true });
+      }
+      if (next.eventIds !== undefined) {
+        setValue("eventIds", next.eventIds, { shouldDirty: true });
+      }
+    },
+    [setValue],
+  );
+  return <AudienceAndEventsFields audienceId={audienceId} eventIds={eventIds} onChange={handleChange} />;
+}
+
 // ─── List ────────────────────────────────────────────────────────────────────
 
 const publicationFilters = [
-  <SelectInput
-    key="accessLevel"
-    source="accessLevel"
-    label="padmakara.publications.accessLevel"
-    choices={ACCESS_LEVEL_CHOICES}
+  <ReferenceInput
+    key="audienceId"
+    source="audienceId"
+    reference="audiences"
+    label="padmakara.publications.audience"
     alwaysOn
-  />,
+  >
+    <SelectInput optionText="nameEn" />
+  </ReferenceInput>,
 ];
 
 export const PublicationList = () => {
@@ -322,21 +478,15 @@ export const PublicationList = () => {
             (record?.authors || []).join(", ") || "\u2014"
           }
         />
-        <FunctionField
+        <ReferenceField
+          source="audienceId"
+          reference="audiences"
           label={translate("padmakara.publications.access")}
-          render={(record: { accessLevel?: string }) => {
-            const choice = ACCESS_LEVEL_CHOICES.find(
-              (c) => c.id === (record?.accessLevel || "public"),
-            );
-            return (
-              <Chip
-                label={translate(choice?.name ?? "padmakara.publications.accessPublic")}
-                size="small"
-                variant="outlined"
-              />
-            );
-          }}
-        />
+          link={false}
+          sortable={false}
+        >
+          <AudienceChip />
+        </ReferenceField>
         <DateField source="publicationDate" label="padmakara.events.published" />
         <NumberField source="pageCount" label="padmakara.publications.pages" />
         <EditButton />
@@ -602,8 +752,9 @@ export const PublicationEdit = () => {
               <SelectInput source="language" label="padmakara.publications.language" choices={LANGUAGE_CHOICES} validate={required()} />
               <DateInput source="publicationDate" label="padmakara.publications.publicationDate" />
               <TextInput source="version" label="padmakara.publications.version" helperText={translate("padmakara.publications.versionHelper")} />
-              <SelectInput source="accessLevel" label="padmakara.publications.accessLevel" choices={ACCESS_LEVEL_CHOICES} validate={required()} helperText={translate("padmakara.publications.accessEventsHelper")} />
             </Box>
+
+            <AudienceAndEventsInput />
 
             <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>
               <PdfReplaceSection />
@@ -651,6 +802,12 @@ export const PublicationCreate = () => {
   const coverInputRef = useRef<HTMLInputElement>(null);
 
   const allTeachers = useTeachers();
+
+  const handleAudienceChange = useCallback(
+    (next: { audienceId?: number; eventIds?: number[] }) =>
+      setDefaultValues((prev) => ({ ...prev, ...next })),
+    [],
+  );
 
   // Build author suggestions from teachers + extracted authors
   const authorSuggestions = allTeachers.map(
@@ -718,7 +875,7 @@ export const PublicationCreate = () => {
         language: metadata.language || "pt",
         publicationDate: metadata.publicationDate || undefined,
         version: metadata.version || "",
-        accessLevel: "public",
+        eventIds: [],
         pdfS3Key: s3Key,
         coverImageS3Key: metadata.coverImageS3Key || "",
         pageCount: metadata.pageCount || undefined,
@@ -963,26 +1120,13 @@ export const PublicationCreate = () => {
                   slotProps={{ inputLabel: { shrink: true } }}
                   sx={{ minWidth: 200 }}
                 />
-                <MuiTextField
-                  label={translate("padmakara.publications.accessLevel")}
-                  select
-                  value={(defaultValues.accessLevel as string) || "public"}
-                  onChange={(e) =>
-                    setDefaultValues((prev) => ({
-                      ...prev,
-                      accessLevel: e.target.value,
-                    }))
-                  }
-                  slotProps={{ inputLabel: { shrink: true } }}
-                  sx={{ minWidth: 140 }}
-                >
-                  {ACCESS_LEVEL_CHOICES.map((c) => (
-                    <MenuItem key={c.id} value={c.id}>
-                      {translate(c.name)}
-                    </MenuItem>
-                  ))}
-                </MuiTextField>
               </Box>
+
+              <AudienceAndEventsFields
+                audienceId={defaultValues.audienceId as number | undefined}
+                eventIds={(defaultValues.eventIds as number[] | undefined) ?? []}
+                onChange={handleAudienceChange}
+              />
 
               {/* Save button */}
               <Box>

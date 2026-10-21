@@ -11,8 +11,8 @@ import { downloadRequests } from "../db/schema/index.ts";
 import { authMiddleware, optionalAuthMiddleware, getUser, getOptionalUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
-import { checkEventAccess, filterAccessibleEvents, canUserSeeSubscriberContent, eventStatusVisibleTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
-import { canOpenPublication } from "../services/publication-access.ts";
+import { checkEventAccess, filterAccessibleEvents, eventStatusVisibleTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
+import { openablePublications } from "../services/publication-access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
@@ -485,16 +485,14 @@ eventRoutes.get("/:id", async (c) => {
 
   // Build related publications with presigned cover URLs, listing only what
   // the user can open so the event page never advertises a locked text. A
-  // publication that inherits its events' audience is open here by
-  // definition: the user just passed this event's access check.
-  const canSeeSubscriber = await canUserSeeSubscriberContent(user);
-  const isAdmin = user.role === "admin" || user.role === "superadmin";
-  const relatedPublications = ((event as any).eventPublications || [])
+  // publication has its own audience: passing this event's check is not enough.
+  const linkedPublications = ((event as any).eventPublications || [])
     .filter((ep: any) => ep.publication)
-    .map((ep: any) => ep.publication)
-    .filter((pub: any) =>
-      canOpenPublication(pub.accessLevel, { isAdmin, canSeeSubscriber, openedByLinkedEvent: true }),
-    );
+    .map((ep: any) => ep.publication);
+  const openedPublications = await openablePublications(user, linkedPublications);
+  const relatedPublications = linkedPublications.filter((pub: any) =>
+    openedPublications.has(pub.id),
+  );
 
   const relatedPubsWithUrls = await Promise.all(
     relatedPublications.map(async (pub: any) => ({

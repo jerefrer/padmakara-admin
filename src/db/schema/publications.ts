@@ -10,6 +10,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { events } from "./retreats.ts";
+import { audiences } from "./audiences.ts";
 
 export const publications = pgTable("publications", {
   id: serial("id").primaryKey(),
@@ -24,7 +25,9 @@ export const publications = pgTable("publications", {
   coverImageS3Key: text("cover_image_s3_key"),
   pdfS3Key: text("pdf_s3_key").notNull(),
   fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
-  accessLevel: text("access_level").notNull().default("public"),
+  audienceId: integer("audience_id").references(() => audiences.id, {
+    onDelete: "set null",
+  }),
   status: text("status").notNull().default("draft"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -43,7 +46,11 @@ export const eventPublications = pgTable(
   (t) => [primaryKey({ columns: [t.eventId, t.publicationId] })],
 );
 
-export const publicationsRelations = relations(publications, ({ many }) => ({
+export const publicationsRelations = relations(publications, ({ one, many }) => ({
+  audience: one(audiences, {
+    fields: [publications.audienceId],
+    references: [audiences.id],
+  }),
   eventPublications: many(eventPublications),
 }));
 
