@@ -35,6 +35,10 @@ interface BaseProps {
    * stored hero), to seed the marker. Defaults to {50, 50}.
    */
   initialFocal?: { x: number; y: number };
+  /** Hero re-edit: the crop saved last time, in pixels of the original, restoring frame and zoom. */
+  initialCrop?: Area;
+  /** Hero re-edit: the black-and-white choice saved last time. */
+  initialGrayscale?: boolean;
 }
 
 type Props =
@@ -48,7 +52,7 @@ const AVATAR_VIEWPORT_H = 560;
 const HERO_VIEWPORT_H = 315;
 
 export function ImageCropDialog(props: Props) {
-  const { open, image, onClose, saving = false, initialFocal, mode } = props;
+  const { open, image, onClose, saving = false, initialFocal, initialCrop, initialGrayscale, mode } = props;
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
@@ -81,13 +85,16 @@ export function ImageCropDialog(props: Props) {
       setCroppedAreaPixels(null);
       setFocal({ x: 50, y: 50 });
       setGrayscale(false);
-    } else if (initialFocal) {
-      setFocal({
-        x: clamp(initialFocal.x, 0, 100),
-        y: clamp(initialFocal.y, 0, 100),
-      });
+    } else {
+      if (initialFocal) {
+        setFocal({
+          x: clamp(initialFocal.x, 0, 100),
+          y: clamp(initialFocal.y, 0, 100),
+        });
+      }
+      setGrayscale(initialGrayscale ?? false);
     }
-  }, [open, initialFocal]);
+  }, [open, initialFocal, initialGrayscale]);
 
   const onCropComplete = useCallback((_areaPercent: Area, areaPixels: Area) => {
     setCroppedAreaPixels(areaPixels);
@@ -182,6 +189,7 @@ export function ImageCropDialog(props: Props) {
                   onCropChange={setCrop}
                   onZoomChange={setZoom}
                   onCropComplete={onCropComplete}
+                  initialCroppedAreaPixels={initialCrop}
                 />
               </Box>
               {/* Mobile safe-zone overlay — two danger zones get drawn over

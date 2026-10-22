@@ -6,6 +6,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import { ImageCropDialog, applyGrayscale, type HeroSaveParams } from "./ImageCropDialog";
 import { authFetch } from "../utils/authFetch";
 import { fetchImageSourceAsFile } from "../utils/imageSource";
+import { appendHeroEdit, storedHeroEdit, type HeroEditUpload, type StoredHeroEdit } from "../utils/heroEdit";
 
 type DialogState =
   | { kind: "closed" }
@@ -15,7 +16,7 @@ type DialogState =
       file: File;
       /** Initial focal % to seed the marker (existing hero re-edit). */
       initialFocal?: { x: number; y: number };
-    };
+    } & StoredHeroEdit;
 
 async function uploadTeacherAvatar(
   teacherId: number,
@@ -35,11 +36,13 @@ async function uploadTeacherHero(
   blob: Blob,
   focalX: number,
   focalY: number,
+  edit: HeroEditUpload,
 ): Promise<void> {
   const form = new FormData();
   form.append("file", blob, "hero.jpg");
   form.append("focalX", String(focalX));
   form.append("focalY", String(focalY));
+  appendHeroEdit(form, edit);
   const res = await authFetch(`/api/admin/teachers/${teacherId}/hero`, {
     method: "POST",
     body: form,
@@ -143,7 +146,7 @@ export function TeacherImageUpload() {
   // ============ HERO ============
 
   const openHeroFromFile = useCallback((file: File) => {
-    setDialog({ kind: "hero", file });
+    setDialog({ kind: "hero", file, storedOriginal: false });
   }, []);
 
   const openHeroFromExisting = useCallback(async () => {
@@ -160,6 +163,7 @@ export function TeacherImageUpload() {
       setDialog({
         kind: "hero",
         file,
+        ...storedHeroEdit(record),
         initialFocal: {
           x: (record.heroFocalX as number) ?? 50,
           y: (record.heroFocalY as number) ?? 50,
@@ -187,6 +191,11 @@ export function TeacherImageUpload() {
           blob,
           params.focalX,
           params.focalY,
+          {
+            original: dialog.storedOriginal ? null : dialog.file,
+            crop: params.cropAreaPixels,
+            grayscale: params.grayscale,
+          },
         );
         notify("padmakara.teachers.heroUploaded", { type: "success" });
         setDialog({ kind: "closed" });
@@ -456,6 +465,8 @@ export function TeacherImageUpload() {
           onSave={handleHeroSave}
           saving={savingHero}
           initialFocal={dialog.initialFocal}
+          initialCrop={dialog.initialCrop}
+          initialGrayscale={dialog.initialGrayscale}
         />
       )}
     </Box>

@@ -6,6 +6,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import { ImageCropDialog, applyGrayscale, type HeroSaveParams } from "./ImageCropDialog";
 import { authFetch } from "../utils/authFetch";
 import { fetchImageSourceAsFile } from "../utils/imageSource";
+import { appendHeroEdit, storedHeroEdit, type HeroEditUpload, type StoredHeroEdit } from "../utils/heroEdit";
 
 type DialogState =
   | { kind: "closed" }
@@ -14,7 +15,7 @@ type DialogState =
       kind: "hero";
       file: File;
       initialFocal?: { x: number; y: number };
-    };
+    } & StoredHeroEdit;
 
 async function uploadGroupAvatar(groupId: number, blob: Blob): Promise<void> {
   const form = new FormData();
@@ -31,11 +32,13 @@ async function uploadGroupHero(
   blob: Blob,
   focalX: number,
   focalY: number,
+  edit: HeroEditUpload,
 ): Promise<void> {
   const form = new FormData();
   form.append("file", blob, "hero.jpg");
   form.append("focalX", String(focalX));
   form.append("focalY", String(focalY));
+  appendHeroEdit(form, edit);
   const res = await authFetch(`/api/admin/groups/${groupId}/hero`, {
     method: "POST",
     body: form,
@@ -139,7 +142,7 @@ export function GroupImageUpload() {
   // ============ HERO ============
 
   const openHeroFromFile = useCallback((file: File) => {
-    setDialog({ kind: "hero", file });
+    setDialog({ kind: "hero", file, storedOriginal: false });
   }, []);
 
   const openHeroFromExisting = useCallback(async () => {
@@ -156,6 +159,7 @@ export function GroupImageUpload() {
       setDialog({
         kind: "hero",
         file,
+        ...storedHeroEdit(record),
         initialFocal: {
           x: (record.heroFocalX as number) ?? 50,
           y: (record.heroFocalY as number) ?? 50,
@@ -181,6 +185,11 @@ export function GroupImageUpload() {
           blob,
           params.focalX,
           params.focalY,
+          {
+            original: dialog.storedOriginal ? null : dialog.file,
+            crop: params.cropAreaPixels,
+            grayscale: params.grayscale,
+          },
         );
         notify("padmakara.groups.heroUploaded", { type: "success" });
         setDialog({ kind: "closed" });
@@ -455,6 +464,8 @@ export function GroupImageUpload() {
           onSave={handleHeroSave}
           saving={savingHero}
           initialFocal={dialog.initialFocal}
+          initialCrop={dialog.initialCrop}
+          initialGrayscale={dialog.initialGrayscale}
         />
       )}
     </Box>
