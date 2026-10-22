@@ -1,5 +1,5 @@
 import type { Context, Next } from "hono";
-import { verifyToken } from "../services/auth.ts";
+import { verifyAccessToken } from "../services/auth.ts";
 import { AppError } from "../lib/errors.ts";
 
 export interface AuthUser {
@@ -20,7 +20,7 @@ export async function authMiddleware(c: Context, next: Next) {
 
   const token = authHeader.slice(7);
   try {
-    const payload = await verifyToken(token);
+    const payload = await verifyAccessToken(token);
     const user: AuthUser = {
       id: parseInt(payload.sub!, 10),
       email: payload.email!,
@@ -49,7 +49,7 @@ export async function optionalAuthMiddleware(c: Context, next: Next) {
 
   if (rawToken) {
     try {
-      const payload = await verifyToken(rawToken);
+      const payload = await verifyAccessToken(rawToken);
       const user: AuthUser = {
         id: parseInt(payload.sub!, 10),
         email: payload.email!,

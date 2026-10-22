@@ -156,14 +156,9 @@ describe("authMiddleware", () => {
     expect(body.error).toBe("Thing not found");
   });
 
-  // BUG (reported in the PR, not fixed here): refresh and access tokens are
-  // signed with the same secret and verifyToken never checks the token type,
-  // so a refresh token (60-day lifetime, `type: "refresh"`, no email/role) is
-  // accepted as a Bearer access token. Logging out deletes the refresh-token
-  // row, but the middleware never consults it, so a leaked refresh token keeps
-  // working as an access token until it expires. optionalAuthMiddleware has
-  // the same gap.
-  it.fails("should reject a refresh token used as an access token", async () => {
+  // Refresh and access tokens share the signing secret: a refresh token (60-day
+  // lifetime, not revoked by the middleware on logout) must not pass as one.
+  it("should reject a refresh token used as an access token", async () => {
     const refresh = await createRefreshToken({ sub: 7, email: "seeker@test.com", role: "user" });
 
     const { status } = await call("/protected", `Bearer ${refresh}`);
@@ -201,6 +196,15 @@ describe("optionalAuthMiddleware", () => {
 
   it("should continue as anonymous with a forged token rather than trusting its claims", async () => {
     const { status, body } = await call("/optional", `Bearer ${unsignedAdminToken()}`);
+
+    expect(status).toBe(200);
+    expect(body.user).toBeNull();
+  });
+
+  it("should continue as anonymous with a refresh token", async () => {
+    const refresh = await createRefreshToken({ sub: 7, email: "seeker@test.com", role: "user" });
+
+    const { status, body } = await call("/optional", `Bearer ${refresh}`);
 
     expect(status).toBe(200);
     expect(body.user).toBeNull();

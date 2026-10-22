@@ -58,6 +58,19 @@ export async function verifyToken(token: string): Promise<jose.JWTPayload & { em
   return payload as jose.JWTPayload & { email?: string; role?: string };
 }
 
+/**
+ * Verifies a token presented as an access token. Refresh tokens share the signing secret,
+ * so without this check a 60-day refresh token would pass as a Bearer access token — and
+ * logging out (which only deletes the stored refresh-token row) would not revoke it.
+ */
+export async function verifyAccessToken(token: string): Promise<jose.JWTPayload & { email?: string; role?: string }> {
+  const payload = await verifyToken(token);
+  if (payload.type === "refresh") {
+    throw new Error("refresh token used as an access token");
+  }
+  return payload;
+}
+
 export function generateMagicLinkToken(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
