@@ -41,8 +41,8 @@ describe("GET /api/admin/events/:id/missing-audio", () => {
   it("should list the event's tracks that have no audio", async () => {
     // Arrange
     rowsRef.rows = [
-      { id: 11, sessionId: 3, sessionNumber: 1, trackNumber: 2, title: "B", originalFilename: "002 B.mp3" },
-      { id: 14, sessionId: 4, sessionNumber: 2, trackNumber: 1, title: "C", originalFilename: "001 C.mp3" },
+      { id: 11, sessionId: 3, sessionNumber: 1, trackNumber: 2, title: "B", originalFilename: "002 B.mp3", fileSizeBytes: 1200 },
+      { id: 14, sessionId: 4, sessionNumber: 2, trackNumber: 1, title: "C", originalFilename: "001 C.mp3", fileSizeBytes: null },
     ];
 
     // Act

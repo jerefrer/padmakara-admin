@@ -239,6 +239,9 @@ eventRoutes.get("/:id/missing-audio", async (c) => {
       trackNumber: tracks.trackNumber,
       title: tracks.title,
       originalFilename: tracks.originalFilename,
+      // Recorded from the dropped file when the row was created; lets the
+      // admin tell apart same-named files when the folder is dropped again.
+      fileSizeBytes: tracks.fileSizeBytes,
     })
     .from(tracks)
     .innerJoin(sessions, eq(tracks.sessionId, sessions.id))
