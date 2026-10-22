@@ -103,20 +103,29 @@ The only schema workflow:
 
 ```bash
 # 1. Edit src/db/schema/*.ts as needed.
-# 2. Hand-write src/db/migrations/NNNN_short_name.sql with the exact ALTER/CREATE statements.
-#    Use ADD COLUMN IF NOT EXISTS / DROP COLUMN IF EXISTS for safety.
-# 3. Append a corresponding entry to src/db/migrations/meta/_journal.json.
-# 4. Apply locally: bun db:migrate    (or: psql "$DATABASE_URL" -f src/db/migrations/NNNN_*.sql)
+# 2. Generate the migration:  bun run db:generate --name short_name
+#    This writes src/db/migrations/NNNN_short_name.sql, meta/NNNN_snapshot.json
+#    and the journal entry. Commit all three together.
+# 3. Review the SQL. It must contain exactly the change you made. Where it helps
+#    re-running safely, add IF NOT EXISTS / IF EXISTS (ADD COLUMN, CREATE INDEX,
+#    DROP ...). Edit only the .sql file, never the snapshot.
+# 4. Apply locally: bun db:migrate
 # 5. Commit + push.
 # 6. On prod:
 #      ssh padmakara@admin.padmakara.pt
 #      cd ~/padmakara-api && git pull
 #      psql "$DATABASE_URL" -f src/db/migrations/NNNN_*.sql
-#      # then INSERT a row into drizzle.__drizzle_migrations with the file's sha256 hash
+#      # then INSERT a row into drizzle.__drizzle_migrations with the file's
+#      # sha256 hash and the journal entry's `when` as created_at
 #      sudo systemctl restart padmakara-api
 ```
 
-**Why hand-written, not `db:generate`?** The migration meta snapshots (`migrations/meta/0005_snapshot.json` → `0012_snapshot.json`) are missing — earlier hand-written migrations never recorded snapshots, so `db:generate` cannot diff cleanly and prompts interactively for spurious renames. Until those snapshots are reconstructed (a future cleanup task), every new migration is hand-written.
+**How generation works here.** `drizzle-kit generate` diffs the schema against the *last* snapshot file in `meta/` (sorted by name) and nothing else. Migrations 0003 and 0005–0040 have no snapshot; that is fine, because `meta/0041_snapshot.json` captures the full schema as of 0041 (it was produced by drizzle-kit and checked against a database built from all migrations). If `db:generate` ever plans changes you did not make, or prompts about renames, stop and investigate instead of answering the prompt.
+
+**Rules that keep it working:**
+- Always go through `bun run db:generate`, not `bunx drizzle-kit generate`. Hand-written journal entries 0005–0041 carry future `when` timestamps (up to 2027-06-02), and drizzle-orm's migrator silently skips any migration whose `when` is not greater than the last applied one. The `db:generate` wrapper (`src/scripts/generate-migration.ts`) moves the new entry after the previous one.
+- Never add a migration without its snapshot. If a migration must be hand-written (data fixes, renames drizzle-kit cannot express), generate it with `bun run db:generate --custom --name short_name`, which writes an empty SQL file plus a snapshot, then fill in the SQL. `tests/migrations/journal.test.ts` fails when the latest migration has no snapshot or the journal is out of order.
+- Several constraints in the database still have the PostgreSQL default names from hand-written SQL (`*_fkey`, `*_key`, `*_pkey`) while the snapshot uses drizzle-kit names (`*_fk`, `*_unique`, `*_pk`). A generated change that drops or alters one of them will fail on `DROP CONSTRAINT`. Rename the database constraints first (see `DECISIONS.md`, 2026-10-22 entry).
 
 ```bash
 bun db:migrate                 # Apply pending migrations
@@ -558,11 +567,11 @@ VITE_API_URL=http://localhost:3000
 
 2. Export from `src/db/schema/index.ts`
 
-3. Hand-write `src/db/migrations/NNNN_short_name.sql` with `CREATE TABLE` / `ALTER TABLE` (use `IF NOT EXISTS` clauses for idempotency).
+3. Run `bun run db:generate --name short_name` and review the generated SQL (add `IF NOT EXISTS` where sensible). Commit the SQL, the new snapshot and the journal entry together.
 
-4. Append the matching entry to `src/db/migrations/meta/_journal.json`.
+4. Apply locally: `bun db:migrate`. Apply on prod: `psql "$DATABASE_URL" -f src/db/migrations/NNNN_*.sql` then `INSERT` a row into `drizzle.__drizzle_migrations` with the file's sha256 hash and the journal entry's `when` as `created_at`. Never use `db:push` — it is disabled in `package.json`.
 
-5. Apply locally: `bun db:migrate`. Apply on prod: `psql "$DATABASE_URL" -f src/db/migrations/NNNN_*.sql` then `INSERT` a row into `drizzle.__drizzle_migrations` with the file's sha256 hash. Never use `db:push` — it is disabled in `package.json`.
+5. See "Database Schema Workflow — Migrations Only" above for the rules that keep generation working.
 
 6. Write tests for database operations.
 
