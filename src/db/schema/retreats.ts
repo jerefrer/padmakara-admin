@@ -8,6 +8,7 @@ import {
   primaryKey,
   boolean,
   jsonb,
+  index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { teachers } from "./teachers.ts";
@@ -128,7 +129,10 @@ export const eventOrganizers = pgTable(
       .references(() => organizers.id, { onDelete: "cascade" }),
     position: integer("position").notNull().default(0),
   },
-  (t) => [primaryKey({ columns: [t.eventId, t.organizerId] })],
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.organizerId] }),
+    index("retreat_organizers_organizer_id_idx").on(t.organizerId),
+  ],
 );
 
 // Relations

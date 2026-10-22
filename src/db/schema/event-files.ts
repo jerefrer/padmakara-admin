@@ -6,6 +6,7 @@ import {
   bigint,
   boolean,
   timestamp,
+  index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { events } from "./retreats.ts";
@@ -15,32 +16,36 @@ import { sessions } from "./sessions.ts";
  * Event files table - stores non-media files (images, subtitles, docs, etc.)
  * that don't fit into tracks (audio/video) or transcripts (PDFs) tables.
  */
-export const eventFiles = pgTable("event_files", {
-  id: serial("id").primaryKey(),
-  eventId: integer("event_id")
-    .notNull()
-    .references(() => events.id, { onDelete: "cascade" }),
-  sessionId: integer("session_id").references(() => sessions.id, {
-    onDelete: "set null",
-  }),
+export const eventFiles = pgTable(
+  "event_files",
+  {
+    id: serial("id").primaryKey(),
+    eventId: integer("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    sessionId: integer("session_id").references(() => sessions.id, {
+      onDelete: "set null",
+    }),
 
-  // File metadata
-  originalFilename: text("original_filename").notNull(),
-  s3Key: text("s3_key").notNull(),
-  fileType: text("file_type").notNull(), // image, subtitle, document, design, other
-  extension: text("extension").notNull(), // .jpg, .vtt, .doc, etc.
-  fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
-  language: text("language"), // Optional language for subtitles, docs, etc.
+    // File metadata
+    originalFilename: text("original_filename").notNull(),
+    s3Key: text("s3_key").notNull(),
+    fileType: text("file_type").notNull(), // image, subtitle, document, design, other
+    extension: text("extension").notNull(), // .jpg, .vtt, .doc, etc.
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
+    language: text("language"), // Optional language for subtitles, docs, etc.
 
-  // Documents feature
-  sensitive: boolean("sensitive").notNull().default(false),
-  title: text("title"),
-  sortOrder: integer("sort_order").notNull().default(0),
+    // Documents feature
+    sensitive: boolean("sensitive").notNull().default(false),
+    title: text("title"),
+    sortOrder: integer("sort_order").notNull().default(0),
 
-  // Timestamps
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+    // Timestamps
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("event_files_event_id_idx").on(t.eventId)],
+);
 
 export const eventFilesRelations = relations(eventFiles, ({ one }) => ({
   event: one(events, {

@@ -7,6 +7,7 @@ import {
   real,
   timestamp,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { users } from "./users.ts";
@@ -61,7 +62,10 @@ export const eventBookmarks = pgTable(
       .references(() => events.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.eventId)],
+  (t) => [
+    unique().on(t.userId, t.eventId),
+    index("event_bookmarks_user_id_idx").on(t.userId),
+  ],
 );
 
 // Whole-track bookmarks (no time position). Coexists with the older
@@ -79,7 +83,10 @@ export const trackBookmarks = pgTable(
       .references(() => tracks.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => [unique().on(t.userId, t.trackId)],
+  (t) => [
+    unique().on(t.userId, t.trackId),
+    index("track_bookmarks_user_id_idx").on(t.userId),
+  ],
 );
 
 // Relations

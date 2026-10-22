@@ -63,6 +63,48 @@
 
 ---
 
+## 2026-10-22 — Generated migrations from a single re-baselined snapshot
+
+**Chosen:** New migrations are generated with `bun run db:generate`, diffing against `meta/0041_snapshot.json`. That snapshot is drizzle-kit's own serialization of the schema, checked against a throwaway PostgreSQL 16 built from all 42 migrations with `db:migrate`. The missing snapshots (0003, 0005–0040) are not rebuilt: drizzle-kit reads only the last snapshot file by name as its diff base, and only validates the others (format, no two snapshots with the same `prevId`). `db:generate` wraps drizzle-kit to keep the journal's `when` values increasing, because hand-written entries 0005–0041 are dated in the future (up to 2027-06-02) and drizzle-orm's migrator silently skips an entry whose `when` is not above the last applied one.
+
+**Alternatives:** (a) Keep hand-writing migrations. Rejected: that is how the schema and database drifted apart. (b) Rebuild every missing snapshot. Rejected: drizzle-kit never reads them, so it is a lot of work with no effect. (c) Use the introspected database (`drizzle-kit pull`) as the baseline. Rejected: pull records index `opclass`, column order in unique constraints and array defaults (`'{""}'` for `'{}'::text[]`) differently from the serializer. The first generated migration would then drop and recreate 12 indexes and a unique constraint for nothing. (d) Rewrite the journal's future `when` values. Rejected: existing entries must not change, and `drizzle.__drizzle_migrations.created_at` mirrors them.
+
+**Why:** The schema and the migration-built database match for every table, column, type, nullability, default, index and constraint definition. The only exceptions are listed below. So a schema-based snapshot describes the database correctly, apart from the constraint names below.
+
+**Trade-offs:** Known drift between the database built from the migrations and the schema remains. None of it is fixed by a migration yet:
+- Constraint names: hand-written SQL left PostgreSQL default names, while the snapshot uses drizzle-kit names. Changing one of these constraints through `db:generate` will fail on `DROP CONSTRAINT` until it is renamed. Proposed fix, to apply as its own migration once prod's names have been checked:
+  ```sql
+  ALTER TABLE "event_bookmarks" RENAME CONSTRAINT "event_bookmarks_user_id_fkey" TO "event_bookmarks_user_id_users_id_fk";
+  ALTER TABLE "event_bookmarks" RENAME CONSTRAINT "event_bookmarks_event_id_fkey" TO "event_bookmarks_event_id_retreats_id_fk";
+  ALTER TABLE "track_bookmarks" RENAME CONSTRAINT "track_bookmarks_user_id_fkey" TO "track_bookmarks_user_id_users_id_fk";
+  ALTER TABLE "track_bookmarks" RENAME CONSTRAINT "track_bookmarks_track_id_fkey" TO "track_bookmarks_track_id_tracks_id_fk";
+  ALTER TABLE "read_along_jobs" RENAME CONSTRAINT "read_along_jobs_event_id_fkey" TO "read_along_jobs_event_id_retreats_id_fk";
+  ALTER TABLE "user_sync_versions" RENAME CONSTRAINT "user_sync_versions_user_id_fkey" TO "user_sync_versions_user_id_users_id_fk";
+  ALTER TABLE "user_sync_versions" RENAME CONSTRAINT "user_sync_versions_pkey" TO "user_sync_versions_user_id_pk";
+  ALTER TABLE "subtitle_jobs" RENAME CONSTRAINT "subtitle_jobs_session_video_id_fkey" TO "subtitle_jobs_video_id_event_videos_id_fk";
+  ALTER TABLE "video_progress" RENAME CONSTRAINT "video_progress_user_id_fkey" TO "video_progress_user_id_users_id_fk";
+  ALTER TABLE "video_progress" RENAME CONSTRAINT "video_progress_video_id_fkey" TO "video_progress_video_id_event_videos_id_fk";
+  ALTER TABLE "video_subtitles" RENAME CONSTRAINT "session_subtitles_session_video_id_fkey" TO "video_subtitles_video_id_event_videos_id_fk";
+  ALTER TABLE "payment_transactions" RENAME CONSTRAINT "payment_transactions_user_id_fkey" TO "payment_transactions_user_id_users_id_fk";
+  ALTER TABLE "payment_transactions" RENAME CONSTRAINT "payment_transactions_dedupe_key_key" TO "payment_transactions_dedupe_key_unique";
+  ALTER TABLE "event_videos" RENAME CONSTRAINT "event_videos_event_id_fkey" TO "event_videos_event_id_retreats_id_fk";
+  ALTER TABLE "publications" RENAME CONSTRAINT "publications_audience_id_fkey" TO "publications_audience_id_audiences_id_fk";
+  ALTER TABLE "retreat_organizers" RENAME CONSTRAINT "retreat_organizers_retreat_id_fkey" TO "retreat_organizers_retreat_id_retreats_id_fk";
+  ALTER TABLE "retreat_organizers" RENAME CONSTRAINT "retreat_organizers_organizer_id_fkey" TO "retreat_organizers_organizer_id_organizers_id_fk";
+  ALTER TABLE "retreat_organizers" RENAME CONSTRAINT "retreat_organizers_pkey" TO "retreat_organizers_retreat_id_organizer_id_pk";
+  ALTER TABLE "organizers" RENAME CONSTRAINT "organizers_name_key" TO "organizers_name_unique";
+  ALTER TABLE "organizers" RENAME CONSTRAINT "organizers_abbreviation_key" TO "organizers_abbreviation_unique";
+  ```
+  Verified on the throwaway database: after these renames, every constraint name matches the schema except the two cosmetic primary keys below.
+- `users.stripe_customer_id` (with unique constraint `users_stripe_customer_id_unique`) exists in the database, from 0003, but not in the schema. Nothing in `src/` references it. Dropping it needs a migration and a check that prod holds no data in it.
+- Enum types `file_action`, `file_category`, `log_level`, `migration_status` (from 0004) outlived the tables 0032 dropped. Harmless; drop them in a cleanup migration.
+- Serial sequences `session_videos_id_seq` and `session_subtitles_id_seq` kept their pre-rename names (the schema would create `event_videos_id_seq` / `video_subtitles_id_seq`), as did the primary keys `session_videos_pkey` and `session_subtitles_pkey`. drizzle-kit does not track either, so this is cosmetic.
+- Prod's actual names were not checked. If prod ever received a `db:push`, its names may already follow drizzle-kit, so check them before applying the rename.
+
+**Revisit if:** `db:generate` plans changes nobody made, or prompts about renames. Re-baseline the latest snapshot the same way.
+
+---
+
 ---
 
 ## 2026-10-22 — Schema drift cleanup migration (0042)
