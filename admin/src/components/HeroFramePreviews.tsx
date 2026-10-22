@@ -27,10 +27,12 @@ export const HERO_FRAMES: FrameSpec[] = [
   { key: "home-short", label: "Home - small phones", width: 375, height: 187.5, scale: 0.4 },
   // retreat/[id].tsx, teacher/[abbreviation].tsx, retreats/[code].tsx: HERO_HEIGHT 380, drawn under the status bar.
   { key: "page", label: "Event / teacher / group page", width: 390, height: 380, scale: 0.4, statusBar: 59, circles: true },
-  // featuredImageContainerDesktop: width 45% of the content column (about 1000 pt at a 1280 pt window), minHeight 280.
-  { key: "desk-home", label: "Desktop - highlight", width: 450, height: 280, scale: 0.4 },
-  // retreat/[id].tsx on desktop: heroContainer height 380 across the content column (about 1000 pt at 1280).
-  { key: "desk-page", label: "Desktop - event page", width: 1000, height: 380, scale: 0.25 },
+  // featuredImageContainerDesktop: 45% of the home card at a 1440 pt window (main pane 1440 - 280 sidebar
+  // - 220 right rail, minus 2 x 24 padding = 892), minHeight 280 (taller only with a long info column).
+  { key: "desk-home", label: "Desktop - highlight", width: 400, height: 280, scale: 0.4 },
+  // retreat/[id].tsx on desktop: heroContainer height 380; at a 1440 pt window the column is
+  // 1440 - 280 sidebar - 64 collapsed rail - 320 related events = 776 (app/(tabs)/_layout.tsx, (groups)/_layout.tsx).
+  { key: "desk-page", label: "Desktop - event page", width: 776, height: 380, scale: 0.3 },
 ];
 
 interface Props {
