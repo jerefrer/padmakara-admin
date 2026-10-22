@@ -306,7 +306,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     // between the number and the speaker ("003 [TIB] KPS - Motivation"), and
     // the speaker patterns are ^-anchored, so leaving the tag in place makes
     // every one of them miss and the abbreviation stays in the title.
-    .replace(/\[[A-Z]+(?:[+&/,][A-Z]+)*(?:\s*-\s*[^\]]+)?\]\s*/i, "");
+    .replace(/\[\p{L}+(?:\s*[+&/,]\s*\p{L}+)*(?:\s*-\s*[^\]]+)?\]\s*/iu, "");
 
   // Remove speaker abbreviation(s) ONLY if we detected them
   if (speakerPattern) {
@@ -320,7 +320,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     .replace(/^TRAD\s+-\s+/i, "")
     .replace(/^TRAD[\s_]+/i, "")
     // Remove ISO date
-    .replace(/\s*\d{4}-\d{2}-\d{2}/, "")
+    .replace(/[\s_]*\d{4}-\d{2}-\d{2}/, "")
     // Remove compact date (YYYYMMDD)
     .replace(/\s*\d{8}(?:\s|$)/, "");
 
@@ -448,7 +448,11 @@ function inferSessionsByDate(tracks: ParsedTrack[]): InferredSession[] {
     let titleEn = "";
     if (sample.date && sample.timePeriod) {
       const periodLabel =
-        sample.timePeriod === "morning" ? "Morning" : "Afternoon";
+        sample.timePeriod === "morning"
+          ? "Morning"
+          : sample.timePeriod === "evening"
+            ? "Evening"
+            : "Afternoon";
       titleEn = `${sample.date} - ${periodLabel}`;
       if (sample.partNumber) {
         titleEn += ` (Part ${sample.partNumber})`;
