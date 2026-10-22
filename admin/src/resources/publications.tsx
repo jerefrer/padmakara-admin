@@ -345,11 +345,14 @@ function RetreatGroupsPicker({
   onChange,
   slug,
   locale,
+  legacy,
 }: {
   value: number[];
   onChange: (ids: number[]) => void;
   slug: string;
   locale: string;
+  /** Linked events still decide access, so no groups is not an error (see LegacyLinkedEvents). */
+  legacy: boolean;
 }) {
   const translate = useTranslate();
   const dataProvider = useDataProvider();
@@ -368,7 +371,7 @@ function RetreatGroupsPicker({
   const selected = value
     .map((id) => options.find((g) => g.id === id))
     .filter((g): g is GroupOption => !!g);
-  const empty = value.length === 0;
+  const empty = value.length === 0 && !legacy;
   const helperKey =
     slug === "event-participants"
       ? "padmakara.publications.groupsHelperParticipants"
@@ -576,6 +579,7 @@ function AudienceAccessFields({
           onChange={(ids) => onChange({ retreatGroupIds: ids })}
           slug={slug}
           locale={locale}
+          legacy={legacyEvents}
         />
       )}
       {hidden && (
