@@ -190,6 +190,10 @@ export function ImageCropDialog(props: Props) {
                   onCropChange={setCrop}
                   onZoomChange={setZoom}
                   onCropComplete={onCropComplete}
+                  // react-easy-crop reports the default crop on load, then applies initialCroppedAreaPixels
+                  // without reporting it to onCropComplete; this one fires for that change too, so the
+                  // previews and Save use the restored crop rather than the default one.
+                  onCropAreaChange={onCropComplete}
                   initialCroppedAreaPixels={initialCrop}
                 />
               </Box>
