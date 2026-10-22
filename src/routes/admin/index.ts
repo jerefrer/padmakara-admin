@@ -3,6 +3,7 @@ import { authMiddleware } from "../../middleware/auth.ts";
 import { adminMiddleware } from "../../middleware/admin.ts";
 import { teacherRoutes } from "./teachers.ts";
 import { placeRoutes } from "./places.ts";
+import { organizerRoutes } from "./organizers.ts";
 import { groupRoutes } from "./groups.ts";
 import { eventRoutes } from "./events.ts";
 import { eventTypeRoutes } from "./event-types.ts";
@@ -33,6 +34,7 @@ admin.get("/translation-models", (c) =>
 
 admin.route("/teachers", teacherRoutes);
 admin.route("/places", placeRoutes);
+admin.route("/organizers", organizerRoutes);
 admin.route("/groups", groupRoutes);
 admin.route("/events", eventRoutes);
 admin.route("/event-types", eventTypeRoutes);

@@ -6,6 +6,7 @@ import {
   eventTeachers,
   eventRetreatGroups,
   eventPlaces,
+  eventOrganizers,
 } from "../../db/schema/retreats.ts";
 import { eventPublications } from "../../db/schema/publications.ts";
 import { teachers } from "../../db/schema/teachers.ts";
@@ -22,6 +23,7 @@ import { bumpVersion } from "../../services/sync-versions.ts";
 import { aiAssistEvent } from "../../services/ai-assist.ts";
 import { buildDefaultSlideDocument } from "../../lib/slides/defaults.ts";
 import { fetchSlideTemplateMetadata } from "../../services/slide-metadata.ts";
+import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../../lib/organizer-utils.ts";
 
 const eventRoutes = new Hono();
 
@@ -86,6 +88,7 @@ eventRoutes.get("/", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventOrganizers: eventOrganizersWith,
       eventPublications: { with: { publication: true } },
     },
   });
@@ -126,6 +129,7 @@ eventRoutes.get("/", async (c) => {
   // Apply pagination to filtered results
   const total = filteredData.length;
   const paginatedData = filteredData.slice(offset, offset + limit);
+  applyEventsOrganizers(paginatedData);
 
   // Content-presence flags for the list icons (cheap grouped existence scans).
   const ids = paginatedData.map((e: { id: number }) => e.id);
@@ -233,11 +237,13 @@ eventRoutes.get("/:id", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventOrganizers: eventOrganizersWith,
       eventPublications: { with: { publication: true } },
     },
   });
 
   if (!event) throw AppError.notFound("Event not found");
+  applyEventOrganizers(event);
   return c.json({
     ...event,
     publicationIds: event.eventPublications?.map((ep: any) => ep.publicationId) || [],
@@ -246,7 +252,7 @@ eventRoutes.get("/:id", async (c) => {
 
 eventRoutes.post("/", async (c) => {
   const body = await c.req.json();
-  const { teacherIds, groupIds, placeIds, publicationIds, featuredAt, ...eventData } =
+  const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, featuredAt, ...eventData } =
     createEventSchema.parse(body);
 
   const [event] = await db.insert(events).values({
@@ -255,7 +261,7 @@ eventRoutes.post("/", async (c) => {
   }).returning();
 
   // Insert junction records
-  await syncJunctions(event!.id, teacherIds, groupIds, placeIds);
+  await syncJunctions(event!.id, teacherIds, groupIds, placeIds, organizerIds);
 
   // Sync publications
   if (publicationIds && publicationIds.length > 0) {
@@ -276,6 +282,7 @@ eventRoutes.post("/", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventOrganizers: eventOrganizersWith,
       eventPublications: { with: { publication: true } },
     },
   });
@@ -283,13 +290,14 @@ eventRoutes.post("/", async (c) => {
   bumpVersion("events").catch((err) =>
     console.error("[sync] failed to bump events version:", err),
   );
+  applyEventOrganizers(full);
   return c.json(full!, 201);
 });
 
 eventRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
-  const { teacherIds, groupIds, placeIds, publicationIds, featuredAt, ...eventData } =
+  const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, featuredAt, ...eventData } =
     updateEventSchema.parse(body);
 
   // Only include fields that were actually sent in the request body,
@@ -315,12 +323,18 @@ eventRoutes.put("/:id", async (c) => {
   if (!event) throw AppError.notFound("Event not found");
 
   // Sync junction tables only if actually sent in request
-  if (bodyKeys.has("teacherIds") || bodyKeys.has("groupIds") || bodyKeys.has("placeIds")) {
+  if (
+    bodyKeys.has("teacherIds") ||
+    bodyKeys.has("groupIds") ||
+    bodyKeys.has("placeIds") ||
+    bodyKeys.has("organizerIds")
+  ) {
     await syncJunctions(
       id,
       bodyKeys.has("teacherIds") ? teacherIds : undefined,
       bodyKeys.has("groupIds") ? groupIds : undefined,
       bodyKeys.has("placeIds") ? placeIds : undefined,
+      bodyKeys.has("organizerIds") ? organizerIds : undefined,
     );
   }
 
@@ -345,6 +359,7 @@ eventRoutes.put("/:id", async (c) => {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventOrganizers: eventOrganizersWith,
       eventPublications: { with: { publication: true } },
     },
   });
@@ -352,6 +367,7 @@ eventRoutes.put("/:id", async (c) => {
   bumpVersion("events").catch((err) =>
     console.error("[sync] failed to bump events version:", err),
   );
+  applyEventOrganizers(full);
   return c.json(full!);
 });
 
@@ -477,6 +493,7 @@ async function syncJunctions(
   teacherIds?: { id: number; role: string }[],
   groupIds?: number[],
   placeIds?: number[],
+  organizerIds?: number[],
 ) {
   if (teacherIds !== undefined) {
     await db.delete(eventTeachers).where(eq(eventTeachers.eventId, eventId));
@@ -505,6 +522,17 @@ async function syncJunctions(
     if (placeIds.length > 0) {
       await db.insert(eventPlaces).values(
         placeIds.map((placeId) => ({ eventId, placeId })),
+      );
+    }
+  }
+
+  if (organizerIds !== undefined) {
+    await db.delete(eventOrganizers).where(eq(eventOrganizers.eventId, eventId));
+    if (organizerIds.length > 0) {
+      // Drop repeats (the primary key is event + organizer) but keep the chosen order.
+      const unique = [...new Set(organizerIds)];
+      await db.insert(eventOrganizers).values(
+        unique.map((organizerId, position) => ({ eventId, organizerId, position })),
       );
     }
   }

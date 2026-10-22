@@ -8,6 +8,7 @@ import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { filterAccessibleEvents, eventStatusVisibleTo } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
+import { applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 
 const groupRoutes = new Hono();
@@ -120,6 +121,7 @@ groupRoutes.get("/:id/events", async (c) => {
       audience: true,
       eventTeachers: { with: { teacher: true } },
       eventPlaces: { with: { place: true } },
+      eventOrganizers: eventOrganizersWith,
       eventRetreatGroups: { with: { retreatGroup: true } },
       sessions: {
         orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
@@ -141,6 +143,7 @@ groupRoutes.get("/:id/events", async (c) => {
 
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
+  applyEventsOrganizers(accessibleEvents);
   return c.json(accessibleEvents);
 });
 

@@ -12,6 +12,7 @@ import {
 import { relations } from "drizzle-orm";
 import { teachers } from "./teachers.ts";
 import { places } from "./places.ts";
+import { organizers } from "./organizers.ts";
 import { retreatGroups } from "./retreat-groups.ts";
 import { sessions } from "./sessions.ts";
 import { eventTypes } from "./event-types.ts";
@@ -63,9 +64,8 @@ export const events = pgTable("retreats", {
   librarySnapshot: jsonb("library_snapshot").$type<Record<string, unknown>>(),
   featuredAt: timestamp("featured_at", { withTimezone: true }),
   // Video title-slide defaults (src/lib/slides/defaults.ts, intro slide 4/5).
-  // organizer falls back to a global default when null; creditLines/copyrightHolder
-  // override the global credits block for this event's videos.
-  organizer: text("organizer"),
+  // creditLines/copyrightHolder override the global credits block for this
+  // event's videos. Organizers are linked through `retreat_organizers`.
   creditLines: text("credit_lines").array().notNull().default([]),
   copyrightHolder: text("copyright_holder"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -115,6 +115,22 @@ export const eventPlaces = pgTable(
   (t) => [primaryKey({ columns: [t.eventId, t.placeId] })],
 );
 
+// Junction: event <-> organizer. `position` keeps the order the admin chose,
+// since the organizers are shown joined as one string ("A, B").
+export const eventOrganizers = pgTable(
+  "retreat_organizers",
+  {
+    eventId: integer("retreat_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    organizerId: integer("organizer_id")
+      .notNull()
+      .references(() => organizers.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.eventId, t.organizerId] })],
+);
+
 // Relations
 export const eventsRelations = relations(events, ({ one, many }) => ({
   eventType: one(eventTypes, {
@@ -132,6 +148,7 @@ export const eventsRelations = relations(events, ({ one, many }) => ({
   eventTeachers: many(eventTeachers),
   eventRetreatGroups: many(eventRetreatGroups),
   eventPlaces: many(eventPlaces),
+  eventOrganizers: many(eventOrganizers),
   eventPublications: many(eventPublications),
 }));
 
@@ -165,5 +182,16 @@ export const eventPlacesRelations = relations(eventPlaces, ({ one }) => ({
   place: one(places, {
     fields: [eventPlaces.placeId],
     references: [places.id],
+  }),
+}));
+
+export const eventOrganizersRelations = relations(eventOrganizers, ({ one }) => ({
+  event: one(events, {
+    fields: [eventOrganizers.eventId],
+    references: [events.id],
+  }),
+  organizer: one(organizers, {
+    fields: [eventOrganizers.organizerId],
+    references: [organizers.id],
   }),
 }));
