@@ -1,315 +1,338 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Hono } from "hono";
+import { testJson } from "../helpers.ts";
 
-// Setup mocks BEFORE any imports
-const mockDb = {
-  query: {
-    downloadRequests: {
-      findFirst: vi.fn(),
+// These tests drive the real routes mounted at /api/download-requests through
+// the Hono app (optional auth, ownership checks, anonymous re-verification,
+// expiry handling). Only the database and the storage presigner are mocked.
+
+const { mockDb, updateSets, mockGeneratePresignedUrl } = vi.hoisted(() => {
+  const updateSets: Array<Record<string, unknown>> = [];
+  const mockDb = {
+    query: {
+      downloadRequests: { findFirst: vi.fn() },
+      events: { findFirst: vi.fn() },
     },
-    events: {
-      findFirst: vi.fn(),
-    },
-  },
-  update: vi.fn(() => ({
-    set: vi.fn(() => ({
-      where: vi.fn(() => Promise.resolve()),
+    update: vi.fn((_table: unknown) => ({
+      set: vi.fn((vals: Record<string, unknown>) => {
+        updateSets.push(vals);
+        return { where: vi.fn(() => Promise.resolve()) };
+      }),
     })),
-  })),
-};
+  };
+  const mockGeneratePresignedUrl = vi.fn((_key: string, _expiresIn?: number) =>
+    Promise.resolve("https://storage.example.test/downloads/evt/zip.zip?sig=abc"),
+  );
+  return { mockDb, updateSets, mockGeneratePresignedUrl };
+});
 
-const mockGeneratePresignedUrl = vi.fn((_key: string, _expiresIn?: number) =>
-  Promise.resolve("https://s3.amazonaws.com/bucket/file.zip?signature=abc123"),
-);
-
-// Mock modules at top level
 vi.mock("../../src/db/index.ts", () => ({ db: mockDb }));
 vi.mock("../../src/services/s3.ts", () => ({
   generatePresignedDownloadUrl: mockGeneratePresignedUrl,
 }));
 
-// Import after mocks are set up
-import { eq } from "drizzle-orm";
-import { downloadRequests } from "../../src/db/schema/download-requests.ts";
-import { AppError } from "../../src/lib/errors.ts";
+import { createAccessToken } from "../../src/services/auth.ts";
 
-// Test the route logic directly without Hono app
-// This is more reliable than mocking middleware
-describe("Downloads Routes - Logic Tests", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+const REQUEST_ID = "123e4567-e89b-12d3-a456-426614174000";
+const IN_A_DAY = () => new Date(Date.now() + 24 * 60 * 60 * 1000);
+const A_SECOND_AGO = () => new Date(Date.now() - 1000);
 
-  describe("Status Check Logic", () => {
-    it("returns status for valid request owned by user", async () => {
-      const mockRequest = {
-        id: "123e4567-e89b-12d3-a456-426614174000",
-        userId: 1,
-        eventId: 1,
-        status: "processing" as const,
-        progressPercent: 45,
-        totalFiles: 20,
-        processedFiles: 9,
-        errorMessage: null,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      };
+function makeRequest(overrides: Record<string, unknown> = {}) {
+  return {
+    id: REQUEST_ID,
+    userId: 1,
+    eventId: 42,
+    status: "processing",
+    progressPercent: 45,
+    totalFiles: 20,
+    processedFiles: 9,
+    errorMessage: null,
+    s3Key: null,
+    expiresAt: null,
+    ...overrides,
+  };
+}
 
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
+async function authHeader(userId = 1, role = "user") {
+  const token = await createAccessToken({ sub: userId, email: `u${userId}@test.com`, role });
+  return { Authorization: `Bearer ${token}` };
+}
 
-      // Simulate what the route does
-      const userId = 1;
-      const requestId = "123e4567-e89b-12d3-a456-426614174000";
+const publicEvent = { id: 42, status: "published", audience: { slug: "free-anyone" } };
 
-      const request = await mockDb.query.downloadRequests.findFirst();
+beforeEach(() => {
+  vi.clearAllMocks();
+  updateSets.length = 0;
+});
 
-      expect(request).toBeTruthy();
-      expect(request?.userId).toBe(userId);
-      expect(request?.status).toBe("processing");
-      expect(request?.progressPercent).toBe(45);
+describe("GET /api/download-requests/:id/status", () => {
+  it("should return progress for the owner of the request", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest());
+
+    const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/status`, {
+      headers: await authHeader(1),
     });
 
-    it("handles expired status correctly", async () => {
-      const mockRequest = {
-        id: "123e4567-e89b-12d3-a456-426614174000",
-        userId: 1,
-        status: "ready" as const,
-        progressPercent: 100,
-        expiresAt: new Date(Date.now() - 1000), // Expired
-      };
-
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-
-      const request = await mockDb.query.downloadRequests.findFirst();
-      const isExpired = request?.expiresAt && new Date() > request.expiresAt;
-
-      expect(isExpired).toBe(true);
-      expect(request?.status).toBe("ready");
-    });
-
-    it("handles not found scenario", async () => {
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(null);
-
-      const request = await mockDb.query.downloadRequests.findFirst();
-
-      expect(request).toBeNull();
-    });
-
-    it("handles access denied when user doesn't own request", async () => {
-      const mockRequest = {
-        id: "123e4567-e89b-12d3-a456-426614174000",
-        userId: 999, // Different user
-        status: "ready" as const,
-      };
-
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-
-      const currentUserId = 1;
-      const request = await mockDb.query.downloadRequests.findFirst();
-
-      expect(request?.userId).not.toBe(currentUserId);
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      status: "processing",
+      progress_percent: 45,
+      total_files: 20,
+      processed_files: 9,
     });
   });
 
-  describe("Download Logic", () => {
-    it("generates presigned URL for ready downloads", async () => {
-      const mockRequest = {
-        id: "123e4567-e89b-12d3-a456-426614174000",
-        userId: 1,
-        status: "ready" as const,
-        s3Key: "downloads/2024.04.15-GROUP/request.zip",
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      };
+  it("should return 404 when the request does not exist", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(undefined);
 
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-
-      const request = await mockDb.query.downloadRequests.findFirst();
-
-      if (request?.status === "ready" && request.s3Key) {
-        const url = await mockGeneratePresignedUrl(request.s3Key, 3600);
-        expect(url).toContain("s3.amazonaws.com");
-        expect(mockGeneratePresignedUrl).toHaveBeenCalledWith(request.s3Key, 3600);
-      }
+    const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/status`, {
+      headers: await authHeader(1),
     });
 
-    it("rejects download when not ready", async () => {
-      const mockRequest = {
-        id: "123e4567-e89b-12d3-a456-426614174000",
-        userId: 1,
-        status: "processing" as const,
-        s3Key: null,
-      };
-
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-
-      const request = await mockDb.query.downloadRequests.findFirst();
-
-      expect(request?.status).not.toBe("ready");
-    });
-
-    it("handles missing s3Key for ready status", async () => {
-      const mockRequest = {
-        id: "123e4567-e89b-12d3-a456-426614174000",
-        userId: 1,
-        status: "ready" as const,
-        s3Key: null,
-      };
-
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-
-      const request = await mockDb.query.downloadRequests.findFirst();
-
-      expect(request?.status).toBe("ready");
-      expect(request?.s3Key).toBeNull();
-    });
-
-    it("handles expired downloads on download attempt", async () => {
-      const mockRequest = {
-        id: "123e4567-e89b-12d3-a456-426614174000",
-        userId: 1,
-        status: "ready" as const,
-        s3Key: "downloads/event/request.zip",
-        expiresAt: new Date(Date.now() - 1000), // Expired
-      };
-
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-
-      const request = await mockDb.query.downloadRequests.findFirst();
-      const isExpired = request?.expiresAt && new Date() > request.expiresAt;
-
-      expect(isExpired).toBe(true);
-
-      // Would trigger status update to "expired"
-      if (isExpired) {
-        expect(mockDb.update).toBeDefined();
-      }
-    });
+    expect(status).toBe(404);
   });
 
-  describe("Error Scenarios", () => {
-    it("validates request ownership", async () => {
-      const scenarios = [
-        { userId: 1, requestUserId: 1, shouldPass: true },
-        { userId: 1, requestUserId: 2, shouldPass: false },
-        { userId: 999, requestUserId: 1, shouldPass: false },
-      ];
+  it("should return 403 when another user polls a request they do not own", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ userId: 999 }));
 
-      for (const scenario of scenarios) {
-        const hasAccess = scenario.userId === scenario.requestUserId;
-        expect(hasAccess).toBe(scenario.shouldPass);
-      }
+    const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/status`, {
+      headers: await authHeader(1),
     });
 
-    it("validates status transitions", async () => {
-      const validStatuses = ["pending", "processing", "ready", "failed", "expired"];
-      const readyForDownload = ["ready"];
-
-      for (const status of validStatuses) {
-        const canDownload = readyForDownload.includes(status);
-        expect(canDownload).toBe(status === "ready");
-      }
-    });
+    expect(status).toBe(403);
   });
 
-  describe("Anonymous download re-verification", () => {
-    it("grants access when anonymous request's event is still public", async () => {
-      // The download request has no userId (anonymous)
-      const mockRequest = {
-        id: "aaa00000-0000-0000-0000-000000000001",
-        userId: null,
-        eventId: 42,
-        status: "ready" as const,
-        progressPercent: 100,
-        totalFiles: 5,
-        processedFiles: 5,
-        errorMessage: null,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      };
+  it("should return 403 when an anonymous caller polls a user-owned request", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ userId: 1 }));
 
-      // The associated event is still published + free-anyone
-      const mockPublicEvent = {
-        id: 42,
-        status: "published",
-        audience: { slug: "free-anyone" },
-      };
+    const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/status`);
 
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-      mockDb.query.events.findFirst.mockResolvedValueOnce(mockPublicEvent);
+    expect(status).toBe(403);
+  });
 
-      // Simulate verifyEventStillPublic logic
-      const event = await mockDb.query.events.findFirst();
-      const isPublic =
-        event?.status === "published" && event?.audience?.slug === "free-anyone";
+  it("should treat an invalid token as anonymous and deny a user-owned request", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ userId: 1 }));
 
-      expect(isPublic).toBe(true);
+    const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/status`, {
+      headers: { Authorization: "Bearer not-a-jwt" },
     });
 
-    it("denies access when anonymous request's event is no longer public", async () => {
-      // The download request has no userId (anonymous)
-      const mockRequest = {
-        id: "bbb00000-0000-0000-0000-000000000002",
-        userId: null,
-        eventId: 43,
-        status: "ready" as const,
-        progressPercent: 100,
-        totalFiles: 3,
-        processedFiles: 3,
-        errorMessage: null,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      };
+    expect(status).toBe(403);
+  });
 
-      // The event has been changed to a restricted audience after the request was created
-      const mockRestrictedEvent = {
-        id: 43,
-        status: "published",
+  it("should expose the error message of a failed request", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({ status: "failed", errorMessage: "No tracks found for this event" }),
+    );
+
+    const { body } = await testJson(`/api/download-requests/${REQUEST_ID}/status`, {
+      headers: await authHeader(1),
+    });
+
+    expect(body.status).toBe("failed");
+    expect(body.error_message).toBe("No tracks found for this event");
+  });
+
+  it("should flip a ready request past its expiry to expired and persist it", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({ status: "ready", progressPercent: 100, expiresAt: A_SECOND_AGO() }),
+    );
+
+    const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/status`, {
+      headers: await authHeader(1),
+    });
+
+    expect(status).toBe(200);
+    expect(body.status).toBe("expired");
+    expect(body.error_message).toMatch(/expired/i);
+    expect(updateSets).toEqual([expect.objectContaining({ status: "expired" })]);
+  });
+
+  it("should not write anything when a ready request is still within its expiry", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({ status: "ready", progressPercent: 100, expiresAt: IN_A_DAY() }),
+    );
+
+    const { body } = await testJson(`/api/download-requests/${REQUEST_ID}/status`, {
+      headers: await authHeader(1),
+    });
+
+    expect(body.status).toBe("ready");
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  describe("anonymous requests (userId is null)", () => {
+    it("should let anyone poll while the event is still public", async () => {
+      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ userId: null }));
+      mockDb.query.events.findFirst.mockResolvedValueOnce(publicEvent);
+
+      const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/status`);
+
+      expect(status).toBe(200);
+      expect(body.status).toBe("processing");
+    });
+
+    it("should return 403 once the event audience is no longer public", async () => {
+      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ userId: null }));
+      mockDb.query.events.findFirst.mockResolvedValueOnce({
+        ...publicEvent,
         audience: { slug: "retreat-group-members" },
-      };
+      });
 
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-      mockDb.query.events.findFirst.mockResolvedValueOnce(mockRestrictedEvent);
+      const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/status`);
 
-      // Simulate verifyEventStillPublic logic
-      const event = await mockDb.query.events.findFirst();
-      const isPublic =
-        event?.status === "published" && event?.audience?.slug === "free-anyone";
-
-      // Not public → should throw AppError.forbidden
-      expect(isPublic).toBe(false);
-
-      const { AppError: AE } = await import("../../src/lib/errors.ts");
-      expect(() => {
-        if (!isPublic) throw AE.forbidden("This content is no longer publicly available");
-      }).toThrow("This content is no longer publicly available");
+      expect(status).toBe(403);
+      expect(body.error).toMatch(/no longer publicly available/);
     });
 
-    it("denies access when anonymous request's event is unpublished (drafted/archived)", async () => {
-      const mockRequest = {
-        id: "ccc00000-0000-0000-0000-000000000003",
-        userId: null,
-        eventId: 44,
-        status: "ready" as const,
-        progressPercent: 100,
-        totalFiles: 2,
-        processedFiles: 2,
-        errorMessage: null,
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      };
+    it("should return 403 once the event has been unpublished", async () => {
+      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ userId: null }));
+      mockDb.query.events.findFirst.mockResolvedValueOnce({ ...publicEvent, status: "draft" });
 
-      // Event still has public audience but has been un-published
-      const mockDraftedEvent = {
-        id: 44,
-        status: "draft",
-        audience: { slug: "free-anyone" },
-      };
+      const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/status`);
 
-      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(mockRequest);
-      mockDb.query.events.findFirst.mockResolvedValueOnce(mockDraftedEvent);
-
-      // Simulate verifyEventStillPublic logic
-      const event = await mockDb.query.events.findFirst();
-      const isPublic =
-        event?.status === "published" && event?.audience?.slug === "free-anyone";
-
-      expect(isPublic).toBe(false);
+      expect(status).toBe(403);
     });
+
+    it("should return 403 when the event has been deleted", async () => {
+      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ userId: null }));
+      mockDb.query.events.findFirst.mockResolvedValueOnce(undefined);
+
+      const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/status`);
+
+      expect(status).toBe(403);
+    });
+
+    it("should re-verify the event even for an authenticated caller", async () => {
+      mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ userId: null }));
+      mockDb.query.events.findFirst.mockResolvedValueOnce({ ...publicEvent, status: "archived" });
+
+      const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/status`, {
+        headers: await authHeader(1),
+      });
+
+      expect(status).toBe(403);
+    });
+  });
+});
+
+describe("GET /api/download-requests/:id/download", () => {
+  it("should return a fresh one-hour presigned URL for a ready request", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({
+        status: "ready",
+        s3Key: "downloads/EVT/spring-retreat.zip",
+        expiresAt: IN_A_DAY(),
+      }),
+    );
+
+    const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/download`, {
+      headers: await authHeader(1),
+    });
+
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      success: true,
+      download_url: "https://storage.example.test/downloads/evt/zip.zip?sig=abc",
+    });
+    expect(mockGeneratePresignedUrl).toHaveBeenCalledWith("downloads/EVT/spring-retreat.zip", 3600);
+  });
+
+  it("should return 400 NOT_READY while the ZIP is still being built", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ status: "processing" }));
+
+    const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/download`, {
+      headers: await authHeader(1),
+    });
+
+    expect(status).toBe(400);
+    expect(body.code).toBe("NOT_READY");
+    expect(mockGeneratePresignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("should return 400 NOT_READY for a failed request", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ status: "failed" }));
+
+    const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/download`, {
+      headers: await authHeader(1),
+    });
+
+    expect(status).toBe(400);
+    expect(body.error).toMatch(/failed/);
+  });
+
+  it("should return 410 EXPIRED and persist the expired status past expiry", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({ status: "ready", s3Key: "downloads/EVT/x.zip", expiresAt: A_SECOND_AGO() }),
+    );
+
+    const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/download`, {
+      headers: await authHeader(1),
+    });
+
+    expect(status).toBe(410);
+    expect(body.code).toBe("EXPIRED");
+    expect(updateSets).toEqual([expect.objectContaining({ status: "expired" })]);
+    expect(mockGeneratePresignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("should return 500 when a ready request has no storage key", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({ status: "ready", s3Key: null, expiresAt: IN_A_DAY() }),
+    );
+
+    const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/download`, {
+      headers: await authHeader(1),
+    });
+
+    expect(status).toBe(500);
+    expect(body.code).toBe("INTERNAL_ERROR");
+  });
+
+  it("should return 403 to a non-owner before revealing the request state", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({ userId: 999, status: "ready", s3Key: "downloads/EVT/x.zip", expiresAt: IN_A_DAY() }),
+    );
+
+    const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/download`, {
+      headers: await authHeader(1),
+    });
+
+    expect(status).toBe(403);
+    expect(mockGeneratePresignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("should return 404 when the request does not exist", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(undefined);
+
+    const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/download`);
+
+    expect(status).toBe(404);
+  });
+
+  it("should serve an anonymous request without a token while the event is public", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({ userId: null, status: "ready", s3Key: "downloads/EVT/x.zip", expiresAt: IN_A_DAY() }),
+    );
+    mockDb.query.events.findFirst.mockResolvedValueOnce(publicEvent);
+
+    const { status, body } = await testJson(`/api/download-requests/${REQUEST_ID}/download`);
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+  });
+
+  it("should refuse an anonymous download once the event is no longer public", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(
+      makeRequest({ userId: null, status: "ready", s3Key: "downloads/EVT/x.zip", expiresAt: IN_A_DAY() }),
+    );
+    mockDb.query.events.findFirst.mockResolvedValueOnce({
+      ...publicEvent,
+      audience: { slug: "free-subscribers" },
+    });
+
+    const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/download`);
+
+    expect(status).toBe(403);
+    expect(mockGeneratePresignedUrl).not.toHaveBeenCalled();
   });
 });
