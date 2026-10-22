@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, ilike } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { users, userGroupMemberships, userEventAttendance } from "../../db/schema/users.ts";
 import { updateUserSchema } from "../../lib/schemas.ts";
@@ -23,9 +23,19 @@ const columns: Record<string, any> = {
 userRoutes.get("/", async (c) => {
   const { limit, offset, _sort, _order } = parsePagination(c);
   const orderBy = buildOrderBy(_sort, _order, columns);
+  // Free-text search, used by the user pickers of the admin.
+  const q = c.req.query("q")?.trim();
+  const where = q
+    ? or(
+        ilike(users.email, `%${q}%`),
+        ilike(users.firstName, `%${q}%`),
+        ilike(users.lastName, `%${q}%`),
+      )
+    : undefined;
 
   const [data, total] = await Promise.all([
     db.query.users.findMany({
+      where,
       orderBy: orderBy ? [orderBy] : undefined,
       limit,
       offset,
@@ -38,7 +48,7 @@ userRoutes.get("/", async (c) => {
         },
       },
     }),
-    countRows(users),
+    countRows(users, where),
   ]);
 
   return listResponse(c, data, total, offset, offset + limit, "users");
