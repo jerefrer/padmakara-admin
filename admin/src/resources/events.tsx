@@ -34,6 +34,7 @@ import AlertTitle from "@mui/material/AlertTitle";
 import Button from "@mui/material/Button";
 import MuiTextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
 import Autocomplete from "@mui/material/Autocomplete";
 import Grid from "@mui/material/Grid";
 import ToggleButton from "@mui/material/ToggleButton";
@@ -1916,6 +1917,9 @@ export const EventCreate = () => {
   const [form, setForm] = useState<EventFormData>({ ...EMPTY_FORM });
   const [sessions, setSessions] = useState<InferredSession[]>([]);
   const [folderName, setFolderName] = useState<string | null>(null);
+  // The admin chose to start from the metadata alone: the form shows with no
+  // sessions, and audio/video are added later from the event's edit page.
+  const [withoutFiles, setWithoutFiles] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
   const cancelUploadRef = useRef<(() => void) | null>(null);
@@ -2363,8 +2367,14 @@ export const EventCreate = () => {
           // Error/cancel already shown in UploadProgress
         }
       } else {
-        notify(translate("padmakara.events.createdSuccess"), { type: "success" });
-        redirect("list", "events");
+        if (withoutFiles) {
+          // Nothing to upload: land on the edit page, where audio and video can be added.
+          notify(translate("padmakara.events.createdWithoutFiles"), { type: "success" });
+          redirect("edit", "events", event.id);
+        } else {
+          notify(translate("padmakara.events.createdSuccess"), { type: "success" });
+          redirect("list", "events");
+        }
       }
     } catch (error: any) {
       notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
@@ -2373,13 +2383,14 @@ export const EventCreate = () => {
   };
 
   const hasFolder = sessions.length > 0;
+  const showForm = hasFolder || withoutFiles;
 
   return (
     <Box sx={{ px: 3, pb: 6 }}>
       <Title title={translate("padmakara.events.newEvent")} />
       <PageHeader title={translate("padmakara.events.newEvent")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
 
-      {!hasFolder && (
+      {!showForm && (
         <Paper sx={{ p: 3 }}>
           <TrackAnalysisDropZone
             onAnalyzed={handleAnalyzed}
@@ -2400,11 +2411,38 @@ export const EventCreate = () => {
             </Typography>
             <NamingConventionsButton />
           </Box>
+          <Divider sx={{ my: 2.5 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {translate("padmakara.events.or")}
+            </Typography>
+          </Divider>
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5 }}>
+            <Button variant="outlined" onClick={() => setWithoutFiles(true)}>
+              {translate("padmakara.events.startWithoutFiles")}
+            </Button>
+            <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center" }}>
+              {translate("padmakara.events.startWithoutFilesHint")}
+            </Typography>
+          </Box>
         </Paper>
       )}
 
-      {hasFolder && !uploadProgress && (
+      {showForm && !uploadProgress && (
         <>
+          {withoutFiles && !hasFolder && (
+            <Alert
+              severity="info"
+              sx={{ mb: 2 }}
+              action={
+                <Button color="inherit" size="small" onClick={() => setWithoutFiles(false)} disabled={saving}>
+                  {translate("padmakara.events.useFolderInstead")}
+                </Button>
+              }
+            >
+              {translate("padmakara.events.withoutFilesNotice")}
+            </Alert>
+          )}
+
           {/* AI analysis report at the TOP so the admin sees the
               degradation banner immediately on arrival. Notes follow. */}
           {analysis && (
@@ -2469,14 +2507,16 @@ export const EventCreate = () => {
           )}
 
           {/* Review & edit the parsed tracks/sessions before saving */}
-          <SessionTrackTable
-            value={sessionsToTableValue(sessions)}
-            onChange={(tv) => setSessions(tableValueToSessions(tv, sessions))}
-            teachers={allTeachers}
-            enablePractice
-            editableFilename
-            trackCorrections={trackCorrections}
-          />
+          {hasFolder && (
+            <SessionTrackTable
+              value={sessionsToTableValue(sessions)}
+              onChange={(tv) => setSessions(tableValueToSessions(tv, sessions))}
+              teachers={allTeachers}
+              enablePractice
+              editableFilename
+              trackCorrections={trackCorrections}
+            />
+          )}
 
           {/* 6.1 — Transcript upload (allowed before or after save; eventCode needed) */}
           {form.eventCode && (
