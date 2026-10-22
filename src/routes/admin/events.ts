@@ -218,6 +218,36 @@ eventRoutes.get("/incomplete-audio", async (c) => {
   });
 });
 
+/**
+ * GET /:id/missing-audio — the tracks of one event that still have no audio
+ * object (s3_key null), in session/track order. The admin calls it right
+ * after a bulk upload ends (normally, on error or on cancel) to reconcile
+ * what the database holds against what was meant to be uploaded, and to
+ * offer resuming the upload for exactly those tracks.
+ */
+eventRoutes.get("/:id/missing-audio", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest("Invalid event id", "INVALID_ID");
+  }
+
+  const rows = await db
+    .select({
+      id: tracks.id,
+      sessionId: sessions.id,
+      sessionNumber: sessions.sessionNumber,
+      trackNumber: tracks.trackNumber,
+      title: tracks.title,
+      originalFilename: tracks.originalFilename,
+    })
+    .from(tracks)
+    .innerJoin(sessions, eq(tracks.sessionId, sessions.id))
+    .where(and(eq(sessions.eventId, id), isNull(tracks.s3Key)))
+    .orderBy(sessions.sessionNumber, tracks.trackNumber);
+
+  return c.json({ tracks: rows });
+});
+
 eventRoutes.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const event = await db.query.events.findFirst({
