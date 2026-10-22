@@ -13,6 +13,9 @@ export const AUDIENCE_SLUGS = {
   EVENT_PARTICIPANTS: "event-participants",
   ON_REQUEST: "available-on-request-only",
   INITIATION: "received-initiation",
+  // Hidden in the app unless an admin grants access; added for publications,
+  // and handled for events exactly like ON_REQUEST.
+  RESTRICTED: "restricted",
 } as const;
 
 export type AccessDeniedReason =
@@ -131,7 +134,7 @@ export async function canUserSeeSubscriberContent(
  * - Subscriber events: active subscription
  * - Group member events: active subscription + user in event's group
  * - Event participant events: active subscription + user attended event
- * - On request / initiation: admin-granted via userEventAttendance (subscription optional)
+ * - On request / initiation / restricted: admin-granted via userEventAttendance (subscription optional)
  */
 export async function checkEventAccess(
   user: UserForAccess | null,
@@ -164,7 +167,8 @@ export async function checkEventAccess(
   // Subscription is NOT required — admin explicitly granted access
   if (
     audienceSlug === AUDIENCE_SLUGS.ON_REQUEST ||
-    audienceSlug === AUDIENCE_SLUGS.INITIATION
+    audienceSlug === AUDIENCE_SLUGS.INITIATION ||
+    audienceSlug === AUDIENCE_SLUGS.RESTRICTED
   ) {
     const attendance = await db.query.userEventAttendance.findFirst({
       where: and(

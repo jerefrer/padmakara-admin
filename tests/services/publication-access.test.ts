@@ -10,6 +10,7 @@ const AUDIENCES = [
   { id: 10, slug: "retreat-group-members" },
   { id: 11, slug: "received-initiation" },
   { id: 12, slug: "available-on-request-only" },
+  { id: 13, slug: "restricted" },
 ];
 
 const state = vi.hoisted(() => ({
@@ -18,6 +19,11 @@ const state = vi.hoisted(() => ({
   attendedEventIds: new Set<number>(),
   eventGroups: new Map<number, number[]>(),
   userGroupIds: new Set<number>(),
+  // New model: groups ticked on the publication, the access list, and the
+  // groups of the events the user attended.
+  pubGroups: new Map<number, number[]>(),
+  accessList: [] as { publicationId: number; userId: number }[],
+  attendedGroupIds: new Set<number>(),
 }));
 
 /** Numbers bound into a drizzle where-clause, to tell which event it asks about. */
@@ -32,20 +38,36 @@ function paramsOf(node: unknown, found: unknown[] = []): unknown[] {
 }
 
 vi.mock("../../src/db/index.ts", () => {
-  // audiences is awaited straight after from(); event groups after where().
-  const from = (table: { [k: symbol]: unknown }) => {
-    const isAudiences = Object.values(table).some((c) => (c as { name?: string })?.name === "name_en");
-    if (isAudiences) {
-      return { then: (ok: (v: unknown) => unknown) => Promise.resolve(AUDIENCES).then(ok) };
-    }
-    return {
-      where: (cond: unknown) => {
-        const eventId = paramsOf(cond)[0] as number;
-        return Promise.resolve(
-          (state.eventGroups.get(eventId) ?? []).map((retreatGroupId) => ({ retreatGroupId })),
+  // Rows come from the state by table; the conditions are not evaluated, the
+  // state already holds only what the scenario is about.
+  const rowsFor = (table: { [k: symbol]: unknown }, cond?: unknown): unknown[] => {
+    switch (table[Symbol.for("drizzle:Name")]) {
+      case "audiences":
+        return AUDIENCES;
+      case "publication_retreat_groups":
+        return [...state.pubGroups].flatMap(([publicationId, ids]) =>
+          ids.map((retreatGroupId) => ({ publicationId, retreatGroupId })),
         );
-      },
+      case "publication_access_users":
+        return state.accessList;
+      case "user_group_memberships":
+        return [...state.userGroupIds].map((retreatGroupId) => ({ retreatGroupId }));
+      case "user_retreat_attendance":
+        return [...state.attendedGroupIds].map((retreatGroupId) => ({ retreatGroupId }));
+      default: {
+        // event_retreat_groups, asked about one event at a time.
+        const eventId = paramsOf(cond)[0] as number;
+        return (state.eventGroups.get(eventId) ?? []).map((retreatGroupId) => ({ retreatGroupId }));
+      }
+    }
+  };
+  const from = (table: { [k: symbol]: unknown }) => {
+    const query = {
+      innerJoin: () => query,
+      where: (cond: unknown) => Promise.resolve(rowsFor(table, cond)),
+      then: (ok: (v: unknown) => unknown) => Promise.resolve(rowsFor(table)).then(ok),
     };
+    return query;
   };
   return {
     db: {
@@ -79,6 +101,7 @@ const AUD = {
   groups: 10,
   initiation: 11,
   onRequest: 12,
+  restricted: 13,
 };
 const member = { id: 7, role: "user" };
 const memberRow = { id: 7, role: "user", subscriptionStatus: "active", subscriptionExpiresAt: null };
@@ -101,6 +124,9 @@ describe("openablePublications", () => {
     state.attendedEventIds = new Set();
     state.eventGroups = new Map();
     state.userGroupIds = new Set();
+    state.pubGroups = new Map();
+    state.accessList = [];
+    state.attendedGroupIds = new Set();
   });
 
   describe("public", () => {
@@ -201,6 +227,165 @@ describe("openablePublications", () => {
         expect(await opens({ id: 7, role: "admin" }, audienceId, [])).toBe(true);
       },
     );
+  });
+
+  describe("retreat groups ticked on the publication", () => {
+    const withGroups = (groups: number[]) => state.pubGroups.set(1, groups);
+
+    describe("retreat group members", () => {
+      it("should open to a member of one of the ticked groups, whatever the linked events", async () => {
+        withGroups([1, 2]);
+        state.userGroupIds = new Set([2]);
+        expect(await opens(member, AUD.groups, [100])).toBe(true);
+      });
+
+      it("should refuse a member of none of the ticked groups, even one of a linked event's group", async () => {
+        withGroups([1]);
+        state.userGroupIds = new Set([5]);
+        state.eventGroups = new Map([[100, [5]]]);
+        expect(await opens(member, AUD.groups, [100])).toBe(false);
+      });
+
+      it("should refuse a group member without an active subscription", async () => {
+        withGroups([1]);
+        state.userGroupIds = new Set([1]);
+        state.user = nonMemberRow;
+        expect(await opens(member, AUD.groups)).toBe(false);
+      });
+
+      it("should refuse a signed-out visitor", async () => {
+        withGroups([1]);
+        state.userGroupIds = new Set([1]);
+        expect(await opens(null, AUD.groups)).toBe(false);
+      });
+
+      it("should open to an admin who is in none of the groups", async () => {
+        withGroups([1]);
+        state.user = { ...memberRow, role: "admin" };
+        expect(await opens({ id: 7, role: "admin" }, AUD.groups)).toBe(true);
+      });
+    });
+
+    describe("event participants", () => {
+      it("should open to a member who attended an event of a ticked group", async () => {
+        withGroups([1, 2]);
+        state.attendedGroupIds = new Set([2, 9]);
+        expect(await opens(member, AUD.participants)).toBe(true);
+      });
+
+      it("should refuse a member who attended events of other groups only", async () => {
+        withGroups([1]);
+        state.attendedGroupIds = new Set([9]);
+        expect(await opens(member, AUD.participants, [100])).toBe(false);
+      });
+
+      it("should refuse a group member who attended nothing", async () => {
+        withGroups([1]);
+        state.userGroupIds = new Set([1]);
+        expect(await opens(member, AUD.participants)).toBe(false);
+      });
+
+      it("should refuse an attendee without an active subscription, as for the event itself", async () => {
+        withGroups([1]);
+        state.attendedGroupIds = new Set([1]);
+        state.user = nonMemberRow;
+        expect(await opens(member, AUD.participants)).toBe(false);
+      });
+
+      it("should refuse a signed-out visitor", async () => {
+        withGroups([1]);
+        state.attendedGroupIds = new Set([1]);
+        expect(await opens(null, AUD.participants)).toBe(false);
+      });
+    });
+  });
+
+  describe("access list (hidden audiences)", () => {
+    const onList = (...userIds: number[]) =>
+      (state.accessList = userIds.map((userId) => ({ publicationId: 1, userId })));
+
+    describe.each([
+      ["received initiation", AUD.initiation],
+      ["available on request only", AUD.onRequest],
+      ["restricted", AUD.restricted],
+    ])("%s", (_name, audienceId) => {
+      it("should open to a user on the list, member or not", async () => {
+        onList(7, 8);
+        state.user = nonMemberRow;
+        expect(await opens(member, audienceId)).toBe(true);
+      });
+
+      it("should refuse a user who is not on the list, even a subscriber who attended a linked event", async () => {
+        onList(8);
+        state.attendedEventIds = new Set([100]);
+        expect(await opens(member, audienceId, [100])).toBe(false);
+      });
+
+      it("should refuse a signed-out visitor", async () => {
+        onList(7);
+        expect(await opens(null, audienceId)).toBe(false);
+      });
+
+      it("should open to an admin who is not on the list", async () => {
+        onList(8);
+        state.user = { ...memberRow, role: "admin" };
+        expect(await opens({ id: 7, role: "admin" }, audienceId)).toBe(true);
+      });
+    });
+
+    it("should ignore the ticked groups for a hidden audience", async () => {
+      onList(8);
+      state.pubGroups.set(1, [1]);
+      state.userGroupIds = new Set([1]);
+      expect(await opens(member, AUD.restricted)).toBe(false);
+    });
+
+    it("should ignore the access list for the audiences shown in the app", async () => {
+      onList(7);
+      expect(await opens(member, AUD.groups)).toBe(false);
+      expect(await opens(member, AUD.participants)).toBe(false);
+    });
+  });
+
+  describe("restricted without an access list", () => {
+    it("should stay closed to everyone but an admin, whatever the linked events", async () => {
+      state.attendedEventIds = new Set([100]);
+      expect(await opens(member, AUD.restricted, [100])).toBe(false);
+      state.user = { ...memberRow, role: "admin" };
+      expect(await opens({ id: 7, role: "admin" }, AUD.restricted)).toBe(true);
+    });
+  });
+
+  describe("legacy fallback to the linked events", () => {
+    // Publications classified before the groups and the access list existed
+    // keep exactly their access until an admin reclassifies them.
+    it("should keep opening a group publication with no ticked groups to a member of a linked event's group", async () => {
+      state.eventGroups = new Map([[100, [1]]]);
+      state.userGroupIds = new Set([1]);
+      expect(await opens(member, AUD.groups, [100])).toBe(true);
+    });
+
+    it("should keep opening a participants publication with no ticked groups to an attendee of a linked event", async () => {
+      state.attendedEventIds = new Set([100]);
+      expect(await opens(member, AUD.participants, [100])).toBe(true);
+    });
+
+    it("should keep opening an on-request publication with an empty list to a user granted a linked event", async () => {
+      state.attendedEventIds = new Set([100]);
+      expect(await opens(member, AUD.onRequest, [100])).toBe(true);
+    });
+
+    it("should stop using the linked events once groups are ticked", async () => {
+      state.pubGroups.set(1, [3]);
+      state.attendedEventIds = new Set([100]);
+      expect(await opens(member, AUD.participants, [100])).toBe(false);
+    });
+
+    it("should stop using the linked events once someone is on the access list", async () => {
+      state.accessList = [{ publicationId: 1, userId: 8 }];
+      state.attendedEventIds = new Set([100]);
+      expect(await opens(member, AUD.onRequest, [100])).toBe(false);
+    });
   });
 
   describe("unknown audience", () => {
