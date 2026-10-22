@@ -223,7 +223,9 @@ eventRoutes.post("/public/:id/request-download", async (c) => {
     with: { audience: true },
   });
 
-  if (!event) {
+  // Unpublished events look exactly like unknown ones, so a draft's existence
+  // is not revealed and no ZIP is built for it.
+  if (!event || event.status !== "published") {
     throw AppError.notFound("Event not found");
   }
 

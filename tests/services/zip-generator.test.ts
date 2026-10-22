@@ -402,11 +402,7 @@ describe("generateRetreatZip - failures", () => {
     await expect(generateRetreatZip("req-1", 42)).rejects.toThrow("Event 42 not found");
   });
 
-  // BUG (reported in the PR, not fixed here): per-track errors are swallowed so
-  // one missing file does not sink the whole ZIP, but nothing checks that at
-  // least one track made it in. If every read fails (storage outage, wrong
-  // bucket), the user is handed an empty ZIP marked "ready" with processedFiles 0.
-  it.fails("should mark the request failed when no track could be added", async () => {
+  it("should mark the request failed when no track could be added", async () => {
     getObjectStreamMock.mockRejectedValue(new Error("storage outage"));
 
     await generateRetreatZip("req-1", 42).catch(() => {});

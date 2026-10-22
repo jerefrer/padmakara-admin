@@ -241,13 +241,7 @@ describe("POST /api/events/public/:id/request-download", () => {
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
-  // BUG (reported in the PR, not fixed here): the anonymous route checks the
-  // audience slug but never the event status. A draft or archived event with a
-  // "free-anyone" audience gets a ZIP built for anyone who asks, and the 200
-  // reveals that the unpublished event exists. Every other public route hides
-  // drafts behind a 404, and /download-requests/:id/status then denies the
-  // poll (verifyEventStillPublic checks status), so the work is wasted too.
-  it.fails("should return 404 for a draft event with a public audience", async () => {
+  it("should return 404 for a draft event with a public audience", async () => {
     mockDb.query.events.findFirst.mockResolvedValueOnce(makeEvent({ status: "draft" }));
     mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(undefined);
 

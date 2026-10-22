@@ -250,6 +250,13 @@ export async function generateRetreatZip(
       throw fatalArchiveError;
     }
 
+    // Per-track errors are tolerated, but an archive with no files at all is
+    // useless: fail the request instead of handing out an empty ZIP.
+    if (processedCount === 0) {
+      await unlink(tmpZipPath).catch(() => {});
+      throw new Error("No tracks could be added to the ZIP");
+    }
+
     const zipSize = archive.pointer();
     console.log(`[ZIP] Archive built (${zipSize} bytes). Uploading to ${zipS3Key}...`);
     try {

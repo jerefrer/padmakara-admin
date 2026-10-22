@@ -82,26 +82,21 @@ describe("parseTrackFilename - language markers", () => {
     expect(r.title).toBe("Introdução");
   });
 
-  // BUG (reported in the PR): LANGUAGE_MAP knows PORTUGUÊS and FRANCÊS, so the
-  // language is detected, but the title-strip regex only accepts [A-Z] and the
-  // accented Ê stops it, leaving "[PORTUGUÊS] " at the start of the title.
-  it.fails("should strip an accented language tag [PORTUGUÊS] from the title", () => {
+  it("should strip an accented language tag [PORTUGUÊS] from the title", () => {
     const r = parseTrackFilename("001 KPS [PORTUGUÊS] Meditação.mp3");
 
     expect(r.languages).toEqual(["pt"]);
     expect(r.title).toBe("Meditação");
   });
 
-  it.fails("should strip an accented language tag [FRANCÊS] from the title", () => {
+  it("should strip an accented language tag [FRANCÊS] from the title", () => {
     const r = parseTrackFilename("001 KPS [FRANCÊS] Titre.mp3");
 
     expect(r.languages).toEqual(["fr"]);
     expect(r.title).toBe("Titre");
   });
 
-  // BUG (reported in the PR): languages are split on "," but the title-strip
-  // regex does not allow a space after it, so "[TIB, ENG]" stays in the title.
-  it.fails("should strip a comma-and-space separated tag [TIB, ENG] from the title", () => {
+  it("should strip a comma-and-space separated tag [TIB, ENG] from the title", () => {
     const r = parseTrackFilename("001 KPS [TIB, ENG] Prayers.mp3");
 
     expect(r.languages).toEqual(["tib", "en"]);
@@ -164,9 +159,7 @@ describe("parseTrackFilename - separators and diacritics", () => {
     expect(r.title).toBe("Title");
   });
 
-  // BUG (reported in the PR): the ISO-date strip eats leading whitespace only,
-  // so the "_" before the date survives, becomes a space, and is never trimmed.
-  it.fails("should not leave a trailing space when an underscore precedes an ISO date", () => {
+  it("should not leave a trailing space when an underscore precedes an ISO date", () => {
     const r = parseTrackFilename("001_TRAD_Introdução_2017-11-14.mp3");
 
     expect(r.date).toBe("2017-11-14");
@@ -210,10 +203,7 @@ describe("inferSessions - time periods", () => {
     expect(sessions.map((s) => s.timePeriod)).toEqual(["morning", "afternoon", "evening"]);
   });
 
-  // BUG (reported in the PR): the session title maps every non-morning period
-  // to "Afternoon", so an evening session is titled "<date> - Afternoon" and
-  // collides with the real afternoon session of the same day.
-  it.fails("should title an evening session 'Evening'", () => {
+  it("should title an evening session 'Evening'", () => {
     const [session] = inferSessions([parseTrackFilename("001 JKR - Title-(7 April Evening).mp3")]);
 
     expect(session!.titleEn).toBe("April 7 - Evening");
