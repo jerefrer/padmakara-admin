@@ -62,3 +62,17 @@
 **Revisit if:** the accountant advises otherwise, or the Board deliberation sets different conditions.
 
 ---
+
+---
+
+## 2026-10-22 — Schema drift cleanup migration (0042)
+
+**Chosen:** Migration `0042_schema_drift_cleanup.sql` renames 22 constraints that kept PostgreSQL default names (`*_fkey`, `*_key`, `*_pkey`) to the Drizzle names the schema uses (`*_fk`, `*_unique`, `*_pk`), drops `users.stripe_customer_id` with its unique constraint (from 0003, absent from the schema, unused in `src/`), and drops the enum types `file_action`, `file_category`, `log_level`, `migration_status` left behind by 0004/0032. Each rename is a `DO` block guarded by "old name exists and new name does not", so it is idempotent and safe on a database where some renames already happened.
+
+**Alternatives:** (a) Leave the names alone. Rejected: a later `db:generate` change to one of these constraints fails on `DROP CONSTRAINT`. (b) Also rename the serial sequences `session_videos_id_seq` / `session_subtitles_id_seq`. Rejected for now: not a constraint, purely cosmetic, and out of scope.
+
+**Why:** Verified on a throwaway PostgreSQL 16: after `db:migrate` through 0042, constraint names and definitions are identical to a database built straight from the Drizzle schema; the unique-constraint, column and enum differences are gone; re-running 0042 changes nothing; a database with some renames reverted still converges.
+
+**Trade-offs:** Dropping `stripe_customer_id` is irreversible. Production must be checked first: its constraint names may differ if a `db:push` ever ran there (the guard makes that safe, those renames are simply skipped), and the column must hold no data worth keeping. The two sequence names still differ from the schema.
+
+**Revisit if:** the prod check shows `stripe_customer_id` is populated.
