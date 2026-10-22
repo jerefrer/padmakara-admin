@@ -1,6 +1,13 @@
 import { uploadVideoFile } from "./videoUploader";
 import { isVideoFilename } from "./trackParser";
 import { authFetch } from "./authFetch";
+import {
+  HttpStatusError,
+  NetworkError,
+  UploadCancelledError,
+  withRetry,
+  type RetryOptions,
+} from "./retry";
 
 const API_URL = "/api/admin";
 
@@ -164,6 +171,8 @@ export interface FileStatus {
   progress: number; // 0-1
   /** For video items: Bunny status code (0..6) while transcoding. */
   transcodeStatus?: number;
+  /** Set while a transient failure is being retried (1-based retry number). */
+  retryAttempt?: number;
 }
 
 export interface UploadProgress {
@@ -181,14 +190,6 @@ export interface UploadProgress {
 
 export type ProgressCallback = (progress: UploadProgress) => void;
 
-interface PresignedFile {
-  trackId: number;
-  filename: string;
-  s3Key: string;
-  uploadUrl: string;
-  file: File;
-}
-
 /** Request presigned upload URLs for a batch of files in one session */
 async function presignBatch(
   files: { filename: string; contentType: string; size: number }[],
@@ -202,7 +203,7 @@ async function presignBatch(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Presign failed (${res.status}): ${text}`);
+    throw new HttpStatusError(`Presign failed (${res.status}): ${text}`, res.status);
   }
   const data = await res.json();
   return data.urls;
@@ -226,15 +227,22 @@ function uploadFileXhr(
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new Error(`S3 upload failed: ${xhr.status} ${xhr.statusText}\n${xhr.responseText}`));
+      else {
+        reject(
+          new HttpStatusError(
+            `S3 upload failed: ${xhr.status} ${xhr.statusText}\n${xhr.responseText}`,
+            xhr.status,
+          ),
+        );
+      }
     };
 
-    xhr.onerror = () => reject(new Error("Network error during upload"));
-    xhr.onabort = () => reject(new Error("Upload cancelled"));
+    xhr.onerror = () => reject(new NetworkError("Network error during upload"));
+    xhr.onabort = () => reject(new UploadCancelledError());
 
     // Check for cancellation before starting
     if (signal.cancelled) {
-      reject(new Error("Upload cancelled"));
+      reject(new UploadCancelledError());
       return;
     }
 
@@ -258,7 +266,7 @@ async function updateTrackS3Key(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Track update failed (${res.status}): ${text}`);
+    throw new HttpStatusError(`Track update failed (${res.status}): ${text}`, res.status);
   }
 }
 
@@ -285,15 +293,32 @@ export class SpeedTracker {
   }
 }
 
+export interface UploadTracksOptions {
+  /**
+   * Called once an audio item is fully done: its file is in S3 and its track
+   * row carries the s3_key. Lets callers keep a persisted resume queue in step
+   * with what actually reached the server.
+   */
+  onItemUploaded?: (item: UploadItem) => void;
+  /** Retry/backoff tuning for transient failures (tests use a zero delay). */
+  retry?: Pick<RetryOptions, "retries" | "baseDelayMs" | "maxDelayMs" | "sleep">;
+}
+
 /**
  * Upload all tracks to S3 sequentially with progress tracking.
  * Returns a promise that resolves when all uploads complete,
  * and a cancel function.
+ *
+ * Each audio file is presigned right before its own upload (a whole session
+ * presigned up front could outlive the URLs' one-hour expiry on a slow
+ * connection), and transient failures — a dropped connection, a 5xx — are
+ * retried with exponential backoff before the upload gives up.
  */
 export function uploadTracks(
   items: UploadItem[],
   eventCode: string,
   onProgress: ProgressCallback,
+  options: UploadTracksOptions = {},
 ): { promise: Promise<void>; cancel: () => void } {
   const signal = { cancelled: false };
   const bytesTotal = items.reduce((sum, item) => sum + item.file.size, 0);
@@ -315,15 +340,12 @@ export function uploadTracks(
     (i) => (i.mediaType ?? (isVideoFilename(i.filename) ? "video" : "audio")) === "video",
   );
 
-  const promise = (async () => {
-    // Phase 1: Get presigned URLs grouped by session (audio only)
-    const bySession = new Map<number, UploadItem[]>();
-    for (const item of audioItems) {
-      const group = bySession.get(item.sessionNumber) ?? [];
-      group.push(item);
-      bySession.set(item.sessionNumber, group);
-    }
+  // Declared outside the upload body so the error report below can say how
+  // many files really made it before the failure.
+  let bytesCompleted = 0;
+  let filesCompleted = 0;
 
+  const promise = (async () => {
     onProgress({
       phase: "presigning",
       currentFilename: null,
@@ -336,94 +358,94 @@ export function uploadTracks(
       files: fileStatuses,
     });
 
-    // Request presigned URLs per session batch
-    const uploadQueue: PresignedFile[] = [];
-
-    for (const [sessionNumber, sessionItems] of bySession) {
-      if (signal.cancelled) throw new Error("Upload cancelled");
-
-      const presignFiles = sessionItems.map((item) => ({
-        filename: item.filename,
-        contentType: item.file.type || "audio/mpeg",
-        size: item.file.size,
-      }));
-
-      const urls = await presignBatch(presignFiles, eventCode, sessionNumber);
-
-      // Match presigned URLs back to items by filename
-      for (const url of urls) {
-        const item = sessionItems.find((i) => i.filename === url.filename);
-        if (item) {
-          uploadQueue.push({
-            trackId: item.trackId,
-            filename: item.filename,
-            s3Key: url.s3Key,
-            uploadUrl: url.uploadUrl,
-            file: item.file,
-          });
-        }
-      }
-    }
-
-    // Phase 2: Upload files sequentially
+    // Upload audio files sequentially: presign → PUT to S3 → backfill s3_key.
     const speedTracker = new SpeedTracker();
-    let bytesCompleted = 0;
-    let filesCompleted = 0;
 
-    for (const queued of uploadQueue) {
-      if (signal.cancelled) throw new Error("Upload cancelled");
+    for (const item of audioItems) {
+      if (signal.cancelled) throw new UploadCancelledError();
 
       const fileStart = bytesCompleted;
-      const fileIdx = fileStatuses.findIndex((f) => f.filename === queued.filename);
+      const fileIdx = fileStatuses.findIndex((f) => f.filename === item.filename);
       if (fileIdx >= 0) {
         fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, status: "uploading", progress: 0 };
       }
 
-      onProgress({
-        phase: "uploading",
-        currentFilename: queued.filename,
-        fileProgress: 0,
-        filesCompleted,
-        filesTotal: items.length,
-        bytesUploaded: bytesCompleted,
-        bytesTotal,
-        speed: speedTracker.getSpeed(),
-        files: fileStatuses,
-      });
+      const emit = (fileProgress: number, bytesUploaded: number) =>
+        onProgress({
+          phase: "uploading",
+          currentFilename: item.filename,
+          fileProgress,
+          filesCompleted,
+          filesTotal: items.length,
+          bytesUploaded,
+          bytesTotal,
+          speed: speedTracker.getSpeed(),
+          files: fileStatuses,
+        });
 
-      await uploadFileXhr(
-        queued.uploadUrl,
-        queued.file,
-        (loaded) => {
-          const totalUploaded = fileStart + loaded;
-          const pct = loaded / queued.file.size;
-          speedTracker.record(totalUploaded);
-          if (fileIdx >= 0) {
-            fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, progress: pct };
-          }
-          onProgress({
-            phase: "uploading",
-            currentFilename: queued.filename,
-            fileProgress: pct,
-            filesCompleted,
-            filesTotal: items.length,
-            bytesUploaded: totalUploaded,
-            bytesTotal,
-            speed: speedTracker.getSpeed(),
-            files: fileStatuses,
-          });
+      emit(0, bytesCompleted);
+
+      const contentType = item.file.type || "audio/mpeg";
+      const s3Key = await withRetry(
+        async () => {
+          const [url] = await presignBatch(
+            [{ filename: item.filename, contentType, size: item.file.size }],
+            eventCode,
+            item.sessionNumber,
+          );
+          if (!url) throw new Error(`Presign returned no URL for ${item.filename}`);
+          await uploadFileXhr(
+            url.uploadUrl,
+            item.file,
+            (loaded) => {
+              const totalUploaded = fileStart + loaded;
+              const pct = loaded / item.file.size;
+              speedTracker.record(totalUploaded);
+              if (fileIdx >= 0) {
+                fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, progress: pct };
+              }
+              emit(pct, totalUploaded);
+            },
+            signal,
+          );
+          return url.s3Key;
         },
-        signal,
+        {
+          ...options.retry,
+          signal,
+          onRetry: (attempt) => {
+            // A failed attempt restarts the file from zero.
+            if (fileIdx >= 0) {
+              fileStatuses[fileIdx] = {
+                ...fileStatuses[fileIdx]!,
+                progress: 0,
+                retryAttempt: attempt,
+              };
+            }
+            emit(0, fileStart);
+          },
+        },
       );
 
-      // Update track record with S3 key
-      await updateTrackS3Key(queued.trackId, queued.s3Key, queued.file.size);
+      // The file is in S3 now: always record it, even if the admin cancels
+      // meanwhile — otherwise the object is orphaned and the track stays
+      // keyless. So no cancellation signal on this step.
+      await withRetry(
+        () => updateTrackS3Key(item.trackId, s3Key, item.file.size),
+        options.retry,
+      );
 
       if (fileIdx >= 0) {
-        fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, status: "done", progress: 1 };
+        fileStatuses[fileIdx] = {
+          ...fileStatuses[fileIdx]!,
+          status: "done",
+          progress: 1,
+          retryAttempt: undefined,
+        };
       }
-      bytesCompleted += queued.file.size;
+      bytesCompleted += item.file.size;
       filesCompleted++;
+      options.onItemUploaded?.(item);
     }
 
     // Phase 3: Upload video items sequentially via Bunny TUS.
@@ -551,9 +573,9 @@ export function uploadTracks(
         phase: "error",
         currentFilename: null,
         fileProgress: 0,
-        filesCompleted: 0,
+        filesCompleted,
         filesTotal: items.length,
-        bytesUploaded: 0,
+        bytesUploaded: bytesCompleted,
         bytesTotal,
         speed: 0,
         error: err.message,
