@@ -3,6 +3,7 @@ import SpaIcon from "@mui/icons-material/SelfImprovement";
 import GroupsIcon from "@mui/icons-material/Groups";
 import PersonIcon from "@mui/icons-material/Person";
 import PlaceIcon from "@mui/icons-material/Place";
+import BusinessIcon from "@mui/icons-material/Business";
 import PeopleIcon from "@mui/icons-material/People";
 import CategoryIcon from "@mui/icons-material/Category";
 import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
@@ -56,6 +57,7 @@ export const Menu = () => {
       <SectionLabel>{translate("padmakara.menu.reference")}</SectionLabel>
       <RaMenu.Item to="/teachers" primaryText={translate("resources.teachers.name", { smart_count: 2 })} leftIcon={<PersonIcon />} />
       <RaMenu.Item to="/places" primaryText={translate("resources.places.name", { smart_count: 2 })} leftIcon={<PlaceIcon />} />
+      <RaMenu.Item to="/organizers" primaryText={translate("resources.organizers.name", { smart_count: 2 })} leftIcon={<BusinessIcon />} />
       <RaMenu.Item to="/groups" primaryText={translate("resources.groups.name", { smart_count: 2 })} leftIcon={<GroupsIcon />} />
       <RaMenu.Item to="/event-types" primaryText={translate("resources.event-types.name", { smart_count: 2 })} leftIcon={<CategoryIcon />} />
       <RaMenu.Item to="/audiences" primaryText={translate("resources.audiences.name", { smart_count: 2 })} leftIcon={<PeopleOutlineIcon />} />

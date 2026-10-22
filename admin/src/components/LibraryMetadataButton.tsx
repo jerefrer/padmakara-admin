@@ -27,6 +27,7 @@ import type {
   EventFormData,
   TeacherOption,
   PlaceOption,
+  OrganizerOption,
   GroupOption,
   EventTypeOption,
   AudienceOption,
@@ -74,12 +75,12 @@ interface Mapping {
     sessionThemesPt: string | null;
     sessionThemesEn: string | null;
     bibliography: string | null;
-    organizer: string | null;
     eventTypeId: number | null;
     audienceId: number | null;
     groupIds: number[];
     teacherIds: { id: number; role: "teacher" | "guest" }[];
     placeIds: number[];
+    organizerIds: number[];
     wixId: string;
     librarySnapshot: Record<string, unknown>;
   };
@@ -89,10 +90,12 @@ interface Mapping {
     groups: Named[];
     teachers: { id: number; name: string; abbreviation: string; role: "teacher" | "guest" }[];
     places: { id: number; name: string; abbreviation: string | null }[];
+    organizers: { id: number; name: string; abbreviation: string | null }[];
   };
   unresolved: {
     teachers: { name: string; role: "teacher" | "guest" }[];
     places: string[];
+    organizers: string[];
     designation: string | null;
     audience: string | null;
   };
@@ -104,7 +107,7 @@ const PRESELECT_SCORE = 50;
 type FieldKey =
   | "titlePt" | "startDate" | "endDate" | "mainThemesPt" | "mainThemesEn"
   | "sessionThemesPt" | "sessionThemesEn"
-  | "bibliography" | "organizer" | "eventType" | "audience" | "groups"
+  | "bibliography" | "organizers" | "eventType" | "audience" | "groups"
   | "teachers" | "places";
 
 interface Row {
@@ -123,6 +126,8 @@ export interface LibraryMetadataButtonProps {
   setSelectedTeachers: React.Dispatch<React.SetStateAction<TeacherOption[]>>;
   selectedPlaces: PlaceOption[];
   setSelectedPlaces: React.Dispatch<React.SetStateAction<PlaceOption[]>>;
+  selectedOrganizers: OrganizerOption[];
+  setSelectedOrganizers: React.Dispatch<React.SetStateAction<OrganizerOption[]>>;
   selectedGroups: GroupOption[];
   setSelectedGroups: React.Dispatch<React.SetStateAction<GroupOption[]>>;
   selectedEventType: EventTypeOption | null;
@@ -196,6 +201,7 @@ const LibraryMetadataDialog = ({
   form, setForm,
   selectedTeachers, setSelectedTeachers,
   selectedPlaces, setSelectedPlaces,
+  selectedOrganizers, setSelectedOrganizers,
   selectedGroups, setSelectedGroups,
   selectedEventType, setSelectedEventType,
   selectedAudience, setSelectedAudience,
@@ -321,8 +327,6 @@ const LibraryMetadataDialog = ({
     text("sessionThemesPt", ev("sessionThemesPt"), form.sessionThemesPt, f.sessionThemesPt);
     text("sessionThemesEn", ev("sessionThemesEn"), form.sessionThemesEn, f.sessionThemesEn);
     text("bibliography", translate("padmakara.library.bibliography"), form.bibliography, f.bibliography);
-    text("organizer", ev("organizer"), form.organizer, f.organizer);
-
     if (mapping.resolved.eventType) {
       text("eventType", ev("eventType"), named(selectedEventType), named(mapping.resolved.eventType));
     }
@@ -357,6 +361,12 @@ const LibraryMetadataDialog = ({
       ...mapping.unresolved.places.map((p) => `${p} (${translate("padmakara.library.new")})`),
     ];
     text("places", ev("places"), selectedPlaces.map((p) => p.name).join(", "), placeNames.join(", "));
+
+    const organizerNames = [
+      ...mapping.resolved.organizers.map((o) => o.name),
+      ...mapping.unresolved.organizers.map((o) => `${o} (${translate("padmakara.library.new")})`),
+    ];
+    text("organizers", ev("organizers"), selectedOrganizers.map((o) => o.name).join(", "), organizerNames.join(", "));
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapping, locale]);
@@ -368,6 +378,7 @@ const LibraryMetadataDialog = ({
 
   const needsNewTeachers = (checked.teachers ?? false) && (mapping?.unresolved.teachers.length ?? 0) > 0;
   const needsNewPlaces = (checked.places ?? false) && (mapping?.unresolved.places.length ?? 0) > 0;
+  const needsNewOrganizers = (checked.organizers ?? false) && (mapping?.unresolved.organizers.length ?? 0) > 0;
 
   const apply = async () => {
     if (!mapping) return;
@@ -377,20 +388,24 @@ const LibraryMetadataDialog = ({
       const f = mapping.fields;
       const on = (k: FieldKey) => checked[k] === true && rows.some((r) => r.key === k);
 
-      // Teachers/places the library names but the database lacks are created
-      // now (reference data); the event itself is only saved by the form's Save.
+      // Teachers/places/organizers the library names but the database lacks are
+      // created now (reference data); the event itself is only saved by the form's Save.
       let createdTeachers: { name: string; id: number; abbreviation: string }[] = [];
       let createdPlaces: { location: string; id: number; name: string; abbreviation: string | null }[] = [];
-      if (needsNewTeachers || needsNewPlaces) {
+      let createdOrganizers: { name: string; id: number; abbreviation: string | null }[] = [];
+      if (needsNewTeachers || needsNewPlaces || needsNewOrganizers) {
         const out = await postJson<{
           teachers: typeof createdTeachers;
           places: typeof createdPlaces;
+          organizers: typeof createdOrganizers;
         }>("/api/admin/library/entities", {
           teachers: needsNewTeachers ? mapping.unresolved.teachers.map((t) => t.name) : [],
           places: needsNewPlaces ? mapping.unresolved.places : [],
+          organizers: needsNewOrganizers ? mapping.unresolved.organizers : [],
         });
         createdTeachers = out.teachers;
         createdPlaces = out.places;
+        createdOrganizers = out.organizers;
       }
 
       setForm((prev) => {
@@ -404,7 +419,6 @@ const LibraryMetadataDialog = ({
         if (on("sessionThemesPt")) { next.sessionThemesPt = f.sessionThemesPt ?? ""; next.sessionThemesPtReviewed = true; }
         if (on("sessionThemesEn")) { next.sessionThemesEn = f.sessionThemesEn ?? ""; next.sessionThemesEnReviewed = true; }
         if (on("bibliography")) next.bibliography = f.bibliography ?? "";
-        if (on("organizer")) next.organizer = f.organizer ?? "";
         if (on("teachers")) {
           const guests = [
             ...mapping.resolved.teachers.filter((t) => t.role === "guest").map((t) => t.id),
@@ -443,6 +457,14 @@ const LibraryMetadataDialog = ({
         }));
         const created: PlaceOption[] = createdPlaces.map((p) => ({ id: p.id, name: p.name, abbreviation: null }));
         setSelectedPlaces([...resolved, ...created]);
+      }
+      if (on("organizers")) {
+        // Keep the CSV's order: the resolved and the created ones interleave there.
+        const byId = new Map<number, OrganizerOption>([
+          ...mapping.resolved.organizers.map((o): [number, OrganizerOption] => [o.id, { id: o.id, name: o.name, abbreviation: o.abbreviation }]),
+          ...createdOrganizers.map((o): [number, OrganizerOption] => [o.id, { id: o.id, name: o.name, abbreviation: o.abbreviation }]),
+        ]);
+        setSelectedOrganizers([...byId.values()]);
       }
 
       notify("padmakara.library.applied", { type: "success" });
@@ -586,7 +608,7 @@ const LibraryMetadataDialog = ({
               </Table>
             )}
 
-            {(needsNewTeachers || needsNewPlaces) && (
+            {(needsNewTeachers || needsNewPlaces || needsNewOrganizers) && (
               <Alert severity="warning" sx={{ mt: 1.5 }}>
                 {translate("padmakara.library.willCreate")}
               </Alert>

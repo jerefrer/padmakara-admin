@@ -6,6 +6,7 @@ import { libraryRecords } from "../../db/schema/library-records.ts";
 import { events } from "../../db/schema/retreats.ts";
 import { teachers } from "../../db/schema/teachers.ts";
 import { places } from "../../db/schema/places.ts";
+import { organizers } from "../../db/schema/organizers.ts";
 import { eventTypes } from "../../db/schema/event-types.ts";
 import { retreatGroups } from "../../db/schema/retreat-groups.ts";
 import { audiences } from "../../db/schema/audiences.ts";
@@ -18,6 +19,7 @@ import {
   mapRecordToEvent,
   findTeacher,
   findPlace,
+  findOrganizer,
   placeNameFromLocation,
   abbreviationFromName,
   type SearchableRecord,
@@ -56,18 +58,19 @@ async function loadSearchable(): Promise<SearchableRecord[]> {
 }
 
 async function loadMappingRef(): Promise<MappingRef> {
-  const [t, p, et, g, a] = await Promise.all([
+  const [t, p, o, et, g, a] = await Promise.all([
     db.select({
       id: teachers.id, name: teachers.name, abbreviation: teachers.abbreviation, aliases: teachers.aliases,
     }).from(teachers),
     db.select({
       id: places.id, name: places.name, abbreviation: places.abbreviation, location: places.location,
     }).from(places),
+    db.select({ id: organizers.id, name: organizers.name, abbreviation: organizers.abbreviation }).from(organizers),
     db.select({ id: eventTypes.id, nameEn: eventTypes.nameEn, namePt: eventTypes.namePt }).from(eventTypes),
     db.select({ id: retreatGroups.id, nameEn: retreatGroups.nameEn, namePt: retreatGroups.namePt }).from(retreatGroups),
     db.select({ id: audiences.id, nameEn: audiences.nameEn, namePt: audiences.namePt }).from(audiences),
   ]);
-  return { teachers: t, places: p, eventTypes: et, groups: g, audiences: a };
+  return { teachers: t, places: p, organizers: o, eventTypes: et, groups: g, audiences: a };
 }
 
 /** Summary shape sent to the admin UI for a record in a list. */
@@ -242,10 +245,11 @@ libraryRoutes.get("/records/:wixId/mapping", async (c) => {
 const entitiesSchema = z.object({
   teachers: z.array(z.string().min(1).max(200)).optional().default([]),
   places: z.array(z.string().min(1).max(300)).optional().default([]),
+  organizers: z.array(z.string().min(1).max(200)).optional().default([]),
 });
 
 /**
- * POST /entities — find-or-create the teachers and places a mapping preview
+ * POST /entities — find-or-create the teachers, places and organizers a mapping preview
  * could not resolve. The admin confirms this in the dialog before applying;
  * these rows are created immediately (they are reference data, usable by any
  * event), the event itself is only saved by the form's Save.
@@ -296,7 +300,25 @@ libraryRoutes.post("/entities", async (c) => {
     placeOut.push({ location, id: created!.id, name, abbreviation: null });
   }
 
-  return c.json({ teachers: teacherOut, places: placeOut });
+  const existingOrganizers = await db.select({
+    id: organizers.id, name: organizers.name, abbreviation: organizers.abbreviation,
+  }).from(organizers);
+  const organizerOut: { name: string; id: number; abbreviation: string | null }[] = [];
+  for (const name of body.organizers) {
+    const found = findOrganizer(name, existingOrganizers);
+    if (found) {
+      organizerOut.push({ name, id: found.id, abbreviation: found.abbreviation });
+      continue;
+    }
+    const [created] = await db
+      .insert(organizers)
+      .values({ name: name.trim() })
+      .returning({ id: organizers.id });
+    existingOrganizers.push({ id: created!.id, name: name.trim(), abbreviation: null });
+    organizerOut.push({ name, id: created!.id, abbreviation: null });
+  }
+
+  return c.json({ teachers: teacherOut, places: placeOut, organizers: organizerOut });
 });
 
 export { libraryRoutes };

@@ -8,6 +8,7 @@ import { Layout } from "./layout/Layout";
 
 import { TeacherList, TeacherEdit, TeacherCreate } from "./resources/teachers";
 import { PlaceList, PlaceEdit, PlaceCreate } from "./resources/places";
+import { OrganizerList, OrganizerEdit, OrganizerCreate } from "./resources/organizers";
 import { GroupList, GroupEdit, GroupCreate } from "./resources/groups";
 import { EventList, EventEdit, EventCreate } from "./resources/events";
 import { EventTypeList, EventTypeEdit, EventTypeCreate } from "./resources/event-types";
@@ -67,6 +68,13 @@ const App = () => (
       list={PlaceList}
       edit={PlaceEdit}
       create={PlaceCreate}
+    />
+    <Resource
+      name="organizers"
+      options={{ label: "Organizers" }}
+      list={OrganizerList}
+      edit={OrganizerEdit}
+      create={OrganizerCreate}
     />
     <Resource
       name="users"

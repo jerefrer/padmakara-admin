@@ -180,6 +180,7 @@ describe("GET /api/admin/library/records/:wixId/mapping", () => {
     d._results.push(
       [{ id: 1, name: "Teacher A", abbreviation: "TA", aliases: [] }],
       [],
+      [],
       [{ id: 2, nameEn: "Teaching", namePt: "Ensinamento" }],
       [], [],
     );
@@ -200,14 +201,15 @@ describe("GET /api/admin/library/records/:wixId/mapping", () => {
 });
 
 describe("POST /api/admin/library/entities", () => {
-  it("should reuse existing teachers and places and create the missing ones", async () => {
+  it("should reuse existing teachers, places and organizers and create the missing ones", async () => {
     d._results.push(
       [{ id: 1, name: "Teacher A", abbreviation: "TA", aliases: [] }],
       [{ id: 5, name: "UBP", abbreviation: "UBP", location: "UBP, Lisboa" }],
+      [{ id: 7, name: "Fundação Kangyur Rinpoche", abbreviation: "F. Kangyur R." }],
     );
     const { status, body } = await testJson("/api/admin/library/entities", {
       method: "POST", headers: await auth(),
-      body: JSON.stringify({ teachers: ["teacher a", "Wulstan Fletcher"], places: ["UBP, Lisboa", "Hotel do Sado, Setúbal"] }),
+      body: JSON.stringify({ teachers: ["teacher a", "Wulstan Fletcher"], places: ["UBP, Lisboa", "Hotel do Sado, Setúbal"], organizers: ["f. kangyur rinpoche", "Stupa"] }),
     });
     expect(status).toBe(200);
     expect(body.teachers).toEqual([{ name: "teacher a", id: 1, abbreviation: "TA" }, { name: "Wulstan Fletcher", id: 99, abbreviation: "WF" }]);
@@ -215,10 +217,15 @@ describe("POST /api/admin/library/entities", () => {
       { location: "UBP, Lisboa", id: 5, name: "UBP", abbreviation: "UBP" },
       { location: "Hotel do Sado, Setúbal", id: 99, name: "Hotel do Sado", abbreviation: null },
     ]);
+    expect(body.organizers).toEqual([
+      { name: "f. kangyur rinpoche", id: 7, abbreviation: "F. Kangyur R." },
+      { name: "Stupa", id: 99, abbreviation: null },
+    ]);
     const created = d._insertValues.mock.calls.map((c: any) => c[0]);
     expect(created).toEqual([
       { name: "Wulstan Fletcher", abbreviation: "WF", aliases: [] },
       { name: "Hotel do Sado", location: "Hotel do Sado, Setúbal" },
+      { name: "Stupa" },
     ]);
   });
 });

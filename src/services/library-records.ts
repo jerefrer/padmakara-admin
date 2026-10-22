@@ -15,6 +15,7 @@ import {
   parseDateRange,
   parseTeachers,
   parseOrganizations,
+  normalizeOrganization,
   designationToGroup,
   type WixRow,
 } from "../scripts/csv-parser.ts";
@@ -405,11 +406,13 @@ export function suggestRecords<T extends SearchableRecord>(
 
 export interface RefTeacher { id: number; name: string; abbreviation: string; aliases: string[] }
 export interface RefPlace { id: number; name: string; abbreviation: string | null; location: string | null }
+export interface RefOrganizer { id: number; name: string; abbreviation: string | null }
 export interface RefNamed { id: number; nameEn: string; namePt: string | null }
 
 export interface MappingRef {
   teachers: RefTeacher[];
   places: RefPlace[];
+  organizers: RefOrganizer[];
   eventTypes: RefNamed[];
   groups: RefNamed[];
   audiences: RefNamed[];
@@ -429,12 +432,13 @@ export interface MappingResult {
     sessionThemesPt: string | null;
     sessionThemesEn: string | null;
     bibliography: string | null;
-    organizer: string | null;
     eventTypeId: number | null;
     audienceId: number | null;
     groupIds: number[];
     teacherIds: { id: number; role: "teacher" | "guest" }[];
     placeIds: number[];
+    /** In the order the CSV lists them. */
+    organizerIds: number[];
     wixId: string;
     librarySnapshot: Record<string, unknown>;
   };
@@ -445,11 +449,13 @@ export interface MappingResult {
     groups: { id: number; nameEn: string; namePt: string | null }[];
     teachers: MappedTeacher[];
     places: { id: number; name: string; abbreviation: string | null }[];
+    organizers: { id: number; name: string; abbreviation: string | null }[];
   };
   /** CSV values with no matching row yet; created on apply if the admin agrees. */
   unresolved: {
     teachers: { name: string; role: "teacher" | "guest" }[];
     places: string[];
+    organizers: string[];
     designation: string | null;
     audience: string | null;
   };
@@ -490,6 +496,22 @@ export function findPlace(location: string, places: RefPlace[]): RefPlace | null
     places.find((p) => fold(p.location) === f || fold(p.name) === f) ??
     places.find((p) => fold(p.name) === shortName) ??
     places.find((p) => p.abbreviation && fold(p.abbreviation) === shortName) ??
+    null
+  );
+}
+
+/**
+ * Match one parsed organisation to an organizer entity by name or abbreviation
+ * (case/diacritics-insensitive). Both sides go through normalizeOrganization,
+ * so the CSV's "F. Kangyur R." / "F. Kangyur Rinpoche" variants meet the stored
+ * abbreviation whichever way it is spelled.
+ */
+export function findOrganizer(name: string, organizers: RefOrganizer[]): RefOrganizer | null {
+  const f = fold(normalizeOrganization(name));
+  if (!f) return null;
+  return (
+    organizers.find((o) => fold(normalizeOrganization(o.name)) === f) ??
+    organizers.find((o) => o.abbreviation && fold(normalizeOrganization(o.abbreviation)) === f) ??
     null
   );
 }
@@ -540,6 +562,16 @@ export function mapRecordToEvent(
   const place = row.place ? findPlace(row.place, ref.places) : null;
 
   const organizations = parseOrganizations(row.organization);
+  const resolvedOrganizers: RefOrganizer[] = [];
+  const unresolvedOrganizers: string[] = [];
+  for (const organization of organizations) {
+    const found = findOrganizer(organization, ref.organizers);
+    if (found) {
+      if (!resolvedOrganizers.some((o) => o.id === found.id)) resolvedOrganizers.push(found);
+    } else if (!unresolvedOrganizers.some((u) => fold(u) === fold(organization))) {
+      unresolvedOrganizers.push(organization);
+    }
+  }
   const snapshot: Record<string, unknown> = {
     source: "library-csv",
     wixId: row.wixId,
@@ -575,12 +607,12 @@ export function mapRecordToEvent(
       sessionThemesPt: sessionLang === "pt" ? row.sessionThemes || null : null,
       sessionThemesEn: sessionLang === "en" ? row.sessionThemes || null : null,
       bibliography: row.bibliography || null,
-      organizer: organizations.length > 0 ? organizations.join(", ") : null,
       eventTypeId: eventType?.id ?? null,
       audienceId: audience?.id ?? null,
       groupIds: group ? [group.id] : [],
       teacherIds,
       placeIds: place ? [place.id] : [],
+      organizerIds: resolvedOrganizers.map((o) => o.id),
       wixId: row.wixId,
       librarySnapshot: snapshot,
     },
@@ -590,10 +622,12 @@ export function mapRecordToEvent(
       groups: group ? [group] : [],
       teachers: resolvedTeachers,
       places: place ? [{ id: place.id, name: place.name, abbreviation: place.abbreviation }] : [],
+      organizers: resolvedOrganizers.map((o) => ({ id: o.id, name: o.name, abbreviation: o.abbreviation })),
     },
     unresolved: {
       teachers: unresolvedTeachers,
       places: row.place && !place ? [row.place] : [],
+      organizers: unresolvedOrganizers,
       designation: unresolvedDesignation,
       audience: row.audience && !audience ? row.audience : null,
     },

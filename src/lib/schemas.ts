@@ -68,6 +68,14 @@ export const createPlaceSchema = z.object({
 
 export const updatePlaceSchema = createPlaceSchema.partial();
 
+// Organizers
+export const createOrganizerSchema = z.object({
+  name: z.string().min(1).max(200),
+  abbreviation: z.string().max(50).optional().nullable(),
+});
+
+export const updateOrganizerSchema = createOrganizerSchema.partial();
+
 // Retreat Groups
 export const createRetreatGroupSchema = z.object({
   nameEn: z.string().min(1).max(200),
@@ -150,7 +158,6 @@ export const createEventSchema = z.object({
   audienceId: z.number().int().optional().nullable(),
   bibliography: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
-  organizer: z.string().max(200).optional().nullable(),
   // Link to the library record the event was filled from (library_records.wix_id)
   // and the imported CSV fields that have no column of their own.
   wixId: z.string().max(100).optional().nullable(),
@@ -167,6 +174,8 @@ export const createEventSchema = z.object({
   })).optional().default([]),
   groupIds: z.array(z.number().int()).optional().default([]),
   placeIds: z.array(z.number().int()).optional().default([]),
+  // Ordered: the order is the display order of the joined organizer string.
+  organizerIds: z.array(z.number().int()).optional().default([]),
   publicationIds: z.array(z.number().int()).optional().default([]),
 });
 

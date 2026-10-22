@@ -16,6 +16,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
+import { orderedOrganizers, joinOrganizerNames, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import type { SlideTemplateMetadata } from "../lib/slides/defaults.ts";
 
 /**
@@ -33,6 +34,7 @@ export async function fetchSlideTemplateMetadata(
       eventType: true,
       eventTeachers: { with: { teacher: true } },
       eventPlaces: { with: { place: true } },
+      eventOrganizers: eventOrganizersWith,
     },
   });
   if (!event) return null;
@@ -44,7 +46,7 @@ export async function fetchSlideTemplateMetadata(
     eventTypeEn: event.eventType?.nameEn ?? null,
     eventTypePt: event.eventType?.namePt ?? null,
     date: dateOverride ?? event.startDate ?? null,
-    organizer: event.organizer ?? null,
+    organizer: joinOrganizerNames(orderedOrganizers(event.eventOrganizers)),
     placeName: place?.name ?? null,
     placeLocation: place?.location ?? null,
     creditLines: event.creditLines ?? [],

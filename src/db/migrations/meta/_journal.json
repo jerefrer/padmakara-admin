@@ -288,6 +288,13 @@
       "when": 1811814400000,
       "tag": "0040_library_records",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1811900800000,
+      "tag": "0041_organizers",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 // Core content
 export { teachers } from "./teachers.ts";
 export { places } from "./places.ts";
+export { organizers } from "./organizers.ts";
 export { retreatGroups } from "./retreat-groups.ts";
 export { eventTypes } from "./event-types.ts";
 export { audiences } from "./audiences.ts";
@@ -9,10 +10,12 @@ export {
   eventTeachers,
   eventRetreatGroups,
   eventPlaces,
+  eventOrganizers,
   eventsRelations,
   eventTeachersRelations,
   eventRetreatGroupsRelations,
   eventPlacesRelations,
+  eventOrganizersRelations,
 } from "./retreats.ts";
 export { sessions, sessionsRelations } from "./sessions.ts";
 export { eventVideos, eventVideosRelations } from "./event-videos.ts";

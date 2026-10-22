@@ -40,7 +40,7 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     mockFindFirstEvent.mockResolvedValueOnce({
       id: 7,
       startDate: "2016-06-18",
-      organizer: "Padmakara Portugal",
+      eventOrganizers: [{ position: 0, organizer: { id: 1, name: "Padmakara Portugal", abbreviation: null } }],
       creditLines: ["Filmagem, arquivo e edição"],
       copyrightHolder: "Padmakara",
       eventType: { nameEn: "Teachings", namePt: "Ensinamentos" },
@@ -65,11 +65,36 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     });
   });
 
+  it("joins several organizers in their chosen order, not the order the database returned them", async () => {
+    mockFindFirstEvent.mockResolvedValueOnce({
+      id: 7,
+      startDate: "2016-06-18",
+      eventOrganizers: [
+        { position: 1, organizer: { id: 2, name: "Fundação Kangyur Rinpoche", abbreviation: null } },
+        { position: 0, organizer: { id: 1, name: "Casa da Cultura do Tibete", abbreviation: null } },
+      ],
+      creditLines: [],
+      copyrightHolder: null,
+      eventType: null,
+      eventTeachers: [],
+      eventPlaces: [],
+    });
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/events/7/slides/defaults", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(status).toBe(200);
+    expect(JSON.stringify(body.slides.intro)).toContain("Casa da Cultura do Tibete · Fundação Kangyur Rinpoche");
+  });
+
   it("falls back to the event's startDate for the date slide — there is no video yet to prefer", async () => {
     mockFindFirstEvent.mockResolvedValueOnce({
       id: 7,
       startDate: "2017-01-02",
-      organizer: null,
+      eventOrganizers: [],
       creditLines: [],
       copyrightHolder: null,
       eventType: null,
@@ -93,7 +118,7 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     mockFindFirstEvent.mockResolvedValueOnce({
       id: 8,
       startDate: null,
-      organizer: null,
+      eventOrganizers: [],
       creditLines: [],
       copyrightHolder: null,
       eventType: null,

@@ -34,6 +34,7 @@ import AlertTitle from "@mui/material/AlertTitle";
 import Button from "@mui/material/Button";
 import MuiTextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
 import Autocomplete from "@mui/material/Autocomplete";
 import Grid from "@mui/material/Grid";
 import ToggleButton from "@mui/material/ToggleButton";
@@ -563,7 +564,6 @@ export interface EventFormData {
   sessionThemesPtReviewed: boolean;
   startDate: string;
   endDate: string;
-  organizer: string;
   bibliography: string;
   /** Wix ID of the library record the event was filled from (retreats.wix_id). */
   wixId: string | null;
@@ -577,6 +577,7 @@ export interface EventFormData {
 
 export interface TeacherOption { id: number; name: string; abbreviation: string }
 export interface PlaceOption { id: number; name: string; abbreviation: string | null }
+export interface OrganizerOption { id: number; name: string; abbreviation: string | null }
 export interface GroupOption { id: number; nameEn: string; namePt: string | null; abbreviation: string | null; slug: string }
 export interface EventTypeOption { id: number; nameEn: string; namePt: string | null; abbreviation: string; slug: string }
 export interface AudienceOption { id: number; nameEn: string; namePt: string | null; slug: string }
@@ -588,7 +589,7 @@ export const EMPTY_FORM: EventFormData = {
   titleEnReviewed: true, titlePtReviewed: true,
   mainThemesEnReviewed: true, mainThemesPtReviewed: true,
   sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
-  startDate: "", endDate: "", organizer: "", bibliography: "",
+  startDate: "", endDate: "", bibliography: "",
   wixId: null, librarySnapshot: null, guestTeacherIds: [],
   status: "draft",
   featuredAt: null,
@@ -603,6 +604,8 @@ interface EventFormProps {
   setSelectedTeachers: React.Dispatch<React.SetStateAction<TeacherOption[]>>;
   selectedPlaces: PlaceOption[];
   setSelectedPlaces: React.Dispatch<React.SetStateAction<PlaceOption[]>>;
+  selectedOrganizers: OrganizerOption[];
+  setSelectedOrganizers: React.Dispatch<React.SetStateAction<OrganizerOption[]>>;
   selectedGroups: GroupOption[];
   setSelectedGroups: React.Dispatch<React.SetStateAction<GroupOption[]>>;
   selectedEventType: EventTypeOption | null;
@@ -611,6 +614,7 @@ interface EventFormProps {
   setSelectedAudience: React.Dispatch<React.SetStateAction<AudienceOption | null>>;
   allTeachers: TeacherOption[];
   allPlaces: PlaceOption[];
+  allOrganizers: OrganizerOption[];
   allGroups: GroupOption[];
   allEventTypes: EventTypeOption[];
   allAudiences: AudienceOption[];
@@ -732,10 +736,11 @@ export const EventFormFields = ({
   form, setForm,
   selectedTeachers, setSelectedTeachers,
   selectedPlaces, setSelectedPlaces,
+  selectedOrganizers, setSelectedOrganizers,
   selectedGroups, setSelectedGroups,
   selectedEventType, setSelectedEventType,
   selectedAudience, setSelectedAudience,
-  allTeachers, allPlaces, allGroups, allEventTypes, allAudiences,
+  allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onTrackAudioUpload,
   videos, onVideosChange, onVideoUpload, onVideoImportUrl, eventId,
@@ -1081,6 +1086,7 @@ export const EventFormFields = ({
         form={form} setForm={setForm}
         selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
         selectedPlaces={selectedPlaces} setSelectedPlaces={setSelectedPlaces}
+        selectedOrganizers={selectedOrganizers} setSelectedOrganizers={setSelectedOrganizers}
         selectedGroups={selectedGroups} setSelectedGroups={setSelectedGroups}
         selectedEventType={selectedEventType} setSelectedEventType={setSelectedEventType}
         selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
@@ -1345,14 +1351,22 @@ export const EventFormFields = ({
             />
           </Grid>
           <Grid size={{ xs: 12 }}>
-            <MuiTextField
-              label={translate("padmakara.events.organizer")}
-              placeholder={translate("padmakara.events.organizerPlaceholder")}
-              helperText={translate("padmakara.events.organizerHelp")}
-              value={form.organizer}
-              onChange={updateField("organizer")}
-              fullWidth
-              slotProps={{ inputLabel: { shrink: true } }}
+            <Autocomplete
+              multiple
+              options={allOrganizers}
+              getOptionLabel={(o) => o.abbreviation ? `${o.name} (${o.abbreviation})` : o.name}
+              value={selectedOrganizers}
+              onChange={(_, v) => setSelectedOrganizers(v)}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              renderInput={(params) => (
+                <MuiTextField
+                  {...params}
+                  label={translate("padmakara.events.organizers")}
+                  placeholder={translate("padmakara.events.organizersPlaceholder")}
+                  helperText={translate("padmakara.events.organizersHelp")}
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+              )}
             />
           </Grid>
           <Grid size={{ xs: 12 }}>
@@ -1539,6 +1553,7 @@ export const EventFormFields = ({
 export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
   const [allTeachers, setAllTeachers] = useState<TeacherOption[]>([]);
   const [allPlaces, setAllPlaces] = useState<PlaceOption[]>([]);
+  const [allOrganizers, setAllOrganizers] = useState<OrganizerOption[]>([]);
   const [allGroups, setAllGroups] = useState<GroupOption[]>([]);
   const [allEventTypes, setAllEventTypes] = useState<EventTypeOption[]>([]);
   const [allAudiences, setAllAudiences] = useState<AudienceOption[]>([]);
@@ -1547,13 +1562,18 @@ export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
   useEffect(() => {
     const fetch = async () => {
       try {
-        const [t, p, g, et, au] = await Promise.all([
+        const [t, p, o, g, et, au] = await Promise.all([
           dataProvider.getList<TeacherOption>("teachers", {
             pagination: { page: 1, perPage: 500 },
             sort: { field: "name", order: "ASC" },
             filter: {},
           }),
           dataProvider.getList<PlaceOption>("places", {
+            pagination: { page: 1, perPage: 500 },
+            sort: { field: "name", order: "ASC" },
+            filter: {},
+          }),
+          dataProvider.getList<OrganizerOption>("organizers", {
             pagination: { page: 1, perPage: 500 },
             sort: { field: "name", order: "ASC" },
             filter: {},
@@ -1576,6 +1596,7 @@ export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
         ]);
         setAllTeachers(t.data);
         setAllPlaces(p.data);
+        setAllOrganizers(o.data);
         setAllGroups(g.data);
         setAllEventTypes(et.data);
         setAllAudiences(au.data);
@@ -1588,7 +1609,7 @@ export function useLookups(dataProvider: ReturnType<typeof useDataProvider>) {
     fetch();
   }, [dataProvider]);
 
-  return { allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, loaded };
+  return { allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences, loaded };
 }
 
 /* ───────────── Event Create ───────────── */
@@ -1896,6 +1917,9 @@ export const EventCreate = () => {
   const [form, setForm] = useState<EventFormData>({ ...EMPTY_FORM });
   const [sessions, setSessions] = useState<InferredSession[]>([]);
   const [folderName, setFolderName] = useState<string | null>(null);
+  // The admin chose to start from the metadata alone: the form shows with no
+  // sessions, and audio/video are added later from the event's edit page.
+  const [withoutFiles, setWithoutFiles] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
   const cancelUploadRef = useRef<(() => void) | null>(null);
@@ -1915,9 +1939,10 @@ export const EventCreate = () => {
   const [scannedFiles, setScannedFiles] = useState<ScannedFile[]>([]);
   const [trackCorrections, setTrackCorrections] = useState<TrackCorrectionsMap>(new Map());
 
-  const { allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
+  const { allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
   const [selectedTeachers, setSelectedTeachers] = useState<TeacherOption[]>([]);
   const [selectedPlaces, setSelectedPlaces] = useState<PlaceOption[]>([]);
+  const [selectedOrganizers, setSelectedOrganizers] = useState<OrganizerOption[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<GroupOption[]>([]);
   const [selectedEventType, setSelectedEventType] = useState<EventTypeOption | null>(null);
   const [selectedAudience, setSelectedAudience] = useState<AudienceOption | null>(null);
@@ -2031,6 +2056,7 @@ export const EventCreate = () => {
     setSelectedTeachers([]);
     setSelectedGroups([]);
     setSelectedPlaces([]);
+    setSelectedOrganizers([]);
     setSelectedEventType(null);
     setSelectedAudience(null);
   }, []);
@@ -2227,7 +2253,6 @@ export const EventCreate = () => {
           ...form,
           startDate: form.startDate || null,
           endDate: form.endDate || null,
-          organizer: form.organizer.trim() || null,
           bibliography: form.bibliography.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
@@ -2236,6 +2261,7 @@ export const EventCreate = () => {
             role: form.guestTeacherIds.includes(t.id) ? ("guest" as const) : ("teacher" as const),
           })),
           placeIds: selectedPlaces.map((p) => p.id),
+          organizerIds: selectedOrganizers.map((o) => o.id),
           groupIds: selectedGroups.map((g) => g.id),
         },
       });
@@ -2341,8 +2367,14 @@ export const EventCreate = () => {
           // Error/cancel already shown in UploadProgress
         }
       } else {
-        notify(translate("padmakara.events.createdSuccess"), { type: "success" });
-        redirect("list", "events");
+        if (withoutFiles) {
+          // Nothing to upload: land on the edit page, where audio and video can be added.
+          notify(translate("padmakara.events.createdWithoutFiles"), { type: "success" });
+          redirect("edit", "events", event.id);
+        } else {
+          notify(translate("padmakara.events.createdSuccess"), { type: "success" });
+          redirect("list", "events");
+        }
       }
     } catch (error: any) {
       notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
@@ -2351,13 +2383,14 @@ export const EventCreate = () => {
   };
 
   const hasFolder = sessions.length > 0;
+  const showForm = hasFolder || withoutFiles;
 
   return (
     <Box sx={{ px: 3, pb: 6 }}>
       <Title title={translate("padmakara.events.newEvent")} />
       <PageHeader title={translate("padmakara.events.newEvent")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
 
-      {!hasFolder && (
+      {!showForm && (
         <Paper sx={{ p: 3 }}>
           <TrackAnalysisDropZone
             onAnalyzed={handleAnalyzed}
@@ -2378,11 +2411,38 @@ export const EventCreate = () => {
             </Typography>
             <NamingConventionsButton />
           </Box>
+          <Divider sx={{ my: 2.5 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {translate("padmakara.events.or")}
+            </Typography>
+          </Divider>
+          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5 }}>
+            <Button variant="outlined" onClick={() => setWithoutFiles(true)}>
+              {translate("padmakara.events.startWithoutFiles")}
+            </Button>
+            <Typography variant="caption" sx={{ color: "text.secondary", textAlign: "center" }}>
+              {translate("padmakara.events.startWithoutFilesHint")}
+            </Typography>
+          </Box>
         </Paper>
       )}
 
-      {hasFolder && !uploadProgress && (
+      {showForm && !uploadProgress && (
         <>
+          {withoutFiles && !hasFolder && (
+            <Alert
+              severity="info"
+              sx={{ mb: 2 }}
+              action={
+                <Button color="inherit" size="small" onClick={() => setWithoutFiles(false)} disabled={saving}>
+                  {translate("padmakara.events.useFolderInstead")}
+                </Button>
+              }
+            >
+              {translate("padmakara.events.withoutFilesNotice")}
+            </Alert>
+          )}
+
           {/* AI analysis report at the TOP so the admin sees the
               degradation banner immediately on arrival. Notes follow. */}
           {analysis && (
@@ -2400,10 +2460,11 @@ export const EventCreate = () => {
             form={form} setForm={setForm}
             selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
             selectedPlaces={selectedPlaces} setSelectedPlaces={setSelectedPlaces}
+            selectedOrganizers={selectedOrganizers} setSelectedOrganizers={setSelectedOrganizers}
             selectedGroups={selectedGroups} setSelectedGroups={setSelectedGroups}
             selectedEventType={selectedEventType} setSelectedEventType={setSelectedEventType}
             selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
-            allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
+            allTeachers={allTeachers} allPlaces={allPlaces} allOrganizers={allOrganizers} allGroups={allGroups}
             allEventTypes={allEventTypes} allAudiences={allAudiences}
             sessions={[]} transcripts={[]} onSessionTitleChange={handleSessionTitleChange}
             previewSessions={sessions}
@@ -2446,14 +2507,16 @@ export const EventCreate = () => {
           )}
 
           {/* Review & edit the parsed tracks/sessions before saving */}
-          <SessionTrackTable
-            value={sessionsToTableValue(sessions)}
-            onChange={(tv) => setSessions(tableValueToSessions(tv, sessions))}
-            teachers={allTeachers}
-            enablePractice
-            editableFilename
-            trackCorrections={trackCorrections}
-          />
+          {hasFolder && (
+            <SessionTrackTable
+              value={sessionsToTableValue(sessions)}
+              onChange={(tv) => setSessions(tableValueToSessions(tv, sessions))}
+              teachers={allTeachers}
+              enablePractice
+              editableFilename
+              trackCorrections={trackCorrections}
+            />
+          )}
 
           {/* 6.1 — Transcript upload (allowed before or after save; eventCode needed) */}
           {form.eventCode && (
@@ -2716,9 +2779,10 @@ export const EventEdit = () => {
   // 6.2 — new-tracks drop state (used when adding sessions to an existing event)
   const [addTracksUploading, setAddTracksUploading] = useState(false);
 
-  const { allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
+  const { allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
   const [selectedTeachers, setSelectedTeachers] = useState<TeacherOption[]>([]);
   const [selectedPlaces, setSelectedPlaces] = useState<PlaceOption[]>([]);
+  const [selectedOrganizers, setSelectedOrganizers] = useState<OrganizerOption[]>([]);
   const [selectedGroups, setSelectedGroups] = useState<GroupOption[]>([]);
   const [selectedEventType, setSelectedEventType] = useState<EventTypeOption | null>(null);
   const [selectedAudience, setSelectedAudience] = useState<AudienceOption | null>(null);
@@ -2736,7 +2800,6 @@ export const EventEdit = () => {
       sessionThemesPt: event.sessionThemesPt || "",
       startDate: event.startDate || "",
       endDate: event.endDate || "",
-      organizer: event.organizer || "",
       bibliography: event.bibliography || "",
       wixId: event.wixId ?? null,
       librarySnapshot: event.librarySnapshot ?? null,
@@ -2761,6 +2824,15 @@ export const EventEdit = () => {
       const ids = new Set(event.eventPlaces.map((rp: any) => rp.placeId));
       setSelectedPlaces(allPlaces.filter((p) => ids.has(p.id)));
     }
+    if (event.organizers && allOrganizers.length > 0) {
+      // Keep the saved order, not the lookup list's alphabetical one.
+      const byId = new Map(allOrganizers.map((o) => [o.id, o]));
+      setSelectedOrganizers(
+        (event.organizers as { id: number }[])
+          .map((o) => byId.get(o.id))
+          .filter((o): o is OrganizerOption => o !== undefined),
+      );
+    }
     if (event.eventRetreatGroups && allGroups.length > 0) {
       const ids = new Set(event.eventRetreatGroups.map((rg: any) => rg.retreatGroupId));
       setSelectedGroups(allGroups.filter((g) => ids.has(g.id)));
@@ -2776,7 +2848,7 @@ export const EventEdit = () => {
     }
 
     setInitialized(true);
-  }, [event, allTeachers, allPlaces, allGroups, allEventTypes, allAudiences, lookupsLoaded, initialized]);
+  }, [event, allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences, lookupsLoaded, initialized]);
 
   // Separate effect for loading sessions - runs whenever event.sessions changes
   // This prevents the race condition where cached event data (without sessions)
@@ -3501,7 +3573,6 @@ export const EventEdit = () => {
           ...form,
           startDate: form.startDate || null,
           endDate: form.endDate || null,
-          organizer: form.organizer.trim() || null,
           bibliography: form.bibliography.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
@@ -3510,6 +3581,7 @@ export const EventEdit = () => {
             role: form.guestTeacherIds.includes(t.id) ? ("guest" as const) : ("teacher" as const),
           })),
           placeIds: selectedPlaces.map((p) => p.id),
+          organizerIds: selectedOrganizers.map((o) => o.id),
           groupIds: selectedGroups.map((g) => g.id),
         },
         previousData: event,
@@ -3561,10 +3633,11 @@ export const EventEdit = () => {
         form={form} setForm={setForm}
         selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
         selectedPlaces={selectedPlaces} setSelectedPlaces={setSelectedPlaces}
+        selectedOrganizers={selectedOrganizers} setSelectedOrganizers={setSelectedOrganizers}
         selectedGroups={selectedGroups} setSelectedGroups={setSelectedGroups}
         selectedEventType={selectedEventType} setSelectedEventType={setSelectedEventType}
         selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
-        allTeachers={allTeachers} allPlaces={allPlaces} allGroups={allGroups}
+        allTeachers={allTeachers} allPlaces={allPlaces} allOrganizers={allOrganizers} allGroups={allGroups}
         allEventTypes={allEventTypes} allAudiences={allAudiences}
         sessions={sessions} transcripts={event?.transcripts || []} onSessionTitleChange={handleSessionTitleChange}
         onTrackUpdate={handleTrackUpdate}

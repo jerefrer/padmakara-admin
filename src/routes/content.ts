@@ -17,6 +17,7 @@ import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { checkEventAccess, eventStatusVisibleTo } from "../services/access.ts";
 import { users } from "../db/schema/users.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
+import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { z } from "zod";
 
@@ -359,6 +360,7 @@ const eventBookmarkWith = {
       eventTeachers: { with: { teacher: true } },
       eventRetreatGroups: { with: { retreatGroup: true } },
       eventPlaces: { with: { place: true } },
+      eventOrganizers: eventOrganizersWith,
     },
   },
 } as const;
@@ -376,6 +378,7 @@ contentRoutes.get("/event-bookmarks", async (c) => {
   const events = rows.map((r) => r.event).filter(Boolean) as any[];
   await resolveEventsTeacherUrls(events);
   await resolveEventsGroupUrls(events);
+  applyEventsOrganizers(events);
 
   return c.json(rows);
 });
@@ -420,6 +423,7 @@ contentRoutes.post("/event-bookmarks", async (c) => {
   if (existing.event) {
     await resolveEventTeacherUrls(existing.event as any);
     await resolveEventGroupUrls(existing.event as any);
+    applyEventOrganizers(existing.event);
   }
 
   return c.json(existing, row ? 201 : 200);
@@ -455,6 +459,7 @@ const trackBookmarkWith = {
             with: {
               eventTeachers: { with: { teacher: true } },
               eventRetreatGroups: { with: { retreatGroup: true } },
+              eventOrganizers: eventOrganizersWith,
             },
           },
         },
@@ -478,6 +483,7 @@ contentRoutes.get("/track-bookmarks", async (c) => {
     .filter(Boolean);
   await resolveEventsTeacherUrls(events);
   await resolveEventsGroupUrls(events);
+  applyEventsOrganizers(events);
 
   return c.json(rows);
 });
@@ -526,6 +532,7 @@ contentRoutes.post("/track-bookmarks", async (c) => {
   if (event) {
     await resolveEventTeacherUrls(event);
     await resolveEventGroupUrls(event);
+    applyEventOrganizers(event);
   }
 
   return c.json(existing, row ? 201 : 200);

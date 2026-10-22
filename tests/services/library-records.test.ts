@@ -7,6 +7,7 @@ import {
   searchRecords,
   suggestRecords,
   mapRecordToEvent,
+  findOrganizer,
   detectLanguage,
   type MappingRef,
 } from "../../src/services/library-records.ts";
@@ -171,10 +172,50 @@ describe("detectLanguage", () => {
   });
 });
 
+describe("findOrganizer", () => {
+  const list = [
+    { id: 1, name: "Fundação Kangyur Rinpoche", abbreviation: "F. Kangyur R." },
+    { id: 2, name: "Songtsen - Casa da Cultura do Tibete", abbreviation: "Songtsen" },
+    { id: 3, name: "União Budista Portuguesa", abbreviation: "U.B.P." },
+    { id: 4, name: "Songtsen-Chanteloube", abbreviation: "Songtsen-Chanteloube" },
+    { id: 5, name: "Tergar Portugal", abbreviation: null },
+  ];
+
+  it("should match by abbreviation ignoring case and accents", () => {
+    expect(findOrganizer("songtsen", list)?.id).toBe(2);
+    expect(findOrganizer("u.b.p.", list)?.id).toBe(3);
+    expect(findOrganizer("Songtsen-Chanteloube", list)?.id).toBe(4);
+  });
+
+  it("should match by full name", () => {
+    expect(findOrganizer("Fundacao Kangyur Rinpoche", list)?.id).toBe(1);
+    expect(findOrganizer("tergar portugal", list)?.id).toBe(5);
+  });
+
+  it("should accept the F. Kangyur variants the CSV uses", () => {
+    for (const v of ["F. Kangyur R.", "F. Kangyur R", "F. Kangyur Rinpoche"]) {
+      expect(findOrganizer(v, list)?.id).toBe(1);
+    }
+  });
+
+  it("should not match a name that is only a prefix of another", () => {
+    expect(findOrganizer("Songtsen Norte", list)).toBeNull();
+  });
+
+  it("should return null for an unknown or empty name", () => {
+    expect(findOrganizer("Unknown", list)).toBeNull();
+    expect(findOrganizer("", list)).toBeNull();
+  });
+});
+
 describe("mapRecordToEvent", () => {
   const ref: MappingRef = {
     teachers: [{ id: 1, name: "Khenchen Pema Sherab Rinpoche", abbreviation: "KPS", aliases: [] }],
     places: [{ id: 5, name: "UBP", abbreviation: "UBP", location: "UBP, Av. 5 de Outubro, Lisboa, Portugal" }],
+    organizers: [
+      { id: 7, name: "Fundação Kangyur Rinpoche", abbreviation: "F. Kangyur R." },
+      { id: 8, name: "Songtsen - Casa da Cultura do Tibete", abbreviation: "Songtsen" },
+    ],
     eventTypes: [{ id: 2, nameEn: "Teaching", namePt: "Ensinamento" }],
     groups: [{ id: 9, nameEn: "Śamatha", namePt: "Śamatha" }],
     audiences: [{ id: 3, nameEn: "Event participants", namePt: "Participantes no evento" }],
@@ -192,7 +233,7 @@ describe("mapRecordToEvent", () => {
       groupIds: [],
       placeIds: [5],
       teacherIds: [{ id: 1, role: "teacher" }],
-      organizer: "F. Kangyur Rinpoche, Songtsen",
+      organizerIds: [7, 8],
       wixId: "w1",
     });
     expect(m.fields.mainThemesPt).toBe("Tema com\nvárias linhas");
@@ -200,6 +241,15 @@ describe("mapRecordToEvent", () => {
     expect(m.fields.sessionThemesEn).toBe("Śāntideva | Day 1");
     expect(m.fields.sessionThemesPt).toBeNull();
     expect(m.fields.bibliography).toBe("Bibliografia");
+  });
+
+  it("should report an organisation with no matching organizer as unresolved", () => {
+    const m = mapRecordToEvent(shantideva!, { ...ref, organizers: [ref.organizers[0]!] });
+    expect(m.fields.organizerIds).toEqual([7]);
+    expect(m.unresolved.organizers).toEqual(["Songtsen"]);
+    expect(m.resolved.organizers).toEqual([
+      { id: 7, name: "Fundação Kangyur Rinpoche", abbreviation: "F. Kangyur R." },
+    ]);
   });
 
   it("should list a guest that does not exist yet as unresolved with role guest", () => {
