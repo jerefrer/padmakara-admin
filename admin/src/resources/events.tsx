@@ -90,6 +90,22 @@ import {
   type UploadItem,
   type UploadProgress as UploadProgressData,
 } from "../utils/uploadManager";
+import {
+  isRedropOfEventFolder,
+  isRedropOfPendingUpload,
+  matchFilesToMissingTracks,
+  reconcileEventAudio,
+  uploadTracksWithResumeQueue,
+  type MissingAudioTrack,
+} from "../utils/audioResume";
+import {
+  listPendingAudioUploads,
+  loadPendingAudioUpload,
+  prunePendingAudioUpload,
+  remainingEntries,
+  type PendingAudioUpload,
+} from "../utils/pendingAudioUpload";
+import { UploadIncompleteAlert } from "../components/UploadIncompleteAlert";
 import { uploadVideoFile, uploadVideoMaster } from "../utils/videoUploader";
 import { authFetch } from "../utils/authFetch";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
@@ -1923,6 +1939,17 @@ export const EventCreate = () => {
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
   const cancelUploadRef = useRef<(() => void) | null>(null);
+  const uploadCancelledRef = useRef(false);
+  // Post-upload reconciliation: the server is asked which tracks still lack
+  // audio once the upload ends, however it ended.
+  const [reconciling, setReconciling] = useState(false);
+  const [incompleteUpload, setIncompleteUpload] = useState<{
+    eventId: number;
+    tracks: MissingAudioTrack[];
+  } | null>(null);
+  // The dropped folder is the one of an event whose upload was interrupted:
+  // offer to resume it there rather than creating the event a second time.
+  const [interruptedEventUpload, setInterruptedEventUpload] = useState<PendingAudioUpload | null>(null);
   const [transcriptUploads, setTranscriptUploads] = useState<TranscriptUploadState[]>([]);
   // Transcript/document rows can't be persisted until the event has a real
   // id — the create flow only has `eventCode` until Save runs. Uploads still
@@ -2006,6 +2033,22 @@ export const EventCreate = () => {
       setFolderName(droppedFolderName);
       setTrackCorrections(newCorrections);
 
+      // Same folder as an interrupted upload recorded in this browser? Check
+      // with the server first so a stale queue (event since completed or
+      // deleted) doesn't raise a false alarm.
+      const droppedFiles = files.map((f) => f.file);
+      const interrupted = listPendingAudioUploads().find((q) =>
+        isRedropOfPendingUpload(droppedFiles, q),
+      );
+      setInterruptedEventUpload(null);
+      if (interrupted) {
+        reconcileEventAudio(interrupted.eventId)
+          .then(({ queue }) =>
+            setInterruptedEventUpload(queue && isRedropOfPendingUpload(droppedFiles, queue) ? queue : null),
+          )
+          .catch(() => setInterruptedEventUpload(interrupted));
+      }
+
       setForm((prev) => ({
         ...prev,
         titleEn: prev.titleEn || result.event.titleEn || "",
@@ -2049,6 +2092,7 @@ export const EventCreate = () => {
     setTrackCorrections(new Map());
     setScannedFiles([]);
     setFolderName(null);
+    setInterruptedEventUpload(null);
     // Also clear AI-derived form metadata and lookups so the next folder
     // starts from a clean slate. Otherwise stale teacher/group selections
     // from the previous folder linger silently.
@@ -2352,20 +2396,60 @@ export const EventCreate = () => {
       setSaving(false);
 
       if (uploadItems.length > 0) {
-        const { promise, cancel } = uploadTracks(
-          uploadItems,
+        const eventId = Number(event.id);
+        uploadCancelledRef.current = false;
+        const { promise, cancel } = uploadTracksWithResumeQueue(
+          eventId,
           form.eventCode,
+          uploadItems,
           (progress) => setUploadProgress({ ...progress }),
         );
         cancelUploadRef.current = cancel;
 
+        let uploadSucceeded = false;
         try {
           await promise;
+          uploadSucceeded = true;
+        } catch {
+          // Error shown in UploadProgress; a cancel is handled below.
+        }
+
+        // Reconcile: whatever happened, ask the server which tracks still
+        // have no audio, so a partial upload is never mistaken for a
+        // complete one.
+        setReconciling(true);
+        const missing = await reconcileEventAudio(eventId)
+          .then((r) => r.missing)
+          .catch(() => null);
+        setReconciling(false);
+        const cancelled = uploadCancelledRef.current;
+
+        if (missing === null) {
+          // The check itself failed — fall back to the upload's own outcome.
+          if (uploadSucceeded) {
+            notify(translate("padmakara.events.createdUploaded"), { type: "success" });
+            redirect("list", "events");
+          } else if (cancelled) {
+            redirect("edit", "events", eventId);
+          }
+        } else if (missing.length > 0) {
+          if (cancelled) {
+            notify("padmakara.events.uploadIncompleteNotify", {
+              type: "warning",
+              messageArgs: { smart_count: missing.length },
+            });
+            redirect("edit", "events", eventId);
+          } else {
+            setIncompleteUpload({ eventId, tracks: missing });
+          }
+        } else if (uploadSucceeded) {
           notify(translate("padmakara.events.createdUploaded"), { type: "success" });
           redirect("list", "events");
-        } catch {
-          // Error/cancel already shown in UploadProgress
+        } else if (cancelled) {
+          redirect("list", "events");
         }
+        // Otherwise every track has audio but something else failed (e.g. a
+        // video): the error stays on screen.
       } else {
         if (withoutFiles) {
           // Nothing to upload: land on the edit page, where audio and video can be added.
@@ -2440,6 +2524,28 @@ export const EventCreate = () => {
               }
             >
               {translate("padmakara.events.withoutFilesNotice")}
+            </Alert>
+          )}
+
+          {interruptedEventUpload && (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Button
+                  color="inherit"
+                  size="small"
+                  variant="outlined"
+                  onClick={() => redirect("edit", "events", interruptedEventUpload.eventId)}
+                >
+                  {translate("padmakara.events.resumeUpload")}
+                </Button>
+              }
+            >
+              <AlertTitle>{translate("padmakara.events.pendingUploadFolderTitle")}</AlertTitle>
+              {translate("padmakara.events.pendingUploadFolderBody", {
+                code: interruptedEventUpload.eventCode,
+              })}
             </Alert>
           )}
 
@@ -2564,10 +2670,26 @@ export const EventCreate = () => {
         <UploadProgress
           progress={uploadProgress}
           onCancel={() => {
+            // handleSave reconciles once the upload stops, then navigates.
+            uploadCancelledRef.current = true;
             cancelUploadRef.current?.();
-            setUploadProgress(null);
-            redirect("list", "events");
           }}
+        />
+      )}
+
+      {reconciling && (
+        <Box sx={{ mt: 2 }}>
+          <LinearProgress sx={{ borderRadius: 1, mb: 0.5 }} />
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {translate("padmakara.events.checkingUpload")}
+          </Typography>
+        </Box>
+      )}
+
+      {incompleteUpload && (
+        <UploadIncompleteAlert
+          tracks={incompleteUpload.tracks}
+          onResume={() => redirect("edit", "events", incompleteUpload.eventId)}
         />
       )}
     </Box>
@@ -2624,129 +2746,183 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
   }));
 }
 
+/** The tracks of a loaded event that still have no audio. */
+function missingAudioFromSessions(sessions: InferredSession[]): MissingAudioTrack[] {
+  return sessions.flatMap((s) =>
+    s.tracks
+      .filter((t) => t.id && t.hasAudio === false)
+      .map((t) => ({
+        id: t.id as number,
+        sessionId: s.id ?? 0,
+        sessionNumber: s.sessionNumber,
+        trackNumber: t.trackNumber,
+        title: t.title,
+        originalFilename: t.originalFilename || null,
+        // toInferredSessions carries the recorded size on the stub `file`.
+        fileSizeBytes: t.file.size || null,
+      })),
+  );
+}
+
 /**
  * Repair panel shown on an event that still has tracks without audio (an
- * upload that never finished). The admin drags the original audio files or
- * folder; each file is matched to a missing track by its original filename
- * and uploaded, backfilling s3_key. Tracks that already have audio are
- * untouched; files that match nothing are reported. Renders nothing when
- * the event is complete.
+ * upload that never finished). The admin drops (or picks) the original
+ * folder or files; each file is matched to a missing track — through this
+ * browser's resume queue when there is one, else by original filename — and
+ * uploaded, backfilling s3_key. Tracks that already have audio are skipped;
+ * files that match nothing are reported. When a resume queue exists the
+ * panel reads as "Resume upload". Renders nothing when the event is complete.
  */
 const AudioRepairPanel = ({
+  eventId,
   eventCode,
   sessions,
-  onRepaired,
+  pendingQueue,
+  onUploadEnded,
 }: {
+  eventId: number;
   eventCode: string;
   sessions: InferredSession[];
-  onRepaired: () => void;
+  pendingQueue: PendingAudioUpload | null;
+  /** Called after every repair attempt, successful or not, to reconcile. */
+  onUploadEnded: () => void;
 }) => {
   const translate = useTranslate();
   const notify = useNotify();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
+  const busy = progress !== null;
 
-  const missing = sessions.flatMap((s) =>
-    s.tracks
-      .filter((t) => t.id && t.hasAudio === false)
-      .map((t) => ({
-        trackId: t.id as number,
-        sessionNumber: s.sessionNumber,
-        trackNumber: t.trackNumber,
-        title: t.title,
-        originalFilename: t.originalFilename || "",
-      })),
-  );
-
+  const missing = missingAudioFromSessions(sessions);
   if (missing.length === 0) return null;
+  const resuming = remainingEntries(pendingQueue).length > 0;
 
-  const handleFiles = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
-    const files = Array.from(fileList);
-    const byName = new Map(files.map((f) => [f.name, f] as const));
+  const handleFiles = async (files: File[]) => {
+    if (files.length === 0 || busy) return;
+    const match = matchFilesToMissingTracks(missing, files, pendingQueue);
 
-    // Match each still-missing track to a dropped file by original filename.
-    const items: UploadItem[] = [];
-    for (const m of missing) {
-      const file = m.originalFilename ? byName.get(m.originalFilename) : undefined;
-      if (file) {
-        items.push({
-          trackId: m.trackId,
-          sessionNumber: m.sessionNumber,
-          file,
-          filename: file.name,
-          mediaType: "audio",
-          title: m.title,
-        });
-      }
-    }
-
-    if (items.length === 0) {
+    if (match.items.length === 0) {
       notify("padmakara.tracks.repairNoMatches", { type: "warning" });
       return;
     }
-    const matchedNames = new Set(items.map((i) => i.filename));
-    const unmatched = files.filter((f) => !matchedNames.has(f.name)).length;
 
-    setBusy(true);
-    const { promise } = uploadTracks(items, eventCode, () => {});
+    setProgress({ completed: 0, total: match.items.length });
+    const { promise } = uploadTracksWithResumeQueue(eventId, eventCode, match.items, (p) =>
+      setProgress({ completed: p.filesCompleted, total: p.filesTotal }),
+    );
     try {
       await promise;
       notify("padmakara.tracks.repairUploaded", {
         type: "success",
-        messageArgs: { smart_count: items.length },
+        messageArgs: { smart_count: match.items.length },
       });
-      if (unmatched > 0) {
+      if (match.unmatchedTracks.length > 0) {
+        notify("padmakara.tracks.repairStillMissing", {
+          type: "warning",
+          messageArgs: { smart_count: match.unmatchedTracks.length },
+        });
+      } else if (match.unusedFiles.length > 0 && !resuming) {
         notify("padmakara.tracks.repairUnmatched", {
           type: "info",
-          messageArgs: { smart_count: unmatched },
+          messageArgs: { smart_count: match.unusedFiles.length },
         });
       }
-      onRepaired();
     } catch {
       notify("padmakara.tracks.uploadAudioFailed", { type: "error" });
     } finally {
-      setBusy(false);
+      setProgress(null);
+      onUploadEnded();
     }
+  };
+
+  const pickerChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // allow re-picking the same files
+    void handleFiles(files);
   };
 
   return (
     <Alert severity="warning" sx={{ mb: 3 }}>
       <AlertTitle>
-        {translate("padmakara.tracks.repairTitle", { smart_count: missing.length })}
+        {translate(resuming ? "padmakara.tracks.resumeTitle" : "padmakara.tracks.repairTitle", {
+          smart_count: missing.length,
+        })}
       </AlertTitle>
       <Typography variant="body2" sx={{ mb: 1 }}>
-        {translate("padmakara.tracks.repairInstructions")}
+        {translate(resuming ? "padmakara.tracks.resumeInstructions" : "padmakara.tracks.repairInstructions")}
       </Typography>
       <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mb: 1.5 }}>
         {translate("padmakara.tracks.repairMissing")}:{" "}
         {missing.map((m) => `${m.trackNumber}. ${m.title}`).join(" · ")}
       </Typography>
+      {!busy && (
+        <Box sx={{ mb: 1.5 }}>
+          <TrackDropZone
+            onFolderDropped={(_meta, tracks) => void handleFiles(tracks.map((t) => t.file))}
+            fileCount={0}
+            folderName={null}
+          />
+        </Box>
+      )}
       <input
         ref={fileInputRef}
         type="file"
         accept="audio/*"
         multiple
         style={{ display: "none" }}
-        onChange={(e) => {
-          const fl = e.target.files;
-          e.target.value = ""; // allow re-picking the same files
-          void handleFiles(fl);
-        }}
+        onChange={pickerChange}
       />
-      <Button
-        variant="contained"
-        color="warning"
-        size="small"
-        startIcon={<UploadFileIcon />}
-        disabled={busy}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        {busy
-          ? translate("padmakara.tracks.uploadingAudio")
-          : translate("padmakara.tracks.uploadAudio")}
-      </Button>
-      {busy && <LinearProgress sx={{ mt: 1.5 }} />}
+      <input
+        ref={(el) => {
+          folderInputRef.current = el;
+          // Not in React's input typings; lets the picker select a folder.
+          el?.setAttribute("webkitdirectory", "");
+        }}
+        type="file"
+        multiple
+        style={{ display: "none" }}
+        onChange={pickerChange}
+      />
+      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+        <Button
+          variant="contained"
+          color="warning"
+          size="small"
+          startIcon={<UploadFileIcon />}
+          disabled={busy}
+          onClick={() => folderInputRef.current?.click()}
+        >
+          {busy
+            ? translate("padmakara.tracks.uploadingAudio")
+            : resuming
+              ? translate("padmakara.events.resumeUpload")
+              : translate("padmakara.tracks.chooseFolder")}
+        </Button>
+        <Button
+          variant="outlined"
+          color="warning"
+          size="small"
+          disabled={busy}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {translate("padmakara.tracks.chooseFiles")}
+        </Button>
+      </Box>
+      {progress && (
+        <Box sx={{ mt: 1.5 }}>
+          <LinearProgress
+            variant="determinate"
+            value={progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}
+          />
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {translate("padmakara.tracks.repairProgress", {
+              completed: progress.completed,
+              total: progress.total,
+            })}
+          </Typography>
+        </Box>
+      )}
     </Alert>
   );
 };
@@ -2778,6 +2954,10 @@ export const EventEdit = () => {
   const [transcriptUploads, setTranscriptUploads] = useState<TranscriptUploadState[]>([]);
   // 6.2 — new-tracks drop state (used when adding sessions to an existing event)
   const [addTracksUploading, setAddTracksUploading] = useState(false);
+  // This browser's record of an interrupted audio upload for the event.
+  const [pendingQueue, setPendingQueue] = useState<PendingAudioUpload | null>(() =>
+    id ? loadPendingAudioUpload(Number(id)) : null,
+  );
 
   const { allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences, loaded: lookupsLoaded } = useLookups(dataProvider);
   const [selectedTeachers, setSelectedTeachers] = useState<TeacherOption[]>([]);
@@ -2858,6 +3038,42 @@ export const EventEdit = () => {
       setSessions(toInferredSessions(event.sessions));
     }
   }, [event?.sessions]);
+
+  // Keep the resume queue in step with the server whenever the event's
+  // tracks (re)load: tracks that gained audio — here or elsewhere — drop out,
+  // and the queue disappears once nothing is missing. Skipped until the
+  // sessions are actually present (a cached event can arrive without them).
+  useEffect(() => {
+    if (!id || !Array.isArray(event?.sessions)) return;
+    const missingIds = new Set<number>(
+      (event.sessions as { tracks?: { id: number; s3Key: string | null }[] }[]).flatMap((s) =>
+        (s.tracks ?? []).filter((t) => !t.s3Key).map((t) => t.id),
+      ),
+    );
+    setPendingQueue(prunePendingAudioUpload(Number(id), missingIds));
+  }, [id, event?.sessions]);
+
+  /**
+   * Post-upload reconciliation for this event: ask the server which tracks
+   * still have no audio, warn when some do, and refresh so the repair panel
+   * lists them with the resume path.
+   */
+  const reconcileAfterUpload = useCallback(async () => {
+    if (!id) return;
+    try {
+      const { missing, queue } = await reconcileEventAudio(Number(id));
+      setPendingQueue(queue);
+      if (missing.length > 0) {
+        notify("padmakara.events.uploadIncompleteNotify", {
+          type: "warning",
+          messageArgs: { smart_count: missing.length },
+        });
+      }
+    } catch {
+      // The refresh below still shows the repair panel from the event data.
+    }
+    refresh();
+  }, [id, notify, refresh]);
 
   // Same race-condition guard as sessions above — a cached event fetched
   // before `videos` populates shouldn't wipe out a later, fuller response.
@@ -3384,6 +3600,48 @@ export const EventEdit = () => {
         notify("padmakara.events.saveBeforeSessions", { type: "warning" });
         return;
       }
+      const eventId = Number(id);
+
+      // The same folder dropped again after an interrupted upload: upload
+      // only the files whose tracks are still keyless instead of creating
+      // the sessions a second time.
+      const missing = missingAudioFromSessions(sessions);
+      if (missing.length > 0) {
+        const droppedFiles = tracks.map((t) => t.file);
+        const match = matchFilesToMissingTracks(missing, droppedFiles, pendingQueue);
+        const eventFilenames = new Set(
+          sessions.flatMap((s) => s.tracks.map((t) => t.originalFilename)).filter(Boolean),
+        );
+        if (isRedropOfEventFolder(match, eventFilenames, pendingQueue)) {
+          notify("padmakara.events.resumedFromFolder", {
+            type: "info",
+            messageArgs: { smart_count: match.items.length },
+          });
+          setAddTracksUploading(true);
+          const { promise, cancel } = uploadTracksWithResumeQueue(
+            eventId,
+            form.eventCode,
+            match.items,
+            (progress) => setUploadProgress({ ...progress }),
+          );
+          cancelUploadRef.current = cancel;
+          try {
+            await promise;
+            notify("padmakara.tracks.repairUploaded", {
+              type: "success",
+              messageArgs: { smart_count: match.items.length },
+            });
+          } catch {
+            // Error shown in UploadProgress; reconciliation below lists what is left.
+          } finally {
+            setUploadProgress(null);
+            setAddTracksUploading(false);
+          }
+          await reconcileAfterUpload();
+          return;
+        }
+      }
+
       setAddTracksUploading(true);
       try {
         // Attribute every track to the folder-name teacher when none of the
@@ -3461,21 +3719,24 @@ export const EventEdit = () => {
         }
 
         if (uploadItems.length > 0) {
-          const { promise, cancel } = uploadTracks(
-            uploadItems,
+          const { promise, cancel } = uploadTracksWithResumeQueue(
+            eventId,
             form.eventCode,
+            uploadItems,
             (progress) => setUploadProgress({ ...progress }),
           );
           cancelUploadRef.current = cancel;
           try {
             await promise;
             notify("padmakara.events.sessionsAddedUploaded", { type: "success" });
-            refresh();
           } catch {
             // Error shown in UploadProgress
           } finally {
             setUploadProgress(null);
           }
+          // Normally, on error or on cancel: warn about tracks left without
+          // audio and refresh so the repair panel offers to resume.
+          await reconcileAfterUpload();
         } else {
           notify("padmakara.events.sessionsAddedNoAudio", { type: "success" });
           refresh();
@@ -3490,7 +3751,7 @@ export const EventEdit = () => {
         setAddTracksUploading(false);
       }
     },
-    [form.eventCode, id, sessions, videos, dataProvider, notify, refresh],
+    [form.eventCode, id, sessions, videos, pendingQueue, dataProvider, notify, refresh, reconcileAfterUpload],
   );
 
   // Finish an interrupted upload for a single keyless track: upload the
@@ -3625,8 +3886,14 @@ export const EventEdit = () => {
       <Title title={`${translate("ra.action.edit")}: ${event ? localeTitle(event, locale) : ""}`} />
       <PageHeader title={(event && localeTitle(event, locale)) || translate("ra.action.edit")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
 
-      {form.eventCode && (
-        <AudioRepairPanel eventCode={form.eventCode} sessions={sessions} onRepaired={refresh} />
+      {form.eventCode && id && (
+        <AudioRepairPanel
+          eventId={Number(id)}
+          eventCode={form.eventCode}
+          sessions={sessions}
+          pendingQueue={pendingQueue}
+          onUploadEnded={reconcileAfterUpload}
+        />
       )}
 
       <EventFormFields
