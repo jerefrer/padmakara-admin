@@ -15,9 +15,10 @@ describe("migration journal", () => {
   it("should have strictly increasing timestamps so the migrator applies every entry", () => {
     // drizzle-orm skips any migration whose `when` is not greater than the
     // last applied one, without reporting it.
-    const outOfOrder = journal.entries.filter(
-      (entry, i) => i > 0 && entry.when <= journal.entries[i - 1].when,
-    );
+    const outOfOrder = journal.entries.filter((entry, i) => {
+      const previous = journal.entries[i - 1];
+      return previous !== undefined && entry.when <= previous.when;
+    });
 
     expect(outOfOrder.map((e) => e.tag)).toEqual([]);
   });

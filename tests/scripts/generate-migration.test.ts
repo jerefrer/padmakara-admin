@@ -37,7 +37,7 @@ describe("ensureIncreasingWhen", () => {
 
     const { journal: result, changed } = ensureIncreasingWhen(journal);
 
-    expect(result.entries[2].when).toBe(1_811_900_800_000 + DAY_MS);
+    expect(result.entries[2]?.when).toBe(1_811_900_800_000 + DAY_MS);
     expect(changed).toEqual(["0002_m2"]);
   });
 
@@ -54,6 +54,6 @@ describe("ensureIncreasingWhen", () => {
 
     ensureIncreasingWhen(journal);
 
-    expect(journal.entries[1].when).toBe(1000);
+    expect(journal.entries[1]?.when).toBe(1000);
   });
 });
