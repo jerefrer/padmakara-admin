@@ -1,26 +1,32 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Readable } from "stream";
+import { existsSync } from "fs";
 
 const {
   dbUpdateSets,
+  dbWhere,
   findFirstMock,
   uploadedRef,
   uploadStreamMock,
   uploadFileMock,
   getObjectStreamMock,
+  presignMock,
 } = vi.hoisted(() => ({
   dbUpdateSets: [] as Array<Record<string, unknown>>,
+  dbWhere: vi.fn((_vals: Record<string, unknown>) => Promise.resolve()),
   findFirstMock: vi.fn(),
-  uploadedRef: { buffer: Buffer.alloc(0) },
+  uploadedRef: { buffer: Buffer.alloc(0), path: "" },
   uploadStreamMock: vi.fn(),
   // Added when the ZIP builder moved to "write to temp file, then upload" — the mock
   // was never updated, and the dead test suite hid it. Reads the file back before the
   // generator deletes it, so tests can still assert on the real uploaded artifact.
   uploadFileMock: vi.fn(async (_key: string, filePath: string, _contentType?: string) => {
     const { readFile } = await import("fs/promises");
+    uploadedRef.path = filePath;
     uploadedRef.buffer = await readFile(filePath);
   }),
   getObjectStreamMock: vi.fn(),
+  presignMock: vi.fn(async (_key: string, _expiresIn?: number) => "https://example.test/zip"),
 }));
 
 vi.mock("../../src/db/index.ts", () => ({
@@ -28,7 +34,7 @@ vi.mock("../../src/db/index.ts", () => ({
     update: () => ({
       set: (vals: Record<string, unknown>) => {
         dbUpdateSets.push(vals);
-        return { where: () => Promise.resolve() };
+        return { where: () => dbWhere(vals) };
       },
     }),
     query: { events: { findFirst: findFirstMock } },
@@ -42,59 +48,111 @@ vi.mock("../../src/services/s3.ts", () => ({
     `downloads/${eventCode}/${filename || requestId}.zip`,
   buildTrackS3Key: vi.fn(),
   uploadFile: uploadFileMock,
-  generatePresignedDownloadUrl: vi.fn(async () => "https://example.test/zip"),
+  generatePresignedDownloadUrl: presignMock,
 }));
 
 import { generateRetreatZip } from "../../src/services/zip-generator.ts";
 
-describe("generateRetreatZip - streaming behaviour", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    dbUpdateSets.length = 0;
-    uploadedRef.buffer = Buffer.alloc(0);
+function makeTrack(id: number, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    title: `Track ${id}`,
+    s3Key: `events/x/${id}.mp3`,
+    trackNumber: id,
+    speaker: "JKR",
+    languages: ["en"],
+    isTranslation: false,
+    ...overrides,
+  };
+}
 
-    // Each call returns a fresh, finite stream (a new S3 GetObject body).
-    getObjectStreamMock.mockImplementation(async () =>
-      Readable.from(Buffer.from("FAKE-AUDIO-DATA")),
-    );
+function makeEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 42,
+    eventCode: "2024.04-GRP",
+    titleEn: "Spring Retreat",
+    titlePt: null,
+    sessions: [
+      {
+        titleEn: "Morning",
+        sessionNumber: 1,
+        sessionDate: "2024-04-15",
+        timePeriod: "morning",
+        partNumber: null,
+        tracks: [makeTrack(1, { title: "Intro" }), makeTrack(2, { title: "Teaching" })],
+      },
+      {
+        titleEn: "Evening",
+        sessionNumber: 2,
+        sessionDate: "2024-04-15",
+        timePeriod: "evening",
+        partNumber: null,
+        tracks: [makeTrack(3, { title: "Closing" })],
+      },
+    ],
+    ...overrides,
+  };
+}
 
-    // Stand in for lib-storage Upload: consume the piped archive stream and
-    // capture the bytes so we can assert a real ZIP was produced.
-    uploadStreamMock.mockImplementation(async (_key: string, stream: Readable) => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        chunks.push(Buffer.from(chunk));
-      }
-      uploadedRef.buffer = Buffer.concat(chunks);
-    });
+function eventWithTrackCount(count: number) {
+  return makeEvent({
+    sessions: [
+      {
+        titleEn: "Day 1",
+        sessionNumber: 1,
+        sessionDate: "2024-04-15",
+        timePeriod: "morning",
+        partNumber: null,
+        tracks: Array.from({ length: count }, (_, i) => makeTrack(i + 1)),
+      },
+    ],
+  });
+}
 
-    findFirstMock.mockResolvedValue({
-      id: 42,
-      eventCode: "2024.04-GRP",
-      titleEn: "Spring Retreat",
-      titlePt: null,
-      sessions: [
-        {
-          titleEn: "Morning",
-          sessionNumber: 1,
-          sessionDate: "2024-04-15",
-          tracks: [
-            { id: 1, title: "Intro", s3Key: "events/x/1.mp3", trackNumber: 1 },
-            { id: 2, title: "Teaching", s3Key: "events/x/2.mp3", trackNumber: 2 },
-          ],
-        },
-        {
-          titleEn: "Evening",
-          sessionNumber: 2,
-          sessionDate: "2024-04-15",
-          tracks: [
-            { id: 3, title: "Closing", s3Key: "events/x/3.mp3", trackNumber: 3 },
-          ],
-        },
-      ],
-    });
+/** Entry names as stored in the ZIP's local file headers (uncompressed). */
+function zipText(): string {
+  return uploadedRef.buffer.toString("utf8");
+}
+
+let consoleSpies: Array<ReturnType<typeof vi.spyOn>> = [];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  dbUpdateSets.length = 0;
+  uploadedRef.buffer = Buffer.alloc(0);
+  uploadedRef.path = "";
+  dbWhere.mockImplementation(() => Promise.resolve());
+
+  // Each call returns a fresh, finite stream (a new S3 GetObject body).
+  getObjectStreamMock.mockImplementation(async () =>
+    Readable.from(Buffer.from("FAKE-AUDIO-DATA")),
+  );
+
+  // Stand in for lib-storage Upload: consume the piped archive stream and
+  // capture the bytes so we can assert a real ZIP was produced.
+  uploadStreamMock.mockImplementation(async (_key: string, stream: Readable) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.from(chunk));
+    }
+    uploadedRef.buffer = Buffer.concat(chunks);
   });
 
+  findFirstMock.mockResolvedValue(makeEvent());
+
+  // The generator logs every step; keep test output readable.
+  consoleSpies = [
+    vi.spyOn(console, "log").mockImplementation(() => {}),
+    vi.spyOn(console, "error").mockImplementation(() => {}),
+    vi.spyOn(console, "warn").mockImplementation(() => {}),
+  ];
+});
+
+afterEach(() => {
+  for (const spy of consoleSpies) spy.mockRestore();
+});
+
+describe("generateRetreatZip - streaming behaviour", () => {
   it("uploads the ZIP from a temp file instead of buffering it in memory", async () => {
     await generateRetreatZip("req-1", 42);
 
@@ -130,239 +188,230 @@ describe("generateRetreatZip - streaming behaviour", () => {
     expect(ready!.fileSize as number).toBeGreaterThan(0);
     expect(ready!.s3Key).toBe("downloads/2024.04-GRP/spring-retreat.zip");
   });
+
+  it("removes the temp file after a successful upload", async () => {
+    await generateRetreatZip("req-1", 42);
+
+    expect(uploadedRef.path).not.toBe("");
+    expect(existsSync(uploadedRef.path)).toBe(false);
+  });
 });
 
-describe("ZIP Generator Service - Logic Tests", () => {
-  describe("Progress Calculation", () => {
-    it("calculates progress percentage correctly", () => {
-      const scenarios = [
-        { processed: 0, total: 10, expected: 0 },
-        { processed: 5, total: 10, expected: 50 },
-        { processed: 10, total: 10, expected: 100 },
-        { processed: 3, total: 12, expected: 25 },
-        { processed: 7, total: 20, expected: 35 },
-      ];
+describe("generateRetreatZip - status lifecycle", () => {
+  it("should move the request to processing before reading the event", async () => {
+    await generateRetreatZip("req-1", 42);
 
-      for (const { processed, total, expected } of scenarios) {
-        const percent = Math.floor((processed / total) * 100);
-        expect(percent).toBe(expected);
-      }
-    });
-
-    it("determines when to update progress (every 5 files)", () => {
-      const updateInterval = 5;
-      const testCases = [
-        { fileIndex: 0, shouldUpdate: false },
-        { fileIndex: 4, shouldUpdate: false },
-        { fileIndex: 5, shouldUpdate: true },
-        { fileIndex: 9, shouldUpdate: false },
-        { fileIndex: 10, shouldUpdate: true },
-        { fileIndex: 15, shouldUpdate: true },
-      ];
-
-      for (const { fileIndex, shouldUpdate } of testCases) {
-        const needsUpdate = fileIndex > 0 && fileIndex % updateInterval === 0;
-        expect(needsUpdate).toBe(shouldUpdate);
-      }
-    });
+    expect(dbUpdateSets[0]).toEqual(
+      expect.objectContaining({ status: "processing", processingStartedAt: expect.any(Date) }),
+    );
   });
 
-  describe("File Path Generation", () => {
-    it("generates correct ZIP paths for tracks", () => {
-      const eventCode = "2024.04.15-GROUP-PLACE";
-      const sessionTitle = "Morning Session";
-      const trackNumber = 1;
-      const trackTitle = "Opening Prayers";
+  it("should record the total file count before archiving", async () => {
+    await generateRetreatZip("req-1", 42);
 
-      // Expected: 1 - Opening Prayers.mp3
-      const filename = `${String(trackNumber).padStart(3, "0")} - ${trackTitle}.mp3`;
-
-      expect(filename).toBe("001 - Opening Prayers.mp3");
-    });
-
-    it("organizes files by session in ZIP", () => {
-      const sessions = [
-        { sessionNumber: 1, titleEn: "Morning Session", trackCount: 3 },
-        { sessionNumber: 2, titleEn: "Afternoon Session", trackCount: 2 },
-      ];
-
-      const totalTracks = sessions.reduce((sum, s) => sum + s.trackCount, 0);
-
-      expect(totalTracks).toBe(5);
-      expect(sessions.length).toBe(2);
-    });
-
-    it("handles session titles with special characters", () => {
-      const sessionTitles = [
-        "Morning Session",
-        "Q&A Session",
-        "Day 1 - Part 2",
-        "Final Dedication",
-      ];
-
-      for (const title of sessionTitles) {
-        // ZIP path should use session title as folder name
-        const path = `${title}/001 - Track.mp3`;
-        expect(path).toContain(title);
-      }
-    });
+    expect(dbUpdateSets[1]).toEqual(expect.objectContaining({ totalFiles: 3 }));
   });
 
-  describe("ZIP Metadata", () => {
-    it("calculates expiration time (24 hours)", () => {
-      const now = Date.now();
-      const expiryHours = 24;
-      const expiryMs = expiryHours * 60 * 60 * 1000;
-      const expiresAt = new Date(now + expiryMs);
+  it("should set a 24-hour expiry and presign the ZIP for 24 hours", async () => {
+    const before = Date.now();
 
-      const timeUntilExpiry = expiresAt.getTime() - now;
-      const hoursUntilExpiry = timeUntilExpiry / (60 * 60 * 1000);
+    await generateRetreatZip("req-1", 42);
 
-      expect(hoursUntilExpiry).toBeCloseTo(24, 1);
-    });
-
-    it("generates correct S3 key for ZIP files", () => {
-      const eventCode = "2024.04.15-GROUP-PLACE";
-      const requestId = "123e4567-e89b-12d3-a456-426614174000";
-      const expectedKey = `downloads/${eventCode}/${requestId}.zip`;
-
-      const generatedKey = `downloads/${eventCode}/${requestId}.zip`;
-
-      expect(generatedKey).toBe(expectedKey);
-    });
+    const ready = dbUpdateSets.find((s) => s.status === "ready")!;
+    const expiresAt = (ready.expiresAt as Date).getTime();
+    const day = 24 * 60 * 60 * 1000;
+    expect(expiresAt).toBeGreaterThanOrEqual(before + day);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + day);
+    expect(presignMock).toHaveBeenCalledWith("downloads/2024.04-GRP/spring-retreat.zip", 24 * 3600);
+    expect(ready.downloadUrl).toBe("https://example.test/zip");
+    expect(ready.processingCompletedAt).toEqual(expect.any(Date));
   });
 
-  describe("Status Transitions", () => {
-    it("follows correct status flow", () => {
-      const statusFlow = [
-        { from: null, to: "pending", valid: true },
-        { from: "pending", to: "processing", valid: true },
-        { from: "processing", to: "ready", valid: true },
-        { from: "processing", to: "failed", valid: true },
-        { from: "ready", to: "expired", valid: true },
-        { from: "failed", to: "ready", valid: false },
-        { from: "expired", to: "ready", valid: false },
-      ];
+  it("should complete an anonymous request (no userId)", async () => {
+    await expect(generateRetreatZip("anon-req", 42, undefined)).resolves.toBeUndefined();
 
-      const validTransitions = statusFlow.filter((t) => t.valid);
+    expect(dbUpdateSets.at(-1)!.status).toBe("ready");
+  });
+});
 
-      expect(validTransitions.length).toBe(5);
-    });
+describe("generateRetreatZip - progress updates", () => {
+  it("should report progress every 5 files and on the last file", async () => {
+    findFirstMock.mockResolvedValue(eventWithTrackCount(12));
 
-    it("validates final states", () => {
-      const finalStates = ["ready", "failed", "expired"];
-      const activeStates = ["pending", "processing"];
+    await generateRetreatZip("req-1", 42);
 
-      for (const state of finalStates) {
-        const isFinal = !activeStates.includes(state);
-        expect(isFinal).toBe(true);
-      }
-    });
+    const progress = dbUpdateSets
+      .filter((s) => "processedFiles" in s && s.status === undefined)
+      .map((s) => [s.processedFiles, s.progressPercent]);
+    expect(progress).toEqual([
+      [5, 41],
+      [10, 83],
+      [12, 100],
+    ]);
   });
 
-  describe("Error Scenarios", () => {
-    it("identifies error conditions", () => {
-      const errorConditions = [
-        { condition: "event not found", shouldFail: true },
-        { condition: "S3 download error", shouldFail: true },
-        { condition: "S3 upload error", shouldFail: true },
-        { condition: "archiver error", shouldFail: true },
-        { condition: "valid event with tracks", shouldFail: false },
-      ];
+  it("should report a single 100% update when there are fewer than 5 tracks", async () => {
+    await generateRetreatZip("req-1", 42);
 
-      for (const { condition, shouldFail } of errorConditions) {
-        expect(shouldFail).toBe(condition !== "valid event with tracks");
-      }
-    });
+    const progress = dbUpdateSets.filter((s) => "processedFiles" in s && s.status === undefined);
+    expect(progress).toEqual([expect.objectContaining({ processedFiles: 3, progressPercent: 100 })]);
+  });
+});
 
-    it("determines retry eligibility", () => {
-      const scenarios = [
-        { status: "failed", retryCount: 0, canRetry: true },
-        { status: "failed", retryCount: 3, canRetry: false },
-        { status: "ready", retryCount: 0, canRetry: false },
-        { status: "processing", retryCount: 0, canRetry: false },
-      ];
+describe("generateRetreatZip - track selection and naming", () => {
+  it("should skip tracks that have no storage key", async () => {
+    findFirstMock.mockResolvedValue(
+      makeEvent({
+        sessions: [
+          {
+            titleEn: "Morning",
+            sessionNumber: 1,
+            sessionDate: "2024-04-15",
+            timePeriod: "morning",
+            partNumber: null,
+            tracks: [makeTrack(1), makeTrack(2, { s3Key: null })],
+          },
+        ],
+      }),
+    );
 
-      const maxRetries = 3;
+    await generateRetreatZip("req-1", 42);
 
-      for (const { status, retryCount, canRetry } of scenarios) {
-        const eligible = status === "failed" && retryCount < maxRetries;
-        expect(eligible).toBe(canRetry);
-      }
-    });
+    expect(getObjectStreamMock).toHaveBeenCalledTimes(1);
+    expect(dbUpdateSets[1]).toEqual(expect.objectContaining({ totalFiles: 1 }));
   });
 
-  describe("Track Processing", () => {
-    it("sorts tracks by track number within sessions", () => {
-      const tracks = [
-        { trackNumber: 3, title: "Third" },
-        { trackNumber: 1, title: "First" },
-        { trackNumber: 2, title: "Second" },
-      ];
+  it("should put each track in a '<date> - <session title>' folder", async () => {
+    await generateRetreatZip("req-1", 42);
 
-      const sorted = [...tracks].sort((a, b) => a.trackNumber - b.trackNumber);
-
-      expect(sorted[0]!.trackNumber).toBe(1);
-      expect(sorted[1]!.trackNumber).toBe(2);
-      expect(sorted[2]!.trackNumber).toBe(3);
-    });
-
-    it("groups tracks by session correctly", () => {
-      const tracks = [
-        { sessionId: 1, trackNumber: 1 },
-        { sessionId: 1, trackNumber: 2 },
-        { sessionId: 2, trackNumber: 3 },
-        { sessionId: 2, trackNumber: 4 },
-      ];
-
-      const sessionGroups = tracks.reduce(
-        (acc, track) => {
-          acc[track.sessionId] = (acc[track.sessionId] || 0) + 1;
-          return acc;
-        },
-        {} as Record<number, number>,
-      );
-
-      expect(sessionGroups[1]).toBe(2);
-      expect(sessionGroups[2]).toBe(2);
-    });
-
-    it("validates minimum tracks for ZIP generation", () => {
-      const scenarios = [
-        { trackCount: 0, canGenerate: false },
-        { trackCount: 1, canGenerate: true },
-        { trackCount: 10, canGenerate: true },
-        { trackCount: 100, canGenerate: true },
-      ];
-
-      for (const { trackCount, canGenerate } of scenarios) {
-        const valid = trackCount > 0;
-        expect(valid).toBe(canGenerate);
-      }
-    });
+    expect(zipText()).toContain("2024-04-15 - Morning/");
+    expect(zipText()).toContain("2024-04-15 - Evening/");
   });
 
-  describe("Stream Operations", () => {
-    it("creates readable stream for testing", () => {
-      const stream = new Readable();
-      stream.push("test data");
-      stream.push(null);
+  it("should name a folder 'Session N' when the session has no English title", async () => {
+    findFirstMock.mockResolvedValue(
+      makeEvent({
+        sessions: [
+          {
+            titleEn: null,
+            sessionNumber: 3,
+            sessionDate: "2024-04-16",
+            timePeriod: "morning",
+            partNumber: null,
+            tracks: [makeTrack(1)],
+          },
+        ],
+      }),
+    );
 
-      expect(stream).toBeInstanceOf(Readable);
+    await generateRetreatZip("req-1", 42);
+
+    expect(zipText()).toContain("2024-04-16 - Session 3/");
+  });
+
+  it("should slugify the Portuguese title (accents stripped) when there is no English title", async () => {
+    findFirstMock.mockResolvedValue(makeEvent({ titleEn: null, titlePt: "Retiro de Primavera — Lisboa" }));
+
+    await generateRetreatZip("req-1", 42);
+
+    expect(uploadFileMock.mock.calls[0]![0]).toBe("downloads/2024.04-GRP/retiro-de-primavera-lisboa.zip");
+  });
+
+  it("should fall back to the event code, then to event-<id>, for the ZIP name", async () => {
+    findFirstMock.mockResolvedValue(makeEvent({ titleEn: null, titlePt: null, eventCode: null }));
+
+    await generateRetreatZip("req-1", 42);
+
+    expect(uploadFileMock.mock.calls[0]![0]).toBe("downloads/event-42/event-42.zip");
+  });
+});
+
+describe("generateRetreatZip - failures", () => {
+  it("should mark the request failed and rethrow when the event does not exist", async () => {
+    findFirstMock.mockResolvedValue(undefined);
+
+    await expect(generateRetreatZip("req-1", 42)).rejects.toThrow("Event 42 not found");
+
+    expect(dbUpdateSets.at(-1)).toEqual(
+      expect.objectContaining({
+        status: "failed",
+        errorMessage: "Event 42 not found",
+        processingCompletedAt: expect.any(Date),
+      }),
+    );
+    expect(uploadFileMock).not.toHaveBeenCalled();
+  });
+
+  it("should mark the request failed when no track has a storage key", async () => {
+    findFirstMock.mockResolvedValue(
+      makeEvent({
+        sessions: [
+          {
+            titleEn: "Morning",
+            sessionNumber: 1,
+            sessionDate: "2024-04-15",
+            timePeriod: "morning",
+            partNumber: null,
+            tracks: [makeTrack(1, { s3Key: null })],
+          },
+        ],
+      }),
+    );
+
+    await expect(generateRetreatZip("req-1", 42)).rejects.toThrow("No tracks found for this event");
+
+    expect(dbUpdateSets.at(-1)).toEqual(
+      expect.objectContaining({ status: "failed", errorMessage: "No tracks found for this event" }),
+    );
+  });
+
+  it("should keep going when one track cannot be read from storage", async () => {
+    getObjectStreamMock.mockImplementation(async (key: string) => {
+      if (key === "events/x/2.mp3") throw new Error("NoSuchKey");
+      return Readable.from(Buffer.from("FAKE-AUDIO-DATA"));
     });
 
-    it("handles multiple streams for ZIP archiving", () => {
-      const streamCount = 5;
-      const streams: Readable[] = [];
+    await generateRetreatZip("req-1", 42);
 
-      for (let i = 0; i < streamCount; i++) {
-        const stream = new Readable();
-        stream.push(`data ${i}`);
-        stream.push(null);
-        streams.push(stream);
-      }
+    const ready = dbUpdateSets.find((s) => s.status === "ready")!;
+    expect(ready).toBeDefined();
+    expect(ready.processedFiles).toBe(2);
+  });
 
-      expect(streams.length).toBe(5);
+  it("should mark the request failed and delete the temp file when the upload fails", async () => {
+    uploadFileMock.mockImplementationOnce(async (_key: string, filePath: string) => {
+      uploadedRef.path = filePath;
+      throw new Error("R2 unavailable");
     });
+
+    await expect(generateRetreatZip("req-1", 42)).rejects.toThrow("R2 unavailable");
+
+    expect(dbUpdateSets.at(-1)).toEqual(
+      expect.objectContaining({ status: "failed", errorMessage: "R2 unavailable" }),
+    );
+    expect(dbUpdateSets.some((s) => s.status === "ready")).toBe(false);
+    expect(existsSync(uploadedRef.path)).toBe(false);
+  });
+
+  it("should rethrow the original error even when recording the failure also fails", async () => {
+    findFirstMock.mockResolvedValue(undefined);
+    dbWhere.mockImplementation((vals) =>
+      vals.status === "failed" ? Promise.reject(new Error("db down")) : Promise.resolve(),
+    );
+
+    await expect(generateRetreatZip("req-1", 42)).rejects.toThrow("Event 42 not found");
+  });
+
+  // BUG (reported in the PR, not fixed here): per-track errors are swallowed so
+  // one missing file does not sink the whole ZIP, but nothing checks that at
+  // least one track made it in. If every read fails (storage outage, wrong
+  // bucket), the user is handed an empty ZIP marked "ready" with processedFiles 0.
+  it.fails("should mark the request failed when no track could be added", async () => {
+    getObjectStreamMock.mockRejectedValue(new Error("storage outage"));
+
+    await generateRetreatZip("req-1", 42).catch(() => {});
+
+    expect(dbUpdateSets.some((s) => s.status === "ready")).toBe(false);
+    expect(dbUpdateSets.at(-1)).toEqual(expect.objectContaining({ status: "failed" }));
   });
 });
