@@ -32,6 +32,10 @@ export {
   eventPublications,
   publicationsRelations,
   eventPublicationsRelations,
+  publicationRetreatGroups,
+  publicationAccessUsers,
+  publicationRetreatGroupsRelations,
+  publicationAccessUsersRelations,
 } from "./publications.ts";
 
 // Users
