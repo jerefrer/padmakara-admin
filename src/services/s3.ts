@@ -425,6 +425,14 @@ export function buildTeacherHeroMobileS3Key(teacherId: number, ext: string): str
 }
 
 /**
+ * Build S3 key for the original of a teacher hero, kept as uploaded so it can be re-cropped.
+ * Format: teachers/heroes/originals/{teacherId}-{timestamp}.{ext}
+ */
+export function buildTeacherHeroOriginalS3Key(teacherId: number, ext: string): string {
+  return `teachers/heroes/originals/${teacherId}-${Date.now()}.${ext}`;
+}
+
+/**
  * Build S3 key for retreat-group avatar images.
  * Format: groups/avatars/{groupId}-{timestamp}.{ext}
  */
@@ -446,4 +454,12 @@ export function buildGroupHeroS3Key(groupId: number, ext: string): string {
  */
 export function buildGroupHeroMobileS3Key(groupId: number, ext: string): string {
   return `groups/heroes/${groupId}-${Date.now()}-m.${ext}`;
+}
+
+/**
+ * Build S3 key for the original of a group hero, kept as uploaded so it can be re-cropped.
+ * Format: groups/heroes/originals/{groupId}-{timestamp}.{ext}
+ */
+export function buildGroupHeroOriginalS3Key(groupId: number, ext: string): string {
+  return `groups/heroes/originals/${groupId}-${Date.now()}.${ext}`;
 }

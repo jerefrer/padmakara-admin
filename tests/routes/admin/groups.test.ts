@@ -44,6 +44,12 @@ vi.mock("../../../src/services/s3.ts", () => ({
   buildGroupAvatarS3Key: vi.fn(() => "avatar.webp"),
   buildGroupHeroS3Key: vi.fn(() => "hero.webp"),
   buildGroupHeroMobileS3Key: vi.fn(() => "hero-mobile.webp"),
+  buildGroupHeroOriginalS3Key: vi.fn((_id: number, ext: string) => `original.${ext}`),
+}));
+
+vi.mock("../../../src/lib/image-source.ts", () => ({
+  loadImageSource: vi.fn(() => Promise.resolve({ body: new Uint8Array([1]), contentType: "image/png" })),
+  imageSourceResponse: vi.fn(() => new Response("image")),
 }));
 
 vi.mock("../../../src/services/image-pipeline.ts", () => ({
@@ -250,5 +256,141 @@ describe("DELETE /admin/groups/:id", () => {
 
     const res = await buildApp().request("/admin/groups/999", { method: "DELETE" });
     expect(res.status).toBe(404);
+  });
+});
+
+/** Captures what the route writes to the group row. */
+function captureGroupUpdate() {
+  const set = vi.fn().mockReturnValue({
+    where: vi.fn().mockReturnValue({
+      returning: vi.fn(() => Promise.resolve([{ id: 5, nameEn: "Group" }])),
+    }),
+  });
+  (db.update as any).mockReturnValueOnce({ set });
+  return set;
+}
+
+function heroForm(fields: Record<string, string | File>) {
+  const form = new FormData();
+  form.append("file", new File([new Uint8Array([1, 2])], "hero.jpg", { type: "image/jpeg" }));
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  return form;
+}
+
+describe("POST /admin/groups/:id/hero", () => {
+  it("should store the original and the crop when the original is uploaded", async () => {
+    // Jérémy: re-opening a hero must start from the original with the previous crop and B&W.
+    (db.query.retreatGroups.findFirst as any).mockResolvedValueOnce({ id: 5, heroOriginalS3Key: null });
+    const set = captureGroupUpdate();
+    const original = new File([new Uint8Array([9, 9, 9])], "photo.png", { type: "image/png" });
+
+    const res = await buildApp().request("/admin/groups/5/hero", {
+      method: "POST",
+      body: heroForm({ original, crop: '{"x":10,"y":20,"width":1600,"height":900}', grayscale: "true" }),
+    });
+
+    expect(res.status).toBe(200);
+    const { putObject } = await import("../../../src/services/s3.ts");
+    expect(putObject).toHaveBeenCalledWith("original.png", expect.anything(), "image/png");
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        heroOriginalS3Key: "original.png",
+        heroCrop: { x: 10, y: 20, width: 1600, height: 900 },
+        heroGrayscale: true,
+      }),
+    );
+  });
+
+  it("should keep the stored original when re-framing without uploading it again", async () => {
+    (db.query.retreatGroups.findFirst as any).mockResolvedValueOnce({ id: 5, heroOriginalS3Key: "groups/originals/5.jpg" });
+    const set = captureGroupUpdate();
+
+    const res = await buildApp().request("/admin/groups/5/hero", {
+      method: "POST",
+      body: heroForm({ crop: '{"x":0,"y":0,"width":800,"height":450}', grayscale: "false" }),
+    });
+
+    expect(res.status).toBe(200);
+    const { deleteObject } = await import("../../../src/services/s3.ts");
+    expect(deleteObject).not.toHaveBeenCalledWith("groups/originals/5.jpg");
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        heroOriginalS3Key: "groups/originals/5.jpg",
+        heroCrop: { x: 0, y: 0, width: 800, height: 450 },
+        heroGrayscale: false,
+      }),
+    );
+  });
+
+  it("should delete the previous original when a new one replaces it", async () => {
+    (db.query.retreatGroups.findFirst as any).mockResolvedValueOnce({ id: 5, heroOriginalS3Key: "old-original.jpg" });
+    captureGroupUpdate();
+    const original = new File([new Uint8Array([7])], "new.jpg", { type: "image/jpeg" });
+
+    await buildApp().request("/admin/groups/5/hero", { method: "POST", body: heroForm({ original }) });
+
+    const { deleteObject } = await import("../../../src/services/s3.ts");
+    expect(deleteObject).toHaveBeenCalledWith("old-original.jpg");
+  });
+
+  it("should return 400 when the crop is malformed", async () => {
+    const res = await buildApp().request("/admin/groups/5/hero", {
+      method: "POST",
+      body: heroForm({ crop: "not json" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /admin/groups/:id/hero/source", () => {
+  it("should serve the stored original rather than the cropped hero", async () => {
+    (db.query.retreatGroups.findFirst as any).mockResolvedValueOnce({
+      id: 5,
+      heroS3Key: "cropped.webp",
+      heroOriginalS3Key: "original.png",
+    });
+
+    await buildApp().request("/admin/groups/5/hero/source");
+
+    const { loadImageSource } = await import("../../../src/lib/image-source.ts");
+    expect(loadImageSource).toHaveBeenCalledWith({ s3Key: "original.png", fallbackUrl: null });
+  });
+
+  it("should serve the cropped hero when no original was kept", async () => {
+    (db.query.retreatGroups.findFirst as any).mockResolvedValueOnce({
+      id: 5,
+      heroS3Key: "cropped.webp",
+      heroOriginalS3Key: null,
+    });
+
+    await buildApp().request("/admin/groups/5/hero/source");
+
+    const { loadImageSource } = await import("../../../src/lib/image-source.ts");
+    expect(loadImageSource).toHaveBeenCalledWith({ s3Key: "cropped.webp", fallbackUrl: null });
+  });
+});
+
+describe("PUT /admin/groups/:id hero removal", () => {
+  it("should delete the kept original when the hero is removed", async () => {
+    (db.query.retreatGroups.findFirst as any).mockResolvedValueOnce({
+      id: 5,
+      heroS3Key: "cropped.webp",
+      heroOriginalS3Key: "original.png",
+    });
+    const set = captureGroupUpdate();
+
+    const res = await buildApp().request("/admin/groups/5", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ heroS3Key: null }),
+    });
+
+    expect(res.status).toBe(200);
+    const { deleteObject } = await import("../../../src/services/s3.ts");
+    expect(deleteObject).toHaveBeenCalledWith("original.png");
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ heroOriginalS3Key: null, heroCrop: null, heroGrayscale: false }),
+    );
   });
 });

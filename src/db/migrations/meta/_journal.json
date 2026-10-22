@@ -302,6 +302,13 @@
       "when": 1811987200000,
       "tag": "0042_schema_drift_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1812073600000,
+      "tag": "0043_hero_originals",
+      "breakpoints": true
     }
   ]
 }

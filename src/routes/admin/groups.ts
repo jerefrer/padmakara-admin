@@ -13,6 +13,7 @@ import {
   buildGroupAvatarS3Key,
   buildGroupHeroS3Key,
   buildGroupHeroMobileS3Key,
+  buildGroupHeroOriginalS3Key,
 } from "../../services/s3.ts";
 import {
   processAvatar,
@@ -21,6 +22,7 @@ import {
 } from "../../services/image-pipeline.ts";
 import { resolveGroupUrls } from "../../lib/group-utils.ts";
 import { loadImageSource, imageSourceResponse } from "../../lib/image-source.ts";
+import { parseHeroCrop, saveHeroOriginal } from "../../lib/hero-original.ts";
 import { bumpVersion, bumpUserAccessVersion } from "../../services/sync-versions.ts";
 
 const groupRoutes = new Hono();
@@ -101,8 +103,9 @@ groupRoutes.get("/:id/hero/source", async (c) => {
   });
   if (!group) throw AppError.notFound("Group not found");
 
+  // The original when one was kept, so re-editing can widen the crop again.
   return imageSourceResponse(
-    await loadImageSource({ s3Key: group.heroS3Key, fallbackUrl: null }),
+    await loadImageSource({ s3Key: group.heroOriginalS3Key ?? group.heroS3Key, fallbackUrl: null }),
   );
 });
 
@@ -166,6 +169,7 @@ groupRoutes.post("/:id/hero", async (c) => {
   if (!(file instanceof File)) throw AppError.badRequest("Missing file");
   const focalX = clampPercent(form.get("focalX"));
   const focalY = clampPercent(form.get("focalY"));
+  const crop = parseHeroCrop(form.get("crop"));
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const [desktopBuf, mobileBuf] = await Promise.all([
@@ -189,11 +193,15 @@ groupRoutes.post("/:id/hero", async (c) => {
   if (existing?.heroMobileS3Key && existing.heroMobileS3Key !== mobileKey) {
     await deleteObject(existing.heroMobileS3Key).catch(() => {});
   }
+  const originalColumns = await saveHeroOriginal(form, crop, existing?.heroOriginalS3Key, (ext) =>
+    buildGroupHeroOriginalS3Key(id, ext),
+  );
 
   const now = new Date();
   const [group] = await db
     .update(retreatGroups)
     .set({
+      ...originalColumns,
       heroS3Key: desktopKey,
       heroMobileS3Key: mobileKey,
       heroFocalX: focalX,
@@ -274,6 +282,7 @@ groupRoutes.put("/:id", async (c) => {
   const data = updateRetreatGroupSchema.parse(body);
 
   // If S3 keys are changing, delete the previous objects.
+  let dropHeroOriginal = false;
   if (data.avatarS3Key !== undefined || data.heroS3Key !== undefined) {
     const existing = await db.query.retreatGroups.findFirst({
       where: eq(retreatGroups.id, id),
@@ -286,10 +295,18 @@ groupRoutes.put("/:id", async (c) => {
       if (data.heroS3Key !== existing.heroS3Key && existing.heroS3Key) {
         await deleteObject(existing.heroS3Key).catch(() => {});
       }
+      // The kept original belongs to the hero being replaced or removed.
+      if (data.heroS3Key !== undefined && data.heroS3Key !== existing.heroS3Key && existing.heroOriginalS3Key) {
+        await deleteObject(existing.heroOriginalS3Key).catch(() => {});
+        dropHeroOriginal = true;
+      }
     }
   }
 
   const updateData: Record<string, any> = { ...data, updatedAt: new Date() };
+  if (dropHeroOriginal) {
+    Object.assign(updateData, { heroOriginalS3Key: null, heroCrop: null, heroGrayscale: false });
+  }
 
   if (data.avatarS3Key !== undefined) {
     updateData.avatarUpdatedAt = new Date();

@@ -134,3 +134,17 @@
 **Revisit if:** uploads move to a resumable protocol (S3 multipart, tus) or admins routinely resume on a different machine.
 
 ---
+
+## 2026-10-22 — Keep hero originals so a crop can be redone
+
+**Chosen:** User decision (Jérémy): reopening a hero must show the original with the zoom, crop and black-and-white chosen last time. The admin still crops in the browser and uploads the cropped region, which the server turns into the desktop/mobile variants as before. With it, the admin uploads the original file once (`original`), the crop rectangle in pixels of the original (`crop`) and the B&W choice (`grayscale`). The server stores the original under `{teachers|groups}/heroes/originals/` and the three new columns (`hero_original_s3_key`, `hero_crop`, `hero_grayscale`, migration 0043). `GET /:id/hero/source` serves the original when there is one, and the editor restores the crop through react-easy-crop's `initialCroppedAreaPixels`.
+
+**Alternatives:** (a) Upload only the original and crop on the server with sharp. Rejected for now: it moves the B&W and crop code to the server and changes the pipeline the apps depend on, for no visible gain. (b) Keep cropping destructively. Rejected: a crop could only ever be tightened, and B&W never undone (André's report).
+
+**Why:** The crop rectangle is the one thing react-easy-crop needs to restore frame and zoom exactly; storing it next to the untouched original makes every edit reversible.
+
+**Trade-offs:** Originals take storage (full-size photos). Heroes saved before this change have lost their original: the first re-edit uploads the current cropped hero as the new original. Replacing or removing a hero by key (PUT) deletes its original.
+
+**Revisit if:** heroes need server-side variants of other aspect ratios, at which point cropping on the server from the original is the better design.
+
+---
