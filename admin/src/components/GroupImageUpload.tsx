@@ -415,6 +415,17 @@ export function GroupImageUpload() {
             Focal point: {focalX}% / {focalY}% — Zoom: {heroScale}%
           </Typography>
         )}
+        <Box sx={{ mt: 1 }}>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={savingHero ? <CircularProgress size={16} /> : <CloudUploadIcon />}
+            disabled={savingHero}
+            onClick={() => heroInputRef.current?.click()}
+          >
+            {savingHero ? "Uploading..." : hasHero ? "Replace Hero" : "Upload Hero"}
+          </Button>
+        </Box>
         <input
           ref={heroInputRef}
           type="file"
