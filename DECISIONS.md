@@ -148,3 +148,17 @@
 **Revisit if:** heroes need server-side variants of other aspect ratios, at which point cropping on the server from the original is the better design.
 
 ---
+
+## 2026-10-22 — Publication access: retreat groups and an access list
+
+**Chosen:** User decision (agreed with the client). A publication keeps one audience, and the audience says what to fill in. Shown in the app: public (everyone), subscribers (as before), retreat group members (members of at least one retreat group ticked on the publication, same rule as events: active subscription plus membership), event participants (members who attended an event of a ticked group). Hidden in the app unless access is given: available on request only, received initiation, and the new `restricted` audience (migration 0044): nobody, except the users on the publication's access list (no subscription needed), and admins. The list, detail and PDF endpoints apply this server-side; a refused hidden publication answers 404 on the PDF endpoint, so it is neither listed, nor openable, nor confirmed to exist. Two join tables hold the data: `publication_retreat_groups` and `publication_access_users`. For events, `restricted` is treated like available on request only.
+
+**Alternatives:** (a) Keep linked events as the access source. Rejected: the client thinks in groups and people, and an event link says nothing about who is meant. (b) One access table with a kind column. Rejected: two plain join tables keep the foreign keys and the cascade rules trivial. (c) Drop `event_publications`. Rejected: events still list their related publications through it, and prod data depends on it.
+
+**Why:** Groups and an explicit list are what the admins actually decide, and a hidden audience that falls open on an empty list would be a privacy leak, so an empty list means nobody.
+
+**Trade-offs:** Legacy fallback: a publication of an event-based audience that has no ticked groups (group, participants) or an empty access list (initiation, on request) keeps deciding by its linked events until an admin classifies it; once groups or people are added, the linked events stop counting (their rows stay). `restricted` has no legacy. Admins see hidden publications in the app. The admin shows legacy linked events read-only with a note.
+
+**Revisit if:** the legacy publications have all been reclassified (then the linked-events branch and the read-only display can go), or the app needs a "request access" teaser for hidden publications.
+
+---

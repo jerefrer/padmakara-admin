@@ -309,6 +309,13 @@
       "when": 1812073600000,
       "tag": "0043_hero_originals",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1812160000000,
+      "tag": "0044_publication_access",
+      "breakpoints": true
     }
   ]
 }

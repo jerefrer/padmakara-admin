@@ -1,9 +1,15 @@
 import { Hono } from "hono";
-import { and, eq, or, ilike } from "drizzle-orm";
+import { and, eq, or, ilike, inArray } from "drizzle-orm";
 import sharp from "sharp";
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../../db/index.ts";
-import { publications, eventPublications } from "../../db/schema/publications.ts";
+import {
+  publications,
+  eventPublications,
+  publicationRetreatGroups,
+  publicationAccessUsers,
+} from "../../db/schema/publications.ts";
+import { users } from "../../db/schema/users.ts";
 import { teachers } from "../../db/schema/teachers.ts";
 import { createPublicationSchema, updatePublicationSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
@@ -169,6 +175,55 @@ function bumpEventsVersion(): void {
   bumpVersion("events").catch((err) =>
     console.error("[sync] failed to bump events version:", err),
   );
+}
+
+/** Replace the retreat groups ticked on a publication. */
+async function setRetreatGroups(publicationId: number, groupIds: number[]): Promise<number[]> {
+  await db
+    .delete(publicationRetreatGroups)
+    .where(eq(publicationRetreatGroups.publicationId, publicationId));
+  const unique = [...new Set(groupIds)];
+  if (unique.length > 0) {
+    await db
+      .insert(publicationRetreatGroups)
+      .values(unique.map((retreatGroupId) => ({ publicationId, retreatGroupId })));
+  }
+  return unique;
+}
+
+/** Replace the users granted a hidden publication. */
+async function setAccessUsers(publicationId: number, userIds: number[]): Promise<number[]> {
+  await db.delete(publicationAccessUsers).where(eq(publicationAccessUsers.publicationId, publicationId));
+  const unique = [...new Set(userIds)];
+  if (unique.length > 0) {
+    await db.insert(publicationAccessUsers).values(unique.map((userId) => ({ publicationId, userId })));
+  }
+  return unique;
+}
+
+async function getRetreatGroupIds(publicationId: number): Promise<number[]> {
+  const rows = await db
+    .select({ retreatGroupId: publicationRetreatGroups.retreatGroupId })
+    .from(publicationRetreatGroups)
+    .where(eq(publicationRetreatGroups.publicationId, publicationId));
+  return rows.map((r) => r.retreatGroupId);
+}
+
+async function getAccessUserIds(publicationId: number): Promise<number[]> {
+  const rows = await db
+    .select({ userId: publicationAccessUsers.userId })
+    .from(publicationAccessUsers)
+    .where(eq(publicationAccessUsers.publicationId, publicationId));
+  return rows.map((r) => r.userId);
+}
+
+/** The access list with enough about each user for the admin to recognise them. */
+async function getAccessUsers(userIds: number[]) {
+  if (userIds.length === 0) return [];
+  return db
+    .select({ id: users.id, email: users.email, firstName: users.firstName, lastName: users.lastName })
+    .from(users)
+    .where(inArray(users.id, userIds));
 }
 
 async function getLinkedEventIds(publicationId: number): Promise<number[]> {
@@ -403,7 +458,14 @@ publicationRoutes.get("/:id", async (c) => {
     where: eq(publications.id, id),
   });
   if (!pub) throw AppError.notFound("Publication not found");
-  return c.json({ ...(await addCoverImageUrl(pub)), eventIds: await getLinkedEventIds(id) });
+  const accessUserIds = await getAccessUserIds(id);
+  return c.json({
+    ...(await addCoverImageUrl(pub)),
+    eventIds: await getLinkedEventIds(id),
+    retreatGroupIds: await getRetreatGroupIds(id),
+    accessUserIds,
+    accessUsers: await getAccessUsers(accessUserIds),
+  });
 });
 
 /**
@@ -411,7 +473,7 @@ publicationRoutes.get("/:id", async (c) => {
  */
 publicationRoutes.post("/", async (c) => {
   const body = await c.req.json();
-  const { eventIds, ...data } = createPublicationSchema.parse(body);
+  const { eventIds, retreatGroupIds, accessUserIds, ...data } = createPublicationSchema.parse(body);
 
   let { pageCount, fileSizeBytes, coverImageS3Key } = data;
   if (data.pdfS3Key) {
@@ -430,11 +492,16 @@ publicationRoutes.post("/", async (c) => {
     .values({ ...data, pageCount, fileSizeBytes, coverImageS3Key })
     .returning();
   await setLinkedEvents(pub!.id, eventIds);
+  const savedGroupIds = await setRetreatGroups(pub!.id, retreatGroupIds);
+  const savedUserIds = await setAccessUsers(pub!.id, accessUserIds);
   if (eventIds.length > 0) bumpEventsVersion();
   bumpVersion("publications").catch((err) =>
     console.error("[sync] failed to bump publications version:", err),
   );
-  return c.json({ ...pub!, eventIds: [...new Set(eventIds)] }, 201);
+  return c.json(
+    { ...pub!, eventIds: [...new Set(eventIds)], retreatGroupIds: savedGroupIds, accessUserIds: savedUserIds },
+    201,
+  );
 });
 
 /**
@@ -443,9 +510,11 @@ publicationRoutes.post("/", async (c) => {
 publicationRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
-  const { eventIds, ...data } = updatePublicationSchema.parse(body);
+  const { eventIds, retreatGroupIds, accessUserIds, ...data } = updatePublicationSchema.parse(body);
   // The schema defaults eventIds to [] — only replace the links when sent.
   const sendsEventIds = Object.prototype.hasOwnProperty.call(body, "eventIds");
+  const sendsGroupIds = Object.prototype.hasOwnProperty.call(body, "retreatGroupIds");
+  const sendsUserIds = Object.prototype.hasOwnProperty.call(body, "accessUserIds");
 
   // Fetch existing record so we can detect a real PDF change and force cover
   // regeneration when it happens. The version label usually appears on the
@@ -489,10 +558,17 @@ publicationRoutes.put("/:id", async (c) => {
     await setLinkedEvents(id, eventIds);
     bumpEventsVersion();
   }
+  if (sendsGroupIds && retreatGroupIds) await setRetreatGroups(id, retreatGroupIds);
+  if (sendsUserIds && accessUserIds) await setAccessUsers(id, accessUserIds);
   bumpVersion("publications").catch((err) =>
     console.error("[sync] failed to bump publications version:", err),
   );
-  return c.json({ ...pub, eventIds: await getLinkedEventIds(id) });
+  return c.json({
+    ...pub,
+    eventIds: await getLinkedEventIds(id),
+    retreatGroupIds: await getRetreatGroupIds(id),
+    accessUserIds: await getAccessUserIds(id),
+  });
 });
 
 /**

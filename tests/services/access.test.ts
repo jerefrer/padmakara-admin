@@ -127,6 +127,7 @@ describe("Access Control Service", () => {
       expect(AUDIENCE_SLUGS.EVENT_PARTICIPANTS).toBe("event-participants");
       expect(AUDIENCE_SLUGS.ON_REQUEST).toBe("available-on-request-only");
       expect(AUDIENCE_SLUGS.INITIATION).toBe("received-initiation");
+      expect(AUDIENCE_SLUGS.RESTRICTED).toBe("restricted");
     });
   });
 
@@ -219,6 +220,28 @@ describe("Access Control Service", () => {
 
         const result = await checkEventAccess(user, event);
         expect(result).toEqual({ allowed: true });
+      });
+    });
+
+    describe("restricted events (treated like on request)", () => {
+      it("allows a user an admin granted, member or not", async () => {
+        const user = makeUser({ subscriptionStatus: "none" });
+        mockDb.query.userEventAttendance.findFirst.mockResolvedValueOnce({ userId: 1, eventId: 1 });
+
+        const result = await checkEventAccess(user, makeEvent(AUDIENCE_SLUGS.RESTRICTED));
+        expect(result).toEqual({ allowed: true });
+      });
+
+      it("denies a user nobody granted, even with a subscription", async () => {
+        mockDb.query.userEventAttendance.findFirst.mockResolvedValueOnce(null);
+
+        const result = await checkEventAccess(makeUser(), makeEvent(AUDIENCE_SLUGS.RESTRICTED));
+        expect(result).toEqual({ allowed: false, reason: "ACCESS_DENIED" });
+      });
+
+      it("requires authentication", async () => {
+        const result = await checkEventAccess(null, makeEvent(AUDIENCE_SLUGS.RESTRICTED));
+        expect(result).toEqual({ allowed: false, reason: "AUTH_REQUIRED" });
       });
     });
 

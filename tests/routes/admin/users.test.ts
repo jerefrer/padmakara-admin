@@ -61,6 +61,31 @@ function buildApp() {
   return app;
 }
 
+describe("GET /admin/users — search", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const list = async (query: string) => {
+    const res = await buildApp().request(`/admin/users${query}`, {
+      headers: { Authorization: `Bearer ${await adminToken()}` },
+    });
+    return res.status;
+  };
+
+  it("should filter by name or email when q is given", async () => {
+    expect(await list("?q=ana")).toBe(200);
+
+    const options = (db.query.users.findMany as any).mock.calls[0][0];
+    expect(options.where).toBeDefined();
+  });
+
+  it("should not filter when q is absent", async () => {
+    expect(await list("")).toBe(200);
+
+    const options = (db.query.users.findMany as any).mock.calls[0][0];
+    expect(options.where).toBeUndefined();
+  });
+});
+
 describe("POST /admin/users/:id/events — bumpUserAccessVersion", () => {
   beforeEach(() => {
     vi.clearAllMocks();

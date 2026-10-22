@@ -19,6 +19,7 @@ const AUDIENCE_SLUGS_BY_ID = new Map([
   [7, "free-anyone"],
   [8, "free-subscribers"],
   [9, "event-participants"],
+  [13, "restricted"],
 ]);
 
 const { mockOpenable } = vi.hoisted(() => ({
@@ -182,6 +183,25 @@ describe("GET /api/publications", () => {
     expect(body.hasHiddenPublications).toBe(false);
   });
 
+  it("should leave out a restricted publication the caller cannot open, with no hint it exists", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication(), makePublication({ id: 5, audienceId: 13 })]));
+    canOpen(1);
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    expect(body.publications.map((p: any) => p.id)).toEqual([1]);
+    expect(body.hasHiddenPublications).toBe(false);
+  });
+
+  it("should list a restricted publication to a caller who can open it", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ id: 5, audienceId: 13 })]));
+    canOpen(5);
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    expect(body.publications.map((p: any) => p.id)).toEqual([5]);
+  });
+
   it("should never expose S3 keys or the internal audience in the response", async () => {
     mockFrom.mockReturnValueOnce(chainable([makePublication()]));
     canOpen(1);
@@ -259,6 +279,23 @@ describe("GET /api/publications/:id/pdf", () => {
 
     expect(status).toBe(403);
     expect(body.code).toBe("FORBIDDEN");
+  });
+
+  it("should answer 404, not 403, to a signed-in caller refused a restricted publication", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ id: 5, audienceId: 13 })]));
+
+    const { status, body } = await testJson("/api/publications/5/pdf", { headers: await userToken() });
+
+    expect(status).toBe(404);
+    expect(body.code).toBe("NOT_FOUND");
+  });
+
+  it("should answer 404, not 401, to a signed-out visitor refused a restricted publication", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ id: 5, audienceId: 13 })]));
+
+    const { status } = await testJson("/api/publications/5/pdf");
+
+    expect(status).toBe(404);
   });
 
   it("should return 404 for a publication that does not exist", async () => {

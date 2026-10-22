@@ -133,6 +133,10 @@ export const createPublicationSchema = z.object({
   audienceId: z.number().int().positive(),
   /** The events it is linked to; for event-based audiences they decide who gets in. */
   eventIds: z.array(z.number().int()).optional().default([]),
+  /** Retreat groups whose members (or event attendees) get access, for the group and participant audiences. */
+  retreatGroupIds: z.array(z.number().int()).optional().default([]),
+  /** Users granted a hidden publication (received initiation, on request, restricted). */
+  accessUserIds: z.array(z.number().int()).optional().default([]),
 });
 
 export const updatePublicationSchema = createPublicationSchema.partial();

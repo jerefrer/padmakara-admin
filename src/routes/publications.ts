@@ -9,6 +9,7 @@ import {
 import { AppError } from "../lib/errors.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import {
+  isHiddenAudience,
   isMemberOnlyAudience,
   openablePublications,
   publicationAudienceSlugs,
@@ -131,6 +132,12 @@ publicationRoutes.get("/:id/pdf", optionalAuthMiddleware, async (c) => {
 
   const opened = await openablePublications(authUser, [publication]);
   if (!opened.has(publication.id)) {
+    // A hidden publication must not even confirm that it exists.
+    const slugById = await publicationAudienceSlugs();
+    const slug = publication.audienceId === null ? undefined : slugById.get(publication.audienceId);
+    if (slug && isHiddenAudience(slug)) {
+      throw AppError.notFound("Publication not found");
+    }
     // A signed-out visitor may only need to sign in; anyone else is refused.
     if (!authUser) {
       throw AppError.unauthorized();
