@@ -13,6 +13,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  ListSubheader,
   MenuItem,
   TextField as MuiTextField,
   Typography,
@@ -271,7 +272,7 @@ function useTeachers() {
   return teachers;
 }
 
-// ─── Audience + linked events ───────────────────────────────────────────────
+// ─── Audience + who gets access ──────────────────────────────────────────────
 
 interface AudienceOption {
   id: number;
@@ -287,8 +288,50 @@ interface EventOption {
   titlePt?: string | null;
 }
 
+interface GroupOption {
+  id: number;
+  nameEn: string;
+  namePt?: string | null;
+}
+
+interface UserOption {
+  id: number;
+  email: string;
+  firstName?: string | null;
+  lastName?: string | null;
+}
+
+/** The audience-related values a publication form edits. */
+interface AccessValues {
+  audienceId: number | null | undefined;
+  eventIds: number[];
+  retreatGroupIds: number[];
+  accessUserIds: number[];
+  /** The users of the access list as the API described them, to label the chips. */
+  accessUsers: UserOption[];
+}
+
+type AccessChange = Partial<Omit<AccessValues, "accessUsers">> & { accessUsers?: UserOption[] };
+
+/** Shown in the app to the people who qualify; a ticked retreat group decides who. */
+const GROUP_AUDIENCE_SLUGS = ["retreat-group-members", "event-participants"];
+const SHOWN_AUDIENCE_SLUGS = ["free-anyone", "free-subscribers", ...GROUP_AUDIENCE_SLUGS];
+/** Hidden in the app unless an admin adds the user to the access list. */
+const HIDDEN_AUDIENCE_SLUGS = ["available-on-request-only", "received-initiation", "restricted"];
+/** The audiences whose access used to come from the linked events. */
+const LEGACY_EVENT_AUDIENCE_SLUGS = [...GROUP_AUDIENCE_SLUGS, "received-initiation", "available-on-request-only"];
+
 function audienceName(a: AudienceOption, locale: string): string {
   return locale === "pt" && a.namePt ? a.namePt : a.nameEn;
+}
+
+function groupName(g: GroupOption, locale: string): string {
+  return locale === "pt" && g.namePt ? g.namePt : g.nameEn;
+}
+
+function userLabel(u: UserOption): string {
+  const name = [u.firstName, u.lastName].filter(Boolean).join(" ");
+  return name ? `${name} (${u.email})` : u.email;
 }
 
 function eventLabel(e: EventOption, locale: string): string {
@@ -296,26 +339,174 @@ function eventLabel(e: EventOption, locale: string): string {
   return title ? `${e.eventCode} — ${title}` : e.eventCode;
 }
 
-/**
- * Audience select and linked-events multi-select, side by side because they
- * are one setting: for the participant / group / initiation / on-request
- * audiences, the linked events decide who gets access. Controlled, so both the
- * react-hook-form edit page and the state-driven create page can use it.
- */
-function AudienceAndEventsFields({
-  audienceId,
-  eventIds,
+/** Retreat groups to tick, for the "retreat group members" and "event participants" audiences. */
+function RetreatGroupsPicker({
+  value,
+  onChange,
+  slug,
+  locale,
+}: {
+  value: number[];
+  onChange: (ids: number[]) => void;
+  slug: string;
+  locale: string;
+}) {
+  const translate = useTranslate();
+  const dataProvider = useDataProvider();
+  const [options, setOptions] = useState<GroupOption[]>([]);
+
+  useEffect(() => {
+    dataProvider
+      .getList<GroupOption>("groups", {
+        pagination: { page: 1, perPage: 500 },
+        sort: { field: "nameEn", order: "ASC" },
+        filter: {},
+      })
+      .then(({ data }) => setOptions(data));
+  }, [dataProvider]);
+
+  const selected = value
+    .map((id) => options.find((g) => g.id === id))
+    .filter((g): g is GroupOption => !!g);
+  const empty = value.length === 0;
+  const helperKey =
+    slug === "event-participants"
+      ? "padmakara.publications.groupsHelperParticipants"
+      : "padmakara.publications.groupsHelperMembers";
+
+  return (
+    <Autocomplete
+      multiple
+      options={options}
+      getOptionLabel={(g) => groupName(g, locale)}
+      value={selected}
+      onChange={(_, v) => onChange(v.map((g) => g.id))}
+      isOptionEqualToValue={(o, v) => o.id === v.id}
+      renderInput={(params) => (
+        <MuiTextField
+          {...params}
+          label={translate("padmakara.publications.retreatGroups")}
+          placeholder={translate("padmakara.publications.retreatGroupsPlaceholder")}
+          error={empty}
+          helperText={translate(empty ? "padmakara.publications.retreatGroupsNeeded" : helperKey)}
+          slotProps={{ inputLabel: { shrink: true } }}
+        />
+      )}
+    />
+  );
+}
+
+/** The access list: users who see a hidden publication. Searched on the server. */
+function AccessListPicker({
+  value,
+  known,
   onChange,
 }: {
-  audienceId: number | null | undefined;
-  eventIds: number[];
-  onChange: (next: { audienceId?: number; eventIds?: number[] }) => void;
+  value: number[];
+  known: UserOption[];
+  onChange: (users: UserOption[]) => void;
+}) {
+  const translate = useTranslate();
+  const dataProvider = useDataProvider();
+  const [input, setInput] = useState("");
+  const [options, setOptions] = useState<UserOption[]>([]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      dataProvider
+        .getList<UserOption>("users", {
+          pagination: { page: 1, perPage: 20 },
+          sort: { field: "email", order: "ASC" },
+          filter: { q: input },
+        })
+        .then(({ data }) => setOptions(data));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [dataProvider, input]);
+
+  const selected = value.map((id) => known.find((u) => u.id === id) ?? { id, email: `#${id}` });
+
+  return (
+    <Autocomplete
+      multiple
+      // The server already filtered by what was typed.
+      filterOptions={(o) => o}
+      options={options}
+      getOptionLabel={userLabel}
+      value={selected}
+      onChange={(_, v) => onChange(v)}
+      onInputChange={(_, text, reason) => {
+        if (reason === "input") setInput(text);
+      }}
+      isOptionEqualToValue={(o, v) => o.id === v.id}
+      noOptionsText={translate("padmakara.publications.accessListNoUsers")}
+      renderInput={(params) => (
+        <MuiTextField
+          {...params}
+          label={translate("padmakara.publications.accessList")}
+          placeholder={translate("padmakara.publications.accessListPlaceholder")}
+          helperText={translate(
+            value.length === 0
+              ? "padmakara.publications.accessListEmpty"
+              : "padmakara.publications.accessListHelper",
+          )}
+          slotProps={{ inputLabel: { shrink: true } }}
+        />
+      )}
+    />
+  );
+}
+
+/** Linked events of a publication that still relies on them, read-only. */
+function LegacyLinkedEvents({ eventIds, locale }: { eventIds: number[]; locale: string }) {
+  const translate = useTranslate();
+  const dataProvider = useDataProvider();
+  const [events, setEvents] = useState<EventOption[]>([]);
+
+  useEffect(() => {
+    dataProvider
+      .getList<EventOption>("events", {
+        pagination: { page: 1, perPage: 1000 },
+        sort: { field: "startDate", order: "DESC" },
+        filter: {},
+      })
+      .then(({ data }) => setEvents(data));
+  }, [dataProvider]);
+
+  return (
+    <Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        {translate("padmakara.publications.legacyEventsNote")}
+      </Typography>
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+        {eventIds.map((id) => {
+          const event = events.find((e) => e.id === id);
+          return <Chip key={id} size="small" variant="outlined" label={event ? eventLabel(event, locale) : `#${id}`} />;
+        })}
+      </Box>
+    </Box>
+  );
+}
+
+/**
+ * Audience select plus the one field that says who gets access for it:
+ * retreat groups for the group and participant audiences, the access list for
+ * the audiences hidden in the app, nothing for the open ones. Controlled, so
+ * both the react-hook-form edit page and the state-driven create page can use
+ * it.
+ */
+function AudienceAccessFields({
+  values,
+  onChange,
+}: {
+  values: AccessValues;
+  onChange: (next: AccessChange) => void;
 }) {
   const translate = useTranslate();
   const dataProvider = useDataProvider();
   const [locale] = useLocaleState();
   const [audienceOptions, setAudienceOptions] = useState<AudienceOption[]>([]);
-  const [eventOptions, setEventOptions] = useState<EventOption[]>([]);
+  const { audienceId, eventIds, retreatGroupIds, accessUserIds, accessUsers } = values;
 
   useEffect(() => {
     dataProvider
@@ -325,13 +516,6 @@ function AudienceAndEventsFields({
         filter: {},
       })
       .then(({ data }) => setAudienceOptions(data));
-    dataProvider
-      .getList<EventOption>("events", {
-        pagination: { page: 1, perPage: 1000 },
-        sort: { field: "startDate", order: "DESC" },
-        filter: {},
-      })
-      .then(({ data }) => setEventOptions(data));
   }, [dataProvider]);
 
   // A new publication starts public, as before.
@@ -343,11 +527,25 @@ function AudienceAndEventsFields({
   }, [audienceId, audienceOptions, onChange]);
 
   const audience = audienceOptions.find((a) => a.id === audienceId) ?? null;
-  const eventBased = !!audience && EVENT_BASED_AUDIENCE_SLUGS.includes(audience.slug);
-  const selectedEvents = eventIds
-    .map((id) => eventOptions.find((e) => e.id === id))
-    .filter((e): e is EventOption => !!e);
-  const needsEvents = eventBased && eventIds.length === 0;
+  const slug = audience?.slug;
+  const groupBased = !!slug && GROUP_AUDIENCE_SLUGS.includes(slug);
+  const hidden = !!slug && HIDDEN_AUDIENCE_SLUGS.includes(slug);
+  // Classified before groups and the access list existed: the linked events still decide.
+  const legacyEvents =
+    !!slug &&
+    LEGACY_EVENT_AUDIENCE_SLUGS.includes(slug) &&
+    eventIds.length > 0 &&
+    (groupBased ? retreatGroupIds.length === 0 : accessUserIds.length === 0);
+
+  const inGroup = (group: string[]) => audienceOptions.filter((a) => group.includes(a.slug));
+  const others = audienceOptions.filter(
+    (a) => !SHOWN_AUDIENCE_SLUGS.includes(a.slug) && !HIDDEN_AUDIENCE_SLUGS.includes(a.slug),
+  );
+  const optionItem = (a: AudienceOption) => (
+    <MenuItem key={a.id} value={a.id}>
+      {audienceName(a, locale)}
+    </MenuItem>
+  );
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2, width: "100%" }}>
@@ -357,37 +555,39 @@ function AudienceAndEventsFields({
         required
         value={audience ? audience.id : ""}
         onChange={(e) => onChange({ audienceId: Number(e.target.value) })}
+        helperText={translate(
+          hidden
+            ? "padmakara.publications.audienceHelperHidden"
+            : "padmakara.publications.audienceHelperShown",
+        )}
         slotProps={{ inputLabel: { shrink: true } }}
         sx={{ minWidth: 260, maxWidth: 400 }}
       >
-        {audienceOptions.map((a) => (
-          <MenuItem key={a.id} value={a.id}>
-            {audienceName(a, locale)}
-          </MenuItem>
-        ))}
+        <ListSubheader>{translate("padmakara.publications.audienceGroupShown")}</ListSubheader>
+        {inGroup(SHOWN_AUDIENCE_SLUGS).map(optionItem)}
+        <ListSubheader>{translate("padmakara.publications.audienceGroupHidden")}</ListSubheader>
+        {inGroup(HIDDEN_AUDIENCE_SLUGS).map(optionItem)}
+        {others.map(optionItem)}
       </MuiTextField>
-      <Autocomplete
-        multiple
-        options={eventOptions}
-        getOptionLabel={(e) => eventLabel(e, locale)}
-        value={selectedEvents}
-        onChange={(_, v) => onChange({ eventIds: v.map((e) => e.id) })}
-        isOptionEqualToValue={(o, v) => o.id === v.id}
-        renderInput={(params) => (
-          <MuiTextField
-            {...params}
-            label={translate("padmakara.publications.linkedEvents")}
-            placeholder={translate("padmakara.publications.linkedEventsPlaceholder")}
-            error={needsEvents}
-            helperText={translate(
-              needsEvents
-                ? "padmakara.publications.linkedEventsNeeded"
-                : "padmakara.publications.linkedEventsHelper",
-            )}
-            slotProps={{ inputLabel: { shrink: true } }}
-          />
-        )}
-      />
+
+      {groupBased && (
+        <RetreatGroupsPicker
+          value={retreatGroupIds}
+          onChange={(ids) => onChange({ retreatGroupIds: ids })}
+          slug={slug}
+          locale={locale}
+        />
+      )}
+      {hidden && (
+        <AccessListPicker
+          value={accessUserIds}
+          known={accessUsers}
+          onChange={(users) =>
+            onChange({ accessUserIds: users.map((u) => u.id), accessUsers: users })
+          }
+        />
+      )}
+      {legacyEvents && <LegacyLinkedEvents eventIds={eventIds} locale={locale} />}
     </Box>
   );
 }
@@ -400,23 +600,25 @@ function AudienceChip() {
   return <Chip label={audienceName(record, locale)} size="small" variant="outlined" />;
 }
 
-/** Edit-page wrapper: reads and writes the audience and events on the form. */
-function AudienceAndEventsInput() {
+/** Edit-page wrapper: reads and writes the audience and its access fields on the form. */
+function AudienceAccessInput() {
   const { watch, setValue } = useFormContext();
-  const audienceId = watch("audienceId") as number | null | undefined;
-  const eventIds = (watch("eventIds") as number[] | undefined) ?? [];
+  const values: AccessValues = {
+    audienceId: watch("audienceId") as number | null | undefined,
+    eventIds: (watch("eventIds") as number[] | undefined) ?? [],
+    retreatGroupIds: (watch("retreatGroupIds") as number[] | undefined) ?? [],
+    accessUserIds: (watch("accessUserIds") as number[] | undefined) ?? [],
+    accessUsers: (watch("accessUsers") as UserOption[] | undefined) ?? [],
+  };
   const handleChange = useCallback(
-    (next: { audienceId?: number; eventIds?: number[] }) => {
-      if (next.audienceId !== undefined) {
-        setValue("audienceId", next.audienceId, { shouldDirty: true });
-      }
-      if (next.eventIds !== undefined) {
-        setValue("eventIds", next.eventIds, { shouldDirty: true });
+    (next: AccessChange) => {
+      for (const [key, value] of Object.entries(next)) {
+        if (value !== undefined) setValue(key, value, { shouldDirty: true });
       }
     },
     [setValue],
   );
-  return <AudienceAndEventsFields audienceId={audienceId} eventIds={eventIds} onChange={handleChange} />;
+  return <AudienceAccessFields values={values} onChange={handleChange} />;
 }
 
 // ─── List ────────────────────────────────────────────────────────────────────
@@ -781,7 +983,7 @@ export const PublicationEdit = () => {
               <TextInput source="version" label="padmakara.publications.version" helperText={translate("padmakara.publications.versionHelper")} />
             </Box>
 
-            <AudienceAndEventsInput />
+            <AudienceAccessInput />
 
             <Box sx={{ mt: 2, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>
               <PdfReplaceSection />
@@ -832,8 +1034,7 @@ export const PublicationCreate = () => {
   const allTeachers = useTeachers();
 
   const handleAudienceChange = useCallback(
-    (next: { audienceId?: number; eventIds?: number[] }) =>
-      setDefaultValues((prev) => ({ ...prev, ...next })),
+    (next: AccessChange) => setDefaultValues((prev) => ({ ...prev, ...next })),
     [],
   );
 
@@ -904,6 +1105,8 @@ export const PublicationCreate = () => {
         publicationDate: metadata.publicationDate || undefined,
         version: metadata.version || "",
         eventIds: [],
+        retreatGroupIds: [],
+        accessUserIds: [],
         pdfS3Key: s3Key,
         coverImageS3Key: metadata.coverImageS3Key || "",
         pageCount: metadata.pageCount || undefined,
@@ -1150,9 +1353,14 @@ export const PublicationCreate = () => {
                 />
               </Box>
 
-              <AudienceAndEventsFields
-                audienceId={defaultValues.audienceId as number | undefined}
-                eventIds={(defaultValues.eventIds as number[] | undefined) ?? []}
+              <AudienceAccessFields
+                values={{
+                  audienceId: defaultValues.audienceId as number | undefined,
+                  eventIds: (defaultValues.eventIds as number[] | undefined) ?? [],
+                  retreatGroupIds: (defaultValues.retreatGroupIds as number[] | undefined) ?? [],
+                  accessUserIds: (defaultValues.accessUserIds as number[] | undefined) ?? [],
+                  accessUsers: (defaultValues.accessUsers as UserOption[] | undefined) ?? [],
+                }}
                 onChange={handleAudienceChange}
               />
 
