@@ -125,7 +125,7 @@ The only schema workflow:
 **Rules that keep it working:**
 - Always go through `bun run db:generate`, not `bunx drizzle-kit generate`. Hand-written journal entries 0005–0041 carry future `when` timestamps (up to 2027-06-02), and drizzle-orm's migrator silently skips any migration whose `when` is not greater than the last applied one. The `db:generate` wrapper (`src/scripts/generate-migration.ts`) moves the new entry after the previous one.
 - Never add a migration without its snapshot. If a migration must be hand-written (data fixes, renames drizzle-kit cannot express), generate it with `bun run db:generate --custom --name short_name`, which writes an empty SQL file plus a snapshot, then fill in the SQL. `tests/migrations/journal.test.ts` fails when the latest migration has no snapshot or the journal is out of order.
-- Several constraints in the database still have the PostgreSQL default names from hand-written SQL (`*_fkey`, `*_key`, `*_pkey`) while the snapshot uses drizzle-kit names (`*_fk`, `*_unique`, `*_pk`). A generated change that drops or alters one of them will fail on `DROP CONSTRAINT`. Rename the database constraints first (see `DECISIONS.md`, 2026-10-22 entry).
+- Constraint names: hand-written SQL used to leave PostgreSQL default names (`*_fkey`, `*_key`, `*_pkey`) while the snapshot uses drizzle-kit names (`*_fk`, `*_unique`, `*_pk`). Migration `0042_schema_drift_cleanup.sql` renamed them, so generated changes to those constraints work. Only the sequences `session_videos_id_seq` / `session_subtitles_id_seq` keep old names (not tracked by drizzle-kit).
 
 ```bash
 bun db:migrate                 # Apply pending migrations
