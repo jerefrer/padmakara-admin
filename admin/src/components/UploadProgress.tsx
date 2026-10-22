@@ -94,8 +94,13 @@ function FileRow({ file, speed }: { file: FileStatus; speed: number }) {
             sx={{ height: 3, borderRadius: 1 }}
           />
           <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.2 }}>
-            <Typography variant="caption" color="text.secondary">
-              {Math.round(file.progress * 100)}%
+            <Typography variant="caption" color={file.retryAttempt ? "warning.main" : "text.secondary"}>
+              {file.retryAttempt
+                ? translate("padmakara.upload.retrying", {
+                    attempt: file.retryAttempt,
+                    percent: Math.round(file.progress * 100),
+                  })
+                : `${Math.round(file.progress * 100)}%`}
             </Typography>
             {speed > 0 && (
               <Typography variant="caption" color="text.secondary">

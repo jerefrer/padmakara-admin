@@ -881,6 +881,7 @@ export const pt = {
       bunnyStatusProcessing: "Bunny está a processar o vídeo…",
       bunnyStatusTranscoding: "A transcodificar variantes do vídeo…",
       bunnyStatusWaiting: "À espera do Bunny…",
+      retrying: "Problema de ligação — nova tentativa %{attempt} · %{percent}%",
     },
     import: {
       analysingTitle: "A analisar as suas gravações",
