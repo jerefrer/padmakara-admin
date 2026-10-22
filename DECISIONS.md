@@ -62,3 +62,17 @@
 **Revisit if:** the accountant advises otherwise, or the Board deliberation sets different conditions.
 
 ---
+
+## 2026-10-22 — Resumable bulk audio upload: browser queue + server reconciliation
+
+**Chosen:** Keep the two-phase bulk upload (track rows first, audio second). Make phase 2 resumable with a per-event queue in `localStorage` (`padmakara.pendingAudioUpload.<eventId>`) that records, for each track, the dropped file's name and size and whether it reached the server. After every upload, however it ended, the admin calls `GET /api/admin/events/:id/missing-audio` and treats the server's keyless tracks as the source of truth; the queue only supplies the file-to-track mapping. Transient failures (network, 408/429/5xx) are retried with exponential backoff, and each file is presigned right before its own upload.
+
+**Alternatives:** (a) An atomic upload (audio first, rows after). Rejected: it breaks rename-before-upload and the AI name analysis. (b) IndexedDB, to keep `File` handles across reloads. Rejected: handles from a drop or an `<input>` cannot be re-read after a reload without the File System Access API (Chromium only, permission prompt), so a re-drop is needed anyway, and the queue is a few KB of JSON. (c) A server-side queue table. Rejected: it needs a migration and still cannot hold the files; the server already knows which tracks are keyless.
+
+**Why:** The rename mapping (dropped name to edited `originalFilename`) only exists in the browser that ran the upload, and without it a renamed track cannot be matched to its file. Everything else is recoverable from the database.
+
+**Trade-offs:** The queue is per browser: resuming from another machine falls back to matching by the track's `originalFilename` and recorded size, which misses tracks renamed before upload (those still have the per-track "Upload audio" button). Presigning per file costs one extra request per file.
+
+**Revisit if:** uploads move to a resumable protocol (S3 multipart, tus) or admins routinely resume on a different machine.
+
+---
