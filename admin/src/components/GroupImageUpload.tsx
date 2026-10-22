@@ -3,7 +3,7 @@ import { useRecordContext, useNotify, useRefresh } from "react-admin";
 import { Box, Button, Typography, CircularProgress } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import EditIcon from "@mui/icons-material/Edit";
-import { ImageCropDialog, type HeroSaveParams } from "./ImageCropDialog";
+import { ImageCropDialog, applyGrayscale, type HeroSaveParams } from "./ImageCropDialog";
 import { authFetch } from "../utils/authFetch";
 import { fetchImageSourceAsFile } from "../utils/imageSource";
 
@@ -52,6 +52,7 @@ async function uploadGroupHero(
 async function cropImageToBlob(
   file: File,
   area: { x: number; y: number; width: number; height: number },
+  grayscale = false,
 ): Promise<Blob> {
   const url = URL.createObjectURL(file);
   try {
@@ -67,6 +68,7 @@ async function cropImageToBlob(
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2d context unavailable");
     ctx.drawImage(img, area.x, area.y, area.width, area.height, 0, 0, area.width, area.height);
+    if (grayscale) applyGrayscale(ctx, area.width, area.height);
     return await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (blob) => (blob ? resolve(blob) : reject(new Error("Failed to encode blob"))),
@@ -169,7 +171,11 @@ export function GroupImageUpload() {
       if (!record?.id || dialog.kind !== "hero") return;
       setSavingHero(true);
       try {
-        const blob = await cropImageToBlob(dialog.file, params.cropAreaPixels);
+        const blob = await cropImageToBlob(
+          dialog.file,
+          params.cropAreaPixels,
+          params.grayscale,
+        );
         await uploadGroupHero(
           record.id as number,
           blob,
