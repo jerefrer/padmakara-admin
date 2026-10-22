@@ -2,8 +2,8 @@
  * Organizers are predefined entities linked to an event through
  * `retreat_organizers` (ordered by `position`). Clients and the slide
  * templates still read one free-form string, so this module flattens the
- * relation back into it: names joined with " · " (middle dot) in position order — the app already
- * uses " | " between date, place and organizer, so neither "," nor "|" would do, or null.
+ * relation back into it: names in position order joined with " · " (middle
+ * dot; the app already uses " | " between date, place and organizer), or null.
  */
 
 import { asc } from "drizzle-orm";
