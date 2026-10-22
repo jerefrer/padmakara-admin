@@ -17,7 +17,7 @@ import {
   TextField as MuiTextField,
   Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import { authFetch } from "../utils/authFetch";
 import {
@@ -41,6 +41,7 @@ import {
   Toolbar,
   useDataProvider,
   useDelete,
+  useEditContext,
   useLocaleState,
   useNotify,
   useRecordContext,
@@ -698,10 +699,36 @@ function PdfReplaceSection() {
   );
 }
 
+/**
+ * Mounts the form only once the record has been fetched from the API.
+ *
+ * react-admin first renders whatever it has cached for the record (a row from
+ * the list, or the copy from an earlier visit) and refetches in the
+ * background. The refetched record always differs (a fresh presigned cover
+ * URL, linked ids), and the form resets whenever the record changes, so a
+ * choice made in between, such as a new audience, silently reverted to the
+ * saved value. Waiting for that fetch removes the window; once the form is
+ * mounted it stays mounted.
+ */
+function WaitForFreshRecord({ children }: { children: ReactNode }) {
+  const { isFetching } = useEditContext();
+  const settled = useRef(false);
+  if (!isFetching) settled.current = true;
+  if (!settled.current) {
+    return (
+      <Box sx={{ p: 4, textAlign: "center" }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  return <>{children}</>;
+}
+
 export const PublicationEdit = () => {
   const translate = useTranslate();
   return (
     <Edit>
+      <WaitForFreshRecord>
       <SimpleForm toolbar={<PublicationToolbar />}>
         <Box sx={{ display: "flex", gap: 3, width: "100%" }}>
           {/* Left: Cover + info */}
@@ -762,6 +789,7 @@ export const PublicationEdit = () => {
           </Box>
         </Box>
       </SimpleForm>
+      </WaitForFreshRecord>
     </Edit>
   );
 };
