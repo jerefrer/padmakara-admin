@@ -13,6 +13,7 @@ import {
   Switch,
 } from "@mui/material";
 import { HeroFramePreviews } from "./HeroFramePreviews";
+import { heroResolutionAdvice } from "../utils/heroResolution";
 
 export type CropMode = "avatar" | "hero";
 
@@ -240,6 +241,8 @@ export function ImageCropDialog(props: Props) {
             />
           ) : null}
 
+          {mode === "hero" && croppedAreaPixels ? <HeroResolutionNote cropWidth={croppedAreaPixels.width} /> : null}
+
           <Box sx={{ width: "100%", px: 2 }}>
             <Typography variant="body2" gutterBottom>
               Zoom
@@ -280,6 +283,18 @@ export function ImageCropDialog(props: Props) {
         </Button>
       </DialogActions>
     </Dialog>
+  );
+}
+
+const RESOLUTION_COLORS = { good: "success.main", fair: "warning.main", poor: "error.main" } as const;
+
+/** Sharpness of the hero at the current zoom: the crop width is what counts, not the file size. */
+function HeroResolutionNote({ cropWidth }: { cropWidth: number }) {
+  const advice = heroResolutionAdvice(cropWidth);
+  return (
+    <Typography variant="caption" sx={{ color: RESOLUTION_COLORS[advice.level], textAlign: "center" }}>
+      {advice.message}
+    </Typography>
   );
 }
 
