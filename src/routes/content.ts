@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.ts";
-import { userProgress, bookmarks, eventBookmarks, trackBookmarks } from "../db/schema/user-content.ts";
+import { userProgress, bookmarks, eventBookmarks, trackBookmarks, videoBookmarks } from "../db/schema/user-content.ts";
 import { videoProgress } from "../db/schema/video-progress.ts";
 import { eventVideos } from "../db/schema/event-videos.ts";
 import { tracks } from "../db/schema/tracks.ts";
@@ -11,6 +11,8 @@ import {
   createBookmarkSchema,
   createEventBookmarkSchema,
   createTrackBookmarkSchema,
+  createVideoBookmarkSchema,
+  updateVideoBookmarkSchema,
 } from "../lib/schemas.ts";
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
@@ -547,6 +549,109 @@ contentRoutes.delete("/track-bookmarks/:trackId", async (c) => {
     .where(
       and(eq(trackBookmarks.userId, user.id), eq(trackBookmarks.trackId, trackId)),
     )
+    .returning();
+
+  if (!deleted) throw AppError.notFound("Bookmark not found");
+  return c.json(deleted);
+});
+
+// --- Video Bookmarks ---
+//
+// Position bookmarks inside an event video (several per video, optional
+// note). Listed on the Bookmarks tab; the video include carries the event so
+// the UI can show it in context and navigate back to the video.
+
+const videoBookmarkWith = {
+  video: {
+    with: {
+      event: {
+        with: {
+          eventTeachers: { with: { teacher: true } },
+          eventRetreatGroups: { with: { retreatGroup: true } },
+          eventOrganizers: eventOrganizersWith,
+        },
+      },
+    },
+  },
+} as const;
+
+async function enrichVideoBookmarkEvents(rows: Array<{ video?: unknown }>) {
+  const evts = rows
+    .map((r) => (r.video as any)?.event)
+    .filter(Boolean);
+  await resolveEventsTeacherUrls(evts);
+  await resolveEventsGroupUrls(evts);
+  applyEventsOrganizers(evts);
+}
+
+contentRoutes.get("/video-bookmarks", async (c) => {
+  const user = getUser(c);
+  const rows = await db.query.videoBookmarks.findMany({
+    where: eq(videoBookmarks.userId, user.id),
+    orderBy: (b, { desc }) => [desc(b.createdAt)],
+    with: videoBookmarkWith,
+  });
+  await enrichVideoBookmarkEvents(rows);
+  return c.json(rows);
+});
+
+contentRoutes.post("/video-bookmarks", async (c) => {
+  const body = await c.req.json();
+  const data = createVideoBookmarkSchema.parse(body);
+
+  // Same gate as video progress: the event must be visible to the caller
+  // (draft guard) and the caller must be allowed into it (audience).
+  const { user } = await authorizeVideoAccess(c, data.videoId);
+
+  // A client-supplied timestamp is only used to keep the original date of a
+  // bookmark synced from the device; never accept a future date.
+  const now = new Date();
+  const sent = data.createdAt ? new Date(data.createdAt) : null;
+  const createdAt = sent && sent <= now ? sent : now;
+
+  const [row] = await db
+    .insert(videoBookmarks)
+    .values({
+      userId: user.id,
+      videoId: data.videoId,
+      positionSeconds: data.positionSeconds,
+      note: data.note || null,
+      createdAt,
+    })
+    .returning();
+
+  const created = await db.query.videoBookmarks.findFirst({
+    where: eq(videoBookmarks.id, row!.id),
+    with: videoBookmarkWith,
+  });
+  if (!created) throw AppError.notFound("Bookmark not found");
+  await enrichVideoBookmarkEvents([created]);
+
+  return c.json(created, 201);
+});
+
+contentRoutes.patch("/video-bookmarks/:id", async (c) => {
+  const user = getUser(c);
+  const id = parseInt(c.req.param("id"), 10);
+  const data = updateVideoBookmarkSchema.parse(await c.req.json());
+
+  const [updated] = await db
+    .update(videoBookmarks)
+    .set({ note: data.note || null })
+    .where(and(eq(videoBookmarks.id, id), eq(videoBookmarks.userId, user.id)))
+    .returning();
+
+  if (!updated) throw AppError.notFound("Bookmark not found");
+  return c.json(updated);
+});
+
+contentRoutes.delete("/video-bookmarks/:id", async (c) => {
+  const user = getUser(c);
+  const id = parseInt(c.req.param("id"), 10);
+
+  const [deleted] = await db
+    .delete(videoBookmarks)
+    .where(and(eq(videoBookmarks.id, id), eq(videoBookmarks.userId, user.id)))
     .returning();
 
   if (!deleted) throw AppError.notFound("Bookmark not found");

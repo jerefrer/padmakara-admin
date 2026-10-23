@@ -379,6 +379,19 @@ export const createTrackBookmarkSchema = z.object({
   trackId: z.number().int(),
 });
 
+export const createVideoBookmarkSchema = z.object({
+  videoId: z.number().int(),
+  positionSeconds: z.number().int().min(0),
+  note: z.string().trim().max(1000).nullish(),
+  // Lets the app keep the original timestamp when it uploads bookmarks that
+  // were saved on the device before they were synced.
+  createdAt: z.string().datetime().optional(),
+});
+
+export const updateVideoBookmarkSchema = z.object({
+  note: z.string().trim().max(1000).nullable(),
+});
+
 /**
  * Safe filename: allows letters (including accented), digits, spaces, hyphens,
  * underscores, dots, parentheses, brackets, and plus signs — but explicitly
