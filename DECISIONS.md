@@ -162,3 +162,17 @@
 **Revisit if:** the legacy publications have all been reclassified (then the linked-events branch and the read-only display can go), or the app needs a "request access" teaser for hidden publications.
 
 ---
+
+## 2026-10-24 — Video bookmarks move server-side
+
+**Chosen:** User decision (Jérémy): bookmarks placed inside a video are stored on the server in a new `video_bookmarks` table (migration 0045: user, video, position in seconds, optional note, created_at), not only in the app's AsyncStorage. Endpoints under `/api/content/video-bookmarks` (list mine, create, update note, delete). Creating one reuses the video-progress access check (event visible to the caller plus audience rule). Several bookmarks per video are allowed, so there is no unique on (user, video). The create endpoint accepts an optional `createdAt` (never in the future) so the app can upload its old local bookmarks with their original dates.
+
+**Alternatives:** (a) Keep them local and merge them into the Bookmarks tab on the device. Rejected: they would still be lost when changing phone, and the web app could not show them. (b) Reuse the older `bookmarks` table (track + position). Rejected: it is keyed by track, videos are keyed by `event_videos`; overloading it with a nullable video id would mix two schemas (same reasoning as `video_progress`).
+
+**Why:** Bookmarks are personal content the user expects to find on any device, next to event and track bookmarks.
+
+**Trade-offs:** Bookmarks of a video that is deleted are deleted with it (cascade). A re-burn that changes the intro length shifts positions in the video, and unlike resume positions they are not offset by `burned_intro_ms`.
+
+**Revisit if:** videos get re-burned often enough that bookmark positions drift (then offset them by the intro delta like progress).
+
+---
