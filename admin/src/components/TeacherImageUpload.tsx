@@ -3,6 +3,8 @@ import { useRecordContext, useNotify, useRefresh } from "react-admin";
 import { Box, Button, Typography, CircularProgress } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import EditIcon from "@mui/icons-material/Edit";
+import { HeroFramePreviews } from "./HeroFramePreviews";
+import { HERO_DESKTOP_WIDTH } from "../utils/heroResolution";
 import { ImageCropDialog, applyGrayscale, type HeroSaveParams } from "./ImageCropDialog";
 import { authFetch } from "../utils/authFetch";
 import { fetchImageSourceAsFile } from "../utils/imageSource";
@@ -355,7 +357,7 @@ export function TeacherImageUpload() {
       {/* ================= HERO ================= */}
       <Box>
         <Typography variant="subtitle2" gutterBottom>
-          Hero Image (full-width banner)
+          Hero image (as it appears in the app)
         </Typography>
         <Box
           onDragOver={(e) => {
@@ -367,7 +369,8 @@ export function TeacherImageUpload() {
           onClick={hasHero ? openHeroFromExisting : () => heroInputRef.current?.click()}
           sx={{
             width: "100%",
-            height: 180,
+            height: hasHero && !heroDragOver ? "auto" : 180,
+            py: hasHero && !heroDragOver ? 2 : 0,
             borderRadius: 1,
             overflow: "hidden",
             bgcolor: heroDragOver ? "#c7d2fe" : "#e5e7eb",
@@ -386,15 +389,11 @@ export function TeacherImageUpload() {
             <Typography color="primary">Drop to replace</Typography>
           ) : hasHero ? (
             <>
-              <img
-                src={record.heroUrl as string}
-                alt="Hero"
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  objectPosition: `${focalX}% ${focalY}%`,
-                }}
+              <HeroFramePreviews
+                imageUrl={record.heroUrl as string}
+                crop="whole"
+                focal={{ x: focalX, y: focalY }}
+                grayscale={false}
               />
               <Box
                 className="edit-overlay"
@@ -435,6 +434,10 @@ export function TeacherImageUpload() {
           >
             {savingHero ? "Uploading..." : hasHero ? "Replace Hero" : "Upload Hero"}
           </Button>
+          <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+            {hasHero ? "Click the previews to adjust, or drag & drop a new photo. " : ""}
+            Any file size works: the app gets a compressed copy. Prefer photos at least {HERO_DESKTOP_WIDTH} px wide.
+          </Typography>
         </Box>
         <input
           ref={heroInputRef}

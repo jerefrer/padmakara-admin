@@ -37,14 +37,17 @@ export const HERO_FRAMES: FrameSpec[] = [
 
 interface Props {
   imageUrl: string;
-  /** Current crop region, in pixels of the original image. */
-  crop: Area | null;
+  /**
+   * Current crop region, in pixels of the original image. "whole" for an image that is already
+   * the cropped hero (the stored one shown on the edit page).
+   */
+  crop: Area | "whole" | null;
   /** Focal point in % of the cropped region. */
   focal: { x: number; y: number };
   grayscale: boolean;
 }
 
-export function HeroFramePreviews({ imageUrl, crop, focal, grayscale }: Props) {
+export function HeroFramePreviews({ imageUrl, crop: cropProp, focal, grayscale }: Props) {
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
 
   useEffect(() => {
@@ -59,7 +62,9 @@ export function HeroFramePreviews({ imageUrl, crop, focal, grayscale }: Props) {
     };
   }, [imageUrl]);
 
-  if (!natural || !crop || crop.width <= 0 || crop.height <= 0) return null;
+  if (!natural) return null;
+  const crop = cropProp === "whole" ? { x: 0, y: 0, width: natural.w, height: natural.h } : cropProp;
+  if (!crop || crop.width <= 0 || crop.height <= 0) return null;
 
   return (
     <Box sx={{ width: "100%", display: "flex", flexWrap: "wrap", gap: 2, alignItems: "flex-end", justifyContent: "center" }}>
