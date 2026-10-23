@@ -65,10 +65,12 @@ export {
   bookmarks,
   eventBookmarks,
   trackBookmarks,
+  videoBookmarks,
   userProgressRelations,
   bookmarksRelations,
   eventBookmarksRelations,
   trackBookmarksRelations,
+  videoBookmarksRelations,
 } from "./user-content.ts";
 
 // Video progress (per event-video, distinct from track-level userProgress)

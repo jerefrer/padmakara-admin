@@ -13,6 +13,7 @@ import { relations } from "drizzle-orm";
 import { users } from "./users.ts";
 import { tracks } from "./tracks.ts";
 import { events } from "./retreats.ts";
+import { eventVideos } from "./event-videos.ts";
 
 export const userProgress = pgTable(
   "user_progress",
@@ -89,6 +90,25 @@ export const trackBookmarks = pgTable(
   ],
 );
 
+// Position bookmarks inside an event video. Unlike track_bookmarks there is
+// no unique (user, video): several moments in one video are allowed.
+export const videoBookmarks = pgTable(
+  "video_bookmarks",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    videoId: integer("video_id")
+      .notNull()
+      .references(() => eventVideos.id, { onDelete: "cascade" }),
+    positionSeconds: integer("position_seconds").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index("video_bookmarks_user_id_idx").on(t.userId)],
+);
+
 // Relations
 export const userProgressRelations = relations(userProgress, ({ one }) => ({
   user: one(users, {
@@ -134,3 +154,14 @@ export const trackBookmarksRelations = relations(trackBookmarks, ({ one }) => ({
   }),
 }));
 
+
+export const videoBookmarksRelations = relations(videoBookmarks, ({ one }) => ({
+  user: one(users, {
+    fields: [videoBookmarks.userId],
+    references: [users.id],
+  }),
+  video: one(eventVideos, {
+    fields: [videoBookmarks.videoId],
+    references: [eventVideos.id],
+  }),
+}));
