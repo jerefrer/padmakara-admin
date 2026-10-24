@@ -247,6 +247,8 @@ export const createEventVideoSchema = z.object({
   position: z.number().int().min(0).optional().default(0),
   titleEn: z.string().max(200).optional().nullable(),
   titlePt: z.string().max(200).optional().nullable(),
+  titleEnReviewed: z.boolean().optional(),
+  titlePtReviewed: z.boolean().optional(),
   videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
@@ -254,6 +256,8 @@ export const updateEventVideoSchema = z.object({
   position: z.number().int().min(0).optional(),
   titleEn: z.string().max(200).optional().nullable(),
   titlePt: z.string().max(200).optional().nullable(),
+  titleEnReviewed: z.boolean().optional(),
+  titlePtReviewed: z.boolean().optional(),
   videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
   hasBurnedSlides: z.boolean().optional(),
   masterS3Key: z.string().optional().nullable(),
