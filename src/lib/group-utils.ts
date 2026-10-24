@@ -1,4 +1,5 @@
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
+import type { HeroFrameOverrides } from "../db/schema/teachers.ts";
 
 interface RetreatGroupDbRecord {
   id: number;
@@ -14,6 +15,7 @@ interface RetreatGroupDbRecord {
   heroFocalX: number;
   heroFocalY: number;
   heroScale: number;
+  heroFrameOverrides?: HeroFrameOverrides | null;
   avatarUpdatedAt: Date | null;
   heroUpdatedAt: Date | null;
   displayOrder: number;
@@ -67,6 +69,7 @@ export async function resolveGroupUrls(
     heroFocalX: group.heroFocalX ?? 50,
     heroFocalY: group.heroFocalY ?? 50,
     heroScale: group.heroScale ?? 100,
+    heroFrameOverrides: group.heroFrameOverrides ?? null,
     avatarUpdatedAt: group.avatarUpdatedAt?.toISOString() || null,
     heroUpdatedAt: group.heroUpdatedAt?.toISOString() || null,
     createdAt: group.createdAt instanceof Date ? group.createdAt.toISOString() : (group.createdAt as any),

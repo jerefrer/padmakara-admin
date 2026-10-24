@@ -464,3 +464,80 @@ describe("POST /api/admin/groups/:id/hero", () => {
     });
   });
 });
+
+// ─── Per-frame hero framing ──────────────────────────────────────────────
+
+const mockSet = (db as any)._set as ReturnType<typeof vi.fn>;
+const OVERRIDES = { page: { focalX: 40, focalY: 62.5, zoom: 1.5 }, home: { focalX: 10, focalY: 90, zoom: 3 } };
+
+async function putJson(path: string, payload: unknown) {
+  const token = await adminToken();
+  const res = await app.fetch(
+    new Request(new URL(path, "http://localhost").toString(), {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  );
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
+describe.each([
+  ["teachers", 7],
+  ["groups", 3],
+])("hero frame overrides on /api/admin/%s", (kind, id) => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindFirst.mockResolvedValue(null);
+    mockReturning.mockResolvedValue([{ id }]);
+  });
+
+  async function uploadHero(extra: Record<string, string>) {
+    const token = await adminToken();
+    return postMultipart(`/api/admin/${kind}/${id}/hero`, fileFormData("file", "hero.jpg", "RAW", extra), {
+      Authorization: `Bearer ${token}`,
+    });
+  }
+
+  it("should store the overrides sent with the upload", async () => {
+    const { status } = await uploadHero({ frameOverrides: JSON.stringify(OVERRIDES) });
+    expect(status).toBe(200);
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ heroFrameOverrides: OVERRIDES }));
+  });
+
+  it("should clear the overrides when an upload sends none", async () => {
+    mockFindFirst.mockResolvedValue({ id, heroFrameOverrides: OVERRIDES });
+    const { status } = await uploadHero({});
+    expect(status).toBe(200);
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ heroFrameOverrides: null }));
+  });
+
+  it("should reject overrides with an unknown frame key", async () => {
+    const { status } = await uploadHero({ frameOverrides: JSON.stringify({ tablet: OVERRIDES.page }) });
+    expect(status).toBe(400);
+    expect(mockSet).not.toHaveBeenCalled();
+  });
+
+  it("should reject overrides with a zoom above 3", async () => {
+    const { status } = await uploadHero({ frameOverrides: JSON.stringify({ page: { ...OVERRIDES.page, zoom: 3.5 } }) });
+    expect(status).toBe(400);
+  });
+
+  it("should reject overrides that are not JSON", async () => {
+    const { status } = await uploadHero({ frameOverrides: "{nope" });
+    expect(status).toBe(400);
+  });
+
+  it("should accept overrides on update", async () => {
+    const { status } = await putJson(`/api/admin/${kind}/${id}`, { heroFrameOverrides: OVERRIDES });
+    expect(status).toBe(200);
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ heroFrameOverrides: OVERRIDES }));
+  });
+
+  it("should clear the overrides when the hero image is replaced through update", async () => {
+    mockFindFirst.mockResolvedValue({ id, heroS3Key: "old.webp", heroOriginalS3Key: null });
+    const { status } = await putJson(`/api/admin/${kind}/${id}`, { heroS3Key: "new.webp" });
+    expect(status).toBe(200);
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ heroFrameOverrides: null }));
+  });
+});

@@ -1,4 +1,5 @@
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
+import type { HeroFrameOverrides } from "../db/schema/teachers.ts";
 
 interface TeacherDbRecord {
   id: number;
@@ -11,6 +12,7 @@ interface TeacherDbRecord {
   heroFocalX: number;
   heroFocalY: number;
   heroScale: number;
+  heroFrameOverrides?: HeroFrameOverrides | null;
   avatarUpdatedAt: Date | null;
   heroUpdatedAt: Date | null;
 }
@@ -29,6 +31,8 @@ export interface TeacherResponse {
   heroFocalX: number;
   heroFocalY: number;
   heroScale: number;
+  /** Per-layout framing (see HeroFrameOverrides); null when every layout follows the focal point. */
+  heroFrameOverrides: HeroFrameOverrides | null;
   avatarUpdatedAt: string | null;
   heroUpdatedAt: string | null;
 }
@@ -63,6 +67,7 @@ export async function resolveTeacherUrls(
     heroFocalX: teacher.heroFocalX ?? 50,
     heroFocalY: teacher.heroFocalY ?? 50,
     heroScale: teacher.heroScale ?? 100,
+    heroFrameOverrides: teacher.heroFrameOverrides ?? null,
     avatarUpdatedAt: teacher.avatarUpdatedAt?.toISOString() || null,
     heroUpdatedAt: teacher.heroUpdatedAt?.toISOString() || null,
   };

@@ -32,3 +32,19 @@ export function heroResolutionAdvice(cropWidth: number): HeroResolutionAdvice {
     message: `${width} px wide: may look blurry. Use a larger photo or zoom out (at least ${HERO_MOBILE_WIDTH} px, ideally ${HERO_DESKTOP_WIDTH} px).`,
   };
 }
+
+const LEVEL_RANK: Record<HeroResolutionLevel, number> = { good: 2, fair: 1, poor: 0 };
+
+/**
+ * Sharpness of one app frame zoomed by `zoom` (1..3): the frame shows 1/zoom of the crop's width.
+ * `degraded` is true when the zoom alone made it worse than the unzoomed frame, which is what a
+ * frame caption should flag (a small crop is already reported once, for the whole hero).
+ */
+export function heroFrameResolutionAdvice(
+  cropWidth: number,
+  zoom: number,
+): HeroResolutionAdvice & { degraded: boolean } {
+  const advice = heroResolutionAdvice(cropWidth / Math.max(1, zoom));
+  const base = heroResolutionAdvice(cropWidth);
+  return { ...advice, degraded: LEVEL_RANK[advice.level] < LEVEL_RANK[base.level] };
+}

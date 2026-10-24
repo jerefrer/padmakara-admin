@@ -14,6 +14,7 @@ import {
 } from "@mui/material";
 import { HeroFramePreviews } from "./HeroFramePreviews";
 import { heroResolutionAdvice } from "../utils/heroResolution";
+import { hasHeroFrameOverrides, overridesSurviveCrop, type HeroFrameOverrides } from "../utils/heroFrameOverrides";
 
 export type CropMode = "avatar" | "hero";
 
@@ -25,6 +26,8 @@ export interface HeroSaveParams {
   focalY: number;
   /** When true, the cropped image will be converted to grayscale before upload. */
   grayscale: boolean;
+  /** Frames adjusted on their own (pan/zoom). Empty when every frame follows the focal point. */
+  frameOverrides: HeroFrameOverrides;
 }
 
 interface BaseProps {
@@ -41,6 +44,8 @@ interface BaseProps {
   initialCrop?: Area;
   /** Hero re-edit: the black-and-white choice saved last time. */
   initialGrayscale?: boolean;
+  /** Hero re-edit: per-frame framing saved with `initialCrop`; kept only while the crop stays the same. */
+  initialFrameOverrides?: HeroFrameOverrides;
 }
 
 type Props =
@@ -54,7 +59,7 @@ const AVATAR_VIEWPORT_H = 560;
 const HERO_VIEWPORT_H = 315;
 
 export function ImageCropDialog(props: Props) {
-  const { open, image, onClose, saving = false, initialFocal, initialCrop, initialGrayscale, mode } = props;
+  const { open, image, onClose, saving = false, initialFocal, initialCrop, initialGrayscale, initialFrameOverrides, mode } = props;
 
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
@@ -65,6 +70,12 @@ export function ImageCropDialog(props: Props) {
   // Focal marker position, in % of the visible CROPPED area (the rectangle
   // that will be saved). Only meaningful in hero mode.
   const [focal, setFocal] = useState<{ x: number; y: number }>({ x: 50, y: 50 });
+  const [frameOverrides, setFrameOverrides] = useState<HeroFrameOverrides>({});
+  const [overridesReset, setOverridesReset] = useState(false);
+  // The crop the overrides were made for, and whether the user has touched the crop since opening
+  // (the cropper reports a default crop before it restores the saved one).
+  const overridesCropRef = useRef<Area | null>(null);
+  const cropTouchedRef = useRef(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const draggingFocalRef = useRef(false);
 
@@ -87,7 +98,13 @@ export function ImageCropDialog(props: Props) {
       setCroppedAreaPixels(null);
       setFocal({ x: 50, y: 50 });
       setGrayscale(false);
+      setFrameOverrides({});
+      setOverridesReset(false);
+      overridesCropRef.current = null;
+      cropTouchedRef.current = false;
     } else {
+      setFrameOverrides(initialFrameOverrides ?? {});
+      overridesCropRef.current = initialFrameOverrides && hasHeroFrameOverrides(initialFrameOverrides) ? initialCrop ?? null : null;
       if (initialFocal) {
         setFocal({
           x: clamp(initialFocal.x, 0, 100),
@@ -96,11 +113,29 @@ export function ImageCropDialog(props: Props) {
       }
       setGrayscale(initialGrayscale ?? false);
     }
-  }, [open, initialFocal, initialGrayscale]);
+  }, [open, initialFocal, initialGrayscale, initialFrameOverrides, initialCrop]);
 
   const onCropComplete = useCallback((_areaPercent: Area, areaPixels: Area) => {
     setCroppedAreaPixels(areaPixels);
+    // Frame adjustments belong to the crop they were made on: another crop frames other pixels.
+    if (cropTouchedRef.current && !overridesSurviveCrop(overridesCropRef.current, areaPixels)) {
+      overridesCropRef.current = null;
+      setFrameOverrides((prev) => {
+        if (hasHeroFrameOverrides(prev)) setOverridesReset(true);
+        return {};
+      });
+    }
   }, []);
+
+  const changeFrameOverrides = useCallback(
+    (next: HeroFrameOverrides) => {
+      if (hasHeroFrameOverrides(next) && !overridesCropRef.current) overridesCropRef.current = croppedAreaPixels;
+      if (!hasHeroFrameOverrides(next)) overridesCropRef.current = null;
+      setOverridesReset(false);
+      setFrameOverrides(next);
+    },
+    [croppedAreaPixels],
+  );
 
   // Compute focal % from a pointer event over the viewport.
   const focalFromPointer = useCallback((clientX: number, clientY: number) => {
@@ -146,6 +181,7 @@ export function ImageCropDialog(props: Props) {
         focalX: Math.round(focal.x),
         focalY: Math.round(focal.y),
         grayscale,
+        frameOverrides,
       });
     }
   };
@@ -189,7 +225,13 @@ export function ImageCropDialog(props: Props) {
                   maxZoom={4}
                   objectFit="cover"
                   onCropChange={setCrop}
-                  onZoomChange={setZoom}
+                  onZoomChange={(z) => {
+                    cropTouchedRef.current = true;
+                    setZoom(z);
+                  }}
+                  onInteractionStart={() => {
+                    cropTouchedRef.current = true;
+                  }}
                   onCropComplete={onCropComplete}
                   // react-easy-crop reports the default crop on load, then applies initialCroppedAreaPixels
                   // without reporting it to onCropComplete; this one fires for that change too, so the
@@ -238,10 +280,24 @@ export function ImageCropDialog(props: Props) {
               crop={croppedAreaPixels}
               focal={focal}
               grayscale={grayscale}
+              overrides={frameOverrides}
+              onOverridesChange={changeFrameOverrides}
             />
           ) : null}
 
           {mode === "hero" && croppedAreaPixels ? <HeroResolutionNote cropWidth={croppedAreaPixels.width} /> : null}
+
+          {mode === "hero" && imageUrl ? (
+            <Typography
+              variant="caption"
+              sx={{ textAlign: "center", color: overridesReset ? "warning.main" : "text.secondary" }}
+            >
+              {overridesReset
+                ? "The crop changed, so the frame adjustments were reset. "
+                : "Drag a frame to pan it, use its slider to zoom; it then stops following the dot. "}
+              Frame adjustments belong to this crop: changing the crop or uploading a new photo resets them.
+            </Typography>
+          ) : null}
 
           <Box sx={{ width: "100%", px: 2 }}>
             <Typography variant="body2" gutterBottom>
@@ -249,7 +305,10 @@ export function ImageCropDialog(props: Props) {
             </Typography>
             <Slider
               value={zoom}
-              onChange={(_, v) => setZoom(v as number)}
+              onChange={(_, v) => {
+                cropTouchedRef.current = true;
+                setZoom(v as number);
+              }}
               min={1}
               max={4}
               step={0.05}

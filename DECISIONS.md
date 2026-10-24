@@ -176,3 +176,17 @@
 **Revisit if:** videos get re-burned often enough that bookmark positions drift (then offset them by the intro delta like progress).
 
 ---
+
+## 2026-10-24 — Per-frame hero framing (overrides next to the focal point)
+
+**Chosen:** User decision (Jérémy, after the designer's request): a hero keeps its single focal dot as the default for every app layout, and each layout (`home`, `home-short`, `page`, `desk-home`, `desk-page`, the HERO_FRAMES keys) may carry its own override `{ focalX, focalY, zoom }` (focal in % of the stored hero, zoom 1-3, 1 = plain cover). Stored in a nullable jsonb `hero_frame_overrides` on `teachers` and `retreat_groups` (migration 0046), the only tables with their own hero. Validated with Zod (known keys only), returned wherever the focal fields are. The admin previews are directly adjustable (drag to pan, slider to zoom, Reset). The app picks its layout's entry, else the focal point; with zoom it scales the cover size around the frame centre and clamps so the frame stays covered. A legacy `hero_scale` is ignored on a layout that has an override.
+
+**Alternatives:** (a) One focal point only, as before. Rejected: one point cannot frame a 3:2 card, a 390x380 page and a 776x380 desktop banner well at once. (b) A crop per layout (several stored images). Rejected: multiplies storage and uploads, and the designer only needs a different centre and zoom of the same picture. (c) Keep overrides when the crop changes. Rejected: they are positions in the stored crop, so after a re-crop they would frame other pixels.
+
+**Why:** Pan and zoom of the same stored variants is enough for the designer's cases and needs no new image processing. Zoom is limited to 3x because the stored variants (2400 / 1200 px wide) get soft beyond that; the admin caption warns when a zoomed frame drops below the 2400 / 1200 px thresholds (crop width divided by zoom).
+
+**Trade-offs:** Overrides are tied to the stored crop: a hero upload, a changed crop or a replaced image clears them (the dialog says so; the server clears them on any upload that does not resend them). The teacher and group pages show the 'page' frame on desktop too, as the 'desk-page' frame exists only for the event page. Sharpness of a zoomed frame is judged from the crop width, not from the frame's device pixels.
+
+**Revisit if:** designers want more than centre and zoom per layout, or a layout is added (add its key to HERO_FRAME_KEYS, HERO_FRAMES and the app).
+
+---

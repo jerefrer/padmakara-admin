@@ -105,6 +105,12 @@ describe("resolveGroupUrls", () => {
     expect(result.heroFocalY).toBe(50);
     expect(result.heroScale).toBe(100);
   });
+
+  it("exposes the per-frame hero overrides, null when absent", async () => {
+    const overrides = { "desk-page": { focalX: 20, focalY: 70, zoom: 2 } };
+    expect((await resolveGroupUrls({ ...baseGroup, heroFrameOverrides: overrides })).heroFrameOverrides).toEqual(overrides);
+    expect((await resolveGroupUrls(baseGroup)).heroFrameOverrides).toBeNull();
+  });
 });
 
 describe("resolveEventGroupUrls", () => {

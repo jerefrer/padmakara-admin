@@ -7,7 +7,7 @@ import {
   boolean,
   jsonb,
 } from "drizzle-orm/pg-core";
-import type { HeroCrop } from "./teachers.ts";
+import type { HeroCrop, HeroFrameOverrides } from "./teachers.ts";
 
 export const retreatGroups = pgTable("retreat_groups", {
   id: serial("id").primaryKey(),
@@ -28,6 +28,8 @@ export const retreatGroups = pgTable("retreat_groups", {
   heroOriginalS3Key: text("hero_original_s3_key"),
   heroCrop: jsonb("hero_crop").$type<HeroCrop>(),
   heroGrayscale: boolean("hero_grayscale").notNull().default(false),
+  // Per-layout framing, tied to the stored crop: cleared whenever the hero or its crop changes.
+  heroFrameOverrides: jsonb("hero_frame_overrides").$type<HeroFrameOverrides>(),
   avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
   heroUpdatedAt: timestamp("hero_updated_at", { withTimezone: true }),
   displayOrder: integer("display_order").default(0).notNull(),

@@ -1,4 +1,5 @@
 import type { Area } from "react-easy-crop";
+import { hasHeroFrameOverrides, readHeroFrameOverrides, serializeHeroFrameOverrides, type HeroFrameOverrides } from "./heroFrameOverrides";
 
 /**
  * Re-editable heroes (teachers and retreat groups).
@@ -12,6 +13,8 @@ import type { Area } from "react-easy-crop";
 export interface StoredHeroEdit {
   initialCrop?: Area;
   initialGrayscale?: boolean;
+  /** Per-frame framing saved with that crop. Only set when the crop is restored: it is tied to it. */
+  initialFrameOverrides?: HeroFrameOverrides;
   /** The file loaded into the editor is the stored original: it is not uploaded again. */
   storedOriginal: boolean;
 }
@@ -33,10 +36,13 @@ export function storedHeroEdit(record: HeroRecord): StoredHeroEdit {
   if (typeof record.heroOriginalS3Key !== "string" || !record.heroOriginalS3Key) {
     return { storedOriginal: false };
   }
+  const initialCrop = isArea(record.heroCrop) ? record.heroCrop : undefined;
   return {
     storedOriginal: true,
-    initialCrop: isArea(record.heroCrop) ? record.heroCrop : undefined,
+    initialCrop,
     initialGrayscale: record.heroGrayscale === true,
+    // Per-frame framing is tied to the saved crop: without it the editor cannot tell if it still fits.
+    initialFrameOverrides: initialCrop ? readHeroFrameOverrides(record.heroFrameOverrides) : undefined,
   };
 }
 
@@ -46,6 +52,8 @@ export interface HeroEditUpload {
   original: File | null;
   crop: Area;
   grayscale: boolean;
+  /** Per-frame framing for this crop. Left out when no frame has its own. */
+  frameOverrides?: HeroFrameOverrides;
 }
 
 export function appendHeroEdit(form: FormData, edit: HeroEditUpload): void {
@@ -60,4 +68,7 @@ export function appendHeroEdit(form: FormData, edit: HeroEditUpload): void {
     }),
   );
   form.append("grayscale", String(edit.grayscale));
+  if (hasHeroFrameOverrides(edit.frameOverrides)) {
+    form.append("frameOverrides", serializeHeroFrameOverrides(edit.frameOverrides!));
+  }
 }
