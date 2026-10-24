@@ -117,8 +117,9 @@ async function watermarkPdf(originalPdfBytes: Uint8Array, watermarkText: string)
       y: 20,
       size: fontSize,
       font,
-      color: rgb(0.75, 0.75, 0.75),
-      opacity: 0.5,
+      // Soft burgundy-pink: readable at a glance, still light enough not to compete with the text.
+      color: rgb(0.85, 0.42, 0.45),
+      opacity: 0.85,
     });
   }
   return await pdfDoc.save();
