@@ -8,6 +8,7 @@ import { HERO_DESKTOP_WIDTH } from "../utils/heroResolution";
 import { ImageCropDialog, applyGrayscale, type HeroSaveParams } from "./ImageCropDialog";
 import { authFetch } from "../utils/authFetch";
 import { fetchImageSourceAsFile } from "../utils/imageSource";
+import { readHeroFrameOverrides } from "../utils/heroFrameOverrides";
 import { appendHeroEdit, storedHeroEdit, type HeroEditUpload, type StoredHeroEdit } from "../utils/heroEdit";
 
 type DialogState =
@@ -191,6 +192,7 @@ export function GroupImageUpload() {
             original: dialog.storedOriginal ? null : dialog.file,
             crop: params.cropAreaPixels,
             grayscale: params.grayscale,
+            frameOverrides: params.frameOverrides,
           },
         );
         notify("padmakara.groups.heroUploaded", { type: "success" });
@@ -390,6 +392,7 @@ export function GroupImageUpload() {
                 crop="whole"
                 focal={{ x: focalX, y: focalY }}
                 grayscale={false}
+                overrides={readHeroFrameOverrides(record.heroFrameOverrides)}
               />
               <Box
                 className="edit-overlay"
@@ -466,6 +469,7 @@ export function GroupImageUpload() {
           initialFocal={dialog.initialFocal}
           initialCrop={dialog.initialCrop}
           initialGrayscale={dialog.initialGrayscale}
+          initialFrameOverrides={dialog.initialFrameOverrides}
         />
       )}
     </Box>
