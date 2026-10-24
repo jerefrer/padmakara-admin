@@ -21,6 +21,7 @@ import {
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useFormContext } from "react-hook-form";
 import { authFetch } from "../utils/authFetch";
+import { PublicationPdfActions } from "../components/PublicationPdfActions";
 import {
   Create,
   Datagrid,
@@ -966,6 +967,10 @@ export const PublicationEdit = () => {
                   </Box>
                 );
               }}
+            />
+            <FunctionField
+              label={false}
+              render={(record: { id?: number }) => (record?.id ? <PublicationPdfActions publicationId={record.id} /> : null)}
             />
           </Box>
 
