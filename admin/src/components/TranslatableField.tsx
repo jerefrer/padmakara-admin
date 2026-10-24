@@ -2,7 +2,6 @@ import { useState } from "react";
 import Box from "@mui/material/Box";
 import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
-import InputAdornment from "@mui/material/InputAdornment";
 import Tooltip from "@mui/material/Tooltip";
 import CircularProgress from "@mui/material/CircularProgress";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
@@ -116,11 +115,11 @@ export const TranslateDirChip = ({
           height: 20,
           fontWeight: 600,
           letterSpacing: "0.02em",
-          backgroundColor: "rgba(91,94,166,0.09)",
+          backgroundColor: "rgba(155,27,27,0.09)",
           color: "primary.main",
           "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" },
           "& .MuiChip-icon": { color: "primary.main" },
-          "&:hover": { backgroundColor: "rgba(91,94,166,0.18)" },
+          "&:hover": { backgroundColor: "rgba(155,27,27,0.18)" },
         }}
       />
     </span>
@@ -153,7 +152,7 @@ export interface TranslatableFieldProps {
 }
 
 /**
- * One quiet text field with two corner chips: a directional translate chip
+ * One quiet text field with two chips on its label line (right-aligned): a directional translate chip
  * (AI sparkles icon) that translates THIS field's text into its
  * sibling-language field, and — only while the value is an unreviewed AI
  * translation — an amber "AI · review ✓" chip that marks it reviewed on
@@ -176,40 +175,45 @@ export function TranslatableField({
   required,
 }: TranslatableFieldProps) {
   return (
-    <TextField
-      fullWidth
-      label={label}
-      placeholder={placeholder}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      multiline={multiline}
-      minRows={minRows}
-      required={required}
-      sx={{
-        // Multiline fields keep the adornment pinned to the top-right corner
-        // rather than centered against the full textarea height, so it reads
-        // as a corner control instead of floating mid-paragraph.
-        "& .MuiOutlinedInput-root": { alignItems: multiline ? "flex-start" : "center" },
-      }}
-      slotProps={{
-        inputLabel: { shrink: true },
-        input: {
-          endAdornment: (
-            <InputAdornment position="end" sx={multiline ? { mt: 1.25 } : undefined}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                {!reviewed && <AiReviewChip onClick={onMarkReviewed} />}
-                <TranslateDirChip
-                  direction={direction}
-                  disabled={!canTranslate}
-                  pending={translatePending}
-                  tooltip={translateTooltip}
-                  onClick={onTranslate}
-                />
-              </Box>
-            </InputAdornment>
-          ),
-        },
-      }}
-    />
+    <Box sx={{ position: "relative" }}>
+      {/* Controls sit on the field's label line (centered on the outline's top
+          edge, right-aligned) instead of inside the input, so the text keeps the
+          full width of the box. The paper-colored backing hides the border
+          segment behind them, the way the notch does for the label. */}
+      <Box
+        sx={{
+          position: "absolute",
+          top: 0,
+          right: 10,
+          transform: "translateY(-50%)",
+          zIndex: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 0.5,
+          px: 0.5,
+          backgroundColor: "background.paper",
+        }}
+      >
+        {!reviewed && <AiReviewChip onClick={onMarkReviewed} />}
+        <TranslateDirChip
+          direction={direction}
+          disabled={!canTranslate}
+          pending={translatePending}
+          tooltip={translateTooltip}
+          onClick={onTranslate}
+        />
+      </Box>
+      <TextField
+        fullWidth
+        label={label}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        multiline={multiline}
+        minRows={minRows}
+        required={required}
+        slotProps={{ inputLabel: { shrink: true } }}
+      />
+    </Box>
   );
 }

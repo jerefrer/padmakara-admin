@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, or, ilike, inArray } from "drizzle-orm";
+import { and, eq, or, ilike, inArray, sql } from "drizzle-orm";
 import sharp from "sharp";
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "../../db/index.ts";
@@ -13,7 +13,7 @@ import { users } from "../../db/schema/users.ts";
 import { teachers } from "../../db/schema/teachers.ts";
 import { createPublicationSchema, updatePublicationSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
-import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
+import { parsePagination, buildOrderBy, listResponse, countRows, type SortTarget } from "./helpers.ts";
 import { generatePresignedDownloadUrl, generatePresignedUploadUrl, putObject } from "../../services/s3.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 
@@ -234,7 +234,12 @@ async function getLinkedEventIds(publicationId: number): Promise<number[]> {
   return links.map((l) => l.eventId);
 }
 
-const columns: Record<string, any> = {
+const columns: Record<string, SortTarget> = {
+  pageCount: publications.pageCount,
+  // Authors are shown comma-joined, so they sort by that same string.
+  authors: sql`array_to_string(${publications.authors}, ', ')`,
+  // The access column shows the audience name.
+  audienceName: sql`(select a.name_en from audiences a where a.id = ${publications.audienceId})`,
   id: publications.id,
   title: publications.title,
   language: publications.language,

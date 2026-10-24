@@ -5,28 +5,28 @@ import { createTheme } from "@mui/material/styles";
  * Padmakara Admin Theme
  *
  * A warm, modern design inspired by Buddhist aesthetics —
- * muted indigo primary, earthy amber accents, generous whitespace.
+ * burgundy primary (matching the mobile app), earthy amber accents, generous whitespace.
  */
 
 const palette = {
   primary: {
-    main: "#5B5EA6",
-    light: "#8385C2",
-    dark: "#3D4076",
+    main: "#9B1B1B",
+    light: "#C0504F",
+    dark: "#6E1212",
     contrastText: "#FFFFFF",
   },
   secondary: {
     main: "#D4A853",
     light: "#E4C47A",
     dark: "#B8893A",
-    contrastText: "#1A1A2E",
+    contrastText: "#111111",
   },
   background: {
     default: "#F5F5F0",
     paper: "#FFFFFF",
   },
   text: {
-    primary: "#1A1A2E",
+    primary: "#111111",
     secondary: "#6B7280",
   },
   error: {
@@ -42,7 +42,7 @@ const palette = {
     contrastText: "#FFFFFF",
   },
   info: {
-    main: "#5B5EA6",
+    main: "#4B5563",
     contrastText: "#FFFFFF",
   },
   divider: "rgba(0,0,0,0.06)",
@@ -121,7 +121,7 @@ export const theme = createTheme({
         },
         contained: {
           boxShadow: "none",
-          "&:hover": { boxShadow: "0 2px 8px rgba(91,94,166,0.3)" },
+          "&:hover": { boxShadow: "0 2px 8px rgba(155,27,27,0.3)" },
         },
         outlined: {
           borderWidth: 1.5,
@@ -134,7 +134,7 @@ export const theme = createTheme({
     MuiFab: {
       styleOverrides: {
         root: {
-          boxShadow: "0 4px 14px rgba(91,94,166,0.35)",
+          boxShadow: "0 4px 14px rgba(155,27,27,0.35)",
         },
       },
     },
@@ -182,7 +182,7 @@ export const theme = createTheme({
         root: {
           "&:last-child td": { borderBottom: 0 },
           "&:hover": {
-            backgroundColor: "rgba(91,94,166,0.03) !important",
+            backgroundColor: "rgba(155,27,27,0.03) !important",
           },
         },
       },
@@ -206,7 +206,7 @@ export const theme = createTheme({
           fontSize: "0.78rem",
         },
         colorPrimary: {
-          backgroundColor: "rgba(91,94,166,0.1)",
+          backgroundColor: "rgba(155,27,27,0.1)",
           color: palette.primary.dark,
         },
       },
@@ -216,7 +216,7 @@ export const theme = createTheme({
     MuiDrawer: {
       styleOverrides: {
         paper: {
-          backgroundColor: "#1A1A2E",
+          backgroundColor: "#111111",
           color: "rgba(255,255,255,0.85)",
           borderRight: "none",
         },
@@ -231,7 +231,7 @@ export const theme = createTheme({
           margin: "2px 12px",
           padding: "8px 12px",
           "&.Mui-selected": {
-            backgroundColor: "rgba(91,94,166,0.15)",
+            backgroundColor: "rgba(155,27,27,0.15)",
           },
         },
       },
@@ -287,7 +287,7 @@ export const theme = createTheme({
             color: "#FFFFFF",
           },
           "&.RaMenuItemLink-active": {
-            backgroundColor: "rgba(91,94,166,0.25)",
+            backgroundColor: "rgba(255,255,255,0.14)",
             color: "#FFFFFF",
             fontWeight: 600,
           },
@@ -299,7 +299,7 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           "& .RaSidebar-drawerPaper": {
-            backgroundColor: "#1A1A2E",
+            backgroundColor: "#111111",
           },
         },
       },

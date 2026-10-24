@@ -201,12 +201,12 @@ export function SpeakerChipPicker({
               py: 0.5,
               mb: 0.5,
               borderRadius: 1.5,
-              backgroundColor: "rgba(91,94,166,0.06)",
+              backgroundColor: "rgba(155,27,27,0.06)",
               border: "1px solid transparent",
               "&.Mui-focused": {
                 backgroundColor: "background.paper",
                 borderColor: "primary.main",
-                boxShadow: "0 0 0 2px rgba(91,94,166,0.15)",
+                boxShadow: "0 0 0 2px rgba(155,27,27,0.15)",
               },
               "& input": { p: 0 },
             }}

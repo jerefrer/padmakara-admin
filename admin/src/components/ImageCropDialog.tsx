@@ -254,7 +254,7 @@ export function ImageCropDialog(props: Props) {
                     height: 32,
                     transform: "translate(-50%, -50%)",
                     borderRadius: "50%",
-                    bgcolor: "rgba(99, 102, 241, 0.9)",
+                    bgcolor: "rgba(155, 27, 27, 0.9)",
                     border: "3px solid white",
                     boxShadow: "0 0 0 2px rgba(0,0,0,0.5), 0 2px 12px rgba(0,0,0,0.6)",
                     cursor: "grab",

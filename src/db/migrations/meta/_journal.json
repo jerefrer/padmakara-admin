@@ -330,6 +330,13 @@
       "when": 1812332800000,
       "tag": "0046_hero_frame_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1812419200000,
+      "tag": "0047_event_bibliography_pt",
+      "breakpoints": true
     }
   ]
 }

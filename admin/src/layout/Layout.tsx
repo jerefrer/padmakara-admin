@@ -58,11 +58,11 @@ export const Layout = ({ children }: { children: React.ReactNode }) => (
         height: "100vh",
         position: "sticky",
         top: 0,
-        backgroundColor: "#1A1A2E",
+        backgroundColor: "#111111",
         // Target all possible drawer-paper class names across RA versions
         "& .RaSidebar-drawerPaper, & .MuiDrawer-paper": {
           width: SIDEBAR_WIDTH,
-          backgroundColor: "#1A1A2E",
+          backgroundColor: "#111111",
           color: "rgba(255,255,255,0.85)",
           borderRight: "none",
           position: "relative",

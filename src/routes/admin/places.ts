@@ -12,6 +12,7 @@ const columns: Record<string, any> = {
   id: places.id,
   name: places.name,
   abbreviation: places.abbreviation,
+  location: places.location,
   createdAt: places.createdAt,
 };
 

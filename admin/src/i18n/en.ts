@@ -132,6 +132,10 @@ export const en = {
       mainThemesPt: "Main Themes (Portuguese)",
       mainThemesPlaceholderEn: "Main themes of the event...",
       mainThemesPlaceholderPt: "Temas principais do evento...",
+      bibliographyEn: "Bibliography (English)",
+      bibliographyPt: "Bibliography (Portuguese)",
+      bibliographyPlaceholderEn: "Books and texts used in the teachings...",
+      bibliographyPlaceholderPt: "Livros e textos usados nos ensinamentos...",
       sessionThemesEn: "Session Themes (English)",
       sessionThemesPt: "Session Themes (Portuguese)",
       sessionThemesPlaceholderEn: "Themes for each session...",
@@ -278,6 +282,9 @@ export const en = {
         "Works per track (rename, translate, fix casing, set speaker, set languages). " +
         "Instructions needing a whole-event view — sequential numbering across all tracks, " +
         "or removing duplicates — aren't reliable on large events.",
+    },
+    sortableList: {
+      manualOrder: "Manual order (drag to reorder)",
     },
     fields: {
       nameEn: "Name (EN)",

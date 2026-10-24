@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { users } from "../../db/schema/users.ts";
 import {
@@ -20,11 +20,22 @@ import {
   buildOrderBy,
   listResponse,
   countRows,
+  type SortTarget,
 } from "./helpers.ts";
 
 const approvalRoutes = new Hono();
 
-const columns: Record<string, any> = {
+const columns: Record<string, SortTarget> = {
+  firstName: userApprovalRequests.firstName,
+  lastName: userApprovalRequests.lastName,
+  message: userApprovalRequests.message,
+  deviceName: userApprovalRequests.deviceName,
+  // Same label as the "reviewed by" column: full name, else the email.
+  reviewedBy: sql`(
+    select coalesce(nullif(trim(concat_ws(' ', u.first_name, u.last_name)), ''), u.email)
+    from users u
+    where u.id = ${userApprovalRequests.reviewedById}
+  )`,
   id: userApprovalRequests.id,
   email: userApprovalRequests.email,
   status: userApprovalRequests.status,

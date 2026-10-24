@@ -280,7 +280,7 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
                 borderStyle: "dashed",
                 borderWidth: 2,
                 borderColor: dragActive ? "primary.main" : "rgba(0,0,0,0.15)",
-                backgroundColor: dragActive ? "rgba(91,94,166,0.04)" : "transparent",
+                backgroundColor: dragActive ? "rgba(155,27,27,0.04)" : "transparent",
                 transition: "border-color 0.15s, background-color 0.15s",
               }}
             >
@@ -414,7 +414,7 @@ const SlidesModeCard = ({ selected, icon, title, description, onClick }: SlidesM
       cursor: "pointer",
       borderWidth: selected ? 2 : 1,
       borderColor: selected ? "primary.main" : "rgba(0,0,0,0.15)",
-      backgroundColor: selected ? "rgba(91,94,166,0.04)" : "transparent",
+      backgroundColor: selected ? "rgba(155,27,27,0.04)" : "transparent",
       transition: "border-color 0.15s, background-color 0.15s",
     }}
   >

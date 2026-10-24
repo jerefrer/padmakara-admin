@@ -552,7 +552,7 @@ const SessionCard = ({
             size="small"
             sx={{
               height: 24,
-              backgroundColor: "rgba(91,94,166,0.08)",
+              backgroundColor: "rgba(155,27,27,0.08)",
               "& .MuiChip-label": {
                 fontSize: "0.7rem",
                 px: 0.8,
@@ -821,7 +821,7 @@ const TrackRow = ({
           px: 2,
           py: 1,
           borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.03)",
-          backgroundColor: "rgba(91,94,166,0.03)",
+          backgroundColor: "rgba(155,27,27,0.03)",
         }}
       >
         {/* EN title line */}
@@ -974,7 +974,7 @@ const TrackRow = ({
         borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.03)",
         "&:hover": {
           backgroundColor: canEdit
-            ? "rgba(91,94,166,0.02)"
+            ? "rgba(155,27,27,0.02)"
             : "rgba(0,0,0,0.01)",
         },
       }}

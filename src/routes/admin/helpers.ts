@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { sql, eq, asc, desc, type SQL, type Column } from "drizzle-orm";
+import { sql, type SQL, type Column } from "drizzle-orm";
 import { paginationSchema } from "../../lib/schemas.ts";
 import { db } from "../../db/index.ts";
 
@@ -14,18 +14,24 @@ export function parsePagination(c: Context) {
   return { ...params, limit, offset };
 }
 
+/** A whitelisted sort target: a table column or a prebuilt SQL expression (e.g. a subquery). */
+export type SortTarget = Column | SQL;
+
 /**
  * Build an ORDER BY clause from React Admin sort params.
- * `columns` maps field names to Drizzle column references.
+ * `columns` maps the sort keys the admin may send to a column or SQL expression.
+ * Only keys present in the map are honoured: anything else returns undefined, so
+ * client input never reaches the SQL text. NULLs always sort last, in both directions.
  */
 export function buildOrderBy(
   sortField: string,
   sortOrder: string,
-  columns: Record<string, Column>,
+  columns: Record<string, SortTarget>,
 ): SQL | undefined {
-  const col = columns[sortField];
-  if (!col) return undefined;
-  return sortOrder === "DESC" ? desc(col) : asc(col);
+  // hasOwn: keys such as "constructor" must not resolve through the prototype chain.
+  if (!Object.hasOwn(columns, sortField)) return undefined;
+  const target = columns[sortField];
+  return sortOrder === "DESC" ? sql`${target} desc nulls last` : sql`${target} asc nulls last`;
 }
 
 /**

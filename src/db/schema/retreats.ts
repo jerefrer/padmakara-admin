@@ -46,7 +46,11 @@ export const events = pgTable("retreats", {
   audienceId: integer("audience_id").references(() => audiences.id, {
     onDelete: "set null",
   }),
+  /** English bibliography (the original single field, kept as the EN value). */
   bibliography: text("bibliography"),
+  bibliographyPt: text("bibliography_pt"),
+  bibliographyEnReviewed: boolean("bibliography_en_reviewed").notNull().default(true),
+  bibliographyPtReviewed: boolean("bibliography_pt_reviewed").notNull().default(true),
   notes: text("notes"),
   /**
    * The language the event was taught in ('tib', 'en', 'pt', ...).

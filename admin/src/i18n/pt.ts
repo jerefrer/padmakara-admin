@@ -333,6 +333,10 @@ export const pt = {
       mainThemesPt: "Temas Principais (Português)",
       mainThemesPlaceholderEn: "Main themes of the event...",
       mainThemesPlaceholderPt: "Temas principais do evento...",
+      bibliographyEn: "Bibliografia (Inglês)",
+      bibliographyPt: "Bibliografia (Português)",
+      bibliographyPlaceholderEn: "Books and texts used in the teachings...",
+      bibliographyPlaceholderPt: "Livros e textos usados nos ensinamentos...",
       sessionThemesEn: "Temas das Sessões (Inglês)",
       sessionThemesPt: "Temas das Sessões (Português)",
       sessionThemesPlaceholderEn: "Themes for each session...",
@@ -476,6 +480,9 @@ export const pt = {
         "Funciona faixa a faixa (renomear, traduzir, corrigir maiúsculas, definir orador, definir idiomas). " +
         "Instruções que exigem uma visão de todo o evento — numeração sequencial em todas as faixas, " +
         "ou remover duplicados — não são fiáveis em eventos grandes.",
+    },
+    sortableList: {
+      manualOrder: "Ordem manual (arrastar para reordenar)",
     },
     fields: {
       nameEn: "Nome (EN)",

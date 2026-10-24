@@ -120,7 +120,7 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName }: TrackD
         cursor: "default",
         transition: "all 0.2s ease",
         backgroundColor: isDragOver
-          ? "rgba(91,94,166,0.04)"
+          ? "rgba(155,27,27,0.04)"
           : hasFiles
             ? "rgba(107,175,141,0.04)"
             : "transparent",

@@ -13,7 +13,7 @@ export interface TrackExportRow {
 
 const RED = "FFB00020"; // characters present only in the original
 const GREEN = "FF2E7D32"; // characters present only in the corrected
-const HEADER_BG = "FF5B5EA6"; // brand-ish indigo
+const HEADER_BG = "FF9B1B1B"; // brand burgundy
 const ZEBRA_BG = "FFF6F6FA"; // faint stripe on alternate track blocks
 const THIN = { style: "thin" as const, color: { argb: "FFD0D0D0" } };
 const MONO = { name: "Menlo", size: 10 };

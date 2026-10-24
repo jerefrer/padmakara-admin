@@ -423,7 +423,7 @@ export const SubtitleChips = ({ state, canGenerate, open, onToggle }: SubtitleCh
             ...(noTranscript && { borderColor: "#f59e0b" }),
             "&:hover": {
               color: noTranscript ? "#b45309" : "text.secondary",
-              backgroundColor: noTranscript ? "#fffbeb" : "rgba(91,94,166,0.04)",
+              backgroundColor: noTranscript ? "#fffbeb" : "rgba(155,27,27,0.04)",
             },
           }}
         />
@@ -472,7 +472,7 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
         py: 1.25,
         pl: 6.5, // aligns with the row title, past the position number + icon
         borderTop: "1px dashed rgba(0,0,0,0.06)",
-        backgroundColor: "rgba(91,94,166,0.025)",
+        backgroundColor: "rgba(155,27,27,0.025)",
         display: "flex",
         flexDirection: "column",
         gap: 0.75,
@@ -556,7 +556,7 @@ export const SubtitleDetails = ({ state, canGenerate, bunnyVideoId }: SubtitleDe
               label={translate("padmakara.subtitles.verified")}
               size="small"
               icon={<CheckIcon sx={{ fontSize: 11 }} />}
-              sx={{ ...chipBaseSx, height: 18, backgroundColor: "#eff6ff", color: "#1d4ed8" }}
+              sx={{ ...chipBaseSx, height: 18, backgroundColor: "#fdf2f2", color: "#9b1b1b" }}
             />
           )}
           {t.stale && (

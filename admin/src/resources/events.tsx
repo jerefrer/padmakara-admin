@@ -423,7 +423,7 @@ export const EventList = () => {
       <Datagrid
         rowClick="edit"
         bulkActionButtons={false}
-        sx={{ "& .RaDatagrid-row": { "&:hover": { backgroundColor: "rgba(91,94,166,0.03)" } } }}
+        sx={{ "& .RaDatagrid-row": { "&:hover": { backgroundColor: "rgba(155,27,27,0.03)" } } }}
       >
         <FunctionField
           label=""
@@ -432,6 +432,7 @@ export const EventList = () => {
         />
         <FunctionField
           label={translate("padmakara.events.title")}
+          sortBy={locale === "pt" ? "titlePt" : "titleEn"}
           render={(record: any) => (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
               <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem", opacity: 0.6, fontWeight: 500 }}>
@@ -446,25 +447,25 @@ export const EventList = () => {
 
         <FunctionField
           label={translate("padmakara.events.eventType")}
-          sortBy="eventTypeId"
+          sortBy={locale === "pt" ? "eventTypeNamePt" : "eventTypeName"}
           render={(record: any) => (
             record.eventType ? <Chip label={localeName(record.eventType, locale)} size="small" /> : "—"
           )}
         />
 
-        <ReferenceArrayField source="groupIds" reference="groups" label={translate("padmakara.events.retreatGroups")} sortable={false}>
+        <ReferenceArrayField source="groupIds" reference="groups" label={translate("padmakara.events.retreatGroups")} sortBy="groups">
           <SingleFieldList linkType={false}>
             <ChipField source="abbreviation" size="small" />
           </SingleFieldList>
         </ReferenceArrayField>
 
-        <ReferenceArrayField source="teacherIds" reference="teachers" label={translate("padmakara.events.teachers")} sortable={false}>
+        <ReferenceArrayField source="teacherIds" reference="teachers" label={translate("padmakara.events.teachers")} sortBy="teachers">
           <SingleFieldList linkType={false}>
             <ChipField source="abbreviation" size="small" />
           </SingleFieldList>
         </ReferenceArrayField>
 
-        <ReferenceArrayField source="audienceIds" reference="audiences" label={translate("padmakara.events.audience")} sortable={false}>
+        <ReferenceArrayField source="audienceIds" reference="audiences" label={translate("padmakara.events.audience")} sortBy={locale === "pt" ? "audienceNamePt" : "audienceName"}>
           <SingleFieldList linkType={false}>
             <LocaleNameChip />
           </SingleFieldList>
@@ -526,6 +527,7 @@ export const EventList = () => {
         />
         <FunctionField
           label={translate("padmakara.events.content")}
+          sortBy="content"
           render={(record: any) => (
             <Box sx={{ display: "flex", gap: 0.5, color: "text.secondary" }}>
               {record.hasVideo && (
@@ -555,7 +557,7 @@ export const EventList = () => {
             </Box>
           )}
         />
-        <FunctionField label={translate("padmakara.events.status")} render={(record: any) => <StatusChip status={record.status} />} />
+        <FunctionField label={translate("padmakara.events.status")} sortBy="status" render={(record: any) => <StatusChip status={record.status} />} />
         <EditButton />
       </Datagrid>
     </List>
@@ -580,7 +582,11 @@ export interface EventFormData {
   sessionThemesPtReviewed: boolean;
   startDate: string;
   endDate: string;
+  /** English bibliography (the original single field). */
   bibliography: string;
+  bibliographyPt: string;
+  bibliographyEnReviewed: boolean;
+  bibliographyPtReviewed: boolean;
   /** Wix ID of the library record the event was filled from (retreats.wix_id). */
   wixId: string | null;
   /** Imported library CSV fields that have no column of their own. */
@@ -605,7 +611,8 @@ export const EMPTY_FORM: EventFormData = {
   titleEnReviewed: true, titlePtReviewed: true,
   mainThemesEnReviewed: true, mainThemesPtReviewed: true,
   sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
-  startDate: "", endDate: "", bibliography: "",
+  startDate: "", endDate: "", bibliography: "", bibliographyPt: "",
+  bibliographyEnReviewed: true, bibliographyPtReviewed: true,
   wixId: null, librarySnapshot: null, guestTeacherIds: [],
   status: "draft",
   featuredAt: null,
@@ -695,11 +702,13 @@ const eventPairsFor = (
         ["titleEn", "titlePt"],
         ["mainThemesEn", "mainThemesPt"],
         ["sessionThemesEn", "sessionThemesPt"],
+        ["bibliography", "bibliographyPt"],
       ]
     : [
         ["titlePt", "titleEn"],
         ["mainThemesPt", "mainThemesEn"],
         ["sessionThemesPt", "sessionThemesEn"],
+        ["bibliographyPt", "bibliography"],
       ];
 
 const syncedRows = (a: string, b: string, min = 3) =>
@@ -714,10 +723,12 @@ const REVIEWED_KEY: Partial<Record<keyof EventFormData, keyof EventFormData>> = 
   mainThemesPt: "mainThemesPtReviewed",
   sessionThemesEn: "sessionThemesEnReviewed",
   sessionThemesPt: "sessionThemesPtReviewed",
+  bibliography: "bibliographyEnReviewed",
+  bibliographyPt: "bibliographyPtReviewed",
 };
 
 const EVENT_TYPE_COLORS = [
-  "#5B5EA6", "#E57373", "#4DB6AC", "#FFB74D", "#7986CB",
+  "#9B1B1B", "#E57373", "#4DB6AC", "#FFB74D", "#7986CB",
   "#A1887F", "#4DD0E1", "#AED581", "#F06292", "#BA68C8",
   "#FF8A65", "#81C784", "#64B5F6", "#DCE775",
 ];
@@ -1120,8 +1131,8 @@ export const EventFormFields = ({
           alignItems: "center",
           gap: 1.5,
           flexWrap: "wrap",
-          border: "1px solid rgba(91,94,166,0.22)",
-          backgroundColor: "rgba(91,94,166,0.04)",
+          border: "1px solid rgba(155,27,27,0.22)",
+          backgroundColor: "rgba(155,27,27,0.04)",
           borderRadius: 2,
           px: 2,
           py: 1.25,
@@ -1385,18 +1396,6 @@ export const EventFormFields = ({
               )}
             />
           </Grid>
-          <Grid size={{ xs: 12 }}>
-            <MuiTextField
-              label={translate("padmakara.library.bibliography")}
-              placeholder={translate("padmakara.library.bibliographyPlaceholder")}
-              value={form.bibliography}
-              onChange={updateField("bibliography")}
-              multiline
-              minRows={2}
-              fullWidth
-              slotProps={{ inputLabel: { shrink: true } }}
-            />
-          </Grid>
         </Grid>
       </Paper>
 
@@ -1481,6 +1480,46 @@ export const EventFormFields = ({
               multiline
               minRows={syncedRows(form.sessionThemesEn, form.sessionThemesPt)}
               placeholder={translate("padmakara.events.sessionThemesPlaceholderPt")}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TranslatableField
+              label={translate("padmakara.events.bibliographyEn")}
+              value={form.bibliography}
+              onChange={(v) => setForm((p) => ({ ...p, bibliography: v, bibliographyEnReviewed: true }))}
+              reviewed={form.bibliographyEnReviewed}
+              onMarkReviewed={() => setForm((p) => ({ ...p, bibliographyEnReviewed: true }))}
+              canTranslate={!!String(form.bibliography ?? "").trim()}
+              translatePending={busy}
+              direction="en-to-pt"
+              translateTooltip={translate("padmakara.events.translateToPt")}
+              onTranslate={async () => {
+                const out = await ft.translate(String(form.bibliography ?? ""), "en-to-pt");
+                if (out != null) setForm((p) => ({ ...p, bibliographyPt: out, bibliographyPtReviewed: false }));
+              }}
+              multiline
+              minRows={syncedRows(form.bibliography, form.bibliographyPt, 2)}
+              placeholder={translate("padmakara.events.bibliographyPlaceholderEn")}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TranslatableField
+              label={translate("padmakara.events.bibliographyPt")}
+              value={form.bibliographyPt}
+              onChange={(v) => setForm((p) => ({ ...p, bibliographyPt: v, bibliographyPtReviewed: true }))}
+              reviewed={form.bibliographyPtReviewed}
+              onMarkReviewed={() => setForm((p) => ({ ...p, bibliographyPtReviewed: true }))}
+              canTranslate={!!String(form.bibliographyPt ?? "").trim()}
+              translatePending={busy}
+              direction="pt-to-en"
+              translateTooltip={translate("padmakara.events.translateToEn")}
+              onTranslate={async () => {
+                const out = await ft.translate(String(form.bibliographyPt ?? ""), "pt-to-en");
+                if (out != null) setForm((p) => ({ ...p, bibliography: out, bibliographyEnReviewed: false }));
+              }}
+              multiline
+              minRows={syncedRows(form.bibliography, form.bibliographyPt, 2)}
+              placeholder={translate("padmakara.events.bibliographyPlaceholderPt")}
             />
           </Grid>
         </Grid>
@@ -2298,6 +2337,7 @@ export const EventCreate = () => {
           startDate: form.startDate || null,
           endDate: form.endDate || null,
           bibliography: form.bibliography.trim() || null,
+          bibliographyPt: form.bibliographyPt.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
           teacherIds: selectedTeachers.map((t) => ({
@@ -2981,6 +3021,9 @@ export const EventEdit = () => {
       startDate: event.startDate || "",
       endDate: event.endDate || "",
       bibliography: event.bibliography || "",
+      bibliographyPt: event.bibliographyPt || "",
+      bibliographyEnReviewed: event.bibliographyEnReviewed ?? true,
+      bibliographyPtReviewed: event.bibliographyPtReviewed ?? true,
       wixId: event.wixId ?? null,
       librarySnapshot: event.librarySnapshot ?? null,
       guestTeacherIds: (event.eventTeachers ?? [])
@@ -3835,6 +3878,7 @@ export const EventEdit = () => {
           startDate: form.startDate || null,
           endDate: form.endDate || null,
           bibliography: form.bibliography.trim() || null,
+          bibliographyPt: form.bibliographyPt.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
           teacherIds: selectedTeachers.map((t) => ({
