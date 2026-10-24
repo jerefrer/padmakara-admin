@@ -264,7 +264,7 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
         borderBottom: "1px solid rgba(0,0,0,0.04)",
         cursor: "pointer",
         opacity: track.isTranslation ? 0.75 : 1,
-        "&:hover": { backgroundColor: "rgba(91,94,166,0.02)" },
+        "&:hover": { backgroundColor: "rgba(155,27,27,0.02)" },
       }}
     >
       <Typography
@@ -518,7 +518,7 @@ function EditingTrackRow({
         px: 2,
         py: 1,
         borderBottom: "1px solid rgba(0,0,0,0.04)",
-        backgroundColor: "rgba(91,94,166,0.03)",
+        backgroundColor: "rgba(155,27,27,0.03)",
       }}
     >
       {/* EN title line — with the editable track number at the left */}

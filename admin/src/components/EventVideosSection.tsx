@@ -389,7 +389,7 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
           gap: 1.5,
           px: 2,
           py: editingTitle ? 1 : 1.25,
-          "&:hover": { backgroundColor: editingTitle ? "transparent" : "rgba(91,94,166,0.02)" },
+          "&:hover": { backgroundColor: editingTitle ? "transparent" : "rgba(155,27,27,0.02)" },
         }}
       >
         <Typography

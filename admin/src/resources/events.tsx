@@ -423,7 +423,7 @@ export const EventList = () => {
       <Datagrid
         rowClick="edit"
         bulkActionButtons={false}
-        sx={{ "& .RaDatagrid-row": { "&:hover": { backgroundColor: "rgba(91,94,166,0.03)" } } }}
+        sx={{ "& .RaDatagrid-row": { "&:hover": { backgroundColor: "rgba(155,27,27,0.03)" } } }}
       >
         <FunctionField
           label=""
@@ -717,7 +717,7 @@ const REVIEWED_KEY: Partial<Record<keyof EventFormData, keyof EventFormData>> = 
 };
 
 const EVENT_TYPE_COLORS = [
-  "#5B5EA6", "#E57373", "#4DB6AC", "#FFB74D", "#7986CB",
+  "#9B1B1B", "#E57373", "#4DB6AC", "#FFB74D", "#7986CB",
   "#A1887F", "#4DD0E1", "#AED581", "#F06292", "#BA68C8",
   "#FF8A65", "#81C784", "#64B5F6", "#DCE775",
 ];
@@ -1120,8 +1120,8 @@ export const EventFormFields = ({
           alignItems: "center",
           gap: 1.5,
           flexWrap: "wrap",
-          border: "1px solid rgba(91,94,166,0.22)",
-          backgroundColor: "rgba(91,94,166,0.04)",
+          border: "1px solid rgba(155,27,27,0.22)",
+          backgroundColor: "rgba(155,27,27,0.04)",
           borderRadius: 2,
           px: 2,
           py: 1.25,

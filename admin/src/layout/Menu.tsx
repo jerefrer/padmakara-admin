@@ -34,7 +34,7 @@ export const Menu = () => {
         <Typography
           variant="caption"
           sx={{
-            color: "rgba(255,255,255,0.4)",
+            color: "rgba(255,255,255,0.6)",
             fontSize: "0.7rem",
             letterSpacing: "0.06em",
             textTransform: "uppercase",
@@ -80,7 +80,7 @@ const SectionLabel = ({ children }: { children: React.ReactNode }) => (
       px: 2,
       py: 0.5,
       display: "block",
-      color: "rgba(255,255,255,0.35)",
+      color: "rgba(255,255,255,0.55)",
       fontSize: "0.65rem",
       fontWeight: 600,
       letterSpacing: "0.1em",

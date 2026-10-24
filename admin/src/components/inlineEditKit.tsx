@@ -8,13 +8,13 @@
 import Box from "@mui/material/Box";
 
 export const LANG_CHIP_COLORS: Record<string, { bg: string; text: string }> = {
-  en: { bg: "#eff6ff", text: "#1d4ed8" },
+  en: { bg: "#fdf2f2", text: "#9b1b1b" },
   pt: { bg: "#f0fdf4", text: "#15803d" },
   es: { bg: "#f0fdfa", text: "#0f766e" },
   fr: { bg: "#faf5ff", text: "#7e22ce" },
   tib: { bg: "#fffbeb", text: "#b45309" },
 };
-export const DEFAULT_LANG_CHIP = { bg: "rgba(91,94,166,0.06)", text: "text.primary" };
+export const DEFAULT_LANG_CHIP = { bg: "rgba(155,27,27,0.06)", text: "text.primary" };
 
 export const LANGUAGE_CODES = ["en", "pt", "fr", "tib"];
 
@@ -50,12 +50,12 @@ export const quietInputSx = {
   px: 1,
   py: 0.25,
   borderRadius: 1.5,
-  backgroundColor: "rgba(91,94,166,0.06)",
+  backgroundColor: "rgba(155,27,27,0.06)",
   border: "1px solid transparent",
   "&.Mui-focused": {
     backgroundColor: "background.paper",
     borderColor: "primary.main",
-    boxShadow: "0 0 0 2px rgba(91,94,166,0.15)",
+    boxShadow: "0 0 0 2px rgba(155,27,27,0.15)",
   },
   "& input": { p: 0 },
 } as const;
@@ -64,7 +64,7 @@ export const quietInputSx = {
 export const clickToEditSx = {
   cursor: "text",
   borderBottom: "1px dashed transparent",
-  "&:hover": { borderBottomColor: "rgba(91,94,166,0.5)" },
+  "&:hover": { borderBottomColor: "rgba(155,27,27,0.5)" },
 } as const;
 
 /** Chip sx for a toggleable metadata chip (language, Practice, Translation):

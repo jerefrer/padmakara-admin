@@ -116,11 +116,11 @@ export const TranslateDirChip = ({
           height: 20,
           fontWeight: 600,
           letterSpacing: "0.02em",
-          backgroundColor: "rgba(91,94,166,0.09)",
+          backgroundColor: "rgba(155,27,27,0.09)",
           color: "primary.main",
           "& .MuiChip-label": { px: 0.75, fontSize: "0.65rem" },
           "& .MuiChip-icon": { color: "primary.main" },
-          "&:hover": { backgroundColor: "rgba(91,94,166,0.18)" },
+          "&:hover": { backgroundColor: "rgba(155,27,27,0.18)" },
         }}
       />
     </span>

@@ -439,7 +439,7 @@ export const DocumentsSection = ({
             cursor: disabled || isUploading ? "default" : "pointer",
             transition: "all 0.2s ease",
             backgroundColor: isDragOver
-              ? "rgba(91,94,166,0.04)"
+              ? "rgba(155,27,27,0.04)"
               : hasDoneUploads
                 ? "rgba(107,175,141,0.04)"
                 : hasErrorUploads
@@ -447,7 +447,7 @@ export const DocumentsSection = ({
                   : "transparent",
             "&:hover":
               !disabled && !isUploading
-                ? { borderColor: "primary.light", backgroundColor: "rgba(91,94,166,0.02)" }
+                ? { borderColor: "primary.light", backgroundColor: "rgba(155,27,27,0.02)" }
                 : {},
           }}
         >
@@ -585,7 +585,7 @@ const DocumentRow = ({
         px: 2,
         py: 1.25,
         borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.04)",
-        "&:hover": { backgroundColor: editingTitle ? "transparent" : "rgba(91,94,166,0.02)" },
+        "&:hover": { backgroundColor: editingTitle ? "transparent" : "rgba(155,27,27,0.02)" },
       }}
     >
       <Box sx={{ color: "primary.light", display: "flex", flexShrink: 0 }}>

@@ -182,7 +182,7 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
 
 const BURN_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   pending: { bg: "rgba(0,0,0,0.05)", text: "text.secondary" },
-  queued: { bg: "#eff6ff", text: "#1d4ed8" },
+  queued: { bg: "#fdf2f2", text: "#9b1b1b" },
   running: { bg: "#fffbeb", text: "#b45309" },
   done: { bg: "#f0fdf4", text: "#15803d" },
   failed: { bg: "#fef2f2", text: "#b91c1c" },
@@ -643,7 +643,7 @@ const SlideCard = ({
         cursor: "pointer",
         borderColor: selected ? "primary.main" : undefined,
         borderWidth: selected ? 2 : 1,
-        backgroundColor: selected ? "rgba(91,94,166,0.03)" : undefined,
+        backgroundColor: selected ? "rgba(155,27,27,0.03)" : undefined,
       }}
     >
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>

@@ -114,14 +114,14 @@ export const RichTextLineField = ({ spans, onChange, placeholder }: RichTextLine
           px: 1,
           py: 0.5,
           borderRadius: 1.5,
-          backgroundColor: "rgba(91,94,166,0.06)",
+          backgroundColor: "rgba(155,27,27,0.06)",
           border: "1px solid transparent",
           minHeight: 28,
           outline: "none",
           "&:focus": {
             backgroundColor: "background.paper",
             borderColor: "primary.main",
-            boxShadow: "0 0 0 2px rgba(91,94,166,0.15)",
+            boxShadow: "0 0 0 2px rgba(155,27,27,0.15)",
           },
           "&:empty:before": {
             content: "attr(data-placeholder)",

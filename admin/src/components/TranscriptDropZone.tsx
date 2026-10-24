@@ -120,7 +120,7 @@ export const TranscriptDropZone = ({
           cursor: disabled || isUploading ? "default" : "pointer",
           transition: "all 0.2s ease",
           backgroundColor: isDragOver
-            ? "rgba(91,94,166,0.04)"
+            ? "rgba(155,27,27,0.04)"
             : hasDoneUploads
               ? "rgba(107,175,141,0.04)"
               : hasErrorUploads
@@ -128,7 +128,7 @@ export const TranscriptDropZone = ({
                 : "transparent",
           "&:hover": !disabled && !isUploading ? {
             borderColor: "primary.light",
-            backgroundColor: "rgba(91,94,166,0.02)",
+            backgroundColor: "rgba(155,27,27,0.02)",
           } : {},
         }}
       >

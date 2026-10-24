@@ -31,7 +31,7 @@ const MONO = "'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace";
 
 /**
  * Map the guide's Markdown onto MUI primitives styled to the admin theme
- * (indigo primary). Each mapper destructures only the props it uses so
+ * (burgundy primary). Each mapper destructures only the props it uses so
  * react-markdown's internal `node` prop is never spread onto a DOM element.
  */
 const markdownComponents: Components = {
@@ -85,7 +85,7 @@ const markdownComponents: Components = {
       sx={{
         borderLeft: "3px solid",
         borderColor: "primary.main",
-        bgcolor: "rgba(91,94,166,0.06)",
+        bgcolor: "rgba(155,27,27,0.06)",
         pl: 2,
         pr: 1.5,
         py: 0.5,
@@ -132,7 +132,7 @@ const markdownComponents: Components = {
         sx={{
           fontFamily: MONO,
           fontSize: "0.85em",
-          bgcolor: "rgba(91,94,166,0.1)",
+          bgcolor: "rgba(155,27,27,0.1)",
           color: "primary.dark",
           px: 0.5,
           py: 0.1,

@@ -221,7 +221,7 @@ const FileRow = ({
           size="small"
           sx={{
             height: 20,
-            backgroundColor: "rgba(91,94,166,0.06)",
+            backgroundColor: "rgba(155,27,27,0.06)",
             "& .MuiChip-label": { fontSize: "0.65rem", px: 0.5 },
           }}
         />

@@ -247,7 +247,7 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
           <TableRow key={`group-${i}`}>
             <TableCell
               padding="checkbox"
-              sx={{ py: 1.5, borderBottom: "none", backgroundColor: "rgba(91,94,166,0.06)" }}
+              sx={{ py: 1.5, borderBottom: "none", backgroundColor: "rgba(155,27,27,0.06)" }}
             >
               <Checkbox size="small" {...selectionProps(ids)} />
             </TableCell>
@@ -259,7 +259,7 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
                 // version of the rows under it.
                 py: 1.5, borderBottom: "none",
                 fontWeight: 700, fontSize: "0.82rem", letterSpacing: 0.3,
-                color: "text.primary", backgroundColor: "rgba(91,94,166,0.06)",
+                color: "text.primary", backgroundColor: "rgba(155,27,27,0.06)",
               }}
             >
               {r.groupLabel}
@@ -372,8 +372,8 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
       variant="outlined"
       sx={{
         p: 2, mb: 2,
-        borderColor: "rgba(91,94,166,0.35)",
-        background: "linear-gradient(135deg, rgba(91,94,166,0.07), rgba(91,94,166,0.02))",
+        borderColor: "rgba(155,27,27,0.35)",
+        background: "linear-gradient(135deg, rgba(155,27,27,0.07), rgba(155,27,27,0.02))",
       }}
     >
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.25 }}>
