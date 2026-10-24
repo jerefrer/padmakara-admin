@@ -39,6 +39,7 @@ import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
 import { SpeakerChipPicker } from "./SpeakerPicker";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
+import { TitlePair } from "./TitlePair";
 import {
   DEFAULT_LANG_CHIP,
   LANG_CHIP_COLORS,
@@ -1007,21 +1008,28 @@ const TrackRow = ({
       {/* Title — cleaned of speaker prefix. Clicking it opens the inline
           editor in place (when the track is saved and editable). */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography
-          variant="body2"
-          noWrap
-          title={canEdit ? translate("padmakara.tracks.clickToEdit") : undefined}
-          onClick={canEdit ? onStartEdit : undefined}
-          sx={{
-            fontWeight: track.isTranslation ? 400 : 500,
-            display: "inline-block",
-            maxWidth: "100%",
-            verticalAlign: "middle",
-            ...(canEdit ? clickToEditSx : {}),
+        <TitlePair
+          titleEn={cleanTitle(track)}
+          titlePt={track.titlePt}
+          fallback={track.title}
+          titleEnReviewed={track.titleEnReviewed ?? true}
+          titlePtReviewed={track.titlePtReviewed ?? true}
+          onMarkReviewed={(lang) => {
+            if (!onTrackUpdate || !track.id) return;
+            onTrackUpdate(
+              track.id,
+              lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true },
+            ).catch((error) => console.error("Failed to mark title reviewed:", error));
           }}
-        >
-          {cleanTitle(track)}
-        </Typography>
+          primaryProps={{
+            title: canEdit ? translate("padmakara.tracks.clickToEdit") : undefined,
+            onClick: canEdit ? onStartEdit : undefined,
+            sx: {
+              fontWeight: track.isTranslation ? 400 : 500,
+              ...(canEdit ? clickToEditSx : {}),
+            },
+          }}
+        />
       </Box>
 
       {/* AI corrections badge */}

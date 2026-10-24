@@ -30,7 +30,8 @@ import type { EventVideo } from "../utils/trackParser";
 import { AddVideoDialog } from "./AddVideoDialog";
 import { MediaPreviewDialog, type MediaSource } from "./MediaPreviewDialog";
 import { BurnStatusChip, SlideEditor, type PendingUploadSlides, useVideoSlides } from "./SlideEditor";
-import { TranslateDirChip, useFieldTranslate } from "./TranslatableField";
+import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
+import { TitlePair } from "./TitlePair";
 import { LangTag, clickToEditSx, quietInputSx } from "./inlineEditKit";
 import { SubtitleChips, SubtitleDetails, useVideoSubtitles } from "./VideoSubtitles";
 
@@ -48,7 +49,9 @@ interface PreviewState {
   title: string;
 }
 
-type VideoTitlePatch = Partial<Pick<EventVideo, "titleEn" | "titlePt" | "videoDate">>;
+type VideoTitlePatch = Partial<
+  Pick<EventVideo, "titleEn" | "titlePt" | "titleEnReviewed" | "titlePtReviewed" | "videoDate">
+>;
 
 interface EventVideosSectionProps {
   /** Videos for this event — need not be pre-sorted; the section sorts by
@@ -267,7 +270,13 @@ interface VideoRowProps {
 const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDelete, onPreview }: VideoRowProps) => {
   const translate = useTranslate();
   const [editingTitle, setEditingTitle] = useState(false);
-  const [edit, setEdit] = useState({ titleEn: video.titleEn ?? "", titlePt: video.titlePt ?? "" });
+  const seedEdit = () => ({
+    titleEn: video.titleEn ?? "",
+    titlePt: video.titlePt ?? "",
+    titleEnReviewed: video.titleEnReviewed ?? true,
+    titlePtReviewed: video.titlePtReviewed ?? true,
+  });
+  const [edit, setEdit] = useState(seedEdit);
   const [deleting, setDeleting] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [subsOpen, setSubsOpen] = useState(false);
@@ -283,7 +292,7 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
   const slideCount = slides.doc.intro.length + slides.doc.outro.length;
 
   const openEditor = () => {
-    setEdit({ titleEn: video.titleEn ?? "", titlePt: video.titlePt ?? "" });
+    setEdit(seedEdit());
     doneRef.current = false;
     setEditingTitle(true);
   };
@@ -291,11 +300,18 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
   const saveTitle = () => {
     if (doneRef.current) return;
     doneRef.current = true;
-    const dirty = edit.titleEn !== (video.titleEn ?? "") || edit.titlePt !== (video.titlePt ?? "");
+    const seed = seedEdit();
+    const dirty =
+      edit.titleEn !== seed.titleEn ||
+      edit.titlePt !== seed.titlePt ||
+      edit.titleEnReviewed !== seed.titleEnReviewed ||
+      edit.titlePtReviewed !== seed.titlePtReviewed;
     if (dirty) {
       void onUpdate(video.id, {
         titleEn: edit.titleEn.trim() || null,
         titlePt: edit.titlePt.trim() || null,
+        titleEnReviewed: edit.titleEnReviewed,
+        titlePtReviewed: edit.titlePtReviewed,
       });
     }
     setEditingTitle(false);
@@ -423,10 +439,13 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
                 fullWidth
                 value={edit.titleEn}
                 placeholder={translate("padmakara.events.titleEn")}
-                onChange={(e) => setEdit((p) => ({ ...p, titleEn: e.target.value }))}
+                onChange={(e) => setEdit((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
                 onKeyDown={handleEditKeyDown}
                 sx={quietInputSx}
               />
+              {!edit.titleEnReviewed && (
+                <AiReviewChip onClick={() => setEdit((p) => ({ ...p, titleEnReviewed: true }))} />
+              )}
               <TranslateDirChip
                 direction="en-to-pt"
                 disabled={!edit.titleEn.trim()}
@@ -434,7 +453,7 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
                 tooltip={translate("padmakara.events.translateToPt")}
                 onClick={async () => {
                   const out = await ft.translate(edit.titleEn, "en-to-pt");
-                  if (out != null) setEdit((p) => ({ ...p, titlePt: out }));
+                  if (out != null) setEdit((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
                 }}
               />
             </Box>
@@ -444,10 +463,13 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
                 fullWidth
                 value={edit.titlePt}
                 placeholder={translate("padmakara.events.titlePt")}
-                onChange={(e) => setEdit((p) => ({ ...p, titlePt: e.target.value }))}
+                onChange={(e) => setEdit((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
                 onKeyDown={handleEditKeyDown}
                 sx={quietInputSx}
               />
+              {!edit.titlePtReviewed && (
+                <AiReviewChip onClick={() => setEdit((p) => ({ ...p, titlePtReviewed: true }))} />
+              )}
               <TranslateDirChip
                 direction="pt-to-en"
                 disabled={!edit.titlePt.trim()}
@@ -455,28 +477,31 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
                 tooltip={translate("padmakara.events.translateToEn")}
                 onClick={async () => {
                   const out = await ft.translate(edit.titlePt, "pt-to-en");
-                  if (out != null) setEdit((p) => ({ ...p, titleEn: out }));
+                  if (out != null) setEdit((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
                 }}
               />
             </Box>
           </Box>
         ) : (
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography
-              variant="body2"
-              noWrap
-              title={translate("padmakara.tracks.clickToEdit")}
-              onClick={openEditor}
-              sx={{
-                fontWeight: 500,
-                display: "inline-block",
-                maxWidth: "100%",
-                verticalAlign: "middle",
-                ...clickToEditSx,
+            <TitlePair
+              titleEn={video.titleEn}
+              titlePt={video.titlePt}
+              fallback={displayTitle}
+              titleEnReviewed={video.titleEnReviewed ?? true}
+              titlePtReviewed={video.titlePtReviewed ?? true}
+              onMarkReviewed={(lang) =>
+                void onUpdate(
+                  video.id,
+                  lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true },
+                )
+              }
+              primaryProps={{
+                title: translate("padmakara.tracks.clickToEdit"),
+                onClick: openEditor,
+                sx: { fontWeight: 500, ...clickToEditSx },
               }}
-            >
-              {displayTitle}
-            </Typography>
+            />
           </Box>
         )}
 
