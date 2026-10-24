@@ -1,0 +1,2 @@
+ALTER TABLE "event_videos" ADD COLUMN IF NOT EXISTS "title_en_reviewed" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+ALTER TABLE "event_videos" ADD COLUMN IF NOT EXISTS "title_pt_reviewed" boolean DEFAULT true NOT NULL;

@@ -337,6 +337,13 @@
       "when": 1812419200000,
       "tag": "0047_event_bibliography_pt",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1812505600000,
+      "tag": "0048_video_title_reviewed",
+      "breakpoints": true
     }
   ]
 }

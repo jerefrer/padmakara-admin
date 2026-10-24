@@ -46,6 +46,7 @@ import { useNotify, useTranslate } from "react-admin";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { SpeakerChipPicker } from "./SpeakerPicker";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
+import { TitlePair } from "./TitlePair";
 import {
   DEFAULT_LANG_CHIP,
   LANG_CHIP_COLORS,
@@ -233,6 +234,7 @@ interface ReadonlyTrackRowProps {
   enablePractice: boolean;
   corrections?: TrackCorrection[];
   onEdit: (key: string) => void;
+  onTrackChange: (key: string, patch: Partial<TableTrack>) => void;
 }
 
 const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
@@ -241,6 +243,7 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
   enablePractice,
   corrections,
   onEdit,
+  onTrackChange,
 }: ReadonlyTrackRowProps) {
   return (
     <Box
@@ -283,19 +286,22 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
       {/* Title (click-to-edit) + upload filename underneath — the filename is
           the future S3 key, so it stays visible pre-upload. */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography
-          variant="body2"
-          noWrap
-          sx={{
-            display: "inline-block",
-            maxWidth: "100%",
-            verticalAlign: "middle",
-            fontWeight: track.isTranslation ? 400 : 500,
-            ...clickToEditSx,
+        <TitlePair
+          titleEn={track.titleEn}
+          titlePt={track.titlePt}
+          fallback={track.title}
+          titleEnReviewed={track.titleEnReviewed}
+          titlePtReviewed={track.titlePtReviewed}
+          onMarkReviewed={(lang) =>
+            onTrackChange(
+              track.key,
+              lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true },
+            )
+          }
+          primaryProps={{
+            sx: { fontWeight: track.isTranslation ? 400 : 500, ...clickToEditSx },
           }}
-        >
-          {track.titleEn || track.titlePt || track.title}
-        </Typography>
+        />
         <Typography
           variant="caption"
           title={track.uploadFilename}
@@ -1435,6 +1441,7 @@ export function SessionTrackTable({
                   enablePractice={enablePractice}
                   corrections={trackCorrections?.get(track.key)}
                   onEdit={startEdit}
+                  onTrackChange={onTrackChange}
                 />
               ),
             )}

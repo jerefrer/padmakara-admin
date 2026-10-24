@@ -185,6 +185,22 @@ describe("POST /api/admin/videos", () => {
     expect(body).toMatchObject({ id: 10, eventId: 7, bunnyVideoId: "new-guid" });
   });
 
+  it("stores the reviewed flags supplied at creation", async () => {
+    mockReturning.mockResolvedValueOnce([{ id: 11, eventId: 7, bunnyVideoId: "g", titlePtReviewed: false }]);
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/videos", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ eventId: 7, bunnyVideoId: "g", titlePt: "Olá", titlePtReviewed: false }),
+    });
+
+    expect(status).toBe(201);
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({ titlePt: "Olá", titlePtReviewed: false }),
+    );
+  });
+
   it("returns 400 for an invalid payload", async () => {
     const token = await adminToken();
     const { status } = await testJson("/api/admin/videos", {
@@ -402,6 +418,36 @@ describe("PATCH /api/admin/videos/:id", () => {
 
     expect(status).toBe(200);
     expect(body).toMatchObject({ id: 3, position: 1, titleEn: "Part 2" });
+  });
+
+  it("persists the title reviewed flags", async () => {
+    mockReturning.mockResolvedValueOnce([
+      { id: 3, eventId: 7, titlePt: "Parte 2", titlePtReviewed: false, titleEnReviewed: true },
+    ]);
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/videos/3", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ titlePt: "Parte 2", titlePtReviewed: false, titleEnReviewed: true }),
+    });
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ titlePtReviewed: false, titleEnReviewed: true });
+    const mockSet = (db as any)._update.mock.results.at(-1).value.set as ReturnType<typeof vi.fn>;
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ titlePt: "Parte 2", titlePtReviewed: false, titleEnReviewed: true }),
+    );
+  });
+
+  it("returns 400 when a reviewed flag is not a boolean", async () => {
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/videos/3", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ titlePtReviewed: "no" }),
+    });
+    expect(status).toBe(400);
   });
 
   it("returns 404 when the row does not exist", async () => {

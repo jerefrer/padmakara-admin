@@ -145,6 +145,7 @@ export const en = {
       aiUnreviewed: "AI translation, not reviewed yet",
       markReviewed: "click to mark as reviewed",
       aiChipLabel: "AI · review ✓",
+      noPtTitle: "No Portuguese title",
       translateNothing: "Nothing to translate — target fields already filled",
       translateError: "Translation failed",
       translateEmpty: "No translation came back — the field was left unchanged. Please try again.",
@@ -629,6 +630,7 @@ export const en = {
       },
     },
     subtitles: {
+      caption: "Subtitles",
       generate: "Generate subtitles",
       generateHint: "English, from the video audio and the event transcript · 5–30 min",
       generatingLang: "Generating %{language} subtitles",

@@ -431,7 +431,25 @@ export const SubtitleChips = ({ state, canGenerate, open, onToggle }: SubtitleCh
     );
   }
 
-  return <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>{chips}</Box>;
+  // The language chips are subtitle tracks, not title languages — a caption
+  // in front of them says so (the empty "CC" chip above is already explicit).
+  const showCaption = tracks.length > 0 || !!activeJob || !!failedJob;
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+      {showCaption && (
+        <Box
+          data-testid="subtitles-caption"
+          sx={{ display: "flex", alignItems: "center", gap: 0.25, color: "text.secondary" }}
+        >
+          <ClosedCaptionOutlinedIcon sx={{ fontSize: 14 }} />
+          <Typography component="span" sx={{ fontSize: "0.62rem", fontWeight: 600, letterSpacing: 0.2 }}>
+            {translate("padmakara.subtitles.caption")}
+          </Typography>
+        </Box>
+      )}
+      {chips}
+    </Box>
+  );
 };
 
 /* ───────── Expanded details: tracks and the actions that apply ───────── */

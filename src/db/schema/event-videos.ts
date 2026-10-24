@@ -21,6 +21,10 @@ export const eventVideos = pgTable(
     // videoDate / position ("Part N").
     titleEn: text("title_en"),
     titlePt: text("title_pt"),
+    // False while the title was filled in by AI and no admin has confirmed
+    // it yet. Same meaning as the flags on tracks and sessions.
+    titleEnReviewed: boolean("title_en_reviewed").notNull().default(true),
+    titlePtReviewed: boolean("title_pt_reviewed").notNull().default(true),
     // Optional recording date — labeling/ordering hint only. A video may
     // cover any slice of the event (one session, a morning, a full day).
     videoDate: date("video_date", { mode: "string" }),

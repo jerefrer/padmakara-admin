@@ -3280,8 +3280,10 @@ export const EventEdit = () => {
       const videoId = Number(v.rowKey);
       if (!Number.isFinite(videoId)) continue;
       const patch: Record<string, unknown> = {};
-      if (v.titleEn !== undefined) patch.titleEn = v.titleEn;
-      if (v.titlePt !== undefined) patch.titlePt = v.titlePt;
+      // AI-written titles stay flagged until an admin confirms them, exactly
+      // like the track titles below.
+      if (v.titleEn !== undefined) { patch.titleEn = v.titleEn; patch.titleEnReviewed = false; }
+      if (v.titlePt !== undefined) { patch.titlePt = v.titlePt; patch.titlePtReviewed = false; }
       if (v.videoDate !== undefined) patch.videoDate = v.videoDate;
       if (Object.keys(patch).length === 0) continue;
       try {

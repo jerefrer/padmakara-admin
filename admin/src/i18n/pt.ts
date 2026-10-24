@@ -346,6 +346,7 @@ export const pt = {
       aiUnreviewed: "Tradução por IA, ainda por rever",
       markReviewed: "clicar para marcar como revisto",
       aiChipLabel: "IA · rever ✓",
+      noPtTitle: "Sem título em português",
       translateNothing: "Nada a traduzir — os campos de destino já estão preenchidos",
       translateError: "Falha na tradução",
       translateEmpty: "Não veio nenhuma tradução — o campo ficou inalterado. Tente novamente.",
@@ -829,6 +830,7 @@ export const pt = {
       },
     },
     subtitles: {
+      caption: "Legendas",
       generate: "Gerar legendas",
       generateHint: "Em inglês, a partir do áudio do vídeo e da transcrição do evento · 5–30 min",
       generatingLang: "A gerar legendas em %{language}",

@@ -42,6 +42,10 @@ export interface EventVideo {
   position: number;
   titleEn: string | null;
   titlePt: string | null;
+  /** False while the title is AI-generated and not yet confirmed. Optional:
+   *  rows from before the flags existed count as reviewed. */
+  titleEnReviewed?: boolean;
+  titlePtReviewed?: boolean;
   videoDate: string | null;
   durationSeconds: number | null;
   posterUrl: string | null;
