@@ -681,6 +681,7 @@ export const PublicationList = () => {
         <TextField source="language" label="padmakara.publications.language" />
         <FunctionField
           label={translate("padmakara.publications.authors")}
+          sortBy="authors"
           render={(record: { authors?: string[] }) =>
             (record?.authors || []).join(", ") || "\u2014"
           }
@@ -690,7 +691,7 @@ export const PublicationList = () => {
           reference="audiences"
           label={translate("padmakara.publications.access")}
           link={false}
-          sortable={false}
+          sortBy="audienceName"
         >
           <AudienceChip />
         </ReferenceField>

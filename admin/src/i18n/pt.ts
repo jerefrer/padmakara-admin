@@ -477,6 +477,9 @@ export const pt = {
         "Instruções que exigem uma visão de todo o evento — numeração sequencial em todas as faixas, " +
         "ou remover duplicados — não são fiáveis em eventos grandes.",
     },
+    sortableList: {
+      manualOrder: "Ordem manual (arrastar para reordenar)",
+    },
     fields: {
       nameEn: "Nome (EN)",
       namePt: "Nome (PT)",

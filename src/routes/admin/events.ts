@@ -17,6 +17,7 @@ import { transcripts } from "../../db/schema/transcripts.ts";
 import { eventFiles } from "../../db/schema/event-files.ts";
 import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
+import { eventSortColumns } from "./events-sort.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs, cancelReadAlongJob } from "../../services/read-along.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
@@ -27,21 +28,10 @@ import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from
 
 const eventRoutes = new Hono();
 
-const columns: Record<string, any> = {
-  id: events.id,
-  eventCode: events.eventCode,
-  titleEn: events.titleEn,
-  startDate: events.startDate,
-  endDate: events.endDate,
-  status: events.status,
-  eventTypeId: events.eventTypeId,
-  featuredAt: events.featuredAt,
-  createdAt: events.createdAt,
-};
 
 eventRoutes.get("/", async (c) => {
   const { limit, offset, _sort, _order } = parsePagination(c);
-  const orderBy = buildOrderBy(_sort, _order, columns);
+  const orderBy = buildOrderBy(_sort, _order, eventSortColumns);
 
   // Parse filters from query params
   const q = c.req.query("q"); // Search query

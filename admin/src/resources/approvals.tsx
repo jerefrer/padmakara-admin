@@ -39,7 +39,8 @@ const authFetch = (url: string, options: RequestInit = {}) =>
 
 // ─── Status Chip ──────────────────────────────────────────────────────────────
 
-const StatusChip = () => {
+// `source`/`label` are read by Datagrid for the column header and its sort button.
+const StatusChip = (_props: { source?: string; label?: string }) => {
   const record = useRecordContext();
   const translate = useTranslate();
   if (!record) return null;
@@ -187,6 +188,7 @@ export const ApprovalList = () => {
         <TextField source="lastName" label={translate("padmakara.fields.lastName")} />
         <FunctionField
           label={translate("padmakara.approvals.message")}
+          sortBy="message"
           render={(record: any) =>
             record.message
               ? record.message.length > 60
@@ -196,10 +198,11 @@ export const ApprovalList = () => {
           }
         />
         <TextField source="deviceName" label={translate("padmakara.approvals.device")} />
-        <StatusChip />
+        <StatusChip source="status" label={translate("padmakara.events.status")} />
         <DateField source="requestedAt" label={translate("padmakara.approvals.requestedAt")} showTime />
         <FunctionField
           label={translate("padmakara.approvals.reviewedBy")}
+          sortBy="reviewedBy"
           render={(record: any) =>
             record.reviewedBy
               ? `${record.reviewedBy.firstName || ""} ${record.reviewedBy.lastName || ""}`.trim() || record.reviewedBy.email

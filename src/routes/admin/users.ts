@@ -14,6 +14,8 @@ const columns: Record<string, any> = {
   email: users.email,
   firstName: users.firstName,
   lastName: users.lastName,
+  dharmaName: users.dharmaName,
+  subscriptionStatus: users.subscriptionStatus,
   role: users.role,
   isActive: users.isActive,
   createdAt: users.createdAt,

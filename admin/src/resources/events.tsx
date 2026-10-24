@@ -432,6 +432,7 @@ export const EventList = () => {
         />
         <FunctionField
           label={translate("padmakara.events.title")}
+          sortBy={locale === "pt" ? "titlePt" : "titleEn"}
           render={(record: any) => (
             <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
               <Typography variant="caption" sx={{ fontFamily: "monospace", fontSize: "0.7rem", opacity: 0.6, fontWeight: 500 }}>
@@ -446,25 +447,25 @@ export const EventList = () => {
 
         <FunctionField
           label={translate("padmakara.events.eventType")}
-          sortBy="eventTypeId"
+          sortBy={locale === "pt" ? "eventTypeNamePt" : "eventTypeName"}
           render={(record: any) => (
             record.eventType ? <Chip label={localeName(record.eventType, locale)} size="small" /> : "—"
           )}
         />
 
-        <ReferenceArrayField source="groupIds" reference="groups" label={translate("padmakara.events.retreatGroups")} sortable={false}>
+        <ReferenceArrayField source="groupIds" reference="groups" label={translate("padmakara.events.retreatGroups")} sortBy="groups">
           <SingleFieldList linkType={false}>
             <ChipField source="abbreviation" size="small" />
           </SingleFieldList>
         </ReferenceArrayField>
 
-        <ReferenceArrayField source="teacherIds" reference="teachers" label={translate("padmakara.events.teachers")} sortable={false}>
+        <ReferenceArrayField source="teacherIds" reference="teachers" label={translate("padmakara.events.teachers")} sortBy="teachers">
           <SingleFieldList linkType={false}>
             <ChipField source="abbreviation" size="small" />
           </SingleFieldList>
         </ReferenceArrayField>
 
-        <ReferenceArrayField source="audienceIds" reference="audiences" label={translate("padmakara.events.audience")} sortable={false}>
+        <ReferenceArrayField source="audienceIds" reference="audiences" label={translate("padmakara.events.audience")} sortBy={locale === "pt" ? "audienceNamePt" : "audienceName"}>
           <SingleFieldList linkType={false}>
             <LocaleNameChip />
           </SingleFieldList>
@@ -526,6 +527,7 @@ export const EventList = () => {
         />
         <FunctionField
           label={translate("padmakara.events.content")}
+          sortBy="content"
           render={(record: any) => (
             <Box sx={{ display: "flex", gap: 0.5, color: "text.secondary" }}>
               {record.hasVideo && (
@@ -555,7 +557,7 @@ export const EventList = () => {
             </Box>
           )}
         />
-        <FunctionField label={translate("padmakara.events.status")} render={(record: any) => <StatusChip status={record.status} />} />
+        <FunctionField label={translate("padmakara.events.status")} sortBy="status" render={(record: any) => <StatusChip status={record.status} />} />
         <EditButton />
       </Datagrid>
     </List>

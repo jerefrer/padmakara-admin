@@ -279,6 +279,9 @@ export const en = {
         "Instructions needing a whole-event view — sequential numbering across all tracks, " +
         "or removing duplicates — aren't reliable on large events.",
     },
+    sortableList: {
+      manualOrder: "Manual order (drag to reorder)",
+    },
     fields: {
       nameEn: "Name (EN)",
       namePt: "Name (PT)",
