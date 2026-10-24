@@ -14,7 +14,7 @@ import { teachers } from "../../db/schema/teachers.ts";
 import { createPublicationSchema, updatePublicationSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows, type SortTarget } from "./helpers.ts";
-import { generatePresignedDownloadUrl, generatePresignedUploadUrl, putObject } from "../../services/s3.ts";
+import { generatePresignedPdfUrl, generatePresignedDownloadUrl, generatePresignedUploadUrl, putObject } from "../../services/s3.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 
 /**
@@ -613,6 +613,26 @@ publicationRoutes.post("/presign-upload", async (c) => {
   const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
 
   return c.json({ s3Key, uploadUrl });
+});
+
+/**
+ * GET /:id/pdf-url — Short-lived presigned URL for the original PDF.
+ * `disposition=inline` (default) is for the browser preview, `attachment` for
+ * the download. Admins always get the original file, never a watermarked copy.
+ */
+publicationRoutes.get("/:id/pdf-url", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const disposition = c.req.query("disposition") === "attachment" ? "attachment" : "inline";
+
+  const publication = await db.query.publications.findFirst({
+    where: eq(publications.id, id),
+  });
+  if (!publication || !publication.pdfS3Key) throw AppError.notFound("Publication PDF not found");
+
+  const base = (publication.title ?? "").replace(/[^\p{L}\p{N} ._-]+/gu, " ").replace(/\s+/g, " ").trim();
+  const filename = `${base || `publication-${publication.id}`}.pdf`;
+  const url = await generatePresignedPdfUrl(publication.pdfS3Key, disposition, filename);
+  return c.json({ url });
 });
 
 export { publicationRoutes };
