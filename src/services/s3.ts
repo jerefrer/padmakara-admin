@@ -194,6 +194,28 @@ export async function generatePresignedAttachmentUrl(
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
 
+/**
+ * Short-lived GET URL for a PDF, served as application/pdf either inline (for
+ * a browser tab preview) or as an attachment named `filename`. Not cached:
+ * the disposition and filename vary per request.
+ */
+export async function generatePresignedPdfUrl(
+  key: string,
+  disposition: "inline" | "attachment",
+  filename: string,
+  expiresIn = 300,
+): Promise<string> {
+  const safe = filename.replace(/[\r\n"\\]/g, "");
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    ResponseContentType: "application/pdf",
+    ResponseContentDisposition:
+      disposition === "inline" ? "inline" : `attachment; filename="${safe}"`,
+  });
+  return await getSignedUrl(s3Client, command, { expiresIn });
+}
+
 export async function deleteObject(key: string): Promise<void> {
   const command = new DeleteObjectCommand({
     Bucket: BUCKET,
