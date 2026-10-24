@@ -3227,7 +3227,8 @@ export const EventEdit = () => {
         );
 
         if (!opts?.silent) {
-          notify(translate("padmakara.events.trackUpdated"), { type: "success" });
+          // notify() translates its message itself: pass the key, not translated text.
+          notify("padmakara.events.trackUpdated", { type: "success" });
           // Invalidate cached event data so changes persist on re-navigation
           refresh();
         }
