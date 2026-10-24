@@ -37,6 +37,7 @@ describe("resolveTeacherUrls", () => {
       heroFocalX: 50,
       heroFocalY: 50,
       heroScale: 100,
+      heroFrameOverrides: null,
       avatarUpdatedAt: "2026-03-31T10:00:00.000Z",
       heroUpdatedAt: "2026-03-31T10:00:00.000Z",
     });
@@ -94,6 +95,7 @@ describe("resolveTeacherUrls", () => {
       heroFocalX: 50,
       heroFocalY: 50,
       heroScale: 100,
+      heroFrameOverrides: null,
       avatarUpdatedAt: null,
       heroUpdatedAt: null,
     });
@@ -120,5 +122,25 @@ describe("resolveTeacherUrls", () => {
     expect(result.avatarUrl).toBeNull();
     expect(result.heroUrl).toBeNull();
     expect(result.heroMobileUrl).toBeNull();
+  });
+
+  it("exposes the per-frame hero overrides stored with the hero", async () => {
+    const overrides = { page: { focalX: 40, focalY: 60, zoom: 1.5 } };
+    const result = await resolveTeacherUrls({
+      id: 9,
+      name: "T",
+      abbreviation: "T",
+      photoUrl: null,
+      avatarS3Key: null,
+      heroS3Key: "teachers/heroes/9.webp",
+      heroMobileS3Key: null,
+      heroFocalX: 50,
+      heroFocalY: 50,
+      heroScale: 100,
+      heroFrameOverrides: overrides,
+      avatarUpdatedAt: null,
+      heroUpdatedAt: null,
+    });
+    expect(result.heroFrameOverrides).toEqual(overrides);
   });
 });

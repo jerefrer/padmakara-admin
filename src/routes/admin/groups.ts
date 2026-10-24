@@ -4,7 +4,7 @@ import { db } from "../../db/index.ts";
 import { retreatGroups } from "../../db/schema/retreat-groups.ts";
 import { events, eventRetreatGroups } from "../../db/schema/retreats.ts";
 import { userGroupMemberships } from "../../db/schema/users.ts";
-import { createRetreatGroupSchema, updateRetreatGroupSchema } from "../../lib/schemas.ts";
+import { createRetreatGroupSchema, updateRetreatGroupSchema, parseHeroFrameOverridesField } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import {
@@ -170,6 +170,8 @@ groupRoutes.post("/:id/hero", async (c) => {
   const focalX = clampPercent(form.get("focalX"));
   const focalY = clampPercent(form.get("focalY"));
   const crop = parseHeroCrop(form.get("crop"));
+  // Per-layout framing is tied to the crop being saved: it only survives if the editor sent it again.
+  const heroFrameOverrides = parseHeroFrameOverridesField(form.get("frameOverrides"));
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const [desktopBuf, mobileBuf] = await Promise.all([
@@ -207,6 +209,7 @@ groupRoutes.post("/:id/hero", async (c) => {
       heroFocalX: focalX,
       heroFocalY: focalY,
       heroScale: 100,
+      heroFrameOverrides,
       heroUpdatedAt: now,
       updatedAt: now,
     })
@@ -306,6 +309,10 @@ groupRoutes.put("/:id", async (c) => {
   const updateData: Record<string, any> = { ...data, updatedAt: new Date() };
   if (dropHeroOriginal) {
     Object.assign(updateData, { heroOriginalS3Key: null, heroCrop: null, heroGrayscale: false });
+  }
+  // A different hero image has a different crop: the per-layout framing no longer applies.
+  if (data.heroS3Key !== undefined && data.heroFrameOverrides === undefined) {
+    updateData.heroFrameOverrides = null;
   }
 
   if (data.avatarS3Key !== undefined) {

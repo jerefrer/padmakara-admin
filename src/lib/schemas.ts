@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { AppError } from "./errors.ts";
+import { HERO_FRAME_KEYS } from "../db/schema/teachers.ts";
 
 // Auth
 export const loginSchema = z.object({
@@ -44,6 +46,39 @@ export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1),
 });
 
+// Hero framing per app layout. Keys are exactly HERO_FRAME_KEYS; unknown keys are rejected.
+export const heroFrameOverrideSchema = z.object({
+  focalX: z.number().min(0).max(100),
+  focalY: z.number().min(0).max(100),
+  zoom: z.number().min(1).max(3),
+});
+
+export const heroFrameOverridesSchema = z.strictObject(
+  Object.fromEntries(HERO_FRAME_KEYS.map((key) => [key, heroFrameOverrideSchema.optional()])) as Record<
+    (typeof HERO_FRAME_KEYS)[number],
+    z.ZodOptional<typeof heroFrameOverrideSchema>
+  >,
+);
+
+/**
+ * Parse the `frameOverrides` form field of a hero upload (a JSON string). A missing field means
+ * "no overrides" (an upload always replaces the stored crop, which the overrides are tied to), and
+ * so does an empty object. Throws a 400 AppError on invalid JSON and a ZodError on any other malformed value.
+ */
+export function parseHeroFrameOverridesField(
+  raw: unknown,
+): z.infer<typeof heroFrameOverridesSchema> | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw AppError.badRequest("frameOverrides is not valid JSON", "VALIDATION_ERROR");
+  }
+  const parsed = heroFrameOverridesSchema.parse(json);
+  return Object.keys(parsed).length > 0 ? parsed : null;
+}
+
 // Teachers
 export const createTeacherSchema = z.object({
   name: z.string().min(1).max(200),
@@ -55,6 +90,7 @@ export const createTeacherSchema = z.object({
   heroFocalX: z.number().int().min(0).max(100).optional(),
   heroFocalY: z.number().int().min(0).max(100).optional(),
   heroScale: z.number().int().min(50).max(300).optional(),
+  heroFrameOverrides: heroFrameOverridesSchema.optional().nullable(),
 });
 
 export const updateTeacherSchema = createTeacherSchema.partial();
@@ -89,6 +125,7 @@ export const createRetreatGroupSchema = z.object({
   heroFocalX: z.number().int().min(0).max(100).optional(),
   heroFocalY: z.number().int().min(0).max(100).optional(),
   heroScale: z.number().int().min(50).max(300).optional(),
+  heroFrameOverrides: heroFrameOverridesSchema.optional().nullable(),
   displayOrder: z.number().int().min(0).optional().default(0),
 });
 
