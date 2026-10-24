@@ -198,6 +198,9 @@ export const createEventSchema = z.object({
   eventTypeId: z.number().int().optional().nullable(),
   audienceId: z.number().int().optional().nullable(),
   bibliography: z.string().optional().nullable(),
+  bibliographyPt: z.string().optional().nullable(),
+  bibliographyEnReviewed: z.boolean().optional(),
+  bibliographyPtReviewed: z.boolean().optional(),
   notes: z.string().optional().nullable(),
   // Link to the library record the event was filled from (library_records.wix_id)
   // and the imported CSV fields that have no column of their own.
