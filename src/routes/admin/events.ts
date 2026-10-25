@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, or, like, ilike, inArray, isNull, sql } from "drizzle-orm";
+import { eq, ne, and, or, like, ilike, inArray, isNull, isNotNull, sql } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import {
   events,
@@ -273,15 +273,72 @@ eventRoutes.get("/:id", async (c) => {
   });
 });
 
+/** Throws 409 FEATURED_EVENT_LOCKED when the event currently holds the home-page highlight. */
+async function assertNotFeatured(id: number): Promise<void> {
+  const current = await db.query.events.findFirst({
+    where: eq(events.id, id),
+    columns: { featuredAt: true },
+  });
+  if (current?.featuredAt) {
+    throw new AppError(
+      409,
+      "This event is highlighted on the home page. Highlight another event first.",
+      "FEATURED_EVENT_LOCKED",
+    );
+  }
+}
+
+/**
+ * POST /admin/events/:id/feature
+ *
+ * Moves the single home-page highlight to this event. Only a published event can
+ * hold it, and it cannot be removed, only moved. The partial unique index
+ * retreats_single_featured_idx backs this up at the database level, so the other
+ * stars are cleared before the target is set.
+ */
+eventRoutes.post("/:id/feature", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const target = await db.query.events.findFirst({
+    where: eq(events.id, id),
+    columns: { id: true, status: true },
+  });
+  if (!target) throw AppError.notFound("Event not found");
+  if (target.status !== "published") {
+    throw new AppError(409, "Only a published event can be highlighted.", "EVENT_NOT_PUBLISHED");
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.update(events).set({ featuredAt: null }).where(and(isNotNull(events.featuredAt), ne(events.id, id)));
+    await tx.update(events).set({ featuredAt: new Date(), updatedAt: new Date() }).where(eq(events.id, id));
+  });
+
+  const full = await db.query.events.findFirst({
+    where: eq(events.id, id),
+    with: {
+      eventType: true,
+      audience: true,
+      eventTeachers: { with: { teacher: true } },
+      eventRetreatGroups: { with: { retreatGroup: true } },
+      eventPlaces: { with: { place: true } },
+      eventOrganizers: eventOrganizersWith,
+      eventPublications: { with: { publication: true } },
+    },
+  });
+
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
+  applyEventOrganizers(full);
+  return c.json(full!);
+});
+
 eventRoutes.post("/", async (c) => {
   const body = await c.req.json();
-  const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, featuredAt, ...eventData } =
+  // featuredAt is dropped: a new event is never highlighted (see POST /:id/feature).
+  const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, featuredAt: _ignored, ...eventData } =
     createEventSchema.parse(body);
 
-  const [event] = await db.insert(events).values({
-    ...eventData,
-    featuredAt: featuredAt ? new Date(featuredAt) : null,
-  }).returning();
+  const [event] = await db.insert(events).values(eventData).returning();
 
   // Insert junction records
   await syncJunctions(event!.id, teacherIds, groupIds, placeIds, organizerIds);
@@ -320,7 +377,8 @@ eventRoutes.post("/", async (c) => {
 eventRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
-  const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, featuredAt, ...eventData } =
+  // featuredAt is dropped: the highlight only moves through POST /:id/feature.
+  const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, featuredAt: _ignored, ...eventData } =
     updateEventSchema.parse(body);
 
   // Only include fields that were actually sent in the request body,
@@ -333,11 +391,15 @@ eventRoutes.put("/:id", async (c) => {
     }
   }
 
+  // The highlighted event must stay published: the highlight has to be moved first.
+  if (filteredEventData.status !== undefined && filteredEventData.status !== "published") {
+    await assertNotFeatured(id);
+  }
+
   const [event] = await db
     .update(events)
     .set({
       ...filteredEventData,
-      ...(bodyKeys.has("featuredAt") ? { featuredAt: featuredAt ? new Date(featuredAt) : null } : {}),
       updatedAt: new Date(),
     })
     .where(eq(events.id, id))
@@ -396,6 +458,7 @@ eventRoutes.put("/:id", async (c) => {
 
 eventRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
+  await assertNotFeatured(id);
   const [event] = await db
     .delete(events)
     .where(eq(events.id, id))
