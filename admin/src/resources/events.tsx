@@ -3678,7 +3678,8 @@ export const EventEdit = () => {
 
           const { data: createdSession } = await dataProvider.create("sessions", {
             data: {
-              eventId: id,
+              // The route param is a string; the API requires a number.
+              eventId: Number(id),
               sessionNumber,
               titleEn: session.titleEn,
               sessionDate: session.date || null,
