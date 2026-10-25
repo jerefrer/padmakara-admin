@@ -4,7 +4,9 @@
  * that didn't exist yet, plus separate "Import from URL" / "Add video"
  * buttons) with one gated flow:
  *
- *  1. Title slides (Section 1) — pick exactly one of "define slides now" or
+ *  1. Title slides (Section 1) — pick exactly one of "define slides now",
+ *     "add slides later" (burn path with an empty slide document: the master
+ *     is retained, so slides can be designed and burned in afterwards) or
  *     "this file already has slides burnt in". Nothing below is usable
  *     until one is chosen.
  *  2. The file (Section 2) — a drop zone (drag/drop or click-to-browse) OR
@@ -23,6 +25,7 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import MovieIcon from "@mui/icons-material/Movie";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import ScheduleIcon from "@mui/icons-material/Schedule";
 import SlideshowIcon from "@mui/icons-material/Slideshow";
 import UploadIcon from "@mui/icons-material/Upload";
 import Box from "@mui/material/Box";
@@ -62,7 +65,7 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[i]}`;
 }
 
-type SlidesMode = "define" | "burnedIn" | null;
+type SlidesMode = "define" | "later" | "burnedIn" | null;
 
 export interface AddVideoDialogProps {
   open: boolean;
@@ -107,7 +110,7 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
     setError(null);
   }, [open]);
 
-  const slidesReady = slidesMode === "burnedIn" || (slidesMode === "define" && hasAnySlides(draftDoc));
+  const slidesReady = slidesMode === "burnedIn" || slidesMode === "later" || (slidesMode === "define" && hasAnySlides(draftDoc));
   const sectionTwoEnabled = slidesMode !== null;
   const slideCount = draftDoc.intro.length + draftDoc.outro.length;
   const slideSeconds = Math.round((sequenceTotalMs(draftDoc.intro) + sequenceTotalMs(draftDoc.outro)) / 1000);
@@ -160,8 +163,14 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
 
   const handleUpload = async () => {
     if (!canSubmit) return;
+    // "later" rides the burn path (a non-null document) with an empty one, so
+    // the master is retained and slides can be burned in afterwards.
     const pending: PendingUploadSlides =
-      slidesMode === "burnedIn" ? { slides: null, hasBurnedSlides: true } : { slides: draftDoc, hasBurnedSlides: false };
+      slidesMode === "burnedIn"
+        ? { slides: null, hasBurnedSlides: true }
+        : slidesMode === "later"
+          ? { slides: emptySlideDocument(), hasBurnedSlides: false }
+          : { slides: draftDoc, hasBurnedSlides: false };
 
     if (selectedFile) {
       onUpload(selectedFile, pending);
@@ -197,7 +206,7 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
           <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: "0.05em" }}>
             {translate("padmakara.videos.addDialog.section1Title") || "Title slides"}
           </Typography>
-          <Box sx={{ display: "flex", gap: 1.5, mt: 1, mb: 2.5, flexDirection: { xs: "column", sm: "row" } }}>
+          <Box sx={{ display: "flex", gap: 1.5, mt: 1, mb: 2.5, flexDirection: "column" }}>
             <SlidesModeCard
               selected={slidesMode === "define"}
               icon={<SlideshowIcon sx={{ fontSize: 20 }} />}
@@ -209,12 +218,22 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
               onClick={() => setSlidesMode("define")}
             />
             <SlidesModeCard
+              selected={slidesMode === "later"}
+              icon={<ScheduleIcon sx={{ fontSize: 20 }} />}
+              title={translate("padmakara.videos.addDialog.cardLaterTitle") || "Add slides later"}
+              description={
+                translate("padmakara.videos.addDialog.cardLaterDesc") ||
+                "Upload now and design the intro/outro whenever you like — the original is kept so slides can be burned in later."
+              }
+              onClick={() => setSlidesMode("later")}
+            />
+            <SlidesModeCard
               selected={slidesMode === "burnedIn"}
               icon={<MovieIcon sx={{ fontSize: 20 }} />}
               title={translate("padmakara.videos.addDialog.cardBurnedTitle") || "Already has title slides burnt in"}
               description={
                 translate("padmakara.videos.addDialog.cardBurnedDesc") ||
-                "This file already includes its own intro/outro — no slides needed."
+                "This file already includes its own intro/outro — it goes straight to Bunny, and slides can't be added afterwards."
               }
               onClick={() => setSlidesMode("burnedIn")}
             />
