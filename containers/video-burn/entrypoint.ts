@@ -409,6 +409,9 @@ async function main(): Promise<void> {
     const resolveImageUrl = makeResolveImageUrl(downloadedImages);
 
     // 4–5. Render + encode intro/outro segments
+    // An EMPTY document ("add slides later") renders nothing: renderSlides returns
+    // before launching Chromium, no segments exist, and the concat below joins the
+    // remuxed master alone (burnedIntroMs 0) so slides can be burned in later.
     const introRendered = await renderSlides(doc.intro, params, resolveImageUrl, workDir, "intro");
     const outroRendered = await renderSlides(doc.outro, params, resolveImageUrl, workDir, "outro");
     const introSegments = await encodeSegments(introRendered, params, workDir, "intro");

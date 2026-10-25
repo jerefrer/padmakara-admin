@@ -730,3 +730,84 @@ describe("POST /api/admin/videos/:id/reburn", () => {
     );
   });
 });
+
+
+describe("add slides later (empty slide document through the burn path)", () => {
+  const emptyDoc = (): SlideDocument => ({ version: 1, intro: [], outro: [] });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // clearAllMocks keeps queued once-values from earlier suites.
+    mockReturning.mockReset();
+    mockFindFirstEventVideo.mockReset();
+    mockFindFirstEvent.mockResolvedValue({ id: 7, eventCode: "E7" });
+    mockFindManyEventVideo.mockResolvedValue([]);
+    mockSubmitVideoBurnJob.mockResolvedValue({ jobId: "batch-job-1" });
+  });
+
+  it("POST /burn accepts an empty document, retains the master and queues the job", async () => {
+    mockReturning.mockResolvedValueOnce([{ id: 40, eventId: 7 }]);
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/videos/burn", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ eventId: 7, masterS3Key: "uploads/m.mp4", slides: emptyDoc(), position: 0, titleEn: "Talk" }),
+    });
+    expect(status).toBe(201);
+    expect(body).toEqual({ videoId: 40, jobId: "batch-job-1", burnStatus: "queued" });
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({ masterS3Key: "uploads/m.mp4", slides: emptyDoc(), burnStatus: "pending" }),
+    );
+    expect(mockValues.mock.calls[0]![0]).not.toHaveProperty("hasBurnedSlides");
+    expect(mockSubmitVideoBurnJob).toHaveBeenCalledWith(
+      expect.objectContaining({ videoId: 40, masterS3Key: "uploads/m.mp4", slides: emptyDoc() }),
+    );
+  });
+
+  it("POST /import-url with an empty document takes the burn container path, not Bunny", async () => {
+    mockReturning.mockResolvedValueOnce([{ id: 41, eventId: 7, bunnyVideoId: null, burnStatus: "pending" }]);
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/videos/import-url", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ eventId: 7, url: "https://example.com/talk.mp4", slides: emptyDoc() }),
+    });
+    expect(status).toBe(201);
+    expect(mockFetchVideo).not.toHaveBeenCalled();
+    expect(mockSubmitVideoBurnJob).toHaveBeenCalledWith(
+      expect.objectContaining({ videoId: 41, masterSourceUrl: "https://example.com/talk.mp4", slides: emptyDoc() }),
+    );
+  });
+
+  it("PUT /:id/slides on a done empty-document burn flips to pending and still reports no burnt-in slides", async () => {
+    const doc = validDoc();
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, burnStatus: "done", slides: emptyDoc() });
+    mockReturning.mockResolvedValueOnce([
+      {
+        id: 5, eventId: 7, slides: doc, hasBurnedSlides: false, burnStatus: "pending",
+        burnError: null, burnedIntroMs: 0, masterS3Key: "uploads/m.mp4",
+      },
+    ]);
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/videos/5/slides", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ slides: doc }),
+    });
+    expect(status).toBe(200);
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ burnStatus: "pending", slides: doc }));
+    expect(body).toMatchObject({ hasBurnedSlides: false, hasMaster: true, burnedIntroMs: 0, burnStatus: "pending" });
+  });
+
+  it("POST /:id/reburn accepts a row whose stored document is empty (object, not null)", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({
+      id: 5, eventId: 7, titleEn: "T", titlePt: null, masterS3Key: "m.mp4", slides: emptyDoc(), burnStatus: "pending",
+    });
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/videos/5/reburn", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(status).toBe(200);
+  });
+});

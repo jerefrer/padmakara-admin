@@ -302,6 +302,23 @@ describe("ffmpeg-plan: computeThumbnailOffsetSeconds", () => {
   });
 });
 
+describe("ffmpeg-plan: empty slide document", () => {
+  it("plans a total equal to the master with 0 ms intro and outro", () => {
+    const plan = computeBurnDurationPlan([], [], 62_000);
+    expect(plan.introMs).toBe(0);
+    expect(plan.outroMs).toBe(0);
+    expect(plan.totalMs).toBe(62_000);
+  });
+
+  it("picks the thumbnail offset from the master alone, independent of any intro", () => {
+    expect(computeThumbnailOffsetSeconds(62)).toBeCloseTo(6.2, 5);
+  });
+
+  it("builds a concat list holding only the remuxed master", () => {
+    expect(buildConcatListFile(["/tmp/master-remux.mp4"])).toBe("file '/tmp/master-remux.mp4'\n");
+  });
+});
+
 describe("ffmpeg-plan: buildThumbnailFrameArgs", () => {
   it("seeks before -i and grabs exactly one frame", () => {
     const args = buildThumbnailFrameArgs("/tmp/master.mp4", 12.345, "/tmp/thumb.jpg");
@@ -335,6 +352,14 @@ describe("computeIntroDelta", () => {
 
   it("reports a negative delta when the intro shrank", () => {
     expect(computeIntroDelta(9600, 8000)).toEqual({ deltaMs: -1600, changed: true });
+  });
+});
+
+describe("computeIntroDelta — add-slides-later (empty document first burn)", () => {
+  it("treats the first slides burn after an empty-document burn as a full intro shift", () => {
+    // The empty-doc burn stores burnedIntroMs = 0 (non-null), so progress
+    // recorded against the slide-less timeline shifts by the whole new intro.
+    expect(computeIntroDelta(0, 9600)).toEqual({ deltaMs: 9600, changed: true });
   });
 });
 
