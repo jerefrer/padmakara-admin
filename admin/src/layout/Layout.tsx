@@ -51,7 +51,10 @@ const SIDEBAR_WIDTH = 200;
 export const Layout = ({ children }: { children: React.ReactNode }) => (
   <Box sx={{ display: "flex", minHeight: "100vh" }}>
     {/* Sidebar — full viewport height */}
+    {/* appBarAlwaysOn: without it react-admin pulls the sidebar up by the
+        app-bar height whenever the window scrolls, so the menu slid up and down. */}
     <Sidebar
+      appBarAlwaysOn
       sx={{
         width: SIDEBAR_WIDTH,
         flexShrink: 0,
@@ -67,9 +70,13 @@ export const Layout = ({ children }: { children: React.ReactNode }) => (
           borderRight: "none",
           position: "relative",
         },
-        // Ensure fixed wrapper fills the full drawer width
+        // The drawer itself is sticky, so react-admin's position: fixed inner
+        // wrapper (sized for its own app bar) is not needed: keep it in flow.
         "& .RaSidebar-fixed": {
           width: SIDEBAR_WIDTH,
+          position: "relative",
+          height: "100vh",
+          overflowY: "auto",
         },
         // Never collapse
         "&.RaSidebar-closed .RaSidebar-drawerPaper, &.RaSidebar-closed .MuiDrawer-paper": {
