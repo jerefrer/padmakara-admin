@@ -743,6 +743,8 @@ export const pt = {
       dialogTitleFallback: "Slides de título",
       intro: "Abertura",
       outro: "Encerramento",
+      introHint: "Estes slides são mostrados antes do vídeo.",
+      outroHint: "Estes slides são mostrados depois do vídeo.",
       empty: "Ainda não há slides",
       addSlide: "Adicionar slide",
       deleteSlide: "Eliminar slide",

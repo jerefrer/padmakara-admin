@@ -580,6 +580,12 @@ export const SlideEditor = ({
 
       <DialogContent sx={{ display: "flex", gap: 3, p: 3, overflow: "hidden" }}>
         <Box sx={{ flex: "1 1 60%", overflowY: "auto", pr: 1 }}>
+          {/* The two tabs look like separate sequences; say where each one plays. */}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {tab === "intro"
+              ? translate("padmakara.slides.introHint") || "These slides play before the video."
+              : translate("padmakara.slides.outroHint") || "These slides play after the video."}
+          </Typography>
           {activeSlides.length === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ fontStyle: "italic", mb: 2 }}>
               {translate("padmakara.slides.empty") || "No slides yet"}

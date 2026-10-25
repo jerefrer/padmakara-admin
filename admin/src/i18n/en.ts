@@ -545,6 +545,8 @@ export const en = {
       dialogTitleFallback: "Title slides",
       intro: "Intro",
       outro: "Outro",
+      introHint: "These slides play before the video.",
+      outroHint: "These slides play after the video.",
       empty: "No slides yet",
       addSlide: "Add slide",
       deleteSlide: "Delete slide",
