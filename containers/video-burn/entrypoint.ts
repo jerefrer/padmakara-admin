@@ -45,6 +45,9 @@ import {
   isDurationWithinTolerance,
   computeThumbnailOffsetSeconds,
   buildThumbnailFrameArgs,
+  buildMasterRemuxArgs,
+  maxFrameGapSeconds,
+  MAX_FRAME_GAP_SECONDS,
   type MasterParams,
 } from "./ffmpeg-plan.ts";
 import { makeS3Client, downloadToFile, downloadText, uploadFile, presignGet } from "./s3-client.ts";
@@ -290,6 +293,19 @@ async function encodeSegments(rendered: RenderedSlide[], params: MasterParams, w
   return segmentPaths;
 }
 
+/** Presentation times of every video packet, for the frame-gap gate. */
+async function probeVideoPts(filePath: string): Promise<number[]> {
+  const { stdout } = await execFileAsync(
+    "ffprobe",
+    ["-v", "quiet", "-select_streams", "v:0", "-show_entries", "packet=pts_time", "-of", "csv=p=0", filePath],
+    { maxBuffer: 1024 * 1024 * 256 },
+  );
+  return stdout
+    .split("\n")
+    .map((l) => Number(l.trim()))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+}
+
 async function concatAndValidate(
   segmentPaths: string[],
   expectedTotalMs: number,
@@ -310,11 +326,16 @@ async function concatAndValidate(
   // metadata describes only the first one, while the duration still looks right.
   let durationOk = isDurationWithinTolerance(actualMs, expectedTotalMs);
   let mismatches = findConcatParamMismatches(outParams, params);
+  // Third gate: duration and parameters both pass on a merge whose master
+  // frames were squeezed into a few milliseconds (see buildMasterRemuxArgs).
+  let frameGap = maxFrameGapSeconds(await probeVideoPts(mergedPath));
 
-  if (!durationOk || mismatches.length > 0) {
+  if (!durationOk || mismatches.length > 0 || frameGap > MAX_FRAME_GAP_SECONDS) {
     const why = !durationOk
       ? `expected ~${expectedTotalMs}ms, got ${actualMs}ms`
-      : `parameter mismatch: ${mismatches.join("; ")}`;
+      : mismatches.length > 0
+        ? `parameter mismatch: ${mismatches.join("; ")}`
+        : `video frames jump ${frameGap.toFixed(2)}s at one point`;
     console.error(
       `[video-burn] FALLBACK: stream-copy concat validation failed (${why}) — ` +
         `retrying with a full re-encode.`,
@@ -326,6 +347,13 @@ async function concatAndValidate(
     actualMs = outParams.durationSeconds * 1000;
     durationOk = isDurationWithinTolerance(actualMs, expectedTotalMs);
     mismatches = findConcatParamMismatches(outParams, params);
+    frameGap = maxFrameGapSeconds(await probeVideoPts(mergedPath));
+    if (frameGap > MAX_FRAME_GAP_SECONDS) {
+      throw new Error(
+        `Concat frame timing validation failed even after full re-encode ` +
+          `(video frames jump ${frameGap.toFixed(2)}s at one point)`,
+      );
+    }
     if (!durationOk) {
       throw new Error(
         `Concat duration validation failed even after full re-encode ` +
@@ -369,6 +397,10 @@ async function main(): Promise<void> {
       await uploadFile(s3, env.bucket, masterS3Key, masterPath, "video/mp4");
     }
     const params = await probeFile(masterPath);
+    // Join an MP4 copy of the master, never the original container (OBS .mkv
+    // masters otherwise collapse in the stream-copy concat).
+    const concatMasterPath = path.join(workDir, "master-remux.mp4");
+    await runFfmpeg(buildMasterRemuxArgs(masterPath, concatMasterPath));
 
     // 3. Slide document + assets
     const slidesJson = await downloadText(s3, env.bucket, env.slidesS3Key);
@@ -385,7 +417,7 @@ async function main(): Promise<void> {
     // 6. Concat (+ validate, with re-encode fallback)
     const plan = computeBurnDurationPlan(doc.intro, doc.outro, params.durationSeconds * 1000);
     const mergedPath = await concatAndValidate(
-      [...introSegments, masterPath, ...outroSegments],
+      [...introSegments, concatMasterPath, ...outroSegments],
       plan.totalMs,
       params,
       workDir,

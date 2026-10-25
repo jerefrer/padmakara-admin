@@ -157,6 +157,10 @@ export function buildSlideSegmentArgs(spec: SlideSegmentSpec): string[] {
     videoEncoderFor(params.videoCodec),
     "-pix_fmt",
     params.pixelFormat,
+    // Same MP4 video timescale as the remuxed master (buildMasterRemuxArgs):
+    // the concat demuxer stream-copies every piece into one track.
+    "-video_track_timescale",
+    String(CONCAT_VIDEO_TIMESCALE),
   ];
 
   if (params.videoProfile) {
@@ -180,6 +184,47 @@ export function buildSlideSegmentArgs(spec: SlideSegmentSpec): string[] {
 }
 
 // ─── Concat ──────────────────────────────────────────────────────────────
+
+/** MP4 video timescale shared by the slide segments and the remuxed master. */
+export const CONCAT_VIDEO_TIMESCALE = 90000;
+
+/**
+ * Stream-copy the master into MP4 before the concat. Masters recorded by OBS
+ * are Matroska: no stored decode timestamps, B-frames, a 1/1000 timebase.
+ * Concatenated straight after MP4 segments, the reconstructed timestamps go
+ * backwards, the MP4 muxer bumps each frame one tick past the previous one,
+ * and the whole master collapses into a few milliseconds (fast motion, then a
+ * frozen picture, while the audio plays normally). The MP4 remux writes proper
+ * decode timestamps. No re-encode, so it costs one sequential copy of the file.
+ */
+export function buildMasterRemuxArgs(inputPath: string, outputPath: string): string[] {
+  return [
+    "-y", "-i", inputPath,
+    "-map", "0:v:0", "-map", "0:a:0?",
+    "-c", "copy",
+    "-video_track_timescale", String(CONCAT_VIDEO_TIMESCALE),
+    outputPath,
+  ];
+}
+
+/**
+ * Largest gap between consecutive video frames, in seconds, from their
+ * presentation times in any order. A faithful merge stays near one frame
+ * duration; a merge whose master frames were squeezed together shows a gap
+ * as long as the master itself.
+ */
+export function maxFrameGapSeconds(ptsSeconds: number[]): number {
+  if (ptsSeconds.length < 2) return 0;
+  const sorted = [...ptsSeconds].sort((a, b) => a - b);
+  let max = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    max = Math.max(max, sorted[i]! - sorted[i - 1]!);
+  }
+  return max;
+}
+
+/** Above this, the merged video is treated as broken (see maxFrameGapSeconds). */
+export const MAX_FRAME_GAP_SECONDS = 2;
 
 export interface ConcatSpec {
   /** Path to the ffmpeg concat-demuxer list file (`file '...'` per line). */

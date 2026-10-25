@@ -18,6 +18,9 @@ import {
   findConcatParamMismatches,
   computeThumbnailOffsetSeconds,
   buildThumbnailFrameArgs,
+  buildMasterRemuxArgs,
+  maxFrameGapSeconds,
+  CONCAT_VIDEO_TIMESCALE,
   type MasterParams,
 } from "../../containers/video-burn/ffmpeg-plan.ts";
 import type { Slide } from "../../src/lib/slides/types.ts";
@@ -712,5 +715,53 @@ describe("submitVideoBurnJob (masterSourceUrl overload)", () => {
     );
     expect(env.MASTER_SOURCE_URL).toBe("https://example.com/master.mp4");
     expect(env.MASTER_S3_KEY).toBeUndefined();
+  });
+});
+
+// An OBS .mkv master (no stored DTS, B-frames, 1/1000 timebase) stream-copied
+// next to MP4 slide segments came out with every master frame squeezed into a
+// few milliseconds after the intro, then a frozen picture until the outro,
+// while the audio played normally. Remuxing the master to MP4 on the same
+// timescale as the segments fixes it; a frame-gap gate now catches it.
+describe("ffmpeg-plan: master remux before concat", () => {
+  it("should stream-copy the master into MP4 on the segments' timescale", () => {
+    const args = buildMasterRemuxArgs("/tmp/master.mkv", "/tmp/master-remux.mp4");
+    expect(args).toEqual([
+      "-y", "-i", "/tmp/master.mkv",
+      "-map", "0:v:0", "-map", "0:a:0?",
+      "-c", "copy",
+      "-video_track_timescale", String(CONCAT_VIDEO_TIMESCALE),
+      "/tmp/master-remux.mp4",
+    ]);
+  });
+
+  it("should encode slide segments on the same timescale as the remuxed master", () => {
+    const args = buildSlideSegmentArgs({
+      imagePath: "/tmp/slide-0.png",
+      outputPath: "/tmp/seg-0.mp4",
+      params: PARAMS,
+      fadeInMs: 800,
+      holdMs: 4000,
+      fadeOutMs: 800,
+    });
+    expect(flagValue(args, "-video_track_timescale")).toBe(String(CONCAT_VIDEO_TIMESCALE));
+  });
+});
+
+describe("ffmpeg-plan: maxFrameGapSeconds", () => {
+  it("should return the frame duration for an evenly spaced stream given in decode order", () => {
+    // B-frame presentation order is not sorted; the gap is measured on sorted times.
+    expect(maxFrameGapSeconds([0, 0.16, 0.08, 0.04, 0.12, 0.2])).toBeCloseTo(0.04, 6);
+  });
+
+  it("should expose the freeze when the master frames are squeezed together", () => {
+    const intro = Array.from({ length: 140 }, (_, i) => i * 0.04);
+    const squeezed = Array.from({ length: 500 }, (_, i) => 5.5 + i * 0.0001);
+    const outro = Array.from({ length: 140 }, (_, i) => 25.5 + i * 0.04);
+    expect(maxFrameGapSeconds([...intro, ...squeezed, ...outro])).toBeGreaterThan(19);
+  });
+
+  it("should return 0 when there are fewer than two frames", () => {
+    expect(maxFrameGapSeconds([3])).toBe(0);
   });
 });
