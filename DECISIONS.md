@@ -190,3 +190,13 @@
 **Revisit if:** designers want more than centre and zoom per layout, or a layout is added (add its key to HERO_FRAME_KEYS, HERO_FRAMES and the app).
 
 ---
+
+## 2026-10-25 — A single, movable, published-only event highlight
+
+**Chosen:** User decision (Jérémy): exactly one event holds the home-page highlight (`retreats.featured_at`). It can be moved to another event, never removed, and only a published event can hold it. The only way to set it is `POST /api/admin/events/:id/feature`, which in one transaction clears every other star and stamps the target (409 `EVENT_NOT_PUBLISHED` for a non-published target). `POST /` and `PUT /:id` ignore `featuredAt` in the body (the field stays optional in the Zod schema so the admin's full-record saves still parse). Unpublishing or deleting the featured event is refused with 409 `FEATURED_EVENT_LOCKED`. Migration 0049 keeps only the most recent star among published events (clearing all stars if none is published) and adds the partial unique index `retreats_single_featured_idx ON retreats ((true)) WHERE featured_at IS NOT NULL`, which guarantees at most one starred row at the database level. The index is defined only in SQL: drizzle-kit cannot express an expression index on `(true)`, so it is absent from the Drizzle schema and snapshot. Because the index is checked row by row, the route clears the other stars before setting the target.
+**Alternatives:** (a) Keep any number of stars and show the most recent, as before. Rejected: the home page only ever shows one, so the other stars were invisible state that misled editors. (b) Allow removing the highlight (zero featured). Rejected: the home page would have no hero event. (c) Enforce only in application code. Rejected: concurrent requests could still leave two stars.
+**Why:** Before this change the admin could star any number of events, in any status, and `GET /api/events/featured` returned the most recently starred visible one, so a star on a draft or on an older event had no effect that anyone could see.
+**Trade-offs:** To unpublish or delete the highlighted event an editor must first highlight another published event. The app must always have at least one published event to hold the highlight.
+**Revisit if:** the home page shows several featured events, or a "no highlight" state becomes valid.
+
+---
