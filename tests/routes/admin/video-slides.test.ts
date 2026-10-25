@@ -105,6 +105,7 @@ describe("GET /api/admin/videos/:id/slides", () => {
       burnStatus: "none",
       burnError: null,
       burnedIntroMs: null,
+      masterS3Key: null,
     });
 
     const token = await adminToken();
@@ -120,7 +121,21 @@ describe("GET /api/admin/videos/:id/slides", () => {
       burnStatus: "none",
       burnError: null,
       burnedIntroMs: null,
+      hasMaster: false,
     });
+  });
+
+  it("returns hasMaster true when a master is retained", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({
+      id: 5, eventId: 7, slides: null, hasBurnedSlides: false, burnStatus: "failed",
+      burnError: "x", burnedIntroMs: null, masterS3Key: "masters/5.mp4",
+    });
+    const token = await adminToken();
+    const { body } = await testJson("/api/admin/videos/5/slides", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(body.hasMaster).toBe(true);
   });
 
   it("returns 404 when the video does not exist", async () => {
@@ -664,5 +679,54 @@ describe("POST /api/admin/videos/import-url", () => {
     expect(body.code).toBe("VALIDATION_ERROR");
     expect(mockFetchVideo).not.toHaveBeenCalled();
     expect(mockSubmitVideoBurnJob).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/admin/videos/:id/reburn", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const post = async (id = 5) => {
+    const token = await adminToken();
+    return testJson(`/api/admin/videos/${id}/reburn`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  };
+
+  it("returns 404 when the video does not exist", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce(null);
+    expect((await post(999)).status).toBe(404);
+  });
+
+  it("returns 409 when there is no retained master", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, masterS3Key: null, slides: validDoc(), burnStatus: "failed" });
+    expect((await post()).status).toBe(409);
+    expect(mockSubmitVideoBurnJob).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when the video has no slides", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, masterS3Key: "m.mp4", slides: null, burnStatus: "failed" });
+    expect((await post()).status).toBe(409);
+    expect(mockSubmitVideoBurnJob).not.toHaveBeenCalled();
+  });
+
+  it.each(["queued", "running"])("returns 409 when a burn is already %s", async (burnStatus) => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, masterS3Key: "m.mp4", slides: validDoc(), burnStatus });
+    expect((await post()).status).toBe(409);
+    expect(mockSubmitVideoBurnJob).not.toHaveBeenCalled();
+  });
+
+  it("queues the burn and submits the job when the video is eligible", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({
+      id: 5, eventId: 7, titleEn: "Teaching", titlePt: null, masterS3Key: "m.mp4", slides: validDoc(), burnStatus: "failed",
+    });
+    const { status, body } = await post();
+    expect(status).toBe(200);
+    expect(body).toEqual({ videoId: 5, jobId: "batch-job-1", burnStatus: "queued" });
+    expect(mockSubmitVideoBurnJob).toHaveBeenCalledWith(
+      expect.objectContaining({ videoId: 5, masterS3Key: "m.mp4", title: "Teaching" }),
+    );
   });
 });

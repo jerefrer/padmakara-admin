@@ -375,6 +375,7 @@ function slidesResponse(video: typeof eventVideos.$inferSelect) {
     burnStatus: video.burnStatus,
     burnError: video.burnError,
     burnedIntroMs: video.burnedIntroMs,
+    hasMaster: !!video.masterS3Key,
   };
 }
 

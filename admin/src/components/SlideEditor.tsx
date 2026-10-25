@@ -22,6 +22,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ImageIcon from "@mui/icons-material/Image";
+import ReplayIcon from "@mui/icons-material/Replay";
 import MovieCreationIcon from "@mui/icons-material/MovieCreation";
 import SaveIcon from "@mui/icons-material/Save";
 import ShortTextIcon from "@mui/icons-material/ShortText";
@@ -77,18 +78,22 @@ export interface VideoSlidesState {
   loading: boolean;
   doc: SlideDocument;
   hasBurnedSlides: boolean;
+  hasMaster: boolean;
   burnStatus: string | null;
   burnError: string | null;
   saving: boolean;
+  reburning: boolean;
   generating: boolean;
   save: (doc: SlideDocument) => Promise<boolean>;
   generateDefaults: () => Promise<SlideDocument | null>;
+  reburn: () => Promise<boolean>;
   refresh: () => Promise<void>;
 }
 
 interface SlidesApiResponse {
   slides: SlideDocument | null;
   hasBurnedSlides: boolean;
+  hasMaster?: boolean;
   burnStatus: string | null;
   burnError: string | null;
 }
@@ -98,15 +103,18 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
   const notify = useNotify();
   const [doc, setDoc] = useState<SlideDocument>(emptySlideDocument());
   const [hasBurnedSlides, setHasBurnedSlides] = useState(false);
+  const [hasMaster, setHasMaster] = useState(false);
   const [burnStatus, setBurnStatus] = useState<string | null>(null);
   const [burnError, setBurnError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [reburning, setReburning] = useState(false);
 
   const applyResponse = useCallback((data: SlidesApiResponse) => {
     setDoc(data.slides ?? emptySlideDocument());
     setHasBurnedSlides(!!data.hasBurnedSlides);
+    setHasMaster(!!data.hasMaster);
     setBurnStatus(data.burnStatus ?? null);
     setBurnError(data.burnError ?? null);
   }, []);
@@ -175,8 +183,62 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
     }
   }, [videoId, notify, translate]);
 
-  return { loading, doc, hasBurnedSlides, burnStatus, burnError, saving, generating, save, generateDefaults, refresh: fetchData };
+  const reburn = useCallback(async (): Promise<boolean> => {
+    setReburning(true);
+    try {
+      const res = await authFetch(`/api/admin/videos/${videoId}/reburn`, { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: unknown };
+        throw new Error(typeof body?.error === "string" ? body.error : `HTTP ${res.status}`);
+      }
+      notify("padmakara.slides.burnQueued", { type: "success" });
+      await fetchData();
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notify("padmakara.slides.burnFailed", { type: "error", messageArgs: { error: msg } });
+      await fetchData();
+      return false;
+    } finally {
+      setReburning(false);
+    }
+  }, [videoId, notify, fetchData]);
+
+  return { loading, doc, hasBurnedSlides, hasMaster, burnStatus, burnError, saving, reburning, generating, save, generateDefaults, reburn, refresh: fetchData };
 }
+
+/* ───────── Burn action: start / retry the burn from the retained master ───────── */
+
+interface BurnActionButtonProps {
+  hasMaster: boolean;
+  slideCount: number;
+  burnStatus: string | null;
+  reburning: boolean;
+  onReburn: () => void | Promise<unknown>;
+}
+
+/** Shown only when a burn can actually be started: a retained master, at
+ *  least one slide, and a burn that failed or went stale after a slide edit. */
+export const BurnActionButton = ({ hasMaster, slideCount, burnStatus, reburning, onReburn }: BurnActionButtonProps) => {
+  const translate = useTranslate();
+  if (!hasMaster || slideCount <= 0) return null;
+  if (burnStatus !== "failed" && burnStatus !== "pending") return null;
+  const label =
+    burnStatus === "failed"
+      ? translate("padmakara.slides.retryBurn", { _: "Retry" })
+      : translate("padmakara.slides.startBurn", { _: "Burn slides" });
+  return (
+    <Button
+      size="small"
+      disabled={reburning}
+      onClick={() => void onReburn()}
+      startIcon={reburning ? <CircularProgress size={12} thickness={5} color="inherit" /> : <ReplayIcon sx={{ fontSize: 15 }} />}
+      sx={{ color: "#b91c1c", fontWeight: 700, fontSize: "0.7rem", textTransform: "none", minWidth: 0, py: 0 }}
+    >
+      {label}
+    </Button>
+  );
+};
 
 /* ───────── Row chip: at-a-glance burn pipeline status ───────── */
 
@@ -260,6 +322,10 @@ export interface SlideEditorProps {
   generating?: boolean;
   burnStatus?: string | null;
   burnError?: string | null;
+  /** Existing-video mode only: lets the dialog offer the burn action. */
+  hasMaster?: boolean;
+  reburning?: boolean;
+  onReburn?: () => void | Promise<unknown>;
 }
 
 export const SlideEditor = ({
@@ -276,6 +342,9 @@ export const SlideEditor = ({
   generating,
   burnStatus,
   burnError,
+  hasMaster,
+  reburning,
+  onReburn,
 }: SlideEditorProps) => {
   const translate = useTranslate();
   const notify = useNotify();
@@ -470,6 +539,15 @@ export const SlideEditor = ({
           {title}
         </Typography>
         <BurnStatusChip status={burnStatus ?? null} error={burnError ?? null} />
+        {onReburn && (
+          <BurnActionButton
+            hasMaster={!!hasMaster}
+            slideCount={initialDocument.intro.length + initialDocument.outro.length}
+            burnStatus={burnStatus ?? null}
+            reburning={!!reburning}
+            onReburn={onReburn}
+          />
+        )}
         <IconButton onClick={handleRequestClose} sx={{ position: "absolute", right: 12, top: 12 }}>
           <CloseIcon fontSize="small" />
         </IconButton>
