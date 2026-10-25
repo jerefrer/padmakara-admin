@@ -20,6 +20,7 @@ vi.mock("./MediaPreviewDialog", () => ({ MediaPreviewDialog: () => null }));
 vi.mock("./SlideEditor", () => ({
   SlideEditor: () => null,
   BurnStatusChip: () => null,
+  BurnActionButton: () => null,
   useVideoSlides: () => ({ doc: { intro: [], outro: [] }, burnStatus: "none", burnError: null }),
 }));
 vi.mock("./VideoSubtitles", () => ({

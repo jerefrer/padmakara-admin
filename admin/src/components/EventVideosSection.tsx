@@ -29,7 +29,7 @@ import { authFetch } from "../utils/authFetch";
 import type { EventVideo } from "../utils/trackParser";
 import { AddVideoDialog } from "./AddVideoDialog";
 import { MediaPreviewDialog, type MediaSource } from "./MediaPreviewDialog";
-import { BurnStatusChip, SlideEditor, type PendingUploadSlides, useVideoSlides } from "./SlideEditor";
+import { BurnActionButton, BurnStatusChip, SlideEditor, type PendingUploadSlides, useVideoSlides } from "./SlideEditor";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
 import { TitlePair } from "./TitlePair";
 import { LangTag, clickToEditSx, quietInputSx } from "./inlineEditKit";
@@ -541,6 +541,13 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
         />
 
         <BurnStatusChip status={slides.burnStatus} error={slides.burnError} />
+        <BurnActionButton
+          hasMaster={slides.hasMaster}
+          slideCount={slideCount}
+          burnStatus={slides.burnStatus}
+          reburning={slides.reburning}
+          onReburn={slides.reburn}
+        />
 
         <Tooltip
           title={
@@ -624,6 +631,9 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
         generating={slides.generating}
         burnStatus={slides.burnStatus}
         burnError={slides.burnError}
+        hasMaster={slides.hasMaster}
+        reburning={slides.reburning}
+        onReburn={slides.reburn}
       />
     </Box>
   );

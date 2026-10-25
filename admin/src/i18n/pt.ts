@@ -788,6 +788,10 @@ export const pt = {
       save: "Guardar",
       cancel: "Cancelar",
       unsavedConfirm: "Descartar alterações não guardadas aos slides?",
+      retryBurn: "Tentar de novo",
+      startBurn: "Gravar slides",
+      burnQueued: "Vídeo em fila para processamento",
+      burnFailed: "Não foi possível iniciar o processamento do vídeo: %{error}",
       burnStatus: {
         pending: "Gravação pendente",
         queued: "Em fila",
