@@ -1,5 +1,6 @@
 import { DataProvider, fetchUtils, HttpError } from "react-admin";
 import { refreshAccessToken } from "./utils/authFetch";
+import { apiErrorMessageKey, isMappedApiError } from "./utils/apiErrors";
 
 const API_URL = "/api/admin";
 
@@ -21,6 +22,11 @@ const httpClient = async (url: string, options: fetchUtils.Options = {}) => {
     if (err instanceof HttpError && err.status === 401) {
       const refreshed = await refreshAccessToken();
       if (refreshed) return fetchWithToken(url, options);
+    }
+    // react-admin shows err.message in its notifications and translates it, so a
+    // coded conflict gets an i18n key instead of the bare "Conflict" status text.
+    if (err instanceof HttpError && isMappedApiError(err.body?.code)) {
+      throw new HttpError(apiErrorMessageKey(err), err.status, err.body);
     }
     throw err;
   }

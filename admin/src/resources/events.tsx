@@ -49,14 +49,14 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import SaveIcon from "@mui/icons-material/Save";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SpaIcon from "@mui/icons-material/SelfImprovement";
-import StarIcon from "@mui/icons-material/Star";
-import StarBorderIcon from "@mui/icons-material/StarBorder";
 import TranslateIcon from "@mui/icons-material/Translate";
 import Videocam from "@mui/icons-material/Videocam";
 import Audiotrack from "@mui/icons-material/Audiotrack";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
+import { FeatureStarButton } from "../components/FeatureStarButton";
+import { apiErrorMessageKey, isMappedApiError } from "../utils/apiErrors";
 import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
 
@@ -350,51 +350,16 @@ const eventFilters = [
 ];
 
 const FeaturedToggleCell = ({ record }: { record: any }) => {
-  const dataProvider = useDataProvider();
-  const notify = useNotify();
-  const refresh = useRefresh();
-  const translate = useTranslate();
-  const [loading, setLoading] = useState(false);
-
-  const handleToggle = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setLoading(true);
-    const newFeaturedAt = record.featuredAt ? null : new Date().toISOString();
-    try {
-      await dataProvider.update("events", {
-        id: record.id,
-        data: { featuredAt: newFeaturedAt },
-        previousData: record,
-      });
-      notify(
-        newFeaturedAt
-          ? "padmakara.events.featuredSetNotify"
-          : "padmakara.events.featuredRemovedNotify",
-        { type: "success" },
-      );
-      refresh();
-    } catch (error: any) {
-      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  const [locale] = useLocaleState();
   return (
-    <Tooltip
-      title={translate(
-        record.featuredAt ? "padmakara.events.featuredRemove" : "padmakara.events.featuredSet",
-      )}
-    >
-      <IconButton
-        size="small"
-        onClick={handleToggle}
-        disabled={loading}
-        sx={{ color: record.featuredAt ? "#f59e0b" : "action.disabled" }}
-      >
-        {record.featuredAt ? <StarIcon sx={{ fontSize: 20 }} /> : <StarBorderIcon sx={{ fontSize: 20 }} />}
-      </IconButton>
-    </Tooltip>
+    <FeatureStarButton
+      eventId={record.id}
+      status={record.status}
+      featured={!!record.featuredAt}
+      title={localeTitle(record, locale)}
+      titleOf={(r) => localeTitle(r, locale)}
+      iconSize={20}
+    />
   );
 };
 
@@ -674,7 +639,6 @@ interface EventFormProps {
    *  editor so "Generate from event data" works before any video row
    *  exists. Undefined in create mode (no event id yet). */
   eventId?: number;
-  onFeaturedToggle?: () => void;
   onStatusChange?: (newStatus: string) => void;
   /** Create-flow only: the live preview state behind SessionTrackTable (the
    *  `sessions` prop is empty there), so the auto-translate bar can count and
@@ -772,7 +736,7 @@ export const EventFormFields = ({
   onTrackAudioUpload,
   videos, onVideosChange, onVideoUpload, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
-  onFeaturedToggle, onStatusChange, trackCount, transcriptCount,
+  onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
 }: EventFormProps) => {
   const translate = useTranslate();
@@ -1085,27 +1049,21 @@ export const EventFormFields = ({
             {translate("padmakara.events.published")}
           </ToggleButton>
         </ToggleButtonGroup>
-        <Tooltip
-          title={translate(
-            form.featuredAt ? "padmakara.events.featuredRemove" : "padmakara.events.featuredSetHome",
-          )}
-        >
-          <IconButton
-            onClick={() => {
-              setForm((prev) => ({
-                ...prev,
-                featuredAt: prev.featuredAt ? null : new Date().toISOString(),
-              }));
-              onFeaturedToggle?.();
-            }}
-            sx={{
-              ml: 1,
-              color: form.featuredAt ? "#f59e0b" : "action.disabled",
-            }}
-          >
-            {form.featuredAt ? <StarIcon /> : <StarBorderIcon />}
-          </IconButton>
-        </Tooltip>
+        {eventId !== undefined && (
+          <Box sx={{ ml: 1 }}>
+            <FeatureStarButton
+              eventId={eventId}
+              status={form.status}
+              featured={!!form.featuredAt}
+              title={localeTitle(form, locale)}
+              titleOf={(r) => localeTitle(r, locale)}
+              size="medium"
+              onFeatured={(updated) =>
+                setForm((prev) => ({ ...prev, featuredAt: updated.featuredAt ?? new Date().toISOString() }))
+              }
+            />
+          </Box>
+        )}
       </Box>
 
       {/* ── Library metadata — fill the form from the association's CSV ── */}
@@ -2334,6 +2292,8 @@ export const EventCreate = () => {
       const { data: event } = await dataProvider.create("events", {
         data: {
           ...form,
+          // The highlight only moves through POST /events/:id/feature.
+          featuredAt: undefined,
           startDate: form.startDate || null,
           endDate: form.endDate || null,
           bibliography: form.bibliography.trim() || null,
@@ -3830,26 +3790,6 @@ export const EventEdit = () => {
     [form.eventCode, sessions, refresh],
   );
 
-  const handleFeaturedToggle = useCallback(async () => {
-    if (!id) return;
-    const newFeaturedAt = form.featuredAt ? null : new Date().toISOString();
-    try {
-      await dataProvider.update("events", {
-        id,
-        data: { featuredAt: newFeaturedAt },
-        previousData: event,
-      });
-      notify(
-        newFeaturedAt
-          ? "padmakara.events.featuredSetNotify"
-          : "padmakara.events.featuredRemovedNotify",
-        { type: "success" },
-      );
-    } catch (error: any) {
-      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
-    }
-  }, [id, form.featuredAt, dataProvider, event, notify]);
-
   const handleStatusChange = useCallback(async (newStatus: string) => {
     if (!id) return;
     try {
@@ -3863,7 +3803,11 @@ export const EventEdit = () => {
         messageArgs: { status: translate(`padmakara.events.${newStatus}`, { _: newStatus }) },
       });
     } catch (error: any) {
-      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
+      // The toggle already moved to the new status; put it back when the server refused.
+      if (isMappedApiError(error?.body?.code)) {
+        setForm((prev) => ({ ...prev, status: "published" }));
+      }
+      notify(apiErrorMessageKey(error), { type: "error", messageArgs: { message: error.message } });
     }
   }, [id, dataProvider, event, notify, translate]);
 
@@ -3878,6 +3822,8 @@ export const EventEdit = () => {
         id: id!,
         data: {
           ...form,
+          // The highlight only moves through POST /events/:id/feature.
+          featuredAt: undefined,
           startDate: form.startDate || null,
           endDate: form.endDate || null,
           bibliography: form.bibliography.trim() || null,
@@ -3897,7 +3843,7 @@ export const EventEdit = () => {
       notify(translate("padmakara.events.updatedSuccess"), { type: "success" });
       redirect("list", "events");
     } catch (error: any) {
-      notify("padmakara.common.error", { type: "error", messageArgs: { message: error.message } });
+      notify(apiErrorMessageKey(error), { type: "error", messageArgs: { message: error.message } });
     } finally {
       setSaving(false);
     }
@@ -3962,7 +3908,6 @@ export const EventEdit = () => {
         onVideoUpload={handleVideoUpload}
         onVideoImportUrl={handleVideoImportUrl}
         eventId={id ? Number(id) : undefined}
-        onFeaturedToggle={handleFeaturedToggle}
         onStatusChange={handleStatusChange}
         trackCount={trackCount}
         transcriptCount={transcriptCount}
