@@ -15,6 +15,27 @@ subtitle-generation jobs (`BATCH_JOB_DEFINITION` / `BATCH_JOB_QUEUE` in the
 server `.env`) — the video-burn job reuses the same compute environment and
 job queue by default, and only needs its own job **definition**.
 
+> **Production, as provisioned on 2026-10-25 — read this before the steps below.**
+> The read-along queue (`padmakara-read-along-queue`) only has the EC2 GPU
+> compute environments (`g4dn.xlarge`), which cannot run a FARGATE job
+> definition, so the "reuse the same queue" default does not work in prod.
+> What exists instead:
+> - ECR `padmakara-video-burn:latest`, built **for linux/arm64** on an Apple
+>   Silicon Mac (`docker build --platform linux/arm64 ...`).
+> - Compute environment `padmakara-fargate` (FARGATE, maxvCpus 8, same subnets
+>   and security group as the GPU ones) and queue `padmakara-video-burn-queue`.
+> - Job definition `padmakara-video-burn` (FARGATE, `runtimePlatform`
+>   LINUX/ARM64, 4 vCPU / 8 GB / 50 GiB, execution role
+>   `padmakara-batch-execution-role` with `AmazonECSTaskExecutionRolePolicy`).
+>   No job role: storage is Cloudflare R2, and the backend passes the R2
+>   credentials in `containerOverrides` (`storageEnvForContainer()`), so the
+>   S3 IAM policy in step 4 is not needed. The Bunny values sit on the job
+>   definition's `environment`.
+> - Server `.env`: `BURN_JOB_QUEUE=padmakara-video-burn-queue`
+>   (`BURN_JOB_DEFINITION` keeps its default).
+> If you rebuild the image, keep `--platform linux/arm64`, or change the job
+> definition's `cpuArchitecture` to match.
+
 ---
 
 ## 1. Build and push the image to ECR
