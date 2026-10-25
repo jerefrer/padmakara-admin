@@ -18,15 +18,23 @@ export const Menu = () => {
   const translate = useTranslate();
   return (
     <Box sx={{ pt: 1 }}>
-      {/* Brand */}
-      <Box sx={{ px: 2, py: 2, mb: 1 }}>
+      {/* Brand: the same logo + wordmark lockup as the app's desktop sidebar */}
+      <Box sx={{ px: 2, pt: 2, pb: 2.5, mb: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <Box
+          component="img"
+          src="/images/padmakara-logo.png"
+          alt=""
+          sx={{ width: 72, height: 72, mb: 1.5, opacity: 0.85 }}
+        />
         <Typography
-          variant="h6"
           sx={{
-            color: "rgba(255,255,255,0.95)",
-            fontWeight: 700,
-            fontSize: "1.15rem",
-            letterSpacing: "-0.02em",
+            color: "#FFFFFF",
+            fontFamily: '"EB Garamond", serif',
+            fontWeight: 400,
+            fontSize: "1.3rem",
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            lineHeight: 1.2,
           }}
         >
           {translate("padmakara.brand.title")}
@@ -35,9 +43,11 @@ export const Menu = () => {
           variant="caption"
           sx={{
             color: "rgba(255,255,255,0.6)",
-            fontSize: "0.7rem",
-            letterSpacing: "0.06em",
+            fontSize: "0.65rem",
+            fontWeight: 600,
+            letterSpacing: "0.15em",
             textTransform: "uppercase",
+            mt: 0.5,
           }}
         >
           {translate("padmakara.brand.subtitle")}
