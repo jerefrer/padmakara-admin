@@ -30,8 +30,9 @@ import { deactivateAtEasypay } from "../routes/payment.ts";
  * PROVISIONAL (see DECISIONS.md, "Account deletion and payment records"):
  *  - Payment ledger rows are KEPT (Portuguese bookkeeping law: ~10 years). They are
  *    detached from the user (`user_id` NULL) and the customer block (name, email,
- *    phone, tax number) is stripped from the stored Easypay payloads. Amounts, dates,
- *    Easypay ids, actions and notes stay.
+ *    phone, key) is stripped from the stored Easypay payloads. Amounts, dates,
+ *    Easypay ids, actions and notes stay. No tax number is lost: checkout never sends
+ *    one, and Easypay keeps its own full record of every transaction.
  *  - A live Easypay subscription is stopped BEFORE anything is deleted. If Easypay
  *    cannot be reached the deletion is refused (502) rather than leaving a card
  *    charging a member who no longer exists. Retrying is safe.
