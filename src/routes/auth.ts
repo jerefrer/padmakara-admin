@@ -5,6 +5,7 @@ import { users, userGroupMemberships } from "../db/schema/users.ts";
 import {
   refreshTokens,
   magicLinkTokens,
+  accountDeletionTokens,
   deviceActivations,
   userApprovalRequests,
 } from "../db/schema/auth.ts";
@@ -21,7 +22,7 @@ import {
   type TokenPayload,
 } from "../services/auth.ts";
 import { hasActiveSubscription } from "../services/access.ts";
-import { sendEmail, buildMagicLinkEmail } from "../services/email.ts";
+import { sendEmail, buildMagicLinkEmail, buildAccountDeletionEmail } from "../services/email.ts";
 import { AppError } from "../lib/errors.ts";
 import {
   loginSchema,
@@ -31,9 +32,12 @@ import {
   requestApprovalSchema,
   autoActivateSchema,
   deactivateDeviceSchema,
+  requestAccountDeletionSchema,
+  confirmAccountDeletionSchema,
 } from "../lib/schemas.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { config } from "../config.ts";
+import { deleteUserAccount } from "../services/account-deletion.ts";
 import {
   authIpLimiter,
   authEmailLimiter,
@@ -823,6 +827,91 @@ auth.post("/logout", authMiddleware, async (c) => {
   }
 
   return c.json({ message: "Logged out" });
+});
+
+// ──────────────────────────────────────────────────────
+// Account deletion (Apple 5.1.1(v) / Google Play)
+// ──────────────────────────────────────────────────────
+
+/**
+ * DELETE /api/auth/user/delete
+ *
+ * In-app deletion for the signed-in user. See `deleteUserAccount` for exactly what is
+ * removed and what is retained.
+ */
+auth.delete("/user/delete", authMiddleware, async (c) => {
+  await deleteUserAccount(getUser(c).id);
+  return c.json({ success: true });
+});
+
+const ACCOUNT_DELETION_REQUEST_MESSAGE =
+  "If an account exists for this email, we have sent a confirmation link.";
+
+/**
+ * POST /api/auth/account-deletion/request  { email, language? }
+ *
+ * Public (no login), so Google Play can point at a web page. Always answers 200 with the
+ * same message, whether or not the email has an account, and whether or not an email
+ * went out. Admin accounts get no link (they cannot be deleted this way).
+ */
+auth.post("/account-deletion/request", authIpLimiter(), authEmailLimiter(), async (c) => {
+  const data = requestAccountDeletionSchema.parse(await c.req.json());
+  const email = data.email.toLowerCase().trim();
+
+  const user = await db.query.users.findFirst({ where: eq(users.email, email) });
+
+  if (user && user.role !== "admin" && user.role !== "superadmin") {
+    const token = generateMagicLinkToken();
+    const tokenHash = await hashToken(token);
+
+    // One live link per address: a new request replaces the previous one.
+    await db.delete(accountDeletionTokens).where(eq(accountDeletionTokens.email, email));
+    await db.insert(accountDeletionTokens).values({
+      email,
+      tokenHash,
+      expiresAt: magicLinkExpiresAt(),
+    });
+
+    const language = data.language ?? user.preferredLanguage;
+    const confirmUrl = `${config.urls.frontend}/account-deletion?token=${token}`;
+    try {
+      await sendEmail({ to: email, ...buildAccountDeletionEmail(confirmUrl, language) });
+    } catch (err) {
+      // Swallowed on purpose: surfacing a failure would reveal that the account exists.
+      console.error("[ACCOUNT DELETION] could not send confirmation email:", err);
+    }
+  }
+
+  return c.json({ success: true, message: ACCOUNT_DELETION_REQUEST_MESSAGE });
+});
+
+/**
+ * POST /api/auth/account-deletion/confirm  { token }
+ *
+ * Redeems the emailed link and runs the same deletion as the in-app route. Tokens are
+ * single use: the service removes every deletion token for the address along with the
+ * account, and a failed attempt (e.g. Easypay unreachable) leaves the token valid so the
+ * person can retry until it expires.
+ */
+auth.post("/account-deletion/confirm", authIpLimiter(), async (c) => {
+  const data = confirmAccountDeletionSchema.parse(await c.req.json());
+  const tokenHash = await hashToken(data.token);
+
+  const row = await db.query.accountDeletionTokens.findFirst({
+    where: and(
+      eq(accountDeletionTokens.tokenHash, tokenHash),
+      gt(accountDeletionTokens.expiresAt, new Date()),
+    ),
+  });
+  const user = row
+    ? await db.query.users.findFirst({ where: eq(users.email, row.email) })
+    : undefined;
+  if (!row || !user) {
+    throw AppError.badRequest("This link is invalid or has expired.", "INVALID_TOKEN");
+  }
+
+  await deleteUserAccount(user.id);
+  return c.json({ success: true });
 });
 
 /**

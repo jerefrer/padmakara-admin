@@ -200,3 +200,12 @@
 **Revisit if:** the home page shows several featured events, or a "no highlight" state becomes valid.
 
 ---
+
+## 2026-10-27 — Account deletion and payment records (PROVISIONAL)
+
+**Status:** PROVISIONAL, pending the association's decision. Implemented so the app can pass Apple 5.1.1(v) and Google Play review; the retention rules below are our reading of the law, not a ruling.
+**Chosen:** Deleting an account (in-app `DELETE /api/auth/user/delete`, or the emailed link from the public page `/account-deletion`) removes the user row and everything personal (devices, tokens, group memberships, progress, all bookmark kinds, video progress, download requests, publication access, approval requests and login links matching the email). `payment_transactions` rows are RETAINED: `user_id` is set to NULL and the `customer` block (name, email, phone, tax number) is stripped from `raw_payload` / `raw_subscription`. Amounts, dates, Easypay ids, actions and notes stay. A live Easypay subscription is stopped first (same PATCH `status=inactive` the webhook uses); if Easypay cannot be reached the deletion is refused with 502 so nothing keeps charging a deleted member. Admin and superadmin accounts cannot be deleted this way (409).
+**Alternatives:** Hard-delete payment rows (rejected: Portuguese bookkeeping law keeps accounting documents about 10 years, and the ledger is also our webhook idempotency guard). Keep `user_id` and only blank the user (rejected: it would keep the person identifiable). Delete even when Easypay fails (rejected: orphaned recurring charges).
+**Why:** Store rules require deletion of the account and associated data; tax law requires keeping the accounting trail. Detaching plus stripping the customer block satisfies both as far as we can tell without a lawyer.
+**Trade-offs:** `customer.key` (`user-{id}`) is also removed, so a replayed webhook for a deleted member is recorded as "unresolved" and cannot be re-attributed. The tax number may be needed on invoices if the association's accountant issues them from this ledger; if so the stripping must be relaxed. A member who cancelled earlier is not re-cancelled at Easypay. Generated download ZIPs in object storage are not purged (they expire after 24 hours).
+**Revisit if:** the association or its accountant decides on a different retention period or on which billing fields must stay; or Easypay offers a way to delete the customer record.

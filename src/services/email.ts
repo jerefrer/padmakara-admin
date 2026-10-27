@@ -82,3 +82,40 @@ export function buildMagicLinkEmail(
     }),
   };
 }
+
+export function buildAccountDeletionEmail(
+  confirmUrl: string,
+  language: string,
+): { subject: string; html: string; text: string } {
+  if (lang(language) === "pt") {
+    return {
+      subject: "Confirme a eliminação da sua conta - Padmakara",
+      ...renderBrandEmail({
+        lang: "pt",
+        subject: "Confirme a eliminação da sua conta - Padmakara",
+        kicker: "Conta",
+        paragraphs: [
+          "Recebemos um pedido para eliminar a sua conta Padmakara. Se foi você, carregue no botão abaixo para confirmar. A sua conta e os seus dados pessoais (progresso, marcadores, dispositivos) serão eliminados de forma permanente. Os registos de pagamentos são conservados apenas para fins de contabilidade, como a lei exige.",
+          "Se não fez este pedido, ignore este email: nada será eliminado.",
+        ],
+        note: "Este link expira dentro de uma hora.",
+        button: { label: "Continuar para a eliminação", href: confirmUrl },
+      }),
+    };
+  }
+
+  return {
+    subject: "Confirm the deletion of your account - Padmakara",
+    ...renderBrandEmail({
+      lang: "en",
+      subject: "Confirm the deletion of your account - Padmakara",
+      kicker: "Account",
+      paragraphs: [
+        "We received a request to delete your Padmakara account. If it was you, click the button below to confirm. Your account and personal data (progress, bookmarks, devices) will be permanently deleted. Payment records are kept only for accounting purposes, as the law requires.",
+        "If you did not make this request, ignore this email: nothing will be deleted.",
+      ],
+      note: "This link expires in one hour.",
+      button: { label: "Continue to deletion", href: confirmUrl },
+    }),
+  };
+}
