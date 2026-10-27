@@ -417,7 +417,7 @@ const membershipUrl = () => `${config.urls.frontend}/membership`;
  * treating it as stopped would leave the old card charging. Those, network errors and
  * 5xx are retried.
  */
-type StopResult = "stopped" | "already_inactive" | "failed";
+export type StopResult = "stopped" | "already_inactive" | "failed";
 
 /** Ledger note suffix describing a stop; empty when it simply worked. */
 const stopSuffix = (r: StopResult) =>
@@ -443,7 +443,7 @@ async function wasReplaced(userId: number, id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-async function deactivateAtEasypay(id: string): Promise<StopResult> {
+export async function deactivateAtEasypay(id: string): Promise<StopResult> {
   try {
     await easypayFetch(`/subscription/${id}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) });
     return "stopped";

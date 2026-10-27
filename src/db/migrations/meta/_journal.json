@@ -351,6 +351,13 @@
       "when": 1812592000000,
       "tag": "0049_single_featured_event",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1812678400000,
+      "tag": "0050_account_deletion_tokens",
+      "breakpoints": true
     }
   ]
 }

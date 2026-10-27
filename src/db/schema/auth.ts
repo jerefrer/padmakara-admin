@@ -34,6 +34,19 @@ export const magicLinkTokens = pgTable("magic_link_tokens", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/**
+ * One-time links for the public "delete my account" flow (no login). Kept apart from
+ * `magic_link_tokens` on purpose: that table's tokens activate a device, and a deletion
+ * token must never be redeemable there (or the other way round).
+ */
+export const accountDeletionTokens = pgTable("account_deletion_tokens", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const deviceActivations = pgTable("device_activations", {
   id: serial("id").primaryKey(),
   userId: integer("user_id")

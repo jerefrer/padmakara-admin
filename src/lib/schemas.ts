@@ -16,6 +16,15 @@ export const requestMagicLinkSchema = z.object({
   language: z.enum(["en", "pt"]).optional().default("en"),
 });
 
+export const requestAccountDeletionSchema = z.object({
+  email: z.email(),
+  language: z.enum(["en", "pt"]).optional(),
+});
+
+export const confirmAccountDeletionSchema = z.object({
+  token: z.string().min(1).max(256),
+});
+
 export const discoverDeviceSchema = z.object({
   device_fingerprint: z.string().min(1),
 });
