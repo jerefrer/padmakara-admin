@@ -52,6 +52,7 @@ export {
 export {
   refreshTokens,
   magicLinkTokens,
+  accountDeletionTokens,
   deviceActivations,
   userApprovalRequests,
   refreshTokensRelations,
