@@ -70,6 +70,16 @@ export const config = {
     graceDays: parseInt(env("SUBSCRIPTION_GRACE_DAYS", "7"), 10),
   },
 
+  /**
+   * Store-review demo account. Apple/Google reviewers cannot read our mailbox,
+   * so this one account signs in with a code instead of an emailed magic link.
+   * An empty code disables the feature entirely (the default).
+   */
+  review: {
+    email: env("REVIEW_ACCOUNT_EMAIL", "review@padmakara.pt").toLowerCase().trim(),
+    code: env("REVIEW_ACCOUNT_CODE", ""),
+  },
+
   urls: {
     frontend: env("FRONTEND_URL", "http://localhost:8081"),
     admin: env("ADMIN_URL", "http://localhost:5173"),
