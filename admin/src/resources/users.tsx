@@ -16,6 +16,7 @@ import {
   useTranslate,
   useLocaleState,
   useRecordContext,
+  FunctionField,
   useRefresh,
   useNotify,
 } from "react-admin";
@@ -39,6 +40,7 @@ import {
   TableContainer,
 } from "@mui/material";
 
+import { ReviewAccountChip, ReviewAccountWarning } from "../components/ReviewAccount";
 import { authFetch as baseAuthFetch } from "../utils/authFetch";
 
 const API_URL = "/api/admin";
@@ -60,6 +62,11 @@ export const UserList = () => {
     <List sort={{ field: "createdAt", order: "DESC" }} perPage={100} pagination={false}>
       <Datagrid rowClick="edit">
         <EmailField source="email" label={translate("padmakara.fields.email")} />
+        <FunctionField
+          label=""
+          sortable={false}
+          render={(record: any) => <ReviewAccountChip record={record} />}
+        />
         <TextField source="firstName" label={translate("padmakara.fields.firstName")} />
         <TextField source="lastName" label={translate("padmakara.fields.lastName")} />
         <TextField source="dharmaName" label={translate("padmakara.fields.dharmaName")} />
@@ -507,6 +514,8 @@ function EventAttendance() {
 
 // ─── Edit ────────────────────────────────────────────────────────────────────
 
+const EditReviewWarning = () => <ReviewAccountWarning record={useRecordContext() as any} />;
+
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
   <Typography variant="subtitle1" fontWeight={600} sx={{ mt: 2, mb: 1 }}>
     {children}
@@ -518,6 +527,7 @@ export const UserEdit = () => {
   return (
     <Edit mutationMode="pessimistic">
       <SimpleForm warnWhenUnsavedChanges>
+        <EditReviewWarning />
         {/* ─── Identity ──────────────────────────────── */}
         <TextInput source="email" label={translate("padmakara.fields.email")} disabled fullWidth />
         <Stack direction="row" spacing={2} sx={{ width: "100%" }}>

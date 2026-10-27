@@ -86,6 +86,31 @@ describe("GET /admin/users — search", () => {
   });
 });
 
+describe("isReviewAccount flag", () => {
+  beforeEach(() => vi.clearAllMocks());
+  const headers = async () => ({ Authorization: `Bearer ${await adminToken()}` });
+
+  it("should flag only the review account in the list", async () => {
+    (db.query.users.findMany as any).mockResolvedValueOnce([
+      { id: 1, email: "review@padmakara.pt" },
+      { id: 2, email: "someone@test.com" },
+    ]);
+
+    const res = await buildApp().request("/admin/users", { headers: await headers() });
+    const body = (await res.json()) as any[];
+
+    expect(body.map((u) => u.isReviewAccount)).toEqual([true, false]);
+  });
+
+  it("should flag the review account on the detail endpoint", async () => {
+    (db.query.users.findFirst as any).mockResolvedValueOnce({ id: 1, email: "Review@padmakara.pt" });
+
+    const res = await buildApp().request("/admin/users/1", { headers: await headers() });
+
+    expect(((await res.json()) as any).isReviewAccount).toBe(true);
+  });
+});
+
 describe("POST /admin/users/:id/events — bumpUserAccessVersion", () => {
   beforeEach(() => {
     vi.clearAllMocks();

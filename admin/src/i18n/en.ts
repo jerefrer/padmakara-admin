@@ -327,6 +327,8 @@ export const en = {
       noGroupsDefined: "No groups defined",
       groupFallback: "Group #%{id}",
       loadGroupsFailed: "Failed to load groups",
+      reviewAccount: "Review account",
+      reviewAccountWarning: "Used by Apple and Google reviewers — do not delete or remove from its groups.",
       updateGroupMembershipFailed: "Failed to update group membership",
       loadEventsFailed: "Failed to load events",
       updateAttendanceFailed: "Failed to update event attendance",
