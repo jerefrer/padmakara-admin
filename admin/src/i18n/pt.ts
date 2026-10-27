@@ -525,6 +525,8 @@ export const pt = {
       noGroupsDefined: "Nenhum grupo definido",
       groupFallback: "Grupo #%{id}",
       loadGroupsFailed: "Falha ao carregar grupos",
+      reviewAccount: "Conta de revisão",
+      reviewAccountWarning: "Usada pelos revisores da Apple e da Google — não eliminar nem remover dos seus grupos.",
       updateGroupMembershipFailed: "Falha ao atualizar associação ao grupo",
       loadEventsFailed: "Falha ao carregar eventos",
       updateAttendanceFailed: "Falha ao atualizar presença no evento",

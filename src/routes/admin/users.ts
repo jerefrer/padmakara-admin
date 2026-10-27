@@ -5,6 +5,7 @@ import { users, userGroupMemberships, userEventAttendance } from "../../db/schem
 import { updateUserSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
+import { isReviewAccountEmail } from "../../services/review-account.ts";
 import { bumpUserAccessVersion } from "../../services/sync-versions.ts";
 
 const userRoutes = new Hono();
@@ -53,7 +54,9 @@ userRoutes.get("/", async (c) => {
     countRows(users, where),
   ]);
 
-  return listResponse(c, data, total, offset, offset + limit, "users");
+  // The admin cannot read server env, so flag the store-review account here.
+  const withFlag = data.map((u) => ({ ...u, isReviewAccount: isReviewAccountEmail(u.email) }));
+  return listResponse(c, withFlag, total, offset, offset + limit, "users");
 });
 
 userRoutes.get("/:id", async (c) => {
@@ -73,7 +76,7 @@ userRoutes.get("/:id", async (c) => {
     },
   });
   if (!user) throw AppError.notFound("User not found");
-  return c.json(user);
+  return c.json({ ...user, isReviewAccount: isReviewAccountEmail(user.email) });
 });
 
 userRoutes.put("/:id", async (c) => {
@@ -116,7 +119,7 @@ userRoutes.put("/:id", async (c) => {
   bumpUserAccessVersion(id).catch((err) =>
     console.error("[sync] failed to bump user access version:", err),
   );
-  return c.json(user);
+  return c.json({ ...user, isReviewAccount: isReviewAccountEmail(user.email) });
 });
 
 userRoutes.delete("/:id", async (c) => {

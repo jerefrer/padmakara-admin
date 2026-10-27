@@ -27,6 +27,7 @@ import { AppError } from "../lib/errors.ts";
 import {
   loginSchema,
   requestMagicLinkSchema,
+  reviewLoginSchema,
   refreshTokenSchema,
   discoverDeviceSchema,
   requestApprovalSchema,
@@ -37,6 +38,8 @@ import {
 } from "../lib/schemas.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { config } from "../config.ts";
+import { activateDeviceForUser } from "../services/device-activation.ts";
+import { isReviewLoginFor, verifyReviewCode } from "../services/review-account.ts";
 import { deleteUserAccount } from "../services/account-deletion.ts";
 import {
   authIpLimiter,
@@ -252,6 +255,16 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
       access_token: tokens.accessToken,
       refresh_token: tokens.refreshToken,
       user: await formatUserForApp(user),
+    });
+  }
+
+  // Store-review demo account: no email, the app asks for the review code and
+  // calls /review-login. Only reached for an existing, active review user, so
+  // every other address keeps the generic anti-enumeration behaviour above.
+  if (isReviewLoginFor(email)) {
+    return c.json({
+      status: "code_required",
+      message: "Enter the review code to sign in",
     });
   }
 
@@ -549,49 +562,15 @@ auth.post("/auto-activate", authIpLimiter(), async (c) => {
     throw AppError.unauthorized("Account not found or deactivated");
   }
 
-  // Mark user as verified
-  if (!user.isVerified) {
-    await db
-      .update(users)
-      .set({ isVerified: true, updatedAt: new Date() })
-      .where(eq(users.id, user.id));
-  }
-
-  // Create or reactivate device
-  const existingDevice = await db.query.deviceActivations.findFirst({
-    where: eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
+  await activateDeviceForUser(user, {
+    fingerprint: data.device_fingerprint,
+    name: data.device_name,
+    type: data.device_type,
+    ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
+    userAgent: c.req.header("user-agent") || null,
   });
 
-  if (existingDevice) {
-    await db
-      .update(deviceActivations)
-      .set({
-        isActive: true,
-        userId: user.id,
-        deviceName: data.device_name,
-        deviceType: data.device_type,
-        lastUsed: new Date(),
-        ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
-        userAgent: c.req.header("user-agent") || null,
-      })
-      .where(eq(deviceActivations.id, existingDevice.id));
-  } else {
-    await db.insert(deviceActivations).values({
-      userId: user.id,
-      deviceFingerprint: data.device_fingerprint,
-      deviceName: data.device_name,
-      deviceType: data.device_type,
-      ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
-      userAgent: c.req.header("user-agent") || null,
-    });
-  }
-
   const tokens = await generateTokensForUser(user);
-
-  await db
-    .update(users)
-    .set({ lastActivity: new Date(), updatedAt: new Date() })
-    .where(eq(users.id, user.id));
 
   return c.json({
     status: "device_activated",
@@ -603,6 +582,55 @@ auth.post("/auto-activate", authIpLimiter(), async (c) => {
       device_type: data.device_type,
       activated_at: new Date().toISOString(),
     },
+  });
+});
+
+/**
+ * POST /api/auth/review-login
+ *
+ * Store-review demo account sign-in: same device fields as request-magic-link
+ * plus the review `code`. On success the device is activated exactly like a
+ * clicked magic link and the response has the same shape as the
+ * "already activated" branch of request-magic-link. Every failure (wrong code,
+ * feature disabled, any other email, missing/inactive user) is the same generic
+ * 401 so nothing about the account or the configuration leaks. The code is
+ * never logged.
+ */
+auth.post("/review-login", authIpLimiter(), authEmailLimiter(), async (c) => {
+  const body = await c.req.json();
+  const data = reviewLoginSchema.parse(body);
+  const email = data.email.toLowerCase().trim();
+
+  // Evaluate both checks unconditionally so timing does not reveal which failed.
+  const emailOk = isReviewLoginFor(email);
+  const codeOk = verifyReviewCode(data.code);
+  if (!emailOk || !codeOk) {
+    throw AppError.unauthorized("Invalid review credentials");
+  }
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.email, email),
+  });
+  if (!user || !user.isActive) {
+    throw AppError.unauthorized("Invalid review credentials");
+  }
+
+  await activateDeviceForUser(user, {
+    fingerprint: data.device_fingerprint,
+    name: data.device_name,
+    type: data.device_type,
+    ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
+    userAgent: c.req.header("user-agent") || null,
+  });
+
+  const tokens = await generateTokensForUser(user);
+
+  return c.json({
+    status: "already_activated",
+    message: "Device is activated",
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+    user: await formatUserForApp(user),
   });
 });
 

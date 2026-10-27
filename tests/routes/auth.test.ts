@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { testJson } from "../helpers.ts";
 
 // Mock the database module before importing anything that uses it
@@ -28,6 +28,7 @@ vi.mock("../../src/services/email.ts", () => ({
 }));
 
 import { db } from "../../src/db/index.ts";
+import { config } from "../../src/config.ts";
 import {
   hashPassword,
   createAccessToken,
@@ -274,6 +275,164 @@ describe("Auth routes", () => {
       expect(body.status).toBe("already_activated");
       expect(body.access_token).toBeDefined();
       expect(body.user).toBeDefined();
+    });
+  });
+
+  describe("store-review demo account", () => {
+    const review = config.review as { email: string; code: string };
+    const original = { ...review };
+    const devicePayload = {
+      device_fingerprint: "review-fingerprint-1",
+      device_name: "Reviewer iPhone",
+      device_type: "ios",
+    };
+    const reviewUser = {
+      id: 7, email: "review@padmakara.pt", firstName: "App", lastName: "Review",
+      dharmaName: null, preferredLanguage: "en", role: "user",
+      isActive: true, isVerified: false,
+      subscriptionStatus: "none", subscriptionSource: null, subscriptionExpiresAt: null,
+      lastActivity: null, createdAt: new Date(),
+    };
+
+    beforeEach(() => {
+      review.email = "review@padmakara.pt";
+      review.code = "demo-code-1";
+      (db.insert as any).mockReturnValue(mockInsertChain());
+      (db.update as any).mockReturnValue(mockUpdateChain());
+      (db.query.deviceActivations.findFirst as any).mockResolvedValue(null);
+    });
+
+    afterEach(() => {
+      review.email = original.email;
+      review.code = original.code;
+    });
+
+    it("request-magic-link returns code_required for the review email without sending email", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(reviewUser);
+      const { sendEmail } = await import("../../src/services/email.ts");
+
+      const { status, body } = await testJson("/api/auth/request-magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email: "Review@Padmakara.pt", ...devicePayload }),
+      });
+
+      expect(status).toBe(200);
+      expect(body.status).toBe("code_required");
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("request-magic-link sends the normal magic link for other emails even when configured", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue({ ...reviewUser, id: 1, email: "user@test.com" });
+      const { sendEmail } = await import("../../src/services/email.ts");
+
+      const { body } = await testJson("/api/auth/request-magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email: "user@test.com", ...devicePayload }),
+      });
+
+      expect(body.status).toBe("magic_link_sent");
+      expect(sendEmail).toHaveBeenCalled();
+    });
+
+    it("request-magic-link is unchanged for the review email when no code is configured", async () => {
+      review.code = "";
+      (db.query.users.findFirst as any).mockResolvedValue(reviewUser);
+      const { sendEmail } = await import("../../src/services/email.ts");
+
+      const { body } = await testJson("/api/auth/request-magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email: "review@padmakara.pt", ...devicePayload }),
+      });
+
+      expect(body.status).toBe("magic_link_sent");
+      expect(sendEmail).toHaveBeenCalled();
+    });
+
+    it("request-magic-link keeps the generic response when the review user does not exist", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(null);
+
+      const { body } = await testJson("/api/auth/request-magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email: "review@padmakara.pt", ...devicePayload }),
+      });
+
+      expect(body.status).toBe("magic_link_sent");
+    });
+
+    it("review-login activates the device and returns tokens with the already_activated shape", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(reviewUser);
+      const insertChain = mockInsertChain();
+      (db.insert as any).mockReturnValue(insertChain);
+
+      const { status, body } = await testJson("/api/auth/review-login", {
+        method: "POST",
+        body: JSON.stringify({ email: "review@padmakara.pt", code: "demo-code-1", ...devicePayload }),
+      });
+
+      expect(status).toBe(200);
+      expect(body.status).toBe("already_activated");
+      expect(body.access_token).toBeDefined();
+      expect(body.refresh_token).toBeDefined();
+      expect(body.user.email).toBe("review@padmakara.pt");
+      // A device activation row was created for this fingerprint.
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 7, deviceFingerprint: "review-fingerprint-1" }),
+      );
+    });
+
+    it("review-login is wired with the same limiters as request-magic-link", async () => {
+      const { auth: authRoutes } = await import("../../src/routes/auth.ts");
+      const count = (path: string) =>
+        authRoutes.routes.filter((r: any) => r.method === "POST" && r.path === path).length;
+      // IP limiter + email limiter + handler, same as request-magic-link.
+      expect(count("/review-login")).toBe(3);
+      expect(count("/review-login")).toBe(count("/request-magic-link"));
+    });
+
+    it("review-login returns 401 for a wrong code", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(reviewUser);
+
+      const { status } = await testJson("/api/auth/review-login", {
+        method: "POST",
+        body: JSON.stringify({ email: "review@padmakara.pt", code: "wrong", ...devicePayload }),
+      });
+
+      expect(status).toBe(401);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it("review-login returns 401 for any other email, even with the right code", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue({ ...reviewUser, id: 1, email: "user@test.com" });
+
+      const { status } = await testJson("/api/auth/review-login", {
+        method: "POST",
+        body: JSON.stringify({ email: "user@test.com", code: "demo-code-1", ...devicePayload }),
+      });
+
+      expect(status).toBe(401);
+    });
+
+    it("review-login returns 401 when the feature is disabled", async () => {
+      review.code = "";
+      (db.query.users.findFirst as any).mockResolvedValue(reviewUser);
+
+      const { status } = await testJson("/api/auth/review-login", {
+        method: "POST",
+        body: JSON.stringify({ email: "review@padmakara.pt", code: "demo-code-1", ...devicePayload }),
+      });
+
+      expect(status).toBe(401);
+    });
+
+    it("review-login returns 401 when the review user is missing or deactivated", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue({ ...reviewUser, isActive: false });
+
+      const { status } = await testJson("/api/auth/review-login", {
+        method: "POST",
+        body: JSON.stringify({ email: "review@padmakara.pt", code: "demo-code-1", ...devicePayload }),
+      });
+
+      expect(status).toBe(401);
     });
   });
 
