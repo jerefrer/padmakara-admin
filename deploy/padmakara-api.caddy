@@ -94,6 +94,12 @@ app.padmakara.pt {
 	@static path /_expo/* /assets/*
 	header @static Cache-Control "public, max-age=31536000, immutable"
 
+	# Apple fetches this extensionless file for passkeys and requires JSON.
+	# try_files {path} serves the real file under .well-known when it exists,
+	# so the SPA fallback to /index.html never shadows it.
+	@aasa path /.well-known/apple-app-site-association
+	header @aasa Content-Type application/json
+
 	log {
 		output file /var/log/caddy/web-access.log
 		format json
