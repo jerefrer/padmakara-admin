@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { config } from "../config.ts";
 import { auth } from "./auth.ts";
+import { passkeyRoutes } from "./passkeys.ts";
 import { admin } from "./admin/index.ts";
 import { emailAssetRoutes } from "./email-assets.ts";
 import { eventRoutes } from "./events.ts";
@@ -21,6 +22,7 @@ const api = new Hono();
 
 // Auth (public endpoints)
 api.route("/auth", auth);
+api.route("/auth/passkeys", passkeyRoutes);
 
 // Webhooks (public, HMAC-authenticated)
 api.route("/webhooks", webhookRoutes);
