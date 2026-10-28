@@ -44,6 +44,7 @@ vi.mock("../../src/routes/payment.ts", async (importOriginal) => ({
 import { db } from "../../src/db/index.ts";
 import { paymentTransactions } from "../../src/db/schema/payment-transactions.ts";
 import { users } from "../../src/db/schema/users.ts";
+import { passkeyCredentials, webauthnChallenges } from "../../src/db/schema/passkeys.ts";
 import { createAccessToken, hashToken } from "../../src/services/auth.ts";
 import { sendEmail, buildAccountDeletionEmail } from "../../src/services/email.ts";
 import { testJson } from "../helpers.ts";
@@ -99,6 +100,19 @@ describe("account deletion", () => {
       expect(deletedTables()).toContain(users);
       // the user row goes last, after every child
       expect(deletedTables().at(-1)).toBe(users);
+    });
+
+    it("should delete the user's passkeys when deleting the account", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(member());
+
+      await deleteAccount(await bearer());
+
+      const tables = deletedTables();
+      expect(tables).toContain(passkeyCredentials);
+      expect(tables).toContain(webauthnChallenges);
+      // children go before the user row
+      expect(tables.indexOf(passkeyCredentials)).toBeLessThan(tables.indexOf(users));
+      expect(tables.indexOf(webauthnChallenges)).toBeLessThan(tables.indexOf(users));
     });
 
     it("should detach payment records instead of deleting them", async () => {
