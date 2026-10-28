@@ -20,6 +20,7 @@ import { downloadRequests } from "../db/schema/download-requests.ts";
 import { publicationAccessUsers } from "../db/schema/publications.ts";
 import { userSyncVersions } from "../db/schema/user-sync-versions.ts";
 import { paymentTransactions } from "../db/schema/payment-transactions.ts";
+import { passkeyCredentials, webauthnChallenges } from "../db/schema/passkeys.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { deactivateAtEasypay } from "../routes/payment.ts";
@@ -89,6 +90,8 @@ export async function deleteUserAccount(userId: number): Promise<void> {
     await tx.delete(downloadRequests).where(eq(downloadRequests.userId, userId));
     await tx.delete(publicationAccessUsers).where(eq(publicationAccessUsers.userId, userId));
     await tx.delete(userSyncVersions).where(eq(userSyncVersions.userId, userId));
+    await tx.delete(passkeyCredentials).where(eq(passkeyCredentials.userId, userId));
+    await tx.delete(webauthnChallenges).where(eq(webauthnChallenges.userId, userId));
 
     await tx.delete(users).where(eq(users.id, userId));
   });

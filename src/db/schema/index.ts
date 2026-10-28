@@ -113,3 +113,6 @@ export { syncVersions } from "./sync-versions.ts";
 export type { SyncVersion } from "./sync-versions.ts";
 export { userSyncVersions } from "./user-sync-versions.ts";
 export type { UserSyncVersion } from "./user-sync-versions.ts";
+
+// Passkeys (WebAuthn)
+export { passkeyCredentials, webauthnChallenges } from "./passkeys.ts";

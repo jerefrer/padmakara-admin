@@ -24,6 +24,21 @@ export const verifyCodeSchema = requestMagicLinkSchema.extend({
   code: z.string().trim().regex(/^\d{6}$/),
 });
 
+// Passkeys. `response` is the browser/OS WebAuthn JSON; the service verifies its content.
+export const passkeyRegisterVerifySchema = z.object({
+  challengeId: z.string().uuid(),
+  response: z.looseObject({}),
+  name: z.string().trim().min(1).max(80).optional(),
+});
+
+export const passkeyLoginVerifySchema = z.object({
+  challengeId: z.string().uuid(),
+  response: z.looseObject({}),
+  device_fingerprint: z.string().min(1),
+  device_name: z.string().min(1),
+  device_type: z.string().min(1),
+});
+
 export const requestAccountDeletionSchema = z.object({
   email: z.email(),
   language: z.enum(["en", "pt"]).optional(),

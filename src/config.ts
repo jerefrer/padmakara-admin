@@ -6,6 +6,15 @@ function env(key: string, fallback?: string): string {
   return value;
 }
 
+function splitList(value: string): string[] {
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+}
+
+const isDevEnv = env("NODE_ENV", "development") === "development";
+
 export const config = {
   port: parseInt(env("PORT", "3000"), 10),
   nodeEnv: env("NODE_ENV", "development"),
@@ -78,6 +87,20 @@ export const config = {
   review: {
     email: env("REVIEW_ACCOUNT_EMAIL", "review@padmakara.pt").toLowerCase().trim(),
     code: env("REVIEW_ACCOUNT_CODE", ""),
+  },
+
+  /**
+   * Passkeys. The RP ID must be the registrable domain the web app is served from
+   * (app.padmakara.pt, not the Wix apex). "origins" merges web origins with the
+   * Android app origins (android:apk-key-hash:...), which the verifier also accepts.
+   */
+  webauthn: {
+    rpId: env("WEBAUTHN_RP_ID", isDevEnv ? "localhost" : "app.padmakara.pt"),
+    rpName: "Padmakara",
+    origins: [
+      ...splitList(env("WEBAUTHN_ORIGINS", isDevEnv ? "http://localhost:8081" : "https://app.padmakara.pt")),
+      ...splitList(env("WEBAUTHN_ANDROID_ORIGINS", "")),
+    ],
   },
 
   urls: {

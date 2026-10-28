@@ -365,6 +365,13 @@
       "when": 1812764800000,
       "tag": "0051_magic_link_code",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1812851200000,
+      "tag": "0052_passkeys",
+      "breakpoints": true
     }
   ]
 }

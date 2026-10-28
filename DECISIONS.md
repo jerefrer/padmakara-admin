@@ -219,3 +219,13 @@
 **Revisit if:** codes are abused despite the limiters, or a flow needs to sign in on a device other than the requester.
 
 ---
+
+## 2026-10-28 — Passkeys: RP ID, invitation timing, libraries
+
+**Chosen:** Passkeys are bound to the relying-party ID `app.padmakara.pt` (origin `https://app.padmakara.pt`; `localhost` in development), configured through `WEBAUTHN_RP_ID`, `WEBAUTHN_ORIGINS` and `WEBAUTHN_ANDROID_ORIGINS`. The server uses `@simplewebauthn/server` and the clients use `@simplewebauthn/browser` (web) and a native passkey module (app). Challenges live 5 minutes and are single use; login uses discoverable credentials with no `allowCredentials`; every login failure is the same 401. User decision (Jérémy): when to invite a person to create a passkey (after a first successful email sign-in, once per user per device, never after a passkey sign-in) is the product owner's call, not fixed by the API.
+**Alternatives:** RP ID `padmakara.pt` (parent domain); RP ID `api.padmakara.pt`; hand-rolled WebAuthn verification; inviting at registration or on every sign-in.
+**Why:** A passkey is tied to its RP ID forever and cannot be moved, so the choice must be stable. The web app and the associated-domain files (Apple app-site-association, Android assetlinks) live on `app.padmakara.pt`, which is the host the browser and both mobile platforms will vouch for. Using the parent domain would also let any other subdomain that is ever added ask for these keys; the API host is not where people sign in. A maintained library handles CBOR, attestation parsing and counter checks, which are easy to get subtly wrong by hand.
+**Trade-offs:** If the web app ever moves to another host, existing passkeys stop working and people must sign in by email and register again. Native sign-in depends on the associated-domain files staying correct on `app.padmakara.pt`. Two client libraries to keep updated.
+**Revisit if:** the web app moves off `app.padmakara.pt`, or the association wants one passkey to work across several subdomains.
+
+---

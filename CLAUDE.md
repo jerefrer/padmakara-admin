@@ -234,6 +234,10 @@ users → bookmarks → tracks (track position bookmarks)
 - `POST /api/auth/login` - Login with email/password, returns JWT token
 - `GET /api/auth/me` - Get current user profile (authenticated)
 - `POST /api/auth/verify-code` - Sign in with the 6-digit code from the magic-link email (same device that requested it, 5 attempts per token, generic 401 on any failure)
+- `POST /api/auth/passkeys/register/options` and `/register/verify` - Add a passkey (authenticated; `{ challengeId, options }` then `{ challengeId, response, name? }`)
+- `POST /api/auth/passkeys/login/options` and `/login/verify` - Sign in with a passkey (public, IP rate-limited; same success shape as `/review-login`, every failure is the same 401 `Passkey sign-in failed`)
+- `GET /api/auth/passkeys` - List the caller's passkeys (authenticated)
+- `DELETE /api/auth/passkeys/:id` - Remove one of the caller's passkeys (204; 404 if missing or not theirs)
 
 ### Events & Sessions
 

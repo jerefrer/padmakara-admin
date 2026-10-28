@@ -78,7 +78,7 @@ function subscriptionForApp(user: {
  * Format a user record for the mobile app's expected shape.
  * The app stores this as the User object in AsyncStorage.
  */
-async function formatUserForApp(user: {
+export async function formatUserForApp(user: {
   id: number;
   email: string;
   firstName: string | null;
@@ -127,7 +127,7 @@ async function formatUserForApp(user: {
 /**
  * Generate JWT tokens + store refresh token for a user.
  */
-async function generateTokensForUser(user: { id: number; email: string; role: string }) {
+export async function generateTokensForUser(user: { id: number; email: string; role: string }) {
   const payload: TokenPayload = {
     sub: user.id,
     email: user.email,
