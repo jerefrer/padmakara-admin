@@ -41,8 +41,14 @@ passkeyRoutes.post("/register/verify", authMiddleware, async (c) => {
   return c.json({ passkey });
 });
 
+// The default authIpLimiter allows 5 requests per 15 minutes. The web sign-in form
+// calls /login/options on every mount for passkey autofill, so the default would
+// lock out passkey sign-in after five page loads (sooner behind a shared NAT).
+// Options are cheap and carry no secret; verify is the attack surface, hence a
+// tighter limit there.
+
 /** POST /login/options — public; discoverable-credential login, no email needed. */
-passkeyRoutes.post("/login/options", authIpLimiter(), async (c) => {
+passkeyRoutes.post("/login/options", authIpLimiter({ limit: 60 }), async (c) => {
   return c.json(await createLoginOptions());
 });
 
@@ -51,7 +57,7 @@ passkeyRoutes.post("/login/options", authIpLimiter(), async (c) => {
  * (bad or replayed challenge, unknown key, inactive or deleted user) is the same
  * generic 401 so nothing about the account leaks.
  */
-passkeyRoutes.post("/login/verify", authIpLimiter(), async (c) => {
+passkeyRoutes.post("/login/verify", authIpLimiter({ limit: 20 }), async (c) => {
   const data = passkeyLoginVerifySchema.parse(await c.req.json());
 
   const userId = await verifyLogin(data.challengeId, data.response as unknown as AuthenticationResponseJSON);
