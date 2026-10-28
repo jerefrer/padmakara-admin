@@ -31,6 +31,11 @@ export const magicLinkTokens = pgTable("magic_link_tokens", {
   deviceType: text("device_type"),
   // User's preferred language for email and activation page
   language: text("language").notNull().default("en"),
+  // HMAC of the 6-digit sign-in code sent in the same email as the link (null for
+  // tokens created without one, e.g. admin approvals). Never the code itself.
+  codeHash: text("code_hash"),
+  // Wrong guesses so far; the code stops working at MAX_CODE_ATTEMPTS.
+  codeAttempts: integer("code_attempts").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

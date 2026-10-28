@@ -7,7 +7,7 @@ vi.mock("../../src/db/index.ts", () => ({
     query: {
       users: { findFirst: vi.fn() },
       refreshTokens: { findFirst: vi.fn() },
-      magicLinkTokens: { findFirst: vi.fn() },
+      magicLinkTokens: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
       deviceActivations: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
       userApprovalRequests: { findFirst: vi.fn() },
       userGroupMemberships: { findFirst: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
@@ -28,6 +28,7 @@ vi.mock("../../src/services/email.ts", () => ({
 }));
 
 import { db } from "../../src/db/index.ts";
+import { hashSignInCode, verifySignInCode } from "../../src/services/sign-in-code.ts";
 import { config } from "../../src/config.ts";
 import {
   hashPassword,
@@ -230,6 +231,7 @@ describe("Auth routes", () => {
       expect(buildMagicLinkEmail).toHaveBeenCalledWith(
         expect.stringContaining("activate/"),
         "pt",
+        expect.stringMatching(/^\d{6}$/),
       );
     });
 
@@ -433,6 +435,199 @@ describe("Auth routes", () => {
       });
 
       expect(status).toBe(401);
+    });
+  });
+
+  describe("email sign-in code", () => {
+    const devicePayload = {
+      device_fingerprint: "device-A",
+      device_name: "Phone A",
+      device_type: "ios",
+    };
+    const activeUser = {
+      id: 3, email: "user@test.com", firstName: "Test", lastName: "User",
+      dharmaName: null, preferredLanguage: "en", role: "user",
+      isActive: true, isVerified: true,
+      subscriptionStatus: "none", subscriptionSource: null, subscriptionExpiresAt: null,
+      lastActivity: null, createdAt: new Date(),
+    };
+    const future = () => new Date(Date.now() + 60 * 60 * 1000);
+    const row = (over: Record<string, unknown> = {}) => ({
+      id: 11,
+      email: "user@test.com",
+      tokenHash: "x",
+      expiresAt: future(),
+      isUsed: false,
+      deviceFingerprint: "device-A",
+      deviceName: "Phone A",
+      deviceType: "ios",
+      language: "en",
+      codeHash: hashSignInCode("123456"),
+      codeAttempts: 0,
+      ...over,
+    });
+    // update() chain whose where() is awaitable AND offers returning()
+    function mockUpdateWithReturning(returned: any[] = [{ id: 11 }]) {
+      const set = vi.fn();
+      const where = vi.fn(() =>
+        Object.assign(Promise.resolve(undefined), {
+          returning: vi.fn().mockResolvedValue(returned),
+        }),
+      );
+      set.mockReturnValue({ where });
+      return { set, where };
+    }
+    function post(code: string, extra: Record<string, unknown> = {}) {
+      return testJson("/api/auth/verify-code", {
+        method: "POST",
+        body: JSON.stringify({ email: "User@Test.com", code, ...devicePayload, ...extra }),
+      });
+    }
+
+    beforeEach(() => {
+      (db.query.users.findFirst as any).mockResolvedValue(activeUser);
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([row()]);
+      (db.query.deviceActivations.findFirst as any).mockResolvedValue(null);
+      (db.insert as any).mockReturnValue(mockInsertChain());
+    });
+
+    it("should store a code hash and pass the code to the email when requesting a link", async () => {
+      (db.query.deviceActivations.findFirst as any).mockResolvedValue(null);
+      const insertChain = mockInsertChain();
+      (db.insert as any).mockReturnValue(insertChain);
+      const { buildMagicLinkEmail } = await import("../../src/services/email.ts");
+
+      const { body } = await testJson("/api/auth/request-magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email: "user@test.com", ...devicePayload }),
+      });
+
+      const values = insertChain.values.mock.calls[0]![0];
+      const emailArgs = (buildMagicLinkEmail as any).mock.calls[0];
+      expect(values.codeHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(emailArgs[2]).toMatch(/^\d{6}$/);
+      expect(verifySignInCode(emailArgs[2], values.codeHash)).toBe(true);
+      expect(JSON.stringify(body)).not.toContain(emailArgs[2]);
+    });
+
+    it("should sign in and mark only the matching row used when the code is right", async () => {
+      const upd = mockUpdateWithReturning();
+      (db.update as any).mockReturnValue(upd);
+
+      const { status, body } = await post("123456");
+
+      expect(status).toBe(200);
+      expect(body.status).toBe("already_activated");
+      expect(body.access_token).toBeDefined();
+      expect(body.refresh_token).toBeDefined();
+      expect(body.user.email).toBe("user@test.com");
+      expect(upd.set).toHaveBeenCalledWith(expect.objectContaining({ isUsed: true }));
+    });
+
+    it("should accept a code with surrounding whitespace", async () => {
+      (db.update as any).mockReturnValue(mockUpdateWithReturning());
+      const { status } = await post(" 123456 ");
+      expect(status).toBe(200);
+    });
+
+    it("should reject a code that is not exactly six digits", async () => {
+      for (const code of ["12345", "1234567", "abcdef"]) {
+        const { status } = await post(code);
+        expect(status).toBe(400);
+      }
+    });
+
+    it("should return 401 and increment attempts when the code is wrong", async () => {
+      const upd = mockUpdateWithReturning();
+      (db.update as any).mockReturnValue(upd);
+
+      const { status, body } = await post("000000");
+
+      expect(status).toBe(401);
+      expect(body.error).toBe("Invalid or expired code");
+      expect(upd.set).toHaveBeenCalledWith(
+        expect.objectContaining({ codeAttempts: expect.anything() }),
+      );
+      expect(upd.set).not.toHaveBeenCalledWith(expect.objectContaining({ isUsed: true }));
+    });
+
+    it("should lock the code on the fifth failure", async () => {
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([row({ codeAttempts: 4 })]);
+      const upd = mockUpdateWithReturning();
+      (db.update as any).mockReturnValue(upd);
+      expect((await post("000000")).status).toBe(401);
+      expect(upd.set).toHaveBeenCalledTimes(1);
+
+      // Once at the limit the right code no longer works.
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([row({ codeAttempts: 5 })]);
+      const { status } = await post("123456");
+      expect(status).toBe(401);
+    });
+
+    it("should reject a code requested from another device", async () => {
+      (db.update as any).mockReturnValue(mockUpdateWithReturning());
+      const { status, body } = await post("123456", { device_fingerprint: "device-B" });
+      expect(status).toBe(401);
+      expect(body.error).toBe("Invalid or expired code");
+    });
+
+    it("should reject an expired code", async () => {
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([
+        row({ expiresAt: new Date(Date.now() - 1000) }),
+      ]);
+      (db.update as any).mockReturnValue(mockUpdateWithReturning());
+      expect((await post("123456")).status).toBe(401);
+    });
+
+    it("should reject a code whose link was already used", async () => {
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([row({ isUsed: true })]);
+      (db.update as any).mockReturnValue(mockUpdateWithReturning());
+      expect((await post("123456")).status).toBe(401);
+    });
+
+    it("should reject a token without a code hash", async () => {
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([row({ codeHash: null })]);
+      (db.update as any).mockReturnValue(mockUpdateWithReturning());
+      expect((await post("123456")).status).toBe(401);
+    });
+
+    it("should return the same 401 for an unknown email", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(null);
+      const { status, body } = await post("123456");
+      expect(status).toBe(401);
+      expect(body.error).toBe("Invalid or expired code");
+    });
+
+    it("should return the same 401 for a deactivated user", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue({ ...activeUser, isActive: false });
+      const { status, body } = await post("123456");
+      expect(status).toBe(401);
+      expect(body.error).toBe("Invalid or expired code");
+    });
+
+    it("should return 401 when no candidate token exists", async () => {
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([]);
+      expect((await post("123456")).status).toBe(401);
+    });
+
+    it("should return 401 when another request used the row first", async () => {
+      (db.update as any).mockReturnValue(mockUpdateWithReturning([]));
+      expect((await post("123456")).status).toBe(401);
+    });
+
+    it("should be wired with the same limiters as request-magic-link", async () => {
+      const { auth: authRoutes } = await import("../../src/routes/auth.ts");
+      const count = (path: string) =>
+        authRoutes.routes.filter((r: any) => r.method === "POST" && r.path === path).length;
+      expect(count("/verify-code")).toBe(3);
+    });
+
+    it("should leave the link unusable once the code consumed the row", async () => {
+      // /activate/:token only finds unused, unexpired rows.
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(null);
+      const { testRequest } = await import("../helpers.ts");
+      const res = await testRequest("/api/auth/activate/sometoken?lang=en");
+      expect(await res.text()).toContain("Invalid Link");
     });
   });
 

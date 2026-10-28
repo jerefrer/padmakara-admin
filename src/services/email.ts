@@ -55,6 +55,7 @@ function lang(language: string | null | undefined): Lang {
 export function buildMagicLinkEmail(
   magicLinkUrl: string,
   language: string,
+  code?: string,
 ): { subject: string; html: string; text: string } {
   if (lang(language) === "pt") {
     return {
@@ -64,8 +65,13 @@ export function buildMagicLinkEmail(
         subject: "O seu link de acesso - Padmakara",
         kicker: "Acesso",
         paragraphs: ["Carregue no botão abaixo para aceder à sua conta."],
-        note: "Este link expira dentro de uma hora.",
+        note: code
+          ? "Este link e este código expiram dentro de uma hora."
+          : "Este link expira dentro de uma hora.",
         button: { label: "Aceder à minha conta", href: magicLinkUrl },
+        ...(code
+          ? { code: { intro: "Ou introduza este código na aplicação ou no site:", value: code } }
+          : {}),
       }),
     };
   }
@@ -77,8 +83,13 @@ export function buildMagicLinkEmail(
       subject: "Your login link - Padmakara",
       kicker: "Access",
       paragraphs: ["Click the button below to access your account."],
-      note: "This link expires in one hour.",
+      note: code
+        ? "This link and this code expire in one hour."
+        : "This link expires in one hour.",
       button: { label: "Access my account", href: magicLinkUrl },
+      ...(code
+        ? { code: { intro: "Or enter this code in the app or on the website:", value: code } }
+        : {}),
     }),
   };
 }
