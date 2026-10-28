@@ -233,6 +233,7 @@ users → bookmarks → tracks (track position bookmarks)
 - `POST /api/auth/register` - Create new user account
 - `POST /api/auth/login` - Login with email/password, returns JWT token
 - `GET /api/auth/me` - Get current user profile (authenticated)
+- `POST /api/auth/verify-code` - Sign in with the 6-digit code from the magic-link email (same device that requested it, 5 attempts per token, generic 401 on any failure)
 
 ### Events & Sessions
 
