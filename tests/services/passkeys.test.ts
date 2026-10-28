@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 const mocks = vi.hoisted(() => ({
   selectRows: [] as unknown[],
@@ -7,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   inserted: [] as unknown[],
   updateSets: [] as unknown[],
   deleteRows: [] as unknown[],
+  ops: [] as string[],
+  wheres: [] as { verb: string; arg: unknown }[],
   genReg: vi.fn(),
   verReg: vi.fn(),
   genAuth: vi.fn(),
@@ -14,10 +17,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 // Every builder step is chainable and awaitable; terminal result depends on the verb.
-function chain(rowsOf: () => unknown[], onValues?: (v: unknown) => void, onSet?: (v: unknown) => void) {
+function chain(verb: string, rowsOf: () => unknown[], onValues?: (v: unknown) => void, onSet?: (v: unknown) => void) {
   const c: Record<string, unknown> = {};
   const self = () => c;
-  for (const k of ["from", "where", "limit", "orderBy", "returning"]) c[k] = vi.fn(self);
+  mocks.ops.push(verb);
+  for (const k of ["from", "limit", "orderBy", "returning"]) c[k] = vi.fn(self);
+  c.where = vi.fn((arg: unknown) => { mocks.wheres.push({ verb, arg }); return c; });
   c.values = vi.fn((v: unknown) => { onValues?.(v); return c; });
   c.set = vi.fn((v: unknown) => { onSet?.(v); return c; });
   c.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) =>
@@ -27,10 +32,10 @@ function chain(rowsOf: () => unknown[], onValues?: (v: unknown) => void, onSet?:
 
 vi.mock("../../src/db/index.ts", () => ({
   db: {
-    select: vi.fn(() => chain(() => mocks.selectRows)),
-    insert: vi.fn(() => chain(() => mocks.insertRows, (v) => mocks.inserted.push(v))),
-    update: vi.fn(() => chain(() => mocks.updateRows, undefined, (v) => mocks.updateSets.push(v))),
-    delete: vi.fn(() => chain(() => mocks.deleteRows)),
+    select: vi.fn(() => chain("select", () => mocks.selectRows)),
+    insert: vi.fn(() => chain("insert", () => mocks.insertRows, (v) => mocks.inserted.push(v))),
+    update: vi.fn(() => chain("update", () => mocks.updateRows, undefined, (v) => mocks.updateSets.push(v))),
+    delete: vi.fn(() => chain("delete", () => mocks.deleteRows)),
   },
 }));
 
@@ -46,6 +51,8 @@ import {
   verifyRegistration,
   createLoginOptions,
   verifyLogin,
+  listPasskeys,
+  deletePasskey,
 } from "../../src/services/passkeys.ts";
 import { AppError } from "../../src/lib/errors.ts";
 
@@ -61,7 +68,16 @@ beforeEach(() => {
   mocks.inserted = [];
   mocks.updateSets = [];
   mocks.deleteRows = [];
+  mocks.ops = [];
+  mocks.wheres = [];
 });
+
+const dialect = new PgDialect();
+const whereSql = (verb: string) => {
+  const w = mocks.wheres.find((x) => x.verb === verb);
+  if (!w) throw new Error(`no where captured for ${verb}`);
+  return dialect.sqlToQuery(w.arg as never).sql;
+};
 
 describe("createRegistrationOptions", () => {
   it("should exclude the user's existing keys from registration options", async () => {
@@ -181,5 +197,52 @@ describe("createLoginOptions", () => {
     expect(mocks.genAuth.mock.calls[0]![0].allowCredentials).toBeUndefined();
     expect(mocks.inserted[0]!).toMatchObject({ challenge: "chal-3", userId: null, purpose: "login" });
     expect(out.challengeId).toBe("uuid-3");
+  });
+});
+
+describe("replay and ownership guards (serialized SQL)", () => {
+  it("should require unused, unexpired, same-purpose and same-owner challenge when registering", async () => {
+    mocks.updateRows = [];
+    await verifyRegistration(7, "uuid-1", regResponse, "x").catch(() => undefined);
+    const q = whereSql("update");
+    expect(q).toContain('"webauthn_challenges"."id" = $');
+    expect(q).toContain('"webauthn_challenges"."purpose" = $');
+    expect(q).toMatch(/"webauthn_challenges"\."used" = \$/);
+    expect(q).toContain('"webauthn_challenges"."expires_at" > now()');
+    expect(q).toContain('"webauthn_challenges"."user_id" = $');
+  });
+
+  it("should not require an owner when consuming a login challenge", async () => {
+    mocks.updateRows = [];
+    await verifyLogin("uuid-2", { id: "c" } as never).catch(() => undefined);
+    const q = whereSql("update");
+    expect(q).toContain('"webauthn_challenges"."purpose" = $');
+    expect(q).toMatch(/"webauthn_challenges"\."used" = \$/);
+    expect(q).toContain('"webauthn_challenges"."expires_at" > now()');
+    expect(q).not.toContain("user_id");
+  });
+
+  it("should scope deletePasskey to the id and the owner", async () => {
+    await deletePasskey(7, 3);
+    const q = whereSql("delete");
+    expect(q).toContain('"passkey_credentials"."id" = $');
+    expect(q).toContain('"passkey_credentials"."user_id" = $');
+  });
+
+  it("should scope listPasskeys to the owner", async () => {
+    await listPasskeys(7);
+    expect(whereSql("select")).toContain('"passkey_credentials"."user_id" = $');
+  });
+});
+
+describe("challenge cleanup", () => {
+  it("should purge challenges expired over an hour ago before inserting a new one", async () => {
+    mocks.genAuth.mockResolvedValue({ challenge: "chal-4" });
+    mocks.insertRows = [{ id: "uuid-4" }];
+    await createLoginOptions();
+    expect(mocks.ops.indexOf("delete")).toBeGreaterThanOrEqual(0);
+    expect(mocks.ops.indexOf("delete")).toBeLessThan(mocks.ops.indexOf("insert"));
+    const q = whereSql("delete");
+    expect(q).toContain('"webauthn_challenges"."expires_at" < now() - interval \'1 hour\'');
   });
 });

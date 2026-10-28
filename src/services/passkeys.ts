@@ -1,4 +1,4 @@
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, lt, sql } from "drizzle-orm";
 import {
   generateAuthenticationOptions,
   generateRegistrationOptions,
@@ -43,6 +43,8 @@ async function storeChallenge(
   purpose: "register" | "login",
   userId: number | null,
 ): Promise<string> {
+  // Keep the table bounded: drop challenges that expired over an hour ago.
+  await db.delete(webauthnChallenges).where(lt(webauthnChallenges.expiresAt, sql`now() - interval '1 hour'`));
   const [row] = await db
     .insert(webauthnChallenges)
     .values({ challenge, purpose, userId, expiresAt: new Date(Date.now() + CHALLENGE_TTL_MS) })
