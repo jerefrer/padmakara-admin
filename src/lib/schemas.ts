@@ -20,6 +20,10 @@ export const reviewLoginSchema = requestMagicLinkSchema.extend({
   code: z.string().min(1).max(128),
 });
 
+export const verifyCodeSchema = requestMagicLinkSchema.extend({
+  code: z.string().trim().regex(/^\d{6}$/),
+});
+
 export const requestAccountDeletionSchema = z.object({
   email: z.email(),
   language: z.enum(["en", "pt"]).optional(),

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, lt, isNotNull, inArray, sql } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users, userGroupMemberships } from "../db/schema/users.ts";
 import {
@@ -28,6 +28,7 @@ import {
   loginSchema,
   requestMagicLinkSchema,
   reviewLoginSchema,
+  verifyCodeSchema,
   refreshTokenSchema,
   discoverDeviceSchema,
   requestApprovalSchema,
@@ -40,6 +41,12 @@ import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { config } from "../config.ts";
 import { activateDeviceForUser } from "../services/device-activation.ts";
 import { isReviewLoginFor, verifyReviewCode } from "../services/review-account.ts";
+import {
+  generateSignInCode,
+  hashSignInCode,
+  verifySignInCode,
+  MAX_CODE_ATTEMPTS,
+} from "../services/sign-in-code.ts";
 import { deleteUserAccount } from "../services/account-deletion.ts";
 import {
   authIpLimiter,
@@ -271,6 +278,8 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
   // Device not activated — create magic link and send email
   const token = generateMagicLinkToken();
   const tokenHash = await hashToken(token);
+  // Same row as the link: whichever is used first consumes the other.
+  const signInCode = generateSignInCode();
 
   await db.insert(magicLinkTokens).values({
     email,
@@ -280,11 +289,12 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
     deviceName: data.device_name,
     deviceType: data.device_type,
     language: data.language ?? "en",
+    codeHash: hashSignInCode(signInCode),
   });
 
   // Build activation URL (points to backend, which renders HTML)
   const magicLinkUrl = `${config.urls.backend}/api/auth/activate/${token}?lang=${data.language}`;
-  const emailContent = buildMagicLinkEmail(magicLinkUrl, data.language ?? "en");
+  const emailContent = buildMagicLinkEmail(magicLinkUrl, data.language ?? "en", signInCode);
 
   await sendEmail({
     to: email,
@@ -300,6 +310,7 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
   // In dev mode, log the activation URL prominently so you can click it
   if (config.isDev) {
     response.dev_activation_url = magicLinkUrl;
+    response.dev_sign_in_code = signInCode;
     console.log("\n╔══════════════════════════════════════════════╗");
     console.log("║  🔑 DEV: Click to activate device            ║");
     console.log("╚══════════════════════════════════════════════╝");
@@ -614,6 +625,92 @@ auth.post("/review-login", authIpLimiter(), authEmailLimiter(), async (c) => {
   if (!user || !user.isActive) {
     throw AppError.unauthorized("Invalid review credentials");
   }
+
+  await activateDeviceForUser(user, {
+    fingerprint: data.device_fingerprint,
+    name: data.device_name,
+    type: data.device_type,
+    ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
+    userAgent: c.req.header("user-agent") || null,
+  });
+
+  const tokens = await generateTokensForUser(user);
+
+  return c.json({
+    status: "already_activated",
+    message: "Device is activated",
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+    user: await formatUserForApp(user),
+  });
+});
+
+/**
+ * POST /api/auth/verify-code
+ *
+ * Alternative to clicking the magic link: the person types the 6-digit code from
+ * the same email on the device that requested it. The code lives on the link's
+ * own row, so using either one consumes the other. It is bound to the requesting
+ * device fingerprint and allows MAX_CODE_ATTEMPTS wrong guesses per token. Every
+ * failure (unknown email, inactive user, no candidate row, wrong code, attempts
+ * exhausted, expired, used, other device) is the same generic 401. The code is
+ * never logged. Success has the same shape as review-login.
+ */
+auth.post("/verify-code", authIpLimiter(), authEmailLimiter(), async (c) => {
+  const body = await c.req.json();
+  const data = verifyCodeSchema.parse(body);
+  const email = data.email.toLowerCase().trim();
+  const fail = () => AppError.unauthorized("Invalid or expired code");
+
+  const user = await db.query.users.findFirst({
+    where: eq(users.email, email),
+  });
+  if (!user || !user.isActive) throw fail();
+
+  const now = new Date();
+  const rows = await db.query.magicLinkTokens.findMany({
+    where: and(
+      eq(magicLinkTokens.email, email),
+      eq(magicLinkTokens.deviceFingerprint, data.device_fingerprint),
+      eq(magicLinkTokens.isUsed, false),
+      gt(magicLinkTokens.expiresAt, now),
+      isNotNull(magicLinkTokens.codeHash),
+      lt(magicLinkTokens.codeAttempts, MAX_CODE_ATTEMPTS),
+    ),
+  });
+  // The query already filters; re-check so a bug there cannot widen the match.
+  const candidates = rows.filter(
+    (r) =>
+      !r.isUsed &&
+      r.expiresAt > now &&
+      r.codeHash !== null &&
+      r.codeAttempts < MAX_CODE_ATTEMPTS &&
+      r.deviceFingerprint === data.device_fingerprint,
+  );
+
+  // Check every candidate (no early exit) so timing does not depend on which row matched.
+  let matched: (typeof candidates)[number] | undefined;
+  for (const row of candidates) {
+    if (verifySignInCode(data.code, row.codeHash as string) && !matched) matched = row;
+  }
+
+  if (!matched) {
+    if (candidates.length > 0) {
+      await db
+        .update(magicLinkTokens)
+        .set({ codeAttempts: sql`${magicLinkTokens.codeAttempts} + 1` })
+        .where(inArray(magicLinkTokens.id, candidates.map((r) => r.id)));
+    }
+    throw fail();
+  }
+
+  // Consume atomically: of two concurrent requests with the right code only one wins.
+  const consumed = await db
+    .update(magicLinkTokens)
+    .set({ isUsed: true })
+    .where(and(eq(magicLinkTokens.id, matched.id), eq(magicLinkTokens.isUsed, false)))
+    .returning({ id: magicLinkTokens.id });
+  if (consumed.length === 0) throw fail();
 
   await activateDeviceForUser(user, {
     fingerprint: data.device_fingerprint,
