@@ -83,6 +83,8 @@ export interface BrandEmail {
   paragraphs: string[];
   /** A muted line under the letter, before the button. */
   note?: string;
+  /** A short code to read off the email and type elsewhere, set large and letter-spaced. */
+  code?: { intro: string; value: string };
   /** The one thing to do. Burgundy, square, centred text on a solid ground. */
   button?: { label: string; href: string };
   /** The lesser thing to do, as a link rather than a second slab of burgundy. */
@@ -104,6 +106,7 @@ function renderText(e: BrandEmail): string {
   if (e.greeting) parts.push(e.greeting);
   for (const p of e.paragraphs) if (p.trim()) parts.push(p);
   if (e.note) parts.push(e.note);
+  if (e.code) parts.push(`${e.code.intro}\n${e.code.value}`);
   if (e.button) parts.push(`${e.button.label}: ${e.button.href}`);
   if (e.secondary) parts.push(`${e.secondary.label}: ${e.secondary.href}`);
 
@@ -127,6 +130,16 @@ function renderHtml(e: BrandEmail): string {
 
   const note = e.note
     ? `<p style="margin:0 0 18px;font-family:${SERIF};font-size:15px;line-height:1.6;color:${INK_MUTED};">${escapeHtml(e.note)}</p>`
+    : "";
+
+  /*
+   * Monospace and letter-spaced so the digits read one by one and 0/O and 1/l
+   * cannot be mistaken. Sits after the button: the link stays the first thing
+   * to do, the code is the way out when the link is opened on another device.
+   */
+  const code = e.code
+    ? `<p style="margin:28px 0 8px;font-family:${SERIF};font-size:15px;line-height:1.6;color:${INK_MUTED};">${escapeHtml(e.code.intro)}</p>
+<p style="margin:0 0 18px;font-family:'Courier New',Courier,monospace;font-size:34px;font-weight:bold;line-height:1.2;letter-spacing:8px;color:${INK};">${escapeHtml(e.code.value)}</p>`
     : "";
 
   /*
@@ -205,7 +218,7 @@ PADMAKARA
 
 <tr>
 <td style="padding:0 8px;">
-${kicker}${greeting}${body}${note}${button}${secondary}${spacer}
+${kicker}${greeting}${body}${note}${button}${code}${secondary}${spacer}
 </td>
 </tr>
 

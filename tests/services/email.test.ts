@@ -40,4 +40,26 @@ describe("buildMagicLinkEmail", () => {
     expect(text).toContain("Access my account: https://api.test/x");
     expect(text).not.toContain("<");
   });
+
+  it("should show the sign-in code in the HTML and text, in both languages", () => {
+    for (const lang of ["en", "pt"]) {
+      const { html, text } = buildMagicLinkEmail("https://api.test/x", lang, "042917");
+      expect(html).toContain("042917");
+      expect(text).toContain("042917");
+    }
+    expect(buildMagicLinkEmail("https://api.test/x", "en", "042917").text).toContain(
+      "Or enter this code in the app or on the website:",
+    );
+    expect(buildMagicLinkEmail("https://api.test/x", "pt", "042917").text).toContain(
+      "Ou introduza este código na aplicação ou no site:",
+    );
+  });
+
+  it("should not put the code in the subject", () => {
+    expect(buildMagicLinkEmail("https://api.test/x", "en", "042917").subject).not.toContain("042917");
+  });
+
+  it("should omit the code block when no code is given", () => {
+    expect(buildMagicLinkEmail("https://api.test/x", "en").text).not.toContain("enter this code");
+  });
 });
