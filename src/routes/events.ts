@@ -12,6 +12,7 @@ import { authMiddleware, optionalAuthMiddleware, getUser, getOptionalUser } from
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
 import { checkEventAccess, filterAccessibleEvents, eventStatusVisibleTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
+import { publicationsViaGroups, mergePublications } from "../services/event-publications.ts";
 import { openablePublications } from "../services/publication-access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
@@ -495,9 +496,18 @@ eventRoutes.get("/:id", async (c) => {
   // Build related publications with presigned cover URLs, listing only what
   // the user can open so the event page never advertises a locked text. A
   // publication has its own audience: passing this event's check is not enough.
-  const linkedPublications = ((event as any).eventPublications || [])
+  // Texts reach an event two ways: direct links, and the retreat groups ticked
+  // on the publication (so a text set once for a group shows on all its events).
+  const directPublications = ((event as any).eventPublications || [])
     .filter((ep: any) => ep.publication)
     .map((ep: any) => ep.publication);
+  const eventGroupIds = ((event as any).eventRetreatGroups || []).map(
+    (g: any) => g.retreatGroupId ?? g.retreatGroup?.id,
+  ).filter((gid: unknown): gid is number => typeof gid === "number");
+  const linkedPublications = mergePublications(
+    directPublications,
+    await publicationsViaGroups(eventGroupIds),
+  );
   const openedPublications = await openablePublications(user, linkedPublications);
   const relatedPublications = linkedPublications.filter((pub: any) =>
     openedPublications.has(pub.id),
