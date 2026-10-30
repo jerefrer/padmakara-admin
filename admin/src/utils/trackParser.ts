@@ -21,6 +21,9 @@ export interface ParsedTrack {
   date: string | null;
   timePeriod: string | null;
   partNumber: number | null;
+  /** Part read from a trailing period word ("Morning Part 2"). Only orders
+   *  tracks inside their session; unlike `partNumber` it never splits one. */
+  sessionPart?: number | null;
   originalFilename: string;
   file: File;
   isPractice?: boolean;
@@ -222,6 +225,39 @@ function formatSessionDate(parsed: { month: string; day: number; year: number | 
   return `${parsed.month} ${parsed.day}`;
 }
 
+const WORD_PERIOD_MAP: Record<string, string> = {
+  morning: "morning", manha: "morning", matin: "morning",
+  afternoon: "afternoon", tarde: "afternoon", apresmidi: "afternoon",
+  evening: "evening", night: "evening", noite: "evening", soir: "evening", soiree: "evening",
+};
+
+// Mirrors findTrailingWordPeriod in src/services/session-dates.ts: a period
+// word (EN/PT/FR) at the very end of the name, with an optional part marker.
+const TRAILING_WORD_PERIOD_RE =
+  /(?:^|[\s_-])(morning|afternoon|evening|night|manha|tarde|noite|matin|apres[\s_-]?midi|soiree|soir)(?:[\s_-]+(?:part|parte|pt)\.?[\s_-]*(\d+))?\s*$/i;
+
+function findTrailingWordPeriod(baseName: string): { period: string; part: number | null } | null {
+  const plain = baseName.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const m = plain.match(TRAILING_WORD_PERIOD_RE);
+  if (!m) return null;
+  const period = WORD_PERIOD_MAP[m[1]!.toLowerCase().replace(/[\s_-]/g, "")];
+  if (!period) return null;
+  return { period, part: m[2] ? parseInt(m[2], 10) : null };
+}
+
+/** Spelled-out day-month-year date ("10th October 2026") as ISO, or null. */
+function findLooseFullDate(baseName: string): string | null {
+  const m = baseName.match(
+    new RegExp(`(?:^|[^\\d])(\\d{1,2})(?:st|nd|rd|th)?[\\s_-]+(${MONTHS_PATTERN})[\\s_,-]+(\\d{4})(?!\\d)`, "i"),
+  );
+  if (!m) return null;
+  const day = parseInt(m[1]!, 10);
+  if (day < 1 || day > 31) return null;
+  const month = MONTH_NORMALIZE[m[2]!.toLowerCase()];
+  if (!month) return null;
+  return formatSessionDate({ month, day, year: parseInt(m[3]!, 10) });
+}
+
 /** Heuristic: does this title text read as Portuguese? (diacritics + stopwords) */
 export function detectTitleLanguage(title: string): "en" | "pt" {
   const t = title.toLowerCase();
@@ -244,6 +280,7 @@ export function parseTrackFile(file: File): ParsedTrack {
   let date: string | null = null;
   let timePeriod: string | null = null;
   let partNumber: number | null = null;
+  let sessionPart: number | null = null;
 
   // Extract the track number from the start. The separator may be an
   // underscore, space, OR hyphen (e.g. "07-KNP-..."). Guard against date-like
@@ -316,6 +353,17 @@ export function parseTrackFile(file: File): ParsedTrack {
       date = formatSessionDate(parsedDate);
       timePeriod = sessMatch[2]!.toLowerCase() === "am" ? "morning" : "afternoon";
       if (sessMatch[3]) partNumber = parseInt(sessMatch[3], 10);
+    }
+  }
+
+  // No AM/PM marker: fall back to a trailing period word and a spelled-out
+  // date. Mirrors the backend parser.
+  if (!timePeriod) {
+    const wordPeriod = findTrailingWordPeriod(baseName);
+    if (wordPeriod) {
+      timePeriod = wordPeriod.period;
+      sessionPart = wordPeriod.part;
+      if (!date) date = findLooseFullDate(baseName);
     }
   }
 
@@ -399,9 +447,44 @@ export function parseTrackFile(file: File): ParsedTrack {
     titlePt: _lang === "pt" ? title : "",
     titleEnReviewed: true,
     titlePtReviewed: true,
-    date, timePeriod, partNumber, originalFilename: filename, file,
+    date, timePeriod, partNumber, sessionPart, originalFilename: filename, file,
     mediaType,
   };
+}
+
+/** Find the group an undated translation belongs to, from its period and
+ *  part: the group holding an original with the same period and part, ties
+ *  broken by the closest original in input order. Mirrors the backend. */
+function findGroupForPeriodTranslation(
+  trad: ParsedTrack,
+  all: ParsedTrack[],
+  groups: Map<string, ParsedTrack[]>,
+): string | null {
+  const candidates: string[] = [];
+  for (const [key, groupTracks] of groups) {
+    if (
+      groupTracks.some(
+        (t) =>
+          !t.isTranslation &&
+          t.timePeriod === trad.timePeriod &&
+          (t.sessionPart ?? null) === (trad.sessionPart ?? null),
+      )
+    ) {
+      candidates.push(key);
+    }
+  }
+  if (candidates.length <= 1) return candidates[0] ?? null;
+
+  const tradIndex = all.indexOf(trad);
+  let best: { key: string; distance: number } | null = null;
+  for (const key of candidates) {
+    for (const t of groups.get(key)!) {
+      if (t.isTranslation) continue;
+      const distance = Math.abs(all.indexOf(t) - tradIndex);
+      if (!best || distance < best.distance) best = { key, distance };
+    }
+  }
+  return best?.key ?? null;
 }
 
 export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
@@ -419,8 +502,17 @@ export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
     groups.set(key, group);
   }
 
-  // Match orphan translations to sessions by track number
+  // Match orphan translations to sessions. One that names a period but has no
+  // track number ("TRAD - ... - Manha_Parte_1") is placed by period and part;
+  // the rest are matched to originals by track number.
   for (const trad of orphanTranslations) {
+    if (trad.timePeriod && trad.trackNumber === 0) {
+      const key = findGroupForPeriodTranslation(trad, tracks, groups) ?? `unknown|${trad.timePeriod}|`;
+      const group = groups.get(key) ?? [];
+      group.push(trad);
+      groups.set(key, group);
+      continue;
+    }
     let placed = false;
     for (const [, groupTracks] of groups) {
       if (groupTracks.some((t) => t.trackNumber === trad.trackNumber && !t.isTranslation)) {
@@ -470,6 +562,8 @@ export function inferSessions(tracks: ParsedTrack[]): InferredSession[] {
       titlePtReviewed: true,
       tracks: groupTracks.sort((a, b) => {
         if (a.trackNumber !== b.trackNumber) return a.trackNumber - b.trackNumber;
+        const partOrd = (a.sessionPart ?? 0) - (b.sessionPart ?? 0);
+        if (partOrd !== 0) return partOrd;
         // Original before translation within same track number
         const transOrd = (a.isTranslation ? 1 : 0) - (b.isTranslation ? 1 : 0);
         if (transOrd !== 0) return transOrd;

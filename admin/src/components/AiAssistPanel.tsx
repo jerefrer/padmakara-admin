@@ -46,6 +46,9 @@ interface AiAssistPanelProps {
   videos?: AiAssistVideo[];
   tracks: AiAssistTrack[];
   endpoint: string;
+  /** rowKeys of the tracks the admin ticked in the list. When non-empty the
+   *  request is scoped to them: only those tracks are sent to the model. */
+  selectedTrackKeys?: readonly string[];
   onApply: (result: AiAssistResult) => void | Promise<void>;
 }
 
@@ -89,7 +92,7 @@ function InlineValue({ segments, side }: { segments: Segment[]; side: "from" | "
   );
 }
 
-export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, onApply }: AiAssistPanelProps) {
+export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, selectedTrackKeys = [], onApply }: AiAssistPanelProps) {
   const translate = useTranslate();
   const notify = useNotify();
   const [instruction, setInstruction] = useState("");
@@ -157,6 +160,7 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
           sessions,
           videos: videos.map(({ position, ...rest }) => ({ ...rest, videoNumber: position + 1 })),
           tracks,
+          trackIds: selectedTrackKeys.length > 0 ? selectedTrackKeys : undefined,
         }),
       });
       if (!res.ok) {
@@ -379,7 +383,11 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.25 }}>
         <AutoAwesomeIcon sx={{ color: "primary.main", fontSize: 20 }} />
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{t("heading")}</Typography>
-        <Typography variant="caption" color="text.secondary">{t("caption")}</Typography>
+        <Typography variant="caption" color="text.secondary">
+          {selectedTrackKeys.length > 0
+            ? t("scopedToSelection", { smart_count: selectedTrackKeys.length })
+            : t("caption")}
+        </Typography>
       </Box>
       <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
         <TextField

@@ -15,6 +15,7 @@ import TranslateIcon from "@mui/icons-material/Translate";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import VideoFileIcon from "@mui/icons-material/VideoFile";
 import Box from "@mui/material/Box";
+import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -107,6 +108,10 @@ interface SessionPreviewProps {
    *  AI-correction badge and an expandable diff panel. Existing callers that
    *  don't pass this prop see NO visual change. */
   trackCorrections?: TrackCorrectionsMap;
+  /** Edit-mode only: when provided, every saved track gets a checkbox. The
+   *  ids are track database ids. */
+  selectedTrackIds?: ReadonlySet<number>;
+  onSelectedTrackIdsChange?: (ids: Set<number>) => void;
 }
 
 export const SessionPreview = ({
@@ -117,6 +122,8 @@ export const SessionPreview = ({
   onTrackAudioUpload,
   allTeachers,
   trackCorrections,
+  selectedTrackIds,
+  onSelectedTrackIdsChange,
 }: SessionPreviewProps) => {
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
@@ -152,6 +159,8 @@ export const SessionPreview = ({
               allTeachers={allTeachers}
               trackCorrections={trackCorrections}
               onPreview={setPreview}
+              selectedTrackIds={selectedTrackIds}
+              onSelectedTrackIdsChange={onSelectedTrackIdsChange}
             />
           ))}
         </Box>
@@ -179,6 +188,8 @@ interface SessionCardProps {
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   trackCorrections?: TrackCorrectionsMap;
   onPreview: (state: PreviewState) => void;
+  selectedTrackIds?: ReadonlySet<number>;
+  onSelectedTrackIdsChange?: (ids: Set<number>) => void;
 }
 
 const SessionCard = ({
@@ -191,6 +202,8 @@ const SessionCard = ({
   allTeachers,
   trackCorrections,
   onPreview,
+  selectedTrackIds,
+  onSelectedTrackIdsChange,
 }: SessionCardProps) => {
   const [expanded, setExpanded] = useState(true);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -597,6 +610,17 @@ const SessionCard = ({
               allTeachers={allTeachers}
               corrections={trackCorrections?.get(track.originalFilename ?? "")}
               onPreview={onPreview}
+              selected={track.id !== undefined && !!selectedTrackIds?.has(track.id)}
+              onSelectedChange={
+                selectedTrackIds && onSelectedTrackIdsChange && track.id !== undefined
+                  ? (on) => {
+                      const next = new Set(selectedTrackIds);
+                      if (on) next.add(track.id!);
+                      else next.delete(track.id!);
+                      onSelectedTrackIdsChange(next);
+                    }
+                  : undefined
+              }
             />
           ))}
         </Box>
@@ -634,7 +658,12 @@ const TrackRow = ({
   allTeachers = [],
   corrections,
   onPreview,
+  selected = false,
+  onSelectedChange,
 }: {
+  /** Selection checkbox state; the checkbox only shows with a handler. */
+  selected?: boolean;
+  onSelectedChange?: (selected: boolean) => void;
   track: ParsedTrack;
   isLast: boolean;
   /** True when this row's inline editor is open (state lives in SessionCard
@@ -980,6 +1009,16 @@ const TrackRow = ({
         },
       }}
     >
+      {onSelectedChange && (
+        <Checkbox
+          size="small"
+          checked={selected}
+          onChange={(e) => onSelectedChange(e.target.checked)}
+          inputProps={{ "aria-label": translate("padmakara.tracks.select") }}
+          sx={{ p: 0.25, mr: -0.5 }}
+        />
+      )}
+
       {/* Track number */}
       <Typography
         variant="caption"

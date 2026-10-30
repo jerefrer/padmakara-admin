@@ -30,6 +30,8 @@ import {
   parseSessionDateToken,
   formatSessionDate,
   normalizePeriod,
+  findTrailingWordPeriod,
+  findLooseFullDate,
 } from "./session-dates.ts";
 import { hasTrackRanges, inferSessionsFromRanges } from "./session-ranges.ts";
 import type { AnalysisNote } from "./track-conventions.ts";
@@ -51,6 +53,13 @@ export interface ParsedTrack {
   date: string | null;
   timePeriod: string | null;
   partNumber: number | null;
+  /**
+   * Part read from a trailing period word ("Morning Part 2", "Manha_Parte_2").
+   * Unlike `partNumber` (from an explicit "(date AM part N)" marker, which
+   * splits sessions), this only orders tracks inside their session — parts of
+   * the same date+period are one session.
+   */
+  sessionPart?: number | null;
   originalFilename: string;
 }
 
@@ -108,6 +117,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
   let date: string | null = null;
   let timePeriod: string | null = null;
   let partNumber: number | null = null;
+  let sessionPart: number | null = null;
   let hasTradCombo = false;
 
   // Extract track number from beginning (with optional underscore, space, or hyphen)
@@ -286,6 +296,17 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     }
   }
 
+  // No AM/PM marker: fall back to a trailing period word ("... - Morning
+  // Part 1", "... - Tarde_Parte_2") and a spelled-out date ("10th October 2026").
+  if (!timePeriod) {
+    const wordPeriod = findTrailingWordPeriod(baseName);
+    if (wordPeriod) {
+      timePeriod = wordPeriod.period;
+      sessionPart = wordPeriod.part;
+      if (!date) date = findLooseFullDate(baseName);
+    }
+  }
+
   // Build the speaker string for title cleanup (handle combos with + or &)
   const speakerPattern = comboMatch
     ? `${comboMatch[1]}[+&]${comboMatch[2]}`
@@ -376,6 +397,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     date,
     timePeriod,
     partNumber,
+    sessionPart,
     originalFilename: filename,
   };
 }
@@ -387,6 +409,45 @@ export interface InferredSession {
   partNumber: number | null;
   titleEn: string;
   tracks: ParsedTrack[];
+}
+
+/**
+ * Find the group an undated translation belongs to, from its period and part.
+ * Candidates are groups holding an original with the same period and part. One
+ * candidate wins outright; several (e.g. two days both with an "Afternoon Part
+ * 1") are broken by the closest original in input order. Null when none match,
+ * so the caller groups by period alone.
+ */
+function findGroupForPeriodTranslation(
+  trad: ParsedTrack,
+  all: ParsedTrack[],
+  groups: Map<string, ParsedTrack[]>,
+): string | null {
+  const candidates: string[] = [];
+  for (const [key, groupTracks] of groups) {
+    if (
+      groupTracks.some(
+        (t) =>
+          !t.isTranslation &&
+          t.timePeriod === trad.timePeriod &&
+          (t.sessionPart ?? null) === (trad.sessionPart ?? null),
+      )
+    ) {
+      candidates.push(key);
+    }
+  }
+  if (candidates.length <= 1) return candidates[0] ?? null;
+
+  const tradIndex = all.indexOf(trad);
+  let best: { key: string; distance: number } | null = null;
+  for (const key of candidates) {
+    for (const t of groups.get(key)!) {
+      if (t.isTranslation) continue;
+      const distance = Math.abs(all.indexOf(t) - tradIndex);
+      if (!best || distance < best.distance) best = { key, distance };
+    }
+  }
+  return best?.key ?? null;
 }
 
 /**
@@ -408,9 +469,19 @@ function inferSessionsByDate(tracks: ParsedTrack[]): InferredSession[] {
     groups.set(key, group);
   }
 
-  // Match orphan translations to sessions by track number
+  // Match orphan translations to sessions. One that names a period but has no
+  // track number ("TRAD - ... - Manha_Parte_1") is placed by period and part;
+  // the rest are matched to originals by track number.
   for (const trad of orphanTranslations) {
     let placed = false;
+    if (trad.timePeriod && trad.trackNumber === 0) {
+      const target = findGroupForPeriodTranslation(trad, tracks, groups);
+      const key = target ?? `unknown|${trad.timePeriod}|`;
+      const group = groups.get(key) ?? [];
+      group.push(trad);
+      groups.set(key, group);
+      continue;
+    }
     for (const [, groupTracks] of groups) {
       if (groupTracks.some((t) => t.trackNumber === trad.trackNumber && !t.isTranslation)) {
         groupTracks.push(trad);
@@ -471,6 +542,8 @@ function inferSessionsByDate(tracks: ParsedTrack[]): InferredSession[] {
       titleEn,
       tracks: groupTracks.sort((a, b) => {
         if (a.trackNumber !== b.trackNumber) return a.trackNumber - b.trackNumber;
+        const partOrd = (a.sessionPart ?? 0) - (b.sessionPart ?? 0);
+        if (partOrd !== 0) return partOrd;
         return (a.isTranslation ? 1 : 0) - (b.isTranslation ? 1 : 0);
       }),
     });

@@ -255,6 +255,7 @@ export const en = {
     },
     aiAssist: {
       heading: "AI assistant",
+      scopedToSelection: "Applies to %{smart_count} selected track |||| Applies to %{smart_count} selected tracks",
       caption: "Describe a change to apply to this event, its sessions, videos and tracks",
       placeholder:
         'e.g. "Title-case every track title", "Remove the speaker initials", ' +
@@ -380,6 +381,18 @@ export const en = {
       logoUrlHelper: "Legacy field — replaced by Avatar above",
     },
     tracks: {
+      select: "Select track",
+      clearSelection: "Clear selection",
+      moveTo: "Move to session…",
+      newSession: "New session",
+      moveTitle: "Move to a new session",
+      moveDate: "Date",
+      movePeriod: "Time of day",
+      moveConfirm: "Create and move",
+      selectedCount: "%{smart_count} track selected |||| %{smart_count} tracks selected",
+      moved: "Moved %{smart_count} track |||| Moved %{smart_count} tracks",
+      moveFailed: "Could not move tracks: %{message}",
+      sessionOption: "Session %{number} – %{title}",
       download: "Download audio",
       downloadFailed: "Could not download track",
       delete: "Delete track",

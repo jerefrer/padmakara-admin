@@ -179,3 +179,52 @@ export function extractYear(text: string | null | undefined): string | null {
   const m = text.match(/(?<![0-9])(19\d{2}|20\d{2})(?![0-9])/);
   return m ? m[1]! : null;
 }
+
+/** Strip diacritics so "Manhã"/"Manha" and "Après-midi"/"Apres-midi" compare equal. */
+function stripAccents(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+const WORD_PERIOD_MAP: Record<string, string> = {
+  morning: "morning", manha: "morning", matin: "morning",
+  afternoon: "afternoon", tarde: "afternoon", apresmidi: "afternoon",
+  evening: "evening", night: "evening", noite: "evening", soir: "evening", soiree: "evening",
+};
+
+// A period word (EN/PT/FR) at the very end of a name, optionally followed by a
+// part marker: "Morning Part 1", "Manha_Parte_2", "Afternoon_Part_1", "Tarde".
+// Anchored to the end so a title that merely contains the word ("Morning
+// Prayers", "mais tarde") never splits a session.
+const TRAILING_WORD_PERIOD_RE =
+  /(?:^|[\s_-])(morning|afternoon|evening|night|manha|tarde|noite|matin|apres[\s_-]?midi|soiree|soir)(?:[\s_-]+(?:part|parte|pt)\.?[\s_-]*(\d+))?\s*$/i;
+
+/**
+ * Read a trailing period word (and optional part number) from a filename
+ * without extension. Case- and accent-insensitive; "_", "-" and spaces all
+ * separate words. Returns null when the name does not end in a period word.
+ */
+export function findTrailingWordPeriod(
+  baseName: string,
+): { period: string; part: number | null } | null {
+  const m = stripAccents(baseName).match(TRAILING_WORD_PERIOD_RE);
+  if (!m) return null;
+  const period = WORD_PERIOD_MAP[m[1]!.toLowerCase().replace(/[\s_-]/g, "")];
+  if (!period) return null;
+  return { period, part: m[2] ? parseInt(m[2], 10) : null };
+}
+
+/**
+ * Find a full day-month-year date written out in a name ("10th October 2026",
+ * "10 Outubro 2026") and return it as ISO. Null when absent or not a real day.
+ */
+export function findLooseFullDate(baseName: string): string | null {
+  const m = baseName.match(
+    new RegExp(`(?:^|[^\\d])(\\d{1,2})(?:st|nd|rd|th)?[\\s_-]+(${MONTHS_PATTERN})[\\s_,-]+(\\d{4})(?!\\d)`, "i"),
+  );
+  if (!m) return null;
+  const day = parseInt(m[1]!, 10);
+  if (day < 1 || day > 31) return null;
+  const month = MONTH_NORMALIZE[m[2]!.toLowerCase()];
+  if (!month) return null;
+  return formatSessionDate({ month, day, year: parseInt(m[3]!, 10) });
+}

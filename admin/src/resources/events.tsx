@@ -65,6 +65,9 @@ import { TrackAnalysisDropZone } from "../components/TrackAnalysisDropZone";
 import { NamingConventionsButton } from "../components/NamingConventionsButton";
 import { AnalysisReport } from "../components/AnalysisReport";
 import { SessionPreview } from "../components/SessionPreview";
+import { findMatchingExistingSession } from "../utils/sessionMatch";
+import { moveTracksToSession, nextSessionNumber } from "../utils/moveTracks";
+import { MoveTracksBar, type MoveTarget } from "../components/MoveTracksBar";
 import { EventVideosSection } from "../components/EventVideosSection";
 import type { PendingUploadSlides } from "../components/SlideEditor";
 import { EventFilesPreview } from "../components/EventFilesPreview";
@@ -622,6 +625,12 @@ interface EventFormProps {
   /** Edit-mode only: uploads audio for a keyless track (finishes an
    *  interrupted upload) and backfills its s3_key. */
   onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
+  /** Edit-mode only: track selection (database ids) and the move action it
+   *  feeds. Absent in the create wizard, whose table has its own move UI. */
+  selectedTrackIds?: ReadonlySet<number>;
+  onSelectedTrackIdsChange?: (ids: Set<number>) => void;
+  onMoveTracks?: (target: MoveTarget) => void | Promise<void>;
+  moveBusy?: boolean;
   /** Event-level videos, ordered by position. Only present in edit mode — a
    *  video needs a real event id to attach to, so the create wizard has none
    *  of this until after the event is saved. */
@@ -734,6 +743,7 @@ export const EventFormFields = ({
   allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onTrackAudioUpload,
+  selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, moveBusy,
   videos, onVideosChange, onVideoUpload, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount,
@@ -1540,6 +1550,16 @@ export const EventFormFields = ({
                   top of the form (edit view only — EventCreate's tracks live
                   in SessionTrackTable's own state and keep their own button
                   there). */}
+              {onMoveTracks && selectedTrackIds && onSelectedTrackIdsChange && (
+                <MoveTracksBar
+                  sessions={sessions}
+                  selectedCount={selectedTrackIds.size}
+                  busy={!!moveBusy}
+                  defaultDate={toIsoDate(sessions.find((x) => x.date)?.date ?? null, form.startDate || null) ?? ""}
+                  onMove={onMoveTracks}
+                  onClear={() => onSelectedTrackIdsChange(new Set())}
+                />
+              )}
               <SessionPreview
                 sessions={sessions}
                 onSessionTitleChange={onSessionTitleChange}
@@ -1547,6 +1567,8 @@ export const EventFormFields = ({
                 onTrackDelete={onTrackDelete}
                 onTrackAudioUpload={onTrackAudioUpload}
                 allTeachers={allTeachers}
+                selectedTrackIds={selectedTrackIds}
+                onSelectedTrackIdsChange={onSelectedTrackIdsChange}
               />
             </Box>
           )}
@@ -2945,6 +2967,10 @@ export const EventEdit = () => {
   const [form, setForm] = useState<EventFormData>({ ...EMPTY_FORM });
   const [sessions, setSessions] = useState<InferredSession[]>([]);
   const [videos, setVideos] = useState<EventVideo[]>([]);
+  // Tracks ticked in the list: they feed both "Move to session…" and the AI
+  // assistant's scope.
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<number>>(() => new Set());
+  const [movingTracks, setMovingTracks] = useState(false);
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -3284,6 +3310,71 @@ export const EventEdit = () => {
     }
     refresh();
   }, [sessions, handleSessionTitleChange, handleTrackUpdate, refresh, notify, translate]);
+
+  // Move the ticked tracks into an existing session, or into a new one
+  // created here (next session number, the date and period chosen).
+  const handleMoveTracks = useCallback(
+    async (target: MoveTarget) => {
+      if (!id || selectedTrackIds.size === 0) return;
+      setMovingTracks(true);
+      try {
+        let targetId: number;
+        let working = sessions;
+        if (target.kind === "existing") {
+          targetId = target.sessionId;
+        } else {
+          const titleEn = formatSessionTitle(target.date, target.timePeriod, null, "en");
+          const titlePt = formatSessionTitle(target.date, target.timePeriod, null, "pt");
+          const sessionNumber = nextSessionNumber(sessions);
+          const { data: created } = await dataProvider.create("sessions", {
+            data: {
+              eventId: Number(id),
+              sessionNumber,
+              titleEn,
+              titlePt,
+              sessionDate: target.date,
+              timePeriod: target.timePeriod,
+            },
+          });
+          targetId = created.id;
+          working = [
+            ...sessions,
+            {
+              id: created.id,
+              sessionNumber,
+              date: target.date,
+              timePeriod: target.timePeriod,
+              titleEn,
+              titlePt,
+              titleEnReviewed: true,
+              titlePtReviewed: true,
+              tracks: [],
+            },
+          ];
+        }
+        const ids = [...selectedTrackIds];
+        for (const trackId of ids) {
+          await dataProvider.update("tracks", {
+            id: trackId,
+            data: { sessionId: targetId },
+            previousData: {},
+          });
+        }
+        setSessions(moveTracksToSession(working, selectedTrackIds, targetId));
+        setSelectedTrackIds(new Set());
+        notify("padmakara.tracks.moved", { type: "success", messageArgs: { smart_count: ids.length } });
+        refresh();
+      } catch (err: unknown) {
+        notify("padmakara.tracks.moveFailed", {
+          type: "error",
+          messageArgs: { message: err instanceof Error ? err.message : String(err) },
+        });
+      } finally {
+        setMovingTracks(false);
+      }
+    },
+    [id, selectedTrackIds, sessions, dataProvider, notify, refresh],
+  );
 
   const handleTrackDelete = useCallback(
     async (trackId: number) => {
@@ -3672,20 +3763,33 @@ export const EventEdit = () => {
         let videoPositionForEvent = videos.length;
 
         for (const session of inferredNewSessions) {
-          const sessionNumber = existingSessionNumbers.has(session.sessionNumber)
-            ? nextSessionNumber++
-            : session.sessionNumber;
+          // Same date + period as a session the event already has: add the
+          // tracks there instead of creating a duplicate session.
+          const existingMatch = findMatchingExistingSession(
+            sessions,
+            session,
+            (d) => toIsoDate(d, form.startDate || null),
+          );
+          const sessionNumber = existingMatch
+            ? existingMatch.sessionNumber
+            : existingSessionNumbers.has(session.sessionNumber)
+              ? nextSessionNumber++
+              : session.sessionNumber;
 
-          const { data: createdSession } = await dataProvider.create("sessions", {
-            data: {
-              // The route param is a string; the API requires a number.
-              eventId: Number(id),
-              sessionNumber,
-              titleEn: session.titleEn,
-              sessionDate: session.date || null,
-              timePeriod: session.timePeriod || null,
-            },
-          });
+          const createdSession = existingMatch
+            ? { id: existingMatch.id }
+            : (
+                await dataProvider.create("sessions", {
+                  data: {
+                    // The route param is a string; the API requires a number.
+                    eventId: Number(id),
+                    sessionNumber,
+                    titleEn: session.titleEn,
+                    sessionDate: session.date || null,
+                    timePeriod: session.timePeriod || null,
+                  },
+                })
+              ).data;
 
           for (const track of session.tracks) {
             if (track.mediaType === "video") {
@@ -3904,6 +4008,10 @@ export const EventEdit = () => {
         onTrackUpdate={handleTrackUpdate}
         onTrackDelete={handleTrackDelete}
         onTrackAudioUpload={handleTrackAudioUpload}
+        selectedTrackIds={selectedTrackIds}
+        onSelectedTrackIdsChange={setSelectedTrackIds}
+        onMoveTracks={handleMoveTracks}
+        moveBusy={movingTracks}
         videos={videos}
         onVideosChange={setVideos}
         onVideoUpload={handleVideoUpload}
@@ -3953,6 +4061,7 @@ export const EventEdit = () => {
             speaker: tk.speaker ?? "",
             languages: tk.languages,
           })))}
+          selectedTrackKeys={[...selectedTrackIds].map(String)}
           onApply={handleAiApply}
         />
       )}

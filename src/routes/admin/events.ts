@@ -21,7 +21,7 @@ import { eventSortColumns } from "./events-sort.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs, cancelReadAlongJob } from "../../services/read-along.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
-import { aiAssistEvent } from "../../services/ai-assist.ts";
+import { aiAssistEvent, scopeAiAssistToTracks } from "../../services/ai-assist.ts";
 import { buildDefaultSlideDocument } from "../../lib/slides/defaults.ts";
 import { fetchSlideTemplateMetadata } from "../../services/slide-metadata.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../../lib/organizer-utils.ts";
@@ -494,7 +494,11 @@ eventRoutes.post("/:id/rename-tracks", async (c) => {
   const roster = await db.query.teachers.findMany({
     columns: { abbreviation: true, name: true },
   });
-  const result = await aiAssistEvent({ ...parsed.data, roster, apiKey });
+  const scoped = scopeAiAssistToTracks(parsed.data);
+  if (parsed.data.trackIds && scoped.tracks.length === 0) {
+    throw AppError.badRequest("None of the selected tracks were found", "NO_SELECTED_TRACKS");
+  }
+  const result = await aiAssistEvent({ ...scoped, roster, apiKey });
   return c.json(result);
 });
 

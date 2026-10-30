@@ -590,3 +590,30 @@ export async function aiAssistEvent(args: {
     tracks: outTracks,
   };
 }
+
+/**
+ * Narrow an AI-assist payload to the tracks the admin selected. The model only
+ * sees (and so can only change) those tracks: event fields, sessions and
+ * videos are dropped, since an instruction scoped to a selection must not
+ * rewrite anything outside it. Without `trackIds` the payload passes through.
+ */
+export function scopeAiAssistToTracks<
+  T extends {
+    trackIds?: string[];
+    tracks: Array<{ rowKey: string }>;
+    event?: unknown;
+    sessions?: unknown;
+    videos?: unknown;
+  },
+>(data: T): Omit<T, "trackIds"> {
+  const { trackIds, ...rest } = data;
+  if (!trackIds) return rest;
+  const wanted = new Set(trackIds);
+  return {
+    ...rest,
+    tracks: data.tracks.filter((t) => wanted.has(t.rowKey)),
+    event: undefined,
+    sessions: undefined,
+    videos: undefined,
+  };
+}

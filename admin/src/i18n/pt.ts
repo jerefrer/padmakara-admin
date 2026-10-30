@@ -453,6 +453,7 @@ export const pt = {
     },
     aiAssist: {
       heading: "Assistente AI",
+      scopedToSelection: "Aplica-se a %{smart_count} faixa selecionada |||| Aplica-se a %{smart_count} faixas selecionadas",
       caption: "Descreva uma alteração a aplicar a este evento, às suas sessões, vídeos e faixas",
       placeholder:
         'ex.: "Capitalizar todos os títulos das faixas", "Remover as iniciais do orador", ' +
@@ -578,6 +579,18 @@ export const pt = {
       logoUrlHelper: "Campo antigo — substituído pelo Avatar acima",
     },
     tracks: {
+      select: "Selecionar faixa",
+      clearSelection: "Limpar seleção",
+      moveTo: "Mover para sessão…",
+      newSession: "Nova sessão",
+      moveTitle: "Mover para uma nova sessão",
+      moveDate: "Data",
+      movePeriod: "Período do dia",
+      moveConfirm: "Criar e mover",
+      selectedCount: "%{smart_count} faixa selecionada |||| %{smart_count} faixas selecionadas",
+      moved: "Movida %{smart_count} faixa |||| Movidas %{smart_count} faixas",
+      moveFailed: "Não foi possível mover as faixas: %{message}",
+      sessionOption: "Sessão %{number} – %{title}",
       download: "Descarregar áudio",
       downloadFailed: "Não foi possível descarregar a faixa",
       delete: "Eliminar faixa",
