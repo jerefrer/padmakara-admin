@@ -12,10 +12,10 @@ import {
   putEventVideoSlidesSchema,
   slideImageUrlsSchema,
 } from "../../lib/schemas.ts";
-import { buildDefaultSlideDocument, isBuiltinKey } from "../../lib/slides/defaults.ts";
+import { isBuiltinKey } from "../../lib/slides/defaults.ts";
 import { AppError } from "../../lib/errors.ts";
 import { submitVideoBurnJob } from "../../services/video-burn.ts";
-import { fetchSlideTemplateMetadata } from "../../services/slide-metadata.ts";
+import { fetchSlideTemplateMetadata, generateDefaultSlides } from "../../services/slide-metadata.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
 import { deleteVideo, fetchVideo } from "../../services/bunny.ts";
 import {
@@ -469,21 +469,22 @@ videoRoutes.post("/:id/slides/image-urls", async (c) => {
 /**
  * POST /admin/videos/:id/slides/defaults
  *
- * Generate the default 5-slide intro + logo outro from the event's
- * metadata (teachers, event type, place, date, organizer/credits). Does NOT
+ * Generate the default intro (one language) + logo outro from the event's
+ * metadata (teachers, title, place, date, session, organizer/credits). Does NOT
  * persist — the admin previews the result client-side and PUTs it (possibly
- * edited) to actually save.
+ * edited) to actually save. Body (optional): `lang` "en" | "pt". Response:
+ * `{ slides, missing, language }`.
  */
 videoRoutes.post("/:id/slides/defaults", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const video = await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, id) });
   if (!video) throw AppError.notFound("Event video not found");
 
-  const meta = await fetchSlideTemplateMetadata(video.eventId, video.videoDate);
-  if (!meta) throw AppError.notFound("Event not found");
+  const body = (await c.req.json().catch(() => ({}))) as { lang?: unknown };
+  const result = await fetchSlideTemplateMetadata(video.eventId, video.videoDate);
+  if (!result) throw AppError.notFound("Event not found");
 
-  const slides = buildDefaultSlideDocument(meta, () => crypto.randomUUID());
-  return c.json({ slides });
+  return c.json(generateDefaultSlides(result, body.lang));
 });
 
 // ── Subtitles ─────────────────────────────────────────────────────────

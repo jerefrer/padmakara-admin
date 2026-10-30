@@ -171,6 +171,36 @@ describe("renderSlideHtml — font faces", () => {
   });
 });
 
+describe("renderSlideHtml — image next to text", () => {
+  it("caps the image and stops it filling the frame when text shares the slide", () => {
+    const html = renderSlideHtml(
+      slide([{ id: "i", type: "image", s3Key: "logo.png" }, textLine([{ text: "Padmakara" }])]),
+      BASE_OPTS,
+    );
+    expect(html).toContain(".stage:has(.text-line) .img-line{flex:0 1 auto}");
+    expect(html).toContain(".stage:has(.text-line) .img-line img{max-height:min(100%, 48rem)}");
+  });
+});
+
+describe("renderSlideHtml — small caps", () => {
+  it("applies the sc class and the small-caps rule when the line asks for it", () => {
+    const line: TextLine = { ...textLine([{ text: "Padmakara" }]), smallCaps: true };
+    const html = renderSlideHtml(slide([line]), BASE_OPTS);
+    expect(html).toContain('class="text-line sc"');
+    expect(html).toContain("font-variant:small-caps");
+  });
+
+  it("combines with dim", () => {
+    const line: TextLine = { ...textLine([{ text: "x" }], "md", true), smallCaps: true };
+    expect(renderSlideHtml(slide([line]), BASE_OPTS)).toContain('class="text-line dim sc"');
+  });
+
+  it("leaves the line unchanged when smallCaps is not set", () => {
+    const html = renderSlideHtml(slide([textLine([{ text: "x" }])]), BASE_OPTS);
+    expect(html).toContain('class="text-line"');
+  });
+});
+
 describe("renderSlideHtml — frame dimensions", () => {
   it("sizes the body to the requested width and height", () => {
     const html = renderSlideHtml(slide([]), { ...BASE_OPTS, width: 1920, height: 1080 });

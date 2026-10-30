@@ -318,6 +318,7 @@ const slideTextLineSchema = z.object({
   spans: z.array(slideSpanSchema),
   size: slideLineSizeSchema,
   dim: z.boolean().optional(),
+  smallCaps: z.boolean().optional(),
 });
 
 const slideImageLineSchema = z.object({

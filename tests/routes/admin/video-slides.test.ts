@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { testJson } from "../../helpers.ts";
 import type { SlideDocument } from "../../../src/lib/slides/types.ts";
 import { BUILTIN_LOGO_KEY } from "../../../src/lib/slides/defaults.ts";
+import { ANDRE_EVENT, EMPTY_EVENT, slideLines } from "./slide-fixtures.ts";
 
 // ─── Mocks (must come before route imports) ──────────────────────────────
 
@@ -300,18 +301,9 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     vi.clearAllMocks();
   });
 
-  it("generates the expected 5-slide intro + builtin-logo outro from full metadata", async () => {
-    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, videoDate: null });
-    mockFindFirstEvent.mockResolvedValueOnce({
-      id: 7,
-      startDate: "2016-06-18",
-      eventOrganizers: [{ position: 0, organizer: { id: 1, name: "Padmakara Portugal", abbreviation: null } }],
-      creditLines: ["Filmagem, arquivo e edição"],
-      copyrightHolder: "Padmakara",
-      eventType: { nameEn: "Teachings", namePt: "Ensinamentos" },
-      eventTeachers: [{ teacher: { name: "Jigme Khyentse Rinpoche" } }],
-      eventPlaces: [{ place: { name: "CCA", location: "Loulé, Portugal" } }],
-    });
+  it("generates André's English intro + builtin-logo outro from full metadata", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, videoDate: "2026-10-10" });
+    mockFindFirstEvent.mockResolvedValueOnce(ANDRE_EVENT);
 
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/videos/5/slides/defaults", {
@@ -320,28 +312,57 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     });
 
     expect(status).toBe(200);
-    expect(body.slides.intro).toHaveLength(5);
-    expect(body.slides.intro[0].lines[0].spans[0].text).toBe("Jigme Khyentse Rinpoche");
+    expect(body.language).toBe("en");
+    expect(body.missing).toEqual([]);
+    expect(body.slides.intro.map(slideLines)).toEqual([
+      ["", "Padmakara"],
+      ["Jigme Khyentse Rinpoche"],
+      ["Jigme Khyentse Rinpoche", "", "", "Learning to let go and enjoying space", "", "", ""],
+      ["October 2026", "Lisbon, Portugal"],
+      ["Session 1 of 4", "10 October 2026, morning"],
+      ["Event organized by", "Fundação Kangyur Rinpoche", "", "Video Production", "Padmakara Portugal"],
+    ]);
     expect(body.slides.outro).toHaveLength(1);
-    expect(body.slides.outro[0].lines).toHaveLength(1);
-    expect(body.slides.outro[0].lines[0]).toMatchObject({
-      type: "image",
-      s3Key: BUILTIN_LOGO_KEY,
-    });
+    expect(body.slides.outro[0].lines[0]).toMatchObject({ type: "image", s3Key: BUILTIN_LOGO_KEY });
   });
 
-  it("uses the video's own date over the event start date", async () => {
-    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, videoDate: "2017-01-02" });
-    mockFindFirstEvent.mockResolvedValueOnce({
-      id: 7,
-      startDate: "2016-06-18",
-      eventOrganizers: [],
-      creditLines: [],
-      copyrightHolder: null,
-      eventType: null,
-      eventTeachers: [],
-      eventPlaces: [],
+  it("generates the Portuguese intro when asked", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, videoDate: "2026-10-10" });
+    mockFindFirstEvent.mockResolvedValueOnce(ANDRE_EVENT);
+
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/videos/5/slides/defaults", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ lang: "pt" }),
     });
+
+    expect(status).toBe(200);
+    expect(body.language).toBe("pt");
+    expect(body.slides.intro.map(slideLines).slice(2)).toEqual([
+      ["Jigme Khyentse Rinpoche", "", "", "Aprender a largar e a apreciar o espaço", "", "", ""],
+      ["Outubro 2026", "Lisbon, Portugal"],
+      ["Sessão 1 de 4", "10 de outubro de 2026, manhã"],
+      ["Evento organizado por", "Fundação Kangyur Rinpoche", "", "Produção de vídeo", "Padmakara Portugal"],
+    ]);
+  });
+
+  it("defaults to Portuguese for an event taught in Portuguese", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, videoDate: "2026-10-10" });
+    mockFindFirstEvent.mockResolvedValueOnce({ ...ANDRE_EVENT, originalLanguage: "pt" });
+
+    const token = await adminToken();
+    const { body } = await testJson("/api/admin/videos/5/slides/defaults", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(body.language).toBe("pt");
+  });
+
+  it("uses the video's own date over the event start date, and lists what is missing", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, videoDate: "2017-01-02" });
+    mockFindFirstEvent.mockResolvedValueOnce({ ...EMPTY_EVENT, startDate: "2016-06-18" });
 
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/videos/5/slides/defaults", {
@@ -350,22 +371,22 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     });
 
     expect(status).toBe(200);
-    // Only the date slide can exist here (no teacher/type/organizer/credits).
-    expect(body.slides.intro).toHaveLength(1);
-    expect(body.slides.intro[0].lines[0].spans[0].text).toBe("2 January 2017");
+    // Logo slide, the title slide and the date slide (January 2017, not June 2016).
+    expect(body.slides.intro.map(slideLines)).toEqual([
+      ["", "Padmakara"],
+      ["Retreat"],
+      ["January 2017"],
+    ]);
+    expect(body.missing).toEqual(["teacher", "place", "session", "organizer", "production"]);
   });
 
-  it("omits slides whose backing data is missing, but always keeps the builtin outro", async () => {
+  it("omits slides whose backing data is missing, but always keeps the logo slide and the outro", async () => {
     mockFindFirstEventVideo.mockResolvedValueOnce({ id: 6, eventId: 8, videoDate: null });
     mockFindFirstEvent.mockResolvedValueOnce({
+      ...EMPTY_EVENT,
       id: 8,
-      startDate: null,
-      eventOrganizers: [],
-      creditLines: [],
-      copyrightHolder: null,
-      eventType: null,
+      titleEn: "",
       eventTeachers: [{ teacher: { name: "Jigme Khyentse Rinpoche" } }],
-      eventPlaces: [],
     });
 
     const token = await adminToken();
@@ -375,12 +396,29 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     });
 
     expect(status).toBe(200);
-    // Only the teacher slide survives: no event type, no date, no
-    // organizer/place, no credits/copyright.
-    expect(body.slides.intro).toHaveLength(1);
-    expect(body.slides.intro[0].lines[0].spans[0].text).toBe("Jigme Khyentse Rinpoche");
-    expect(body.slides.outro).toHaveLength(1);
+    expect(body.slides.intro.map(slideLines)).toEqual([["", "Padmakara"], ["Jigme Khyentse Rinpoche"]]);
+    expect(body.missing).toEqual(["title", "date", "place", "session", "organizer", "production"]);
     expect(body.slides.outro[0].lines[0].s3Key).toBe(BUILTIN_LOGO_KEY);
+  });
+
+  it("leaves the session slide out when two sessions share the video's date", async () => {
+    mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, videoDate: "2026-10-10" });
+    mockFindFirstEvent.mockResolvedValueOnce({
+      ...ANDRE_EVENT,
+      sessions: [
+        { sessionNumber: 1, sessionDate: "2026-10-10", timePeriod: "morning" },
+        { sessionNumber: 2, sessionDate: "2026-10-10", timePeriod: "evening" },
+      ],
+    });
+
+    const token = await adminToken();
+    const { body } = await testJson("/api/admin/videos/5/slides/defaults", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(body.missing).toEqual(["session"]);
+    expect(body.slides.intro).toHaveLength(5);
   });
 
   it("returns 404 when the video does not exist", async () => {

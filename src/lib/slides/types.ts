@@ -33,6 +33,9 @@ export interface TextLine {
   size: LineSize;
   /** Renders at reduced opacity — matches the date slide in the reference intro. */
   dim?: boolean;
+  /** Lowercase letters render as small capitals (`font-variant: small-caps`),
+   *  the house style of the Padmakara intro. Capitals keep their full height. */
+  smallCaps?: boolean;
 }
 
 export interface ImageLine {
