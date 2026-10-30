@@ -11,6 +11,7 @@ import { videoSubtitles } from "../db/schema/video-subtitles.ts";
 import { config } from "../config.ts";
 import { getVideoMeta } from "../services/bunny.ts";
 import { addCaption } from "../services/bunny-captions.ts";
+import { mergeIntroSubtitleCues } from "../lib/slides/intro-subtitles.ts";
 import { getObjectText, putObject } from "../services/s3.ts";
 import { bumpVersion } from "../services/sync-versions.ts";
 import { computeIntroDelta, applyIntroDeltaInTransaction } from "../services/video-burn.ts";
@@ -321,7 +322,12 @@ webhookRoutes.post("/subtitles", async (c) => {
     }
 
     if (video.bunnyVideoId) {
-      await addCaption(video.bunnyVideoId, language, label ?? language, vtt);
+      await addCaption(
+        video.bunnyVideoId,
+        language,
+        label ?? language,
+        mergeIntroSubtitleCues(vtt, video.slides, language),
+      );
       await db
         .update(videoSubtitles)
         .set({ bunnyUploadedAt: new Date() })

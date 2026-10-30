@@ -75,7 +75,11 @@ import {
   newSpacerLine,
   newTextLine,
   type SlideSequenceKey,
+  introSubtitleLanguage,
+  subtitleText,
+  type SubtitleLanguage,
   updateSlide,
+  withSubtitleText,
 } from "../utils/slideDocument";
 import { SlideEditorPreview } from "./SlideEditorPreview";
 import { SlideLineRow } from "./SlideLineRow";
@@ -527,6 +531,7 @@ export const SlideEditor = ({
   // The language the generated slides are written in. Slides are burned in one
   // language per video; the other arrives as subtitles.
   const [generateLang, setGenerateLang] = useState<SlideLanguage>("en");
+  const subtitleLang = introSubtitleLanguage(doc, generateLang);
   // What the last generation could not find, shown until the next one.
   const [generationNotice, setGenerationNotice] = useState<MissingSlideInput[] | null>(null);
 
@@ -671,6 +676,7 @@ export const SlideEditor = ({
               resolveImageUrl={resolveImageUrl}
               onSelect={() => setSelectedIndex(idx)}
               onUpdateSlide={(patch) => setDoc((d) => updateSlide(d, tab, slide.id, patch))}
+              subtitleLang={tab === "intro" ? subtitleLang : undefined}
               onDuplicate={() => handleDuplicateSlide(slide.id)}
               onDelete={() => handleDeleteSlide(slide.id)}
               onMoveUp={() => handleMoveSlide(slide.id, -1)}
@@ -739,7 +745,9 @@ interface SlideCardProps {
   eventCode?: string;
   resolveImageUrl: (s3Key: string) => string;
   onSelect: () => void;
-  onUpdateSlide: (patch: Partial<Pick<Slide, "durationMs" | "fadeMs">>) => void;
+  onUpdateSlide: (patch: Partial<Pick<Slide, "durationMs" | "fadeMs" | "subtitles">>) => void;
+  /** Language of the subtitle field; undefined hides it (the outro has none). */
+  subtitleLang?: SubtitleLanguage;
   onDuplicate: () => void;
   onDelete: () => void;
   onMoveUp: () => void;
@@ -761,6 +769,7 @@ const SlideCard = ({
   resolveImageUrl,
   onSelect,
   onUpdateSlide,
+  subtitleLang,
   onDuplicate,
   onDelete,
   onMoveUp,
@@ -883,6 +892,30 @@ const SlideCard = ({
           </MenuItem>
         </Menu>
       </Box>
+
+      {subtitleLang && (
+        <Box onClick={(e) => e.stopPropagation()} sx={{ mt: 1 }}>
+          <TextField
+            size="small"
+            fullWidth
+            multiline
+            minRows={1}
+            maxRows={4}
+            label={
+              subtitleLang === "pt"
+                ? translate("padmakara.slides.subtitlePt") || "Subtitle (PT)"
+                : translate("padmakara.slides.subtitleEn") || "Subtitle (EN)"
+            }
+            helperText={translate("padmakara.slides.subtitleHint") || "Shown when subtitles are on. One line per row."}
+            value={subtitleText(slide, subtitleLang)}
+            onChange={(e) => onUpdateSlide(withSubtitleText(slide, subtitleLang, e.target.value))}
+            slotProps={{
+              htmlInput: { style: { fontSize: "0.8rem" } },
+              formHelperText: { sx: { fontSize: "0.65rem", mt: 0.25 } },
+            }}
+          />
+        </Box>
+      )}
     </Paper>
   );
 };

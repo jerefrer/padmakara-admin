@@ -20,6 +20,7 @@ import {
   type BunnyResolution,
 } from "../services/bunny.ts";
 import { issueMat, verifyMat } from "../services/media-access.ts";
+import { withIntroSubtitlesForVideo } from "../services/intro-subtitles.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
@@ -533,7 +534,7 @@ mediaRoutes.get("/video/hls/:videoId/subs/:lang/track.vtt", async (c) => {
   const vtt = await getObjectText(sub.s3Key);
   c.header("Content-Type", "text/vtt; charset=utf-8");
   c.header("Cache-Control", "no-store");
-  return c.body(withTimestampMap(vtt));
+  return c.body(withTimestampMap(await withIntroSubtitlesForVideo(vtt, videoId, lang)));
 });
 
 /**

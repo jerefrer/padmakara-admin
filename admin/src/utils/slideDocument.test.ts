@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { SlideDocument } from "@slides/types.ts";
+import type { Slide, SlideDocument } from "@slides/types.ts";
 import {
+  introSubtitleLanguage,
+  subtitleText,
+  withSubtitleText,
   addLine,
   addSlide,
   deleteLine,
@@ -152,5 +155,46 @@ describe("line operations", () => {
     const withSameId = { ...replacement, id: l1.id };
     const next = replaceLine(doc, "intro", a.id, l1.id, withSameId);
     expect(next.intro[0].lines).toEqual([withSameId]);
+  });
+});
+
+describe("intro subtitles", () => {
+  const slide = (subtitles?: Slide["subtitles"]): Slide => ({
+    id: "s",
+    durationMs: 4000,
+    fadeMs: 800,
+    lines: [],
+    subtitles,
+  });
+
+  it("should edit the language the intro subtitles already hold", () => {
+    const doc: SlideDocument = { version: 1, intro: [slide(), slide({ en: ["Hi"] })], outro: [] };
+    expect(introSubtitleLanguage(doc, "en")).toBe("en");
+  });
+
+  it("should edit the opposite of the generated language when there are no subtitles yet", () => {
+    const doc: SlideDocument = { version: 1, intro: [slide()], outro: [] };
+    expect(introSubtitleLanguage(doc, "en")).toBe("pt");
+    expect(introSubtitleLanguage(doc, "pt")).toBe("en");
+  });
+
+  it("should join the stored lines with newlines for the text area", () => {
+    expect(subtitleText(slide({ pt: ["Um", "Dois"] }), "pt")).toBe("Um\nDois");
+    expect(subtitleText(slide(), "pt")).toBe("");
+  });
+
+  it("should store text-area lines and keep the other language", () => {
+    const patch = withSubtitleText(slide({ en: ["Hi"] }), "pt", "Olá\nMundo");
+    expect(patch.subtitles).toEqual({ en: ["Hi"], pt: ["Olá", "Mundo"] });
+  });
+
+  it("should remove the field when the only language is cleared", () => {
+    expect(withSubtitleText(slide({ pt: ["Olá"] }), "pt", "  ").subtitles).toBeUndefined();
+  });
+
+  it("should survive updateSlide on the document", () => {
+    const doc: SlideDocument = { version: 1, intro: [slide()], outro: [] };
+    const next = updateSlide(doc, "intro", "s", withSubtitleText(doc.intro[0]!, "pt", "Olá"));
+    expect(next.intro[0]?.subtitles).toEqual({ pt: ["Olá"] });
   });
 });

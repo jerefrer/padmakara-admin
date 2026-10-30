@@ -61,6 +61,18 @@ export interface Slide {
   /** Fade from black in, and back out to black, at each end of the slide. */
   fadeMs: number;
   lines: Line[];
+  /**
+   * Subtitle text shown over this slide when subtitles are on, one string per
+   * cue line, keyed by subtitle language. Slides are burned in the video's own
+   * language, so this normally holds the other language only. Optional:
+   * documents saved before it existed stay valid.
+   */
+  subtitles?: SlideSubtitles;
+}
+
+export interface SlideSubtitles {
+  en?: string[];
+  pt?: string[];
 }
 
 export interface SlideDocument {

@@ -339,11 +339,19 @@ const slideLineSchema = z.discriminatedUnion("type", [
   slideSpacerLineSchema,
 ]);
 
+const slideSubtitleLinesSchema = z.array(z.string().max(300)).max(8);
+
+const slideSubtitlesSchema = z.object({
+  en: slideSubtitleLinesSchema.optional(),
+  pt: slideSubtitleLinesSchema.optional(),
+});
+
 const slideSchema = z.object({
   id: z.string().min(1),
   durationMs: z.number().int().min(500).max(30000),
   fadeMs: z.number().int().min(0).max(5000),
   lines: z.array(slideLineSchema).max(12),
+  subtitles: slideSubtitlesSchema.optional(),
 });
 
 const slideSequenceSchema = z.array(slideSchema).max(20);

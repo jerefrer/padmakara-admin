@@ -94,7 +94,7 @@ export function updateSlide(
   doc: SlideDocument,
   key: SlideSequenceKey,
   slideId: string,
-  patch: Partial<Pick<Slide, "durationMs" | "fadeMs">>,
+  patch: Partial<Pick<Slide, "durationMs" | "fadeMs" | "subtitles">>,
 ): SlideDocument {
   return { ...doc, [key]: doc[key].map((s) => (s.id === slideId ? { ...s, ...patch } : s)) };
 }
@@ -141,4 +141,44 @@ export function replaceLine(
   next: Line,
 ): SlideDocument {
   return updateLines(doc, key, slideId, (lines) => lines.map((l) => (l.id === lineId ? next : l)));
+}
+
+export type SubtitleLanguage = "en" | "pt";
+
+/**
+ * Which language the intro's subtitle fields edit. Slides are burned in one
+ * language and the subtitles carry the other, but the document does not record
+ * which was burned, so: use the language its intro subtitles already hold,
+ * otherwise the opposite of `burnedLanguage` (the language being generated).
+ */
+export function introSubtitleLanguage(
+  doc: SlideDocument,
+  burnedLanguage: SubtitleLanguage,
+): SubtitleLanguage {
+  for (const slide of doc.intro) {
+    if (slide.subtitles?.pt !== undefined) return "pt";
+    if (slide.subtitles?.en !== undefined) return "en";
+  }
+  return burnedLanguage === "en" ? "pt" : "en";
+}
+
+/** Subtitle lines of a slide for one language, as the text-area string. */
+export function subtitleText(slide: Slide, lang: SubtitleLanguage): string {
+  return (slide.subtitles?.[lang] ?? []).join("\n");
+}
+
+/**
+ * Patch that sets a slide's subtitles for one language from text-area content
+ * (one cue line per text line), leaving the other language untouched. Empty
+ * text removes the language, and the whole field when nothing is left.
+ */
+export function withSubtitleText(
+  slide: Slide,
+  lang: SubtitleLanguage,
+  text: string,
+): { subtitles: Slide["subtitles"] } {
+  const others: NonNullable<Slide["subtitles"]> = { ...slide.subtitles };
+  delete others[lang];
+  const next = text.trim() === "" ? others : { ...others, [lang]: text.split("\n") };
+  return { subtitles: Object.keys(next).length > 0 ? next : undefined };
 }

@@ -328,3 +328,48 @@ describe("buildDefaultSlideDocument", () => {
     expect(doc.intro[4]?.lines.map((l) => lineText(l))[0]).toBe("Sessão 1 de 4");
   });
 });
+
+describe("intro subtitles for the other language", () => {
+  it("fills Portuguese subtitles on an English intro, slide by slide", () => {
+    const slides = buildDefaultIntro(ANDRE_META, makeIdFactory(), "en");
+    expect(slides.map((s) => s.subtitles)).toEqual([
+      undefined, // logo + wordmark
+      undefined, // speaker name reads the same in both languages
+      { pt: ["Jigme Khyentse Rinpoche", "Aprender a largar e a apreciar o espaço"] },
+      { pt: ["Outubro 2026", "Lisbon, Portugal"] },
+      { pt: ["Sessão 1 de 4", "10 de outubro de 2026, manhã"] },
+      {
+        pt: [
+          "Evento organizado por",
+          "Fundação Kangyur Rinpoche",
+          "Produção de vídeo",
+          "Padmakara Portugal",
+        ],
+      },
+    ]);
+  });
+
+  it("fills English subtitles on a Portuguese intro", () => {
+    const slides = buildDefaultIntro(ANDRE_META, makeIdFactory(), "pt");
+    expect(slides[4]?.subtitles).toEqual({ en: ["Session 1 of 4", "10 October 2026, morning"] });
+  });
+
+  it("gives the logo slide no subtitles", () => {
+    expect(buildDefaultIntro(ANDRE_META, makeIdFactory(), "en")[0]?.subtitles).toBeUndefined();
+  });
+
+  it("leaves the outro without subtitles", () => {
+    const doc = buildDefaultSlideDocument(ANDRE_META, makeIdFactory());
+    expect(doc.outro[0]?.subtitles).toBeUndefined();
+  });
+
+  it("hands out the same ids as before for the burned slides", () => {
+    const ids = buildDefaultIntro(ANDRE_META, makeIdFactory(), "en").map((s) => s.id);
+    expect(ids.every((id) => id.startsWith("id-"))).toBe(true);
+  });
+
+  it("omits subtitles for a slide the other language cannot fill", () => {
+    const slides = buildDefaultIntro({ ...ANDRE_META, titlePt: null }, makeIdFactory(), "en");
+    expect(slides.some((s) => s.subtitles?.pt?.includes("Aprender a largar e a apreciar o espaço"))).toBe(false);
+  });
+});
