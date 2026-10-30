@@ -65,6 +65,7 @@ import { TrackAnalysisDropZone } from "../components/TrackAnalysisDropZone";
 import { NamingConventionsButton } from "../components/NamingConventionsButton";
 import { AnalysisReport } from "../components/AnalysisReport";
 import { SessionPreview } from "../components/SessionPreview";
+import { findMatchingExistingSession } from "../utils/sessionMatch";
 import { EventVideosSection } from "../components/EventVideosSection";
 import type { PendingUploadSlides } from "../components/SlideEditor";
 import { EventFilesPreview } from "../components/EventFilesPreview";
@@ -3672,20 +3673,33 @@ export const EventEdit = () => {
         let videoPositionForEvent = videos.length;
 
         for (const session of inferredNewSessions) {
-          const sessionNumber = existingSessionNumbers.has(session.sessionNumber)
-            ? nextSessionNumber++
-            : session.sessionNumber;
+          // Same date + period as a session the event already has: add the
+          // tracks there instead of creating a duplicate session.
+          const existingMatch = findMatchingExistingSession(
+            sessions,
+            session,
+            (d) => toIsoDate(d, form.startDate || null),
+          );
+          const sessionNumber = existingMatch
+            ? existingMatch.sessionNumber
+            : existingSessionNumbers.has(session.sessionNumber)
+              ? nextSessionNumber++
+              : session.sessionNumber;
 
-          const { data: createdSession } = await dataProvider.create("sessions", {
-            data: {
-              // The route param is a string; the API requires a number.
-              eventId: Number(id),
-              sessionNumber,
-              titleEn: session.titleEn,
-              sessionDate: session.date || null,
-              timePeriod: session.timePeriod || null,
-            },
-          });
+          const createdSession = existingMatch
+            ? { id: existingMatch.id }
+            : (
+                await dataProvider.create("sessions", {
+                  data: {
+                    // The route param is a string; the API requires a number.
+                    eventId: Number(id),
+                    sessionNumber,
+                    titleEn: session.titleEn,
+                    sessionDate: session.date || null,
+                    timePeriod: session.timePeriod || null,
+                  },
+                })
+              ).data;
 
           for (const track of session.tracks) {
             if (track.mediaType === "video") {
