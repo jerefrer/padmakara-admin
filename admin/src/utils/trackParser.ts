@@ -90,7 +90,19 @@ export function isVideoFilename(name: string): boolean {
   return VIDEO_EXT_RE.test(name);
 }
 
+/** macOS/Windows archive and Finder leftovers that are never real media:
+ *  AppleDouble resource forks ("._track.mp3"), ".DS_Store", "Thumbs.db". */
+export function isJunkFilename(name: string): boolean {
+  return name.startsWith("._") || name === ".DS_Store" || name === "Thumbs.db";
+}
+
+/** True for a directory name that only holds archive junk ("__MACOSX"). */
+export function isJunkDirName(name: string): boolean {
+  return name === "__MACOSX";
+}
+
 export function isMediaFilename(name: string): boolean {
+  if (isJunkFilename(name)) return false;
   return isAudioFilename(name) || isVideoFilename(name);
 }
 
@@ -220,6 +232,48 @@ function formatSessionDate(parsed: { month: string; day: number; year: number | 
     return `${parsed.year}-${mm}-${String(parsed.day).padStart(2, "0")}`;
   }
   return `${parsed.month} ${parsed.day}`;
+}
+
+const MONTH_NUMBER: Record<string, string> = {
+  january: "01", february: "02", march: "03", april: "04", may: "05", june: "06",
+  july: "07", august: "08", september: "09", october: "10", november: "11", december: "12",
+};
+
+/**
+ * Turn a parsed session date into a storable ISO date, or null.
+ *
+ * A filename marker like "(26 April AM)" yields "April 26" with no year; the
+ * year comes from `yearHint` (folder date, else event start date). Anything
+ * that cannot be resolved to a real YYYY-MM-DD returns null so the session is
+ * left undated rather than sent to the API as an invalid string.
+ */
+export function toIsoSessionDate(date: string | null, yearHint: string | null): string | null {
+  if (!date) return null;
+  const valid = (y: string, m: string, d: string): string | null => {
+    const iso = `${y}-${m}-${d.padStart(2, "0")}`;
+    const parsed = new Date(`${iso}T00:00:00Z`);
+    return /^\d{4}-\d{2}-\d{2}$/.test(iso) && !Number.isNaN(parsed.getTime())
+      && parsed.toISOString().slice(0, 10) === iso
+      ? iso
+      : null;
+  };
+  const iso = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) return valid(iso[1]!, iso[2]!, iso[3]!);
+  const monthDay = date.match(/^([A-Za-z]+)\s+(\d{1,2})$/);
+  const dayMonth = date.match(/^(\d{1,2})\s+([A-Za-z]+)$/);
+  const monthName = monthDay?.[1] ?? dayMonth?.[2];
+  const day = monthDay?.[2] ?? dayMonth?.[1];
+  if (!monthName || !day || !yearHint || !/^\d{4}$/.test(yearHint)) return null;
+  const mm = MONTH_NUMBER[monthName.toLowerCase()];
+  return mm ? valid(yearHint, mm, day) : null;
+}
+
+/** Return sessions whose `date` is a valid ISO date or null (never "April 26"). */
+export function resolveSessionDates(
+  sessions: InferredSession[],
+  yearHint: string | null,
+): InferredSession[] {
+  return sessions.map((s) => ({ ...s, date: toIsoSessionDate(s.date, yearHint) }));
 }
 
 /** Heuristic: does this title text read as Portuguese? (diacritics + stopwords) */
@@ -528,8 +582,11 @@ export interface FolderMetadata {
 /**
  * Parse a retreat folder name into structured metadata.
  *
- * Expects format: {YYYY-MM-DD}_{DD}-{TEACHER}-{Group_Name} [{LANG+LANG}]
+ * Expects format: {date}[_{DD}]-{TEACHER}-{Group_Name} [{LANG+LANG}], where
+ * date is YYYY-MM-DD, YYYYMMDD or YYYY.MM.DD and the optional end day follows
+ * after "_" or "-".
  * Examples:
+ *   "20250426_27-JKR-Guru Yoga [ING+POR]"
  *   "2025-04-17_18-JKR-Treino_da_Mente_2 [ING+POR]"
  *   "2017-11-14_20-KPS-Praticas_Preliminares [TIB+ENG+POR]"
  */
@@ -552,14 +609,14 @@ export function parseFolderName(name: string): FolderMetadata {
   // Remove the bracket portion for further parsing
   const base = name.replace(/\s*\[[^\]]*\]\s*$/, "").trim();
 
-  // Match: YYYY-MM-DD_DD-TEACHER-Group_Name
+  // Match: {YYYYMMDD | YYYY-MM-DD | YYYY.MM.DD}[_DD | -DD]-TEACHER-Group_Name
   const mainMatch = base.match(
-    /^(\d{4}-\d{2}-\d{2})(?:_(\d{1,2}))?-([A-Z]{2,5})-(.+)$/i,
+    /^(\d{4})([-.]?)(\d{2})\2(\d{2})(?:[_-](\d{1,2}))?-([A-Z]{2,5})-(.+)$/i,
   );
 
   if (mainMatch) {
-    const [, dateStr, endDay, teacher, groupRaw] = mainMatch;
-    startDate = dateStr!;
+    const [, yyyy, , mm, dd, endDay, teacher, groupRaw] = mainMatch;
+    startDate = `${yyyy}-${mm}-${dd}`;
     teacherAbbrev = teacher!.toUpperCase();
 
     // Derive end date from start date + end day

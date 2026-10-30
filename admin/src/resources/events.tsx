@@ -118,6 +118,7 @@ import {
   type FolderMetadata,
   inferSessions,
   applyFolderSpeakerFallback,
+  resolveSessionDates,
   parseTrackFile,
   formatSessionTitle,
   detectTitleLanguage,
@@ -3657,9 +3658,13 @@ export const EventEdit = () => {
               (t) => t.abbreviation.toLowerCase() === meta.teacherAbbrev!.toLowerCase(),
             )
           : undefined;
-        const inferredNewSessions = applyFolderSpeakerFallback(
-          inferSessions(tracks),
-          folderTeacher?.abbreviation ?? null,
+        // Markers like "(26 April AM)" carry no year: take it from the dropped
+        // folder's date, else the event's start date. Unresolvable dates become
+        // null so the API never receives a non-ISO sessionDate.
+        const yearHint = (meta.startDate ?? form.startDate ?? "").slice(0, 4) || null;
+        const inferredNewSessions = resolveSessionDates(
+          applyFolderSpeakerFallback(inferSessions(tracks), folderTeacher?.abbreviation ?? null),
+          yearHint,
         );
         const existingSessionNumbers = new Set(sessions.map((s) => s.sessionNumber));
         // Assign new session numbers that don't conflict with existing ones
