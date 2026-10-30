@@ -661,6 +661,12 @@ export const pt = {
       saveFirst: "Guarde primeiro o evento e depois carregue as transcrições",
       download: "Descarregar transcrição",
       downloadFailed: "Não foi possível descarregar a transcrição",
+      delete: "Eliminar transcrição",
+      deleteTitle: "Eliminar transcrição",
+      deleteAction: "Eliminar",
+      deleted: "Transcrição removida",
+      deleteFailed: "Falha ao eliminar transcrição",
+      deleteConfirm: "Eliminar esta transcrição? Esta ação não pode ser anulada.",
     },
     documents: {
       title: "Documentos",

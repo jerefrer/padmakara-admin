@@ -1577,7 +1577,7 @@ export const EventFormFields = ({
 
           {/* Event-level files (transcripts, videos, etc.) */}
           {transcripts.length > 0 && (
-            <EventFilesPreview transcripts={transcripts} />
+            <EventFilesPreview transcripts={transcripts} onTranscriptDeleted={refresh} />
           )}
         </>
       )}

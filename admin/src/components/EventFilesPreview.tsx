@@ -1,11 +1,18 @@
 import { useState } from "react";
-import { useNotify, useTranslate } from "react-admin";
+import { useDataProvider, useNotify, useTranslate } from "react-admin";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import CircularProgress from "@mui/material/CircularProgress";
+import Button from "@mui/material/Button";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DownloadIcon from "@mui/icons-material/Download";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
@@ -46,6 +53,8 @@ function getFileIcon(type: FileType) {
 
 interface EventFilesPreviewProps {
   transcripts: any[];
+  /** Called after a transcript was deleted, so the parent can reload the event. */
+  onTranscriptDeleted?: () => void;
 }
 
 /**
@@ -55,7 +64,7 @@ interface EventFilesPreviewProps {
  */
 type FileRowData = ParsedTrack & { transcriptId?: number; hasFile: boolean };
 
-export const EventFilesPreview = ({ transcripts }: EventFilesPreviewProps) => {
+export const EventFilesPreview = ({ transcripts, onTranscriptDeleted }: EventFilesPreviewProps) => {
   if (transcripts.length === 0) return null;
 
   // Convert transcripts to tracks for display
@@ -86,6 +95,7 @@ export const EventFilesPreview = ({ transcripts }: EventFilesPreviewProps) => {
           title="Transcripts"
           icon={<PictureAsPdfIcon />}
           tracks={transcriptTracks}
+          onDeleted={onTranscriptDeleted}
         />
       )}
     </Box>
@@ -96,9 +106,10 @@ interface FileSectionProps {
   title: string;
   icon: React.ReactNode;
   tracks: FileRowData[];
+  onDeleted?: () => void;
 }
 
-const FileSection = ({ title, icon, tracks }: FileSectionProps) => {
+const FileSection = ({ title, icon, tracks, onDeleted }: FileSectionProps) => {
   return (
     <Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1.5 }}>
@@ -121,6 +132,7 @@ const FileSection = ({ title, icon, tracks }: FileSectionProps) => {
               key={idx}
               track={track}
               isLast={idx === tracks.length - 1}
+              onDeleted={onDeleted}
             />
           ))}
         </Box>
@@ -132,12 +144,17 @@ const FileSection = ({ title, icon, tracks }: FileSectionProps) => {
 const FileRow = ({
   track,
   isLast,
+  onDeleted,
 }: {
   track: FileRowData;
   isLast: boolean;
+  onDeleted?: () => void;
 }) => {
   const translate = useTranslate();
   const notify = useNotify();
+  const dataProvider = useDataProvider();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const fileType = track.fileFormat ? getFileType(track.originalFilename) : "other";
   const icon = getFileIcon(fileType);
@@ -161,6 +178,24 @@ const FileRow = ({
       });
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleDeleteConfirmed = async () => {
+    setConfirmOpen(false);
+    if (!track.transcriptId) return;
+    setDeleting(true);
+    try {
+      await dataProvider.delete("transcripts", { id: track.transcriptId });
+      notify(translate("padmakara.transcript.deleted") || "Transcript removed", { type: "success" });
+      onDeleted?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notify(`${translate("padmakara.transcript.deleteFailed") || "Failed to delete transcript"}: ${msg}`, {
+        type: "error",
+      });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -244,6 +279,39 @@ const FileRow = ({
           {downloading ? <CircularProgress size={16} /> : <DownloadIcon sx={{ fontSize: 16 }} />}
         </IconButton>
       )}
+
+      {/* Delete — only for saved rows */}
+      {track.transcriptId && (
+        <IconButton
+          size="small"
+          onClick={() => setConfirmOpen(true)}
+          disabled={deleting}
+          sx={{ opacity: 0.5, "&:hover": { opacity: 1, color: "error.main" } }}
+          title={translate("padmakara.transcript.delete") || "Delete transcript"}
+        >
+          {deleting ? <CircularProgress size={16} /> : <DeleteOutlineIcon sx={{ fontSize: 16 }} />}
+        </IconButton>
+      )}
+
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>{translate("padmakara.transcript.deleteTitle") || "Delete transcript"}</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ fontWeight: 600, mb: 1, wordBreak: "break-word" }}>
+            {track.title}
+          </DialogContentText>
+          <DialogContentText>
+            {translate("padmakara.transcript.deleteConfirm") || "Delete this transcript? This cannot be undone."}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)}>
+            {translate("padmakara.events.cancel") || "Cancel"}
+          </Button>
+          <Button color="error" variant="contained" onClick={handleDeleteConfirmed}>
+            {translate("padmakara.transcript.deleteAction") || "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -463,6 +463,12 @@ export const en = {
       saveFirst: "Save the event first, then upload transcripts",
       download: "Download transcript",
       downloadFailed: "Could not download transcript",
+      delete: "Delete transcript",
+      deleteTitle: "Delete transcript",
+      deleteAction: "Delete",
+      deleted: "Transcript removed",
+      deleteFailed: "Failed to delete transcript",
+      deleteConfirm: "Delete this transcript? This cannot be undone.",
     },
     documents: {
       title: "Documents",
