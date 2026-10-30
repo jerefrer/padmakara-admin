@@ -666,6 +666,7 @@ export const pt = {
       moveUp: "Mover para cima",
       moveDown: "Mover para baixo",
       delete: "Eliminar",
+      deleteTitle: "Eliminar documento",
       deleted: "Documento removido",
       deleteFailed: "Falha ao eliminar documento",
       deleteConfirm: "Eliminar este documento? Esta ação não pode ser desfeita.",

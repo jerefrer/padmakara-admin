@@ -468,6 +468,7 @@ export const en = {
       moveUp: "Move up",
       moveDown: "Move down",
       delete: "Delete",
+      deleteTitle: "Delete document",
       deleted: "Document removed",
       deleteFailed: "Failed to delete document",
       deleteConfirm: "Delete this document? This cannot be undone.",

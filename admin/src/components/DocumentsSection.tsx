@@ -32,6 +32,11 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
@@ -125,6 +130,10 @@ export const DocumentsSection = ({
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [uploads, setUploads] = useState<DocumentUploadState[]>([]);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
+  // Row awaiting delete confirmation. An in-app dialog instead of
+  // window.confirm: browsers silently return false for confirm() once a page
+  // has been told to stop showing dialogs, which made the trash button a no-op.
+  const [deleteCandidate, setDeleteCandidate] = useState<EventFileRow | null>(null);
 
   useEffect(() => {
     if (!eventId) {
@@ -340,18 +349,18 @@ export const DocumentsSection = ({
       }
     });
 
-  const handleDelete = (fileId: number) =>
-    withBusy(fileId, async () => {
-      if (
-        !window.confirm(
-          translate("padmakara.documents.deleteConfirm") || "Delete this document? This cannot be undone.",
-        )
-      ) {
-        return;
-      }
+  const handleDeleteRequest = (fileId: number) => {
+    setDeleteCandidate(files.find((f) => f.id === fileId) ?? null);
+  };
+
+  const handleDeleteConfirmed = () => {
+    const target = deleteCandidate;
+    setDeleteCandidate(null);
+    if (!target) return;
+    void withBusy(target.id, async () => {
       try {
-        await dataProvider.delete("event-files", { id: fileId });
-        setFiles((prev) => prev.filter((f) => f.id !== fileId));
+        await dataProvider.delete("event-files", { id: target.id });
+        setFiles((prev) => prev.filter((f) => f.id !== target.id));
         notify(translate("padmakara.documents.deleted") || "Document removed", { type: "success" });
       } catch (err: any) {
         notify(`${translate("padmakara.documents.deleteFailed") || "Failed to delete document"}: ${err?.message || String(err)}`, {
@@ -359,6 +368,7 @@ export const DocumentsSection = ({
         });
       }
     });
+  };
 
   const sorted = [...files].sort((a, b) => a.sortOrder - b.sortOrder);
   const isUploading = uploads.some((u) => u.status === "uploading");
@@ -413,7 +423,7 @@ export const DocumentsSection = ({
                 onTitleSave={handleTitleSave}
                 onSensitiveToggle={handleSensitiveToggle}
                 onReorder={handleReorder}
-                onDelete={handleDelete}
+                onDelete={handleDeleteRequest}
               />
             ))}
           </Box>
@@ -514,6 +524,26 @@ export const DocumentsSection = ({
           onChange={handleInputChange}
         />
       </Paper>
+
+      <Dialog open={deleteCandidate !== null} onClose={() => setDeleteCandidate(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{translate("padmakara.documents.deleteTitle") || "Delete document"}</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ fontWeight: 600, mb: 1, wordBreak: "break-word" }}>
+            {deleteCandidate?.title || deleteCandidate?.originalFilename}
+          </DialogContentText>
+          <DialogContentText>
+            {translate("padmakara.documents.deleteConfirm") || "Delete this document? This cannot be undone."}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteCandidate(null)}>
+            {translate("padmakara.events.cancel") || "Cancel"}
+          </Button>
+          <Button color="error" variant="contained" onClick={handleDeleteConfirmed}>
+            {translate("padmakara.documents.delete") || "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
