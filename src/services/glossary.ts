@@ -69,7 +69,7 @@ const NOT_A_TERM = new Set(["etc", "etc.", "e.g.", "i.e.", "lit."]);
  * commas into variants; it is one term and must stay whole.
  */
 function isEnumeration(variants: string[]): boolean {
-  return variants.length > 1 && /(^|\s)(and|e)\s/.test(variants[variants.length - 1]);
+  return variants.length > 1 && /(^|\s)(and|e)\s/.test(variants.at(-1) ?? "");
 }
 
 /** The variants an entry is matched on: every headword except stray abbreviations. */
