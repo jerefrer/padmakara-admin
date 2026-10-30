@@ -230,12 +230,50 @@ export function buildDefaultIntro(
   newId: IdFactory,
   lang: SlideLanguage = "en",
 ): Slide[] {
+  const other: SlideLanguage = lang === "en" ? "pt" : "en";
+  // The other language is built only to read its text; its ids are discarded.
+  let scratch = 0;
+  const otherSlides = new Map(
+    buildKeyedIntro(meta, () => `scratch-${scratch++}`, other).map((k) => [k.key, k.slide]),
+  );
+  return buildKeyedIntro(meta, newId, lang).map(({ key, slide: built }) => {
+    const subtitle = key === "logo" ? null : subtitleLines(built, otherSlides.get(key));
+    return subtitle ? { ...built, subtitles: { [other]: subtitle } } : built;
+  });
+}
+
+type IntroSlideKey = "logo" | "teacher" | "title" | "date" | "session" | "credits";
+
+/** The visible text of a slide, one entry per text line. */
+function slideTexts(s: Slide): string[] {
+  return s.lines.flatMap((l) => (l.type === "text" ? [l.spans.map((sp) => sp.text).join("")] : []));
+}
+
+/** The other language's text for a slide, or null when it would only repeat
+ *  what is already on screen (a speaker's name reads the same in both). */
+function subtitleLines(built: Slide, counterpart: Slide | undefined): string[] | null {
+  if (!counterpart) return null;
+  const texts = slideTexts(counterpart);
+  if (texts.length === 0) return null;
+  const burned = slideTexts(built);
+  const identical = texts.length === burned.length && texts.every((t, i) => t === burned[i]);
+  return identical ? null : texts;
+}
+
+function buildKeyedIntro(
+  meta: SlideTemplateMetadata,
+  newId: IdFactory,
+  lang: SlideLanguage,
+): { key: IntroSlideKey; slide: Slide }[] {
   const labels = LABELS[lang];
-  const slides: Slide[] = [];
+  const slides: { key: IntroSlideKey; slide: Slide }[] = [];
+  const add = (key: IntroSlideKey, s: Slide): void => {
+    slides.push({ key, slide: s });
+  };
   const teachers = resolveTeachers(meta);
 
   // 1 — Logo, then the wordmark beneath it.
-  slides.push(
+  add("logo", 
     slide(
       newId,
       [
@@ -248,7 +286,7 @@ export function buildDefaultIntro(
 
   // 2 — The speaker alone, centred.
   if (teachers.length > 0) {
-    slides.push(slide(newId, teachers.map((name) => capsLine(newId, name, "xl"))));
+    add("teacher", slide(newId, teachers.map((name) => capsLine(newId, name, "xl"))));
   }
 
   // 3 — Speaker small at the top, the event title centred. The layout has no
@@ -263,7 +301,7 @@ export function buildDefaultIntro(
       // Balances the speaker lines above so the title stays vertically centred.
       for (let i = 0; i < teachers.length; i++) lines.push(spacer(newId));
     }
-    slides.push(slide(newId, lines));
+    add("title", slide(newId, lines));
   }
 
   // 4 — Month and year, the place in italics beneath.
@@ -273,7 +311,7 @@ export function buildDefaultIntro(
     const lines: Line[] = [];
     if (monthYear) lines.push(capsLine(newId, monthYear, "lg"));
     if (place) lines.push(italicLine(newId, place, "md"));
-    slides.push(slide(newId, lines));
+    add("date", slide(newId, lines));
   }
 
   // 5 — Session number, with the session's date and period in italics.
@@ -284,7 +322,7 @@ export function buildDefaultIntro(
     const period = meta.session.period ? labels.periods[meta.session.period] : undefined;
     const detail = [longDate, period].filter(Boolean).join(", ");
     if (detail) lines.push(italicLine(newId, detail, "md"));
-    slides.push(slide(newId, lines));
+    add("session", slide(newId, lines));
   }
 
   // 6 — Credits: organizer, then the video production.
@@ -301,7 +339,7 @@ export function buildDefaultIntro(
       lines.push(italicLine(newId, labels.production, "sm"));
       for (const name of production) lines.push(capsLine(newId, name, "md"));
     }
-    slides.push(slide(newId, lines));
+    add("credits", slide(newId, lines));
   }
 
   return slides;
