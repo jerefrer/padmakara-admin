@@ -10,6 +10,8 @@ import {
   parseTrackFile,
   parseFolderName,
   isMediaFilename,
+  isJunkFilename,
+  isJunkDirName,
 } from "../utils/trackParser";
 
 interface TrackDropZoneProps {
@@ -38,11 +40,13 @@ function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEn
 
 function readEntry(entry: FileSystemEntry): Promise<File[]> {
   if (entry.isFile) {
+    if (isJunkFilename(entry.name)) return Promise.resolve([]);
     return new Promise((resolve) => {
       (entry as FileSystemFileEntry).file((f) => resolve([f]));
     });
   }
   if (entry.isDirectory) {
+    if (isJunkDirName(entry.name)) return Promise.resolve([]);
     const reader = (entry as FileSystemDirectoryEntry).createReader();
     return readAllEntries(reader).then((entries) =>
       Promise.all(entries.map(readEntry)).then((r) => r.flat()),

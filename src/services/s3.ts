@@ -294,6 +294,41 @@ export async function generatePresignedPdfUrl(
   return await getSignedUrl(s3Client, command, { expiresIn });
 }
 
+const INLINE_CONTENT_TYPES: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  svg: "image/svg+xml",
+};
+
+/**
+ * Short-lived GET URL for opening an event document in a browser tab. PDFs and
+ * images are served inline with their real content type; anything else (Office
+ * files) is served as an attachment since a browser cannot display it. Not
+ * cached: the disposition and filename vary per request.
+ */
+export async function generatePresignedViewUrl(
+  key: string,
+  extension: string,
+  filename: string,
+  expiresIn = 300,
+): Promise<string> {
+  const safe = filename.replace(/[\r\n"\\]/g, "");
+  const contentType = INLINE_CONTENT_TYPES[extension.toLowerCase()];
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    ...(contentType
+      ? { ResponseContentType: contentType, ResponseContentDisposition: `inline; filename="${safe}"` }
+      : { ResponseContentDisposition: `attachment; filename="${safe}"` }),
+  });
+  return await getSignedUrl(s3Client, command, { expiresIn });
+}
+
 export async function deleteObject(key: string): Promise<void> {
   const command = new DeleteObjectCommand({
     Bucket: BUCKET,

@@ -61,6 +61,7 @@ import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
 
 import { TrackDropZone } from "../components/TrackDropZone";
+import { EventEditActions } from "../components/EventEditActions";
 import { TrackAnalysisDropZone } from "../components/TrackAnalysisDropZone";
 import { NamingConventionsButton } from "../components/NamingConventionsButton";
 import { AnalysisReport } from "../components/AnalysisReport";
@@ -121,6 +122,7 @@ import {
   type FolderMetadata,
   inferSessions,
   applyFolderSpeakerFallback,
+  resolveSessionDates,
   parseTrackFile,
   formatSessionTitle,
   detectTitleLanguage,
@@ -3748,9 +3750,13 @@ export const EventEdit = () => {
               (t) => t.abbreviation.toLowerCase() === meta.teacherAbbrev!.toLowerCase(),
             )
           : undefined;
-        const inferredNewSessions = applyFolderSpeakerFallback(
-          inferSessions(tracks),
-          folderTeacher?.abbreviation ?? null,
+        // Markers like "(26 April AM)" carry no year: take it from the dropped
+        // folder's date, else the event's start date. Unresolvable dates become
+        // null so the API never receives a non-ISO sessionDate.
+        const yearHint = (meta.startDate ?? form.startDate ?? "").slice(0, 4) || null;
+        const inferredNewSessions = resolveSessionDates(
+          applyFolderSpeakerFallback(inferSessions(tracks), folderTeacher?.abbreviation ?? null),
+          yearHint,
         );
         const existingSessionNumbers = new Set(sessions.map((s) => s.sessionNumber));
         // Assign new session numbers that don't conflict with existing ones
@@ -3916,7 +3922,9 @@ export const EventEdit = () => {
     }
   }, [id, dataProvider, event, notify, translate]);
 
-  const handleSave = async () => {
+  /** Save the event; `close` leaves for the list afterwards, otherwise the page
+   *  and its form state stay as they are. */
+  const handleSave = async (close: boolean) => {
     if (!form.eventCode || !form.titleEn) {
       notify(translate("padmakara.events.codeAndTitleRequired"), { type: "warning" });
       return;
@@ -3946,7 +3954,7 @@ export const EventEdit = () => {
         previousData: event,
       });
       notify(translate("padmakara.events.updatedSuccess"), { type: "success" });
-      redirect("list", "events");
+      if (close) redirect("list", "events");
     } catch (error: any) {
       notify(apiErrorMessageKey(error), { type: "error", messageArgs: { message: error.message } });
     } finally {
@@ -4106,32 +4114,15 @@ export const EventEdit = () => {
       />
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
-      <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
-        <Button
-          variant="outlined"
-          color="error"
-          startIcon={<DeleteIcon />}
-          onClick={() => setDeleteOpen(true)}
-          disabled={saving || deleting}
-        >
-          {translate("padmakara.events.delete")}
-        </Button>
-        <Box sx={{ display: "flex", gap: 2 }}>
-          <Button variant="outlined" onClick={() => redirect("list", "events")} disabled={saving}>
-            {translate("padmakara.events.cancel")}
-          </Button>
-          <Button
-            variant="contained"
-            size="large"
-            startIcon={<SaveIcon />}
-            onClick={handleSave}
-            disabled={saving || !form.eventCode || !form.titleEn}
-            sx={{ px: 4, py: 1.2, fontSize: "0.95rem" }}
-          >
-            {saving ? translate("padmakara.events.saving") : translate("padmakara.events.saveChanges")}
-          </Button>
-        </Box>
-      </Box>
+      <EventEditActions
+        saving={saving}
+        deleting={deleting}
+        canSave={!!form.eventCode && !!form.titleEn}
+        onDelete={() => setDeleteOpen(true)}
+        onCancel={() => redirect("list", "events")}
+        onSave={() => handleSave(false)}
+        onSaveAndClose={() => handleSave(true)}
+      />
 
       <DeleteConfirmDialog
         open={deleteOpen}

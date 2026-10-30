@@ -19,6 +19,7 @@ import { useDataProvider, useNotify, useTranslate } from "react-admin";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DescriptionIcon from "@mui/icons-material/Description";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -32,6 +33,11 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
@@ -42,7 +48,7 @@ import Typography from "@mui/material/Typography";
 import { authFetch } from "../utils/authFetch";
 import { formatFileSize } from "../utils/trackParser";
 import { uploadFile } from "../utils/uploadManager";
-import { clickToEditSx, quietInputSx } from "./inlineEditKit";
+import { quietInputSx } from "./inlineEditKit";
 
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"]);
 const ACCEPTED_EXT_RE = /\.(pdf|docx?|xlsx?|pptx?|jpe?g|png|gif|webp|bmp|svg)$/i;
@@ -125,6 +131,10 @@ export const DocumentsSection = ({
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [uploads, setUploads] = useState<DocumentUploadState[]>([]);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
+  // Row awaiting delete confirmation. An in-app dialog instead of
+  // window.confirm: browsers silently return false for confirm() once a page
+  // has been told to stop showing dialogs, which made the trash button a no-op.
+  const [deleteCandidate, setDeleteCandidate] = useState<EventFileRow | null>(null);
 
   useEffect(() => {
     if (!eventId) {
@@ -340,18 +350,39 @@ export const DocumentsSection = ({
       }
     });
 
-  const handleDelete = (fileId: number) =>
-    withBusy(fileId, async () => {
-      if (
-        !window.confirm(
-          translate("padmakara.documents.deleteConfirm") || "Delete this document? This cannot be undone.",
-        )
-      ) {
-        return;
-      }
+  // Open the document in a new tab through a short-lived presigned URL. The tab
+  // is opened synchronously (inside the click) so popup blockers allow it, then
+  // pointed at the URL once the API has answered.
+  const handleOpen = (fileId: number) => {
+    const tab = window.open("", "_blank");
+    void withBusy(fileId, async () => {
       try {
-        await dataProvider.delete("event-files", { id: fileId });
-        setFiles((prev) => prev.filter((f) => f.id !== fileId));
+        const res = await authFetch(`/api/admin/event-files/${fileId}/view-url`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { url } = (await res.json()) as { url: string };
+        if (tab) tab.location.href = url;
+        else window.open(url, "_blank");
+      } catch (err: any) {
+        tab?.close();
+        notify(`${translate("padmakara.documents.openFailed") || "Could not open document"}: ${err?.message || String(err)}`, {
+          type: "error",
+        });
+      }
+    });
+  };
+
+  const handleDeleteRequest = (fileId: number) => {
+    setDeleteCandidate(files.find((f) => f.id === fileId) ?? null);
+  };
+
+  const handleDeleteConfirmed = () => {
+    const target = deleteCandidate;
+    setDeleteCandidate(null);
+    if (!target) return;
+    void withBusy(target.id, async () => {
+      try {
+        await dataProvider.delete("event-files", { id: target.id });
+        setFiles((prev) => prev.filter((f) => f.id !== target.id));
         notify(translate("padmakara.documents.deleted") || "Document removed", { type: "success" });
       } catch (err: any) {
         notify(`${translate("padmakara.documents.deleteFailed") || "Failed to delete document"}: ${err?.message || String(err)}`, {
@@ -359,6 +390,7 @@ export const DocumentsSection = ({
         });
       }
     });
+  };
 
   const sorted = [...files].sort((a, b) => a.sortOrder - b.sortOrder);
   const isUploading = uploads.some((u) => u.status === "uploading");
@@ -413,7 +445,8 @@ export const DocumentsSection = ({
                 onTitleSave={handleTitleSave}
                 onSensitiveToggle={handleSensitiveToggle}
                 onReorder={handleReorder}
-                onDelete={handleDelete}
+                onOpen={handleOpen}
+                onDelete={handleDeleteRequest}
               />
             ))}
           </Box>
@@ -514,6 +547,26 @@ export const DocumentsSection = ({
           onChange={handleInputChange}
         />
       </Paper>
+
+      <Dialog open={deleteCandidate !== null} onClose={() => setDeleteCandidate(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{translate("padmakara.documents.deleteTitle") || "Delete document"}</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ fontWeight: 600, mb: 1, wordBreak: "break-word" }}>
+            {deleteCandidate?.title || deleteCandidate?.originalFilename}
+          </DialogContentText>
+          <DialogContentText>
+            {translate("padmakara.documents.deleteConfirm") || "Delete this document? This cannot be undone."}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteCandidate(null)}>
+            {translate("padmakara.events.cancel") || "Cancel"}
+          </Button>
+          <Button color="error" variant="contained" onClick={handleDeleteConfirmed}>
+            {translate("padmakara.documents.delete") || "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
@@ -528,6 +581,7 @@ interface DocumentRowProps {
   onTitleSave: (fileId: number, title: string) => void;
   onSensitiveToggle: (fileId: number, sensitive: boolean) => void;
   onReorder: (fileId: number, direction: -1 | 1) => void;
+  onOpen: (fileId: number) => void;
   onDelete: (fileId: number) => void;
 }
 
@@ -539,6 +593,7 @@ const DocumentRow = ({
   onTitleSave,
   onSensitiveToggle,
   onReorder,
+  onOpen,
   onDelete,
 }: DocumentRowProps) => {
   const translate = useTranslate();
@@ -604,15 +659,40 @@ const DocumentRow = ({
           sx={{ ...quietInputSx, flex: 1 }}
         />
       ) : (
-        <Typography
-          variant="body2"
-          noWrap
-          title={translate("padmakara.documents.clickToEdit") || "Click to edit title"}
-          onClick={openEditor}
-          sx={{ flex: 1, minWidth: 0, fontWeight: 500, display: "inline-block", ...clickToEditSx }}
-        >
-          {displayTitle}
-        </Typography>
+        <>
+          <Typography
+            variant="body2"
+            noWrap
+            component="a"
+            role="link"
+            tabIndex={0}
+            title={translate("padmakara.documents.open") || "Open document"}
+            onClick={() => onOpen(file.id)}
+            onKeyDown={(e: React.KeyboardEvent) => {
+              if (e.key === "Enter") onOpen(file.id);
+            }}
+            sx={{
+              minWidth: 0,
+              fontWeight: 500,
+              display: "inline-block",
+              cursor: "pointer",
+              color: "text.primary",
+              "&:hover": { color: "primary.main", textDecoration: "underline" },
+            }}
+          >
+            {displayTitle}
+          </Typography>
+          <IconButton
+            size="small"
+            onClick={openEditor}
+            disabled={busy}
+            title={translate("padmakara.documents.clickToEdit") || "Click to edit title"}
+            sx={{ color: "text.disabled" }}
+          >
+            <EditOutlinedIcon sx={{ fontSize: 15 }} />
+          </IconButton>
+          <Box sx={{ flex: 1 }} />
+        </>
       )}
 
       <Chip
