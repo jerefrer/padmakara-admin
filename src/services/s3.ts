@@ -5,6 +5,11 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  ListPartsCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Upload } from "@aws-sdk/lib-storage";
@@ -90,6 +95,79 @@ export async function generatePresignedUploadUrl(
     ContentType: contentType,
   });
   return await getSignedUrl(s3Client, command, { expiresIn });
+}
+
+// ─── Multipart upload (browser → S3 direct, for multi-GB video masters) ───────
+//
+// A single presigned PUT is capped at 5 GB by S3, so large masters go through
+// the multipart API: the server creates the upload and signs one URL per part,
+// the browser PUTs the parts, and the server completes the upload by listing the
+// parts itself (the browser never has to read the ETag response header).
+
+export async function createMultipartUpload(key: string, contentType: string): Promise<string> {
+  const res = await s3Client.send(
+    new CreateMultipartUploadCommand({ Bucket: BUCKET, Key: key, ContentType: contentType }),
+  );
+  if (!res.UploadId) throw new Error("CreateMultipartUpload returned no UploadId");
+  return res.UploadId;
+}
+
+export async function generatePresignedPartUrl(
+  key: string,
+  uploadId: string,
+  partNumber: number,
+  expiresIn = 6 * 3600,
+): Promise<string> {
+  const command = new UploadPartCommand({
+    Bucket: BUCKET,
+    Key: key,
+    UploadId: uploadId,
+    PartNumber: partNumber,
+  });
+  return await getSignedUrl(s3Client, command, { expiresIn });
+}
+
+/** Every part S3 has received so far for an in-progress multipart upload. */
+export async function listUploadedParts(
+  key: string,
+  uploadId: string,
+): Promise<{ partNumber: number; etag: string }[]> {
+  const parts: { partNumber: number; etag: string }[] = [];
+  let marker: string | undefined;
+  do {
+    const res = await s3Client.send(
+      new ListPartsCommand({
+        Bucket: BUCKET,
+        Key: key,
+        UploadId: uploadId,
+        PartNumberMarker: marker,
+      }),
+    );
+    for (const p of res.Parts ?? []) {
+      if (p.PartNumber !== undefined && p.ETag) parts.push({ partNumber: p.PartNumber, etag: p.ETag });
+    }
+    marker = res.IsTruncated ? res.NextPartNumberMarker : undefined;
+  } while (marker);
+  return parts;
+}
+
+export async function completeMultipartUpload(
+  key: string,
+  uploadId: string,
+  parts: { partNumber: number; etag: string }[],
+): Promise<void> {
+  await s3Client.send(
+    new CompleteMultipartUploadCommand({
+      Bucket: BUCKET,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts.map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })) },
+    }),
+  );
+}
+
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+  await s3Client.send(new AbortMultipartUploadCommand({ Bucket: BUCKET, Key: key, UploadId: uploadId }));
 }
 
 /**

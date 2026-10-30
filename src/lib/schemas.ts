@@ -552,6 +552,23 @@ export const presignVideoMasterSchema = z.object({
   contentType: z.string().min(1).max(200),
 });
 
+// Multipart variants of the master upload (files too big for one 5 GB PUT).
+export const createVideoMultipartSchema = presignVideoMasterSchema.extend({
+  size: z.number().int().positive().max(200 * 1024 ** 3),
+});
+
+const multipartTargetSchema = z.object({
+  s3Key: z.string().min(1).max(1200),
+  uploadId: z.string().min(1).max(2000),
+});
+
+export const presignVideoPartsSchema = multipartTargetSchema.extend({
+  partNumbers: z.array(z.number().int().min(1).max(10_000)).min(1).max(100),
+});
+
+export const completeVideoMultipartSchema = multipartTargetSchema;
+export const abortVideoMultipartSchema = multipartTargetSchema;
+
 // Persist an event_files row after the S3 PUT completes.
 export const createEventFileSchema = z.object({
   eventId: z.number().int(),

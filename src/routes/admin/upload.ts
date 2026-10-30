@@ -1,7 +1,22 @@
 import { Hono } from "hono";
 import { db } from "../../db/index.ts";
-import { generatePresignedUploadUrl, buildTrackS3Key, buildTranscriptS3Key, buildEventFileS3Key } from "../../services/s3.ts";
 import {
+  generatePresignedUploadUrl,
+  buildTrackS3Key,
+  buildTranscriptS3Key,
+  buildEventFileS3Key,
+  createMultipartUpload,
+  generatePresignedPartUrl,
+  listUploadedParts,
+  completeMultipartUpload,
+  abortMultipartUpload,
+} from "../../services/s3.ts";
+import { planParts, isVideoMasterKey, contiguousParts } from "../../lib/video-multipart.ts";
+import {
+  createVideoMultipartSchema,
+  presignVideoPartsSchema,
+  completeVideoMultipartSchema,
+  abortVideoMultipartSchema,
   presignUploadSchema,
   presignTranscriptSchema,
   presignFileSchema,
@@ -95,6 +110,71 @@ uploadRoutes.post("/video/presign", async (c) => {
   // of it, or a late-stage hiccup turns into an unrecoverable 403.
   const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType, 12 * 3600);
   return c.json({ s3Key, uploadUrl });
+});
+
+/**
+ * Multipart variant of the master upload. A single presigned PUT is capped at
+ * 5 GB by S3, so large masters are sent as parts: create → presign-parts (in
+ * batches) → complete, or abort. The key is built exactly like /video/presign.
+ */
+uploadRoutes.post("/video/multipart/create", async (c) => {
+  const parsed = createVideoMultipartSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+  const { eventCode, filename, contentType, size } = parsed.data;
+  const s3Key = `events/${eventCode}/masters/${Date.now()}-${filename}`;
+  const { partSize, partCount } = planParts(size);
+  const uploadId = await createMultipartUpload(s3Key, contentType);
+  return c.json({ uploadId, s3Key, partSize, partCount });
+});
+
+uploadRoutes.post("/video/multipart/presign-parts", async (c) => {
+  const parsed = presignVideoPartsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+  const { s3Key, uploadId, partNumbers } = parsed.data;
+  if (!isVideoMasterKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
+  const entries = await Promise.all(
+    partNumbers.map(
+      async (n) => [n, await generatePresignedPartUrl(s3Key, uploadId, n, 6 * 3600)] as const,
+    ),
+  );
+  return c.json({ urls: Object.fromEntries(entries) });
+});
+
+/**
+ * Completes by listing the parts S3 holds instead of trusting ETags from the
+ * browser (the bucket CORS may not expose the ETag header).
+ */
+uploadRoutes.post("/video/multipart/complete", async (c) => {
+  const parsed = completeVideoMultipartSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+  const { s3Key, uploadId } = parsed.data;
+  if (!isVideoMasterKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
+  const parts = contiguousParts(await listUploadedParts(s3Key, uploadId));
+  if (!parts) {
+    throw AppError.badRequest(
+      "Uploaded parts are missing or not contiguous from part 1",
+      "INCOMPLETE_UPLOAD",
+    );
+  }
+  await completeMultipartUpload(s3Key, uploadId, parts);
+  return c.json({ s3Key });
+});
+
+uploadRoutes.post("/video/multipart/abort", async (c) => {
+  const parsed = abortVideoMultipartSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+  const { s3Key, uploadId } = parsed.data;
+  if (!isVideoMasterKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
+  await abortMultipartUpload(s3Key, uploadId);
+  return c.json({ ok: true });
 });
 
 /**
