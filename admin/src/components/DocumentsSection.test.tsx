@@ -92,3 +92,30 @@ describe("DocumentsSection delete", () => {
     expect(container.textContent).toContain(row.originalFilename);
   });
 });
+
+describe("DocumentsSection open", () => {
+  const nameLink = () => container.querySelector("a[role=link]") as HTMLElement;
+
+  it("should open the presigned view URL in a new tab when the name is clicked", async () => {
+    const tab = { location: { href: "" }, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+    authFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ url: "https://s3/view" }) });
+    await act(async () => nameLink().click());
+    await flush();
+    expect(authFetch).toHaveBeenCalledWith("/api/admin/event-files/11/view-url");
+    expect(open).toHaveBeenCalledWith("", "_blank");
+    expect(tab.location.href).toBe("https://s3/view");
+    open.mockRestore();
+  });
+
+  it("should close the blank tab and notify when the URL request fails", async () => {
+    const tab = { location: { href: "" }, close: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(tab as unknown as Window);
+    authFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+    await act(async () => nameLink().click());
+    await flush();
+    expect(tab.close).toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("HTTP 404"), { type: "error" });
+    open.mockRestore();
+  });
+});

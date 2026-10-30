@@ -6,7 +6,7 @@ import { events } from "../../db/schema/retreats.ts";
 import { createEventFileSchema, updateEventFileSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
-import { deleteObject } from "../../services/s3.ts";
+import { deleteObject, generatePresignedViewUrl } from "../../services/s3.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 
 const eventFileRoutes = new Hono();
@@ -39,6 +39,20 @@ eventFileRoutes.get("/:id", async (c) => {
   const file = await db.query.eventFiles.findFirst({ where: eq(eventFiles.id, id) });
   if (!file) throw AppError.notFound("Event file not found");
   return c.json(file);
+});
+
+/**
+ * GET /:id/view-url — short-lived presigned URL to open the document in a new
+ * tab: inline for PDFs and images, a download for Office files.
+ */
+eventFileRoutes.get("/:id/view-url", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const file = await db.query.eventFiles.findFirst({ where: eq(eventFiles.id, id) });
+  if (!file) throw AppError.notFound("Event file not found");
+  if (!file.s3Key) throw AppError.badRequest("Document has no file", "NO_S3_KEY");
+  const filename = file.originalFilename || file.s3Key.split("/").pop() || `document-${file.id}`;
+  const url = await generatePresignedViewUrl(file.s3Key, file.extension, filename);
+  return c.json({ url, filename, expiresIn: 300 });
 });
 
 eventFileRoutes.post("/", async (c) => {

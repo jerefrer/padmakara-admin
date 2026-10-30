@@ -666,6 +666,8 @@ export const pt = {
       moveUp: "Mover para cima",
       moveDown: "Mover para baixo",
       delete: "Eliminar",
+      open: "Abrir documento",
+      openFailed: "Não foi possível abrir o documento",
       deleteTitle: "Eliminar documento",
       deleted: "Documento removido",
       deleteFailed: "Falha ao eliminar documento",

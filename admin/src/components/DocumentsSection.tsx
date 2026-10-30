@@ -19,6 +19,7 @@ import { useDataProvider, useNotify, useTranslate } from "react-admin";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DescriptionIcon from "@mui/icons-material/Description";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -47,7 +48,7 @@ import Typography from "@mui/material/Typography";
 import { authFetch } from "../utils/authFetch";
 import { formatFileSize } from "../utils/trackParser";
 import { uploadFile } from "../utils/uploadManager";
-import { clickToEditSx, quietInputSx } from "./inlineEditKit";
+import { quietInputSx } from "./inlineEditKit";
 
 const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"]);
 const ACCEPTED_EXT_RE = /\.(pdf|docx?|xlsx?|pptx?|jpe?g|png|gif|webp|bmp|svg)$/i;
@@ -349,6 +350,27 @@ export const DocumentsSection = ({
       }
     });
 
+  // Open the document in a new tab through a short-lived presigned URL. The tab
+  // is opened synchronously (inside the click) so popup blockers allow it, then
+  // pointed at the URL once the API has answered.
+  const handleOpen = (fileId: number) => {
+    const tab = window.open("", "_blank");
+    void withBusy(fileId, async () => {
+      try {
+        const res = await authFetch(`/api/admin/event-files/${fileId}/view-url`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const { url } = (await res.json()) as { url: string };
+        if (tab) tab.location.href = url;
+        else window.open(url, "_blank");
+      } catch (err: any) {
+        tab?.close();
+        notify(`${translate("padmakara.documents.openFailed") || "Could not open document"}: ${err?.message || String(err)}`, {
+          type: "error",
+        });
+      }
+    });
+  };
+
   const handleDeleteRequest = (fileId: number) => {
     setDeleteCandidate(files.find((f) => f.id === fileId) ?? null);
   };
@@ -423,6 +445,7 @@ export const DocumentsSection = ({
                 onTitleSave={handleTitleSave}
                 onSensitiveToggle={handleSensitiveToggle}
                 onReorder={handleReorder}
+                onOpen={handleOpen}
                 onDelete={handleDeleteRequest}
               />
             ))}
@@ -558,6 +581,7 @@ interface DocumentRowProps {
   onTitleSave: (fileId: number, title: string) => void;
   onSensitiveToggle: (fileId: number, sensitive: boolean) => void;
   onReorder: (fileId: number, direction: -1 | 1) => void;
+  onOpen: (fileId: number) => void;
   onDelete: (fileId: number) => void;
 }
 
@@ -569,6 +593,7 @@ const DocumentRow = ({
   onTitleSave,
   onSensitiveToggle,
   onReorder,
+  onOpen,
   onDelete,
 }: DocumentRowProps) => {
   const translate = useTranslate();
@@ -634,15 +659,40 @@ const DocumentRow = ({
           sx={{ ...quietInputSx, flex: 1 }}
         />
       ) : (
-        <Typography
-          variant="body2"
-          noWrap
-          title={translate("padmakara.documents.clickToEdit") || "Click to edit title"}
-          onClick={openEditor}
-          sx={{ flex: 1, minWidth: 0, fontWeight: 500, display: "inline-block", ...clickToEditSx }}
-        >
-          {displayTitle}
-        </Typography>
+        <>
+          <Typography
+            variant="body2"
+            noWrap
+            component="a"
+            role="link"
+            tabIndex={0}
+            title={translate("padmakara.documents.open") || "Open document"}
+            onClick={() => onOpen(file.id)}
+            onKeyDown={(e: React.KeyboardEvent) => {
+              if (e.key === "Enter") onOpen(file.id);
+            }}
+            sx={{
+              minWidth: 0,
+              fontWeight: 500,
+              display: "inline-block",
+              cursor: "pointer",
+              color: "text.primary",
+              "&:hover": { color: "primary.main", textDecoration: "underline" },
+            }}
+          >
+            {displayTitle}
+          </Typography>
+          <IconButton
+            size="small"
+            onClick={openEditor}
+            disabled={busy}
+            title={translate("padmakara.documents.clickToEdit") || "Click to edit title"}
+            sx={{ color: "text.disabled" }}
+          >
+            <EditOutlinedIcon sx={{ fontSize: 15 }} />
+          </IconButton>
+          <Box sx={{ flex: 1 }} />
+        </>
       )}
 
       <Chip

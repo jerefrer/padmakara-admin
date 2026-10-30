@@ -468,6 +468,8 @@ export const en = {
       moveUp: "Move up",
       moveDown: "Move down",
       delete: "Delete",
+      open: "Open document",
+      openFailed: "Could not open document",
       deleteTitle: "Delete document",
       deleted: "Document removed",
       deleteFailed: "Failed to delete document",
