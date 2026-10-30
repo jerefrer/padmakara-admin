@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { AppError } from "../../lib/errors.ts";
 import { mapWithConcurrency } from "../../lib/concurrency.ts";
-import { glossaryBlock } from "../../services/glossary.ts";
+import { glossaryBlock, type GlossaryDirection } from "../../services/glossary.ts";
 
 const translateRoutes = new Hono();
 
@@ -66,6 +66,7 @@ async function translateBatch(
   anthropic: Anthropic,
   fromLang: string,
   toLang: string,
+  direction: GlossaryDirection,
   batch: [string, string][],
 ): Promise<Record<string, string>> {
   const prompt = batch.map(([key, source]) => `### ${key}\n${source}`).join("\n\n");
@@ -76,7 +77,7 @@ async function translateBatch(
     system:
       `You are translating Buddhist teaching materials from ${fromLang} to European ${toLang}. ` +
       `Preserve Buddhist terminology (dharma names, Sanskrit/Tibetan terms). Maintain structure and formatting.\n\n` +
-      `${glossaryBlock()}\n\n` +
+      `${glossaryBlock(batch.map(([, source]) => source), direction)}\n\n` +
       `Respond ONLY with a JSON object mapping each input field key to its translated text. ` +
       `Example: {"title": "..."}`,
     messages: [
@@ -158,7 +159,7 @@ translateRoutes.post("/", async (c) => {
   const anthropic = new Anthropic({ apiKey });
   const batches = packBatches(Object.entries(items));
   const batchResults = await mapWithConcurrency(batches, MAX_CONCURRENT_BATCHES, (batch) =>
-    translateBatch(anthropic, fromLang, toLang, batch),
+    translateBatch(anthropic, fromLang, toLang, direction, batch),
   );
   const merged = Object.assign({}, ...batchResults) as Record<string, unknown>;
 
