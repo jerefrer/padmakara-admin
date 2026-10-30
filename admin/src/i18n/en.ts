@@ -451,6 +451,12 @@ export const en = {
       subtitle: "Folder name will be parsed to fill in dates, teacher, and group automatically",
       filesFrom: "%{count} audio files from %{folder}",
     },
+    eventPublications: {
+      title: "Publications for this event's groups",
+      hint: "These texts appear on this event automatically through its retreat groups. To add a text to all events of a group, set its retreat groups in Publications.",
+      direct: "Linked directly to this event (legacy)",
+      version: "Version",
+    },
     transcript: {
       alreadyAdded: "Already added: %{name}",
       dropzoneTitle: "Drop PDF transcripts here",

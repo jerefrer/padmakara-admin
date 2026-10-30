@@ -649,6 +649,12 @@ export const pt = {
       subtitle: "O nome da pasta será analisado para preencher datas, professor e grupo automaticamente",
       filesFrom: "%{count} ficheiros de áudio de %{folder}",
     },
+    eventPublications: {
+      title: "Publicações dos grupos deste evento",
+      hint: "Estes textos aparecem neste evento automaticamente através dos seus grupos de retiro. Para adicionar um texto a todos os eventos de um grupo, defina os seus grupos de retiro em Publicações.",
+      direct: "Associadas diretamente a este evento (legado)",
+      version: "Versão",
+    },
     transcript: {
       alreadyAdded: "Já adicionado: %{name}",
       dropzoneTitle: "Arraste transcrições PDF para aqui",

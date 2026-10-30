@@ -72,6 +72,7 @@ import { MoveTracksBar, type MoveTarget } from "../components/MoveTracksBar";
 import { EventVideosSection } from "../components/EventVideosSection";
 import type { PendingUploadSlides } from "../components/SlideEditor";
 import { splitDuplicateFiles } from "../utils/duplicateFiles";
+import { EventPublicationsPanel } from "../components/EventPublicationsPanel";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
@@ -4125,6 +4126,8 @@ export const EventEdit = () => {
         eventId={event?.id ? Number(event.id) : undefined}
         disabled={saving}
       />
+
+      {event?.id && <EventPublicationsPanel eventId={Number(event.id)} />}
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <EventEditActions

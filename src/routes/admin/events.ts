@@ -8,7 +8,8 @@ import {
   eventPlaces,
   eventOrganizers,
 } from "../../db/schema/retreats.ts";
-import { eventPublications } from "../../db/schema/publications.ts";
+import { eventPublications, publications } from "../../db/schema/publications.ts";
+import { publicationsViaGroups } from "../../services/event-publications.ts";
 import { teachers } from "../../db/schema/teachers.ts";
 import { eventVideos } from "../../db/schema/event-videos.ts";
 import { sessions } from "../../db/schema/sessions.ts";
@@ -238,6 +239,47 @@ eventRoutes.get("/:id/missing-audio", async (c) => {
     .orderBy(sessions.sessionNumber, tracks.trackNumber);
 
   return c.json({ tracks: rows });
+});
+
+/**
+ * GET /:id/publications — read-only view of the publications an event shows,
+ * so admins do not re-add them by hand. `viaGroups`: linked through the
+ * event's retreat groups (set in Publications, appears on every event of the
+ * group). `direct`: legacy direct links, minus any already present via groups.
+ */
+eventRoutes.get("/:id/publications", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) {
+    throw AppError.badRequest("Invalid event id", "INVALID_ID");
+  }
+
+  const groupRows = await db
+    .select({ retreatGroupId: eventRetreatGroups.retreatGroupId })
+    .from(eventRetreatGroups)
+    .where(eq(eventRetreatGroups.eventId, id));
+  const viaGroups = await publicationsViaGroups(groupRows.map((g) => g.retreatGroupId));
+
+  const directRows = await db
+    .select({ publication: publications })
+    .from(eventPublications)
+    .innerJoin(publications, eq(publications.id, eventPublications.publicationId))
+    .where(eq(eventPublications.eventId, id));
+
+  const viaGroupIds = new Set(viaGroups.map((p) => p.id));
+  const summary = (p: typeof publications.$inferSelect) => ({
+    id: p.id,
+    title: p.title,
+    language: p.language,
+    version: p.version,
+  });
+
+  return c.json({
+    viaGroups: viaGroups.map(summary),
+    direct: directRows
+      .map((r) => r.publication)
+      .filter((p) => !viaGroupIds.has(p.id))
+      .map(summary),
+  });
 });
 
 eventRoutes.get("/:id", async (c) => {
