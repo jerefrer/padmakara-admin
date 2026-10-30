@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { AppError } from "../lib/errors.ts";
 import { mapWithConcurrency } from "../lib/concurrency.ts";
+import { padmakaraGlossaryBlock } from "./glossary.ts";
 import {
   resolveSpeaker,
   rosterPromptBlock,
@@ -351,6 +352,30 @@ const TRACKS_ONLY_NOTE =
   "the tracks listed in this batch. The sessions and videos are handled by " +
   "another request — omit those keys entirely.";
 
+/** Every string value in a JSON-like structure (keys are not prose). */
+function stringValues(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringValues);
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value).flatMap(stringValues);
+  }
+  return [];
+}
+
+/**
+ * Established Padmakara translations for terms found in the request, appended
+ * to the (uncached) system prompt. The instruction and payload do not say which
+ * way a title is being translated, so both directions are searched.
+ */
+function assistGlossaryBlock(instruction: string, data: unknown): string {
+  const texts = [instruction, ...stringValues(data)];
+  const blocks = [
+    padmakaraGlossaryBlock(texts, "en-to-pt"),
+    padmakaraGlossaryBlock(texts, "pt-to-en"),
+  ].filter(Boolean);
+  return blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
+}
+
 function cleanEvent(raw: unknown, current: AiEventFields | undefined): AiEventFields | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const s = raw as Record<string, unknown>;
@@ -389,7 +414,7 @@ async function runAssistBatch(args: {
     model: MODEL,
     max_tokens: MAX_TOKENS,
     output_config: { effort: EFFORT },
-    system: `${ASSIST_SYSTEM_PROMPT}${tracksOnly ? TRACKS_ONLY_NOTE : ""}${rosterPromptBlock(roster)}`,
+    system: `${ASSIST_SYSTEM_PROMPT}${tracksOnly ? TRACKS_ONLY_NOTE : ""}${rosterPromptBlock(roster)}${assistGlossaryBlock(instruction, [event ?? {}, sessions, videos, tracks])}`,
     messages: [
       { role: "user", content: `Instruction: ${instruction}\n\nCurrent data:\n${payload}` },
     ],

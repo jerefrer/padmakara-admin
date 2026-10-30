@@ -289,4 +289,31 @@ describe("POST /api/admin/translate — batching", () => {
     });
     expect(status).toBe(500);
   });
+
+  async function translateAndGetSystem(direction: string, text: string): Promise<string> {
+    mockMessagesCreate.mockResolvedValueOnce(anthropicResponse(JSON.stringify({ title: "x" })));
+    const token = await adminToken();
+    await testJson("/api/admin/translate", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ direction, items: { title: text } }),
+    });
+    return mockMessagesCreate.mock.calls[0]![0].system as string;
+  }
+
+  it("includes matched Padmakara glossary lines in the prompt for en-to-pt", async () => {
+    const system = await translateAndGetSystem("en-to-pt", "Dedicating merit");
+    expect(system).toContain("Padmakara glossary — Padmakara's established translations of Buddhist terms.");
+    expect(system).toContain("merit → mérito");
+  });
+
+  it("matches Portuguese terms for pt-to-en", async () => {
+    const system = await translateAndGetSystem("pt-to-en", "Acumular mérito");
+    expect(system).toContain("mérito → merit");
+  });
+
+  it("omits the glossary section when nothing matches", async () => {
+    const system = await translateAndGetSystem("en-to-pt", "zzqx plorp");
+    expect(system).not.toContain("Padmakara glossary");
+  });
 });

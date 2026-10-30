@@ -300,7 +300,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { config } from "../config.js";
-import { glossaryBlock } from "./glossary.js";
+import { glossaryBlock, padmakaraGlossaryBlock } from "./glossary.js";
 
 const LANG_NAMES: Record<string, string> = { pt: "Portuguese", es: "Spanish", fr: "French" };
 const CHUNK = 80;
@@ -398,6 +398,11 @@ export async function translateSentences(
             `per input id, same ids.\n\n${styleBlock(targetLang)}\n\n${glossaryBlock()}`,
           cache_control: { type: "ephemeral" },
         },
+        // Per-batch glossary matches stay out of the cached block above so its
+        // prefix is identical across calls. English source -> Portuguese only.
+        ...(targetLang === "pt" && padmakaraGlossaryBlock(batch, "en-to-pt")
+          ? [{ type: "text" as const, text: padmakaraGlossaryBlock(batch, "en-to-pt") }]
+          : []),
       ],
       messages: [{ role: "user", content: JSON.stringify({ sentences: numbered }) }],
       output_config: {
