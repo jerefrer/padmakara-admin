@@ -29,7 +29,10 @@ import ShortTextIcon from "@mui/icons-material/ShortText";
 import HorizontalRuleIcon from "@mui/icons-material/HorizontalRule";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -53,6 +56,14 @@ import { builtinFilename, isBuiltinKey } from "@slides/defaults.ts";
 import { emptySlideDocument, hasAnySlides, type Line, type Slide, type SlideDocument } from "@slides/types.ts";
 import { authFetch } from "../utils/authFetch";
 import {
+  SlideGenerationError,
+  nothingToGenerateFrom,
+  requestDefaultSlides,
+  type GeneratedSlides,
+  type MissingSlideInput,
+  type SlideLanguage,
+} from "../utils/slideGeneration";
+import {
   addLine,
   addSlide,
   deleteLine,
@@ -72,6 +83,36 @@ import { SlideLineRow } from "./SlideLineRow";
 const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 const SEQUENCES: SlideSequenceKey[] = ["intro", "outro"];
 
+type Translate = ReturnType<typeof useTranslate>;
+
+/** A readable message for a failed generation; a timeout gets its own wording. */
+function generationErrorMessage(err: unknown, translate: Translate): string {
+  const prefix = translate("padmakara.slides.generateFailed") || "Could not generate slides";
+  if (err instanceof SlideGenerationError && err.kind === "timeout") {
+    return (
+      translate("padmakara.slides.generateTimeout") ||
+      "The server did not answer within 30 seconds. Try again in a moment."
+    );
+  }
+  return `${prefix}: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+/** What the last generation could not find, in the editor's language. */
+function generationNoticeText(missing: MissingSlideInput[], translate: Translate): string | null {
+  if (missing.length === 0) return null;
+  if (nothingToGenerateFrom(missing)) {
+    return (
+      translate("padmakara.slides.nothingToGenerate") ||
+      "The event has no teacher, title, date, place, organizer or credits yet, so only the logo slide could be generated. Add them to the event and generate again."
+    );
+  }
+  const names = missing.map((key) => translate(`padmakara.slides.missing.${key}`) || key).join(", ");
+  return (
+    translate("padmakara.slides.missingNotice", { items: names }) ||
+    `Add ${names} to the event to include those slides.`
+  );
+}
+
 /* ───────── Data hook for an EXISTING video's slides (GET/PUT/POST) ───────── */
 
 export interface VideoSlidesState {
@@ -85,7 +126,7 @@ export interface VideoSlidesState {
   reburning: boolean;
   generating: boolean;
   save: (doc: SlideDocument) => Promise<boolean>;
-  generateDefaults: () => Promise<SlideDocument | null>;
+  generateDefaults: (lang: SlideLanguage) => Promise<GeneratedSlides | null>;
   reburn: () => Promise<boolean>;
   refresh: () => Promise<void>;
 }
@@ -165,23 +206,20 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
     [videoId, applyResponse, notify, translate],
   );
 
-  const generateDefaults = useCallback(async (): Promise<SlideDocument | null> => {
-    setGenerating(true);
-    try {
-      const res = await authFetch(`/api/admin/videos/${videoId}/slides/defaults`, { method: "POST" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { slides: SlideDocument };
-      return data.slides;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      notify(`${translate("padmakara.slides.generateFailed") || "Could not generate slides"}: ${msg}`, {
-        type: "error",
-      });
-      return null;
-    } finally {
-      setGenerating(false);
-    }
-  }, [videoId, notify, translate]);
+  const generateDefaults = useCallback(
+    async (lang: SlideLanguage): Promise<GeneratedSlides | null> => {
+      setGenerating(true);
+      try {
+        return await requestDefaultSlides(`/api/admin/videos/${videoId}/slides/defaults`, { lang });
+      } catch (err) {
+        notify(generationErrorMessage(err, translate), { type: "error" });
+        return null;
+      } finally {
+        setGenerating(false);
+      }
+    },
+    [videoId, notify, translate],
+  );
 
   const reburn = useCallback(async (): Promise<boolean> => {
     setReburning(true);
@@ -318,7 +356,7 @@ export interface SlideEditorProps {
    *  EXISTING video (useVideoSlides.generateDefaults, video-scoped: prefers
    *  the video's own date). Omit to fall back to the event-scoped generator
    *  driven by `eventId` above (draft/pre-upload mode). */
-  onGenerateDefaults?: () => Promise<SlideDocument | null>;
+  onGenerateDefaults?: (lang: SlideLanguage) => Promise<GeneratedSlides | null>;
   generating?: boolean;
   burnStatus?: string | null;
   burnError?: string | null;
@@ -470,24 +508,27 @@ export const SlideEditor = ({
   // "Generate from event data" is just as usable before a video exists as
   // after — slides are meant to be authored BEFORE the upload, not after.
   const [eventGenerating, setEventGenerating] = useState(false);
-  const generateFromEvent = useCallback(async (): Promise<SlideDocument | null> => {
-    if (!eventId) return null;
-    setEventGenerating(true);
-    try {
-      const res = await authFetch(`/api/admin/events/${eventId}/slides/defaults`, { method: "POST" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as { slides: SlideDocument };
-      return data.slides;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      notify(`${translate("padmakara.slides.generateFailed") || "Could not generate slides"}: ${msg}`, {
-        type: "error",
-      });
-      return null;
-    } finally {
-      setEventGenerating(false);
-    }
-  }, [eventId, notify, translate]);
+  const generateFromEvent = useCallback(
+    async (lang: SlideLanguage): Promise<GeneratedSlides | null> => {
+      if (!eventId) return null;
+      setEventGenerating(true);
+      try {
+        return await requestDefaultSlides(`/api/admin/events/${eventId}/slides/defaults`, { lang });
+      } catch (err) {
+        notify(generationErrorMessage(err, translate), { type: "error" });
+        return null;
+      } finally {
+        setEventGenerating(false);
+      }
+    },
+    [eventId, notify, translate],
+  );
+
+  // The language the generated slides are written in. Slides are burned in one
+  // language per video; the other arrives as subtitles.
+  const [generateLang, setGenerateLang] = useState<SlideLanguage>("en");
+  // What the last generation could not find, shown until the next one.
+  const [generationNotice, setGenerationNotice] = useState<MissingSlideInput[] | null>(null);
 
   const effectiveGenerateDefaults = onGenerateDefaults ?? (eventId ? generateFromEvent : undefined);
   const effectiveGenerating = onGenerateDefaults ? (generating ?? false) : eventGenerating;
@@ -501,9 +542,10 @@ export const SlideEditor = ({
       );
       if (!ok) return;
     }
-    const generated = await effectiveGenerateDefaults();
+    const generated = await effectiveGenerateDefaults(generateLang);
     if (generated) {
-      setDoc(generated);
+      setDoc(generated.slides);
+      setGenerationNotice(generated.missing);
       setTab("intro");
       setSelectedIndex(0);
     }
@@ -567,6 +609,17 @@ export const SlideEditor = ({
           />
         </Tabs>
         <Box sx={{ flex: 1 }} />
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={generateLang}
+          onChange={(_, value: SlideLanguage | null) => value && setGenerateLang(value)}
+          aria-label={translate("padmakara.slides.generateLanguage") || "Language of the generated slides"}
+          disabled={effectiveGenerating}
+        >
+          <ToggleButton value="en" sx={{ px: 1, py: 0.25, fontSize: "0.72rem" }}>EN</ToggleButton>
+          <ToggleButton value="pt" sx={{ px: 1, py: 0.25, fontSize: "0.72rem" }}>PT</ToggleButton>
+        </ToggleButtonGroup>
         <Button
           size="small"
           startIcon={effectiveGenerating ? <CircularProgress size={14} /> : <AutoAwesomeIcon sx={{ fontSize: 16 }} />}
@@ -577,6 +630,21 @@ export const SlideEditor = ({
           {translate("padmakara.slides.generateFromEvent") || "Generate from event data"}
         </Button>
       </Box>
+
+      {effectiveGenerating && (
+        <Alert severity="info" icon={<CircularProgress size={16} />} sx={{ mx: 3, mt: 1.5 }}>
+          {translate("padmakara.slides.generating") || "Generating slides from the event data…"}
+        </Alert>
+      )}
+      {!effectiveGenerating && generationNotice && generationNoticeText(generationNotice, translate) && (
+        <Alert
+          severity={nothingToGenerateFrom(generationNotice) ? "warning" : "info"}
+          onClose={() => setGenerationNotice(null)}
+          sx={{ mx: 3, mt: 1.5 }}
+        >
+          {generationNoticeText(generationNotice, translate)}
+        </Alert>
+      )}
 
       <DialogContent sx={{ display: "flex", gap: 3, p: 3, overflow: "hidden" }}>
         <Box sx={{ flex: "1 1 60%", overflowY: "auto", pr: 1 }}>

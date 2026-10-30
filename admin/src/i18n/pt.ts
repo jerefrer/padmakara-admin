@@ -789,6 +789,21 @@ export const pt = {
       generateFromEvent: "Gerar a partir dos dados do evento",
       generateConfirm:
         "Isto substitui os slides atuais por um modelo gerado a partir dos dados do evento. Continuar?",
+      generateTimeout: "O servidor não respondeu em 30 segundos. Tente novamente daqui a pouco.",
+      generating: "A gerar os slides a partir dos dados do evento…",
+      generateLanguage: "Língua dos slides gerados",
+      missingNotice: "Adicione ao evento %{items} para incluir esses slides.",
+      nothingToGenerate:
+        "O evento ainda não tem professor, título, data, local, organizador nem créditos, por isso só foi possível gerar o slide do logótipo. Adicione-os ao evento e gere de novo.",
+      missing: {
+        teacher: "o professor",
+        title: "o título",
+        date: "a data",
+        place: "o local",
+        session: "uma sessão na data do vídeo",
+        organizer: "o organizador",
+        production: "os créditos ou o titular dos direitos",
+      },
       generateFailed: "Não foi possível gerar os slides",
       saved: "Slides guardados",
       saveFailed: "Não foi possível guardar os slides",
