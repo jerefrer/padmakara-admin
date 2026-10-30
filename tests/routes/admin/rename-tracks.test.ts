@@ -149,6 +149,48 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect(payload.sessions[0]).toMatchObject({ sessionNumber: 2 });
   });
 
+  it("sends only the selected tracks to the model when trackIds is given", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      makeAnthropicResponse(JSON.stringify({ tracks: [] })),
+    );
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        instruction: "Fix the title",
+        trackIds: ["1-2"],
+        event: { titleEn: "Spring" },
+        sessions: [{ rowKey: "s7", titleEn: "Morning" }],
+        tracks: VALID_TRACKS,
+      }),
+    });
+
+    expect(status).toBe(200);
+    const sent = mockMessagesCreate.mock.calls[0]![0].messages[0].content;
+    const payload = JSON.parse(sent.split("Current data:\n")[1]);
+    expect(payload.tracks.map((t: any) => t.rowKey)).toEqual(["1-2"]);
+    expect(payload.event ?? {}).toEqual({});
+    expect(payload.sessions ?? []).toEqual([]);
+  });
+
+  it("rejects trackIds that match none of the tracks", async () => {
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/events/42/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        instruction: "Fix the title",
+        trackIds: ["nope"],
+        tracks: VALID_TRACKS,
+      }),
+    });
+
+    expect(status).toBe(400);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
   it("returns event field suggestions for an event-focused instruction", async () => {
     mockMessagesCreate.mockResolvedValueOnce(
       makeAnthropicResponse(

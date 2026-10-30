@@ -604,6 +604,9 @@ const aiEventFieldsSchema = z.object({
 
 export const aiAssistSchema = z.object({
   instruction: z.string().min(1).max(2000),
+  // rowKeys of the tracks the admin selected. When present, the instruction
+  // applies to those tracks only (see scopeAiAssistToTracks).
+  trackIds: z.array(z.string().min(1).max(100)).max(5000).optional(),
   event: aiEventFieldsSchema.optional(),
   sessions: z
     .array(
