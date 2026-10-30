@@ -71,6 +71,8 @@ import { moveTracksToSession, nextSessionNumber } from "../utils/moveTracks";
 import { MoveTracksBar, type MoveTarget } from "../components/MoveTracksBar";
 import { EventVideosSection } from "../components/EventVideosSection";
 import type { PendingUploadSlides } from "../components/SlideEditor";
+import { splitDuplicateFiles } from "../utils/duplicateFiles";
+import { EventPublicationsPanel } from "../components/EventPublicationsPanel";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
@@ -1577,7 +1579,7 @@ export const EventFormFields = ({
 
           {/* Event-level files (transcripts, videos, etc.) */}
           {transcripts.length > 0 && (
-            <EventFilesPreview transcripts={transcripts} />
+            <EventFilesPreview transcripts={transcripts} onTranscriptDeleted={refresh} />
           )}
         </>
       )}
@@ -2182,6 +2184,12 @@ export const EventCreate = () => {
         notify(translate("padmakara.transcript.saveFirst") || "Save the event first, then upload transcripts", { type: "warning" });
         return;
       }
+      const { fresh, duplicates } = splitDuplicateFiles(files, pendingTranscriptsRef.current.map((t) => ({ name: t.originalFilename, size: t.fileSizeBytes })));
+      for (const dup of duplicates) {
+        notify(translate("padmakara.transcript.alreadyAdded", { name: dup.name, _: `Already added: ${dup.name}` }), { type: "warning" });
+      }
+      files = fresh;
+      if (files.length === 0) return;
       const initial: TranscriptUploadState[] = files.map((f) => ({
         filename: f.name,
         status: "pending",
@@ -3646,6 +3654,12 @@ export const EventEdit = () => {
         notify(translate("padmakara.transcript.saveFirst") || "Save the event first, then upload transcripts", { type: "warning" });
         return;
       }
+      const { fresh, duplicates } = splitDuplicateFiles(files, (event.transcripts ?? []).map((t: { originalFilename?: string; fileSizeBytes?: number }) => ({ name: t.originalFilename ?? "", size: t.fileSizeBytes ?? 0 })));
+      for (const dup of duplicates) {
+        notify(translate("padmakara.transcript.alreadyAdded", { name: dup.name, _: `Already added: ${dup.name}` }), { type: "warning" });
+      }
+      files = fresh;
+      if (files.length === 0) return;
       const eventId = Number(event.id);
       const initial: TranscriptUploadState[] = files.map((f) => ({
         filename: f.name,
@@ -3689,7 +3703,7 @@ export const EventEdit = () => {
         }
       }
     },
-    [form.eventCode, event?.id, dataProvider, notify, refresh, translate],
+    [form.eventCode, event?.id, event?.transcripts, dataProvider, notify, refresh, translate],
   );
 
   // 6.2 — Add sessions/tracks to existing event
@@ -4112,6 +4126,8 @@ export const EventEdit = () => {
         eventId={event?.id ? Number(event.id) : undefined}
         disabled={saving}
       />
+
+      {event?.id && <EventPublicationsPanel eventId={Number(event.id)} />}
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <EventEditActions

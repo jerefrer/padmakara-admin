@@ -392,6 +392,65 @@ describe("GET /api/events/:id — related publications", () => {
   });
 });
 
+describe("GET /api/events/:id — publications linked through retreat groups", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const pubRow = (id: number) => ({
+    id,
+    title: `Pub ${id}`,
+    subtitle: null,
+    audienceId: 7,
+    coverImageS3Key: null,
+  });
+  const direct = (id: number) => ({ publication: pubRow(id) });
+
+  /** Makes the group-publication query resolve to `rows`. */
+  function groupLinked(rows: ReturnType<typeof pubRow>[]) {
+    const orderBy = vi.fn(() => Promise.resolve(rows.map((publication) => ({ publication }))));
+    const where = vi.fn(() => ({ orderBy }));
+    const innerJoin = vi.fn(() => ({ where }));
+    mockDb.select.mockReturnValueOnce({ from: vi.fn(() => ({ innerJoin })) } as never);
+    return where;
+  }
+
+  async function fetchEvent(event: Record<string, unknown>, openable: number[]) {
+    mockDb.query.events.findFirst.mockResolvedValueOnce({ ...draftPublicEvent, status: "published", ...event });
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
+    mockOpenablePublications.mockResolvedValueOnce(new Set(openable));
+    const { body } = await testJson("/api/events/42", { headers: await bearerToken("user") });
+    return (body.relatedPublications as Array<{ id: number }>).map((p) => p.id);
+  }
+
+  it("should list a publication linked to one of the event's groups", async () => {
+    groupLinked([pubRow(5)]);
+    const ids = await fetchEvent({ eventRetreatGroups: [{ retreatGroupId: 3 }] }, [5]);
+    expect(ids).toEqual([5]);
+  });
+
+  it("should leave out a group-linked publication the caller cannot open", async () => {
+    groupLinked([pubRow(5), pubRow(6)]);
+    const ids = await fetchEvent({ eventRetreatGroups: [{ retreatGroupId: 3 }] }, [5]);
+    expect(ids).toEqual([5]);
+  });
+
+  it("should list a publication linked both directly and through a group once", async () => {
+    groupLinked([pubRow(1), pubRow(5)]);
+    const ids = await fetchEvent(
+      { eventRetreatGroups: [{ retreatGroupId: 3 }], eventPublications: [direct(1)] },
+      [1, 5],
+    );
+    expect(ids).toEqual([1, 5]);
+  });
+
+  it("should not query group publications when the event has no groups", async () => {
+    const ids = await fetchEvent({ eventPublications: [direct(1)] }, [1]);
+    expect(ids).toEqual([1]);
+    expect(mockDb.select).not.toHaveBeenCalledWith(expect.objectContaining({ publication: expect.anything() }));
+  });
+});
+
 // ─── Admin draft list (GET /api/events) ──────────────────────────────────────
 
 describe("GET /api/events — admin draft list", () => {
