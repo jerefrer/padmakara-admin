@@ -22,8 +22,7 @@ import { parsePagination, buildOrderBy, listResponse, countRows } from "./helper
 import { submitReadAlongJob, getReadAlongJobs, cancelReadAlongJob } from "../../services/read-along.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 import { aiAssistEvent } from "../../services/ai-assist.ts";
-import { buildDefaultSlideDocument } from "../../lib/slides/defaults.ts";
-import { fetchSlideTemplateMetadata } from "../../services/slide-metadata.ts";
+import { fetchSlideTemplateMetadata, generateDefaultSlides } from "../../services/slide-metadata.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../../lib/organizer-utils.ts";
 
 const eventRoutes = new Hono();
@@ -546,11 +545,17 @@ eventRoutes.post("/:id/read-along/:jobId/cancel", async (c) => {
 /**
  * POST /admin/events/:id/slides/defaults
  *
- * Generate the default 5-slide intro + logo outro from the event's own
+ * Generate the default intro (one language) + logo outro from the event's own
  * metadata — used by the admin's pre-upload draft slide editor, which has no
  * event_video row yet (slides are always scoped to one; see
  * EventVideosSection.tsx / AddVideoDialog.tsx). Falls back to the event's
- * `startDate` for the date slide, since there is no video date to prefer.
+ * `startDate` for the month/year slide, since there is no video date to prefer.
+ *
+ * Body (all optional): `lang` "en" | "pt" (default: the event's original
+ * language, English if it has no template) and `date` "YYYY-MM-DD" (the
+ * recording's date, used to work out the session number).
+ * Response: `{ slides, missing, language }` — `missing` lists the inputs the
+ * event lacks, so the editor can say why a slide was left out.
  *
  * The video-scoped counterpart (POST /admin/videos/:id/slides/defaults in
  * routes/admin/videos.ts) stays as-is — it correctly prefers the video's own
@@ -564,11 +569,14 @@ eventRoutes.post("/:id/read-along/:jobId/cancel", async (c) => {
  */
 eventRoutes.post("/:id/slides/defaults", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
-  const meta = await fetchSlideTemplateMetadata(id);
-  if (!meta) throw AppError.notFound("Event not found");
+  const body = (await c.req.json().catch(() => ({}))) as { lang?: unknown; date?: unknown };
+  // The draft editor may know the date of the recording about to be uploaded;
+  // it lets the "Session N of M" slide be matched. Anything else is ignored.
+  const date = typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : null;
+  const result = await fetchSlideTemplateMetadata(id, date);
+  if (!result) throw AppError.notFound("Event not found");
 
-  const slides = buildDefaultSlideDocument(meta, () => crypto.randomUUID());
-  return c.json({ slides });
+  return c.json(generateDefaultSlides(result, body.lang));
 });
 
 /**
