@@ -407,7 +407,8 @@ export const pt = {
       // Buttons
       newEvent: "Novo Evento",
       createEvent: "Criar Evento",
-      saveChanges: "Guardar Alterações",
+      saveChanges: "Guardar",
+      saveAndClose: "Guardar e fechar",
       saving: "A guardar...",
       cancel: "Cancelar",
       delete: "Eliminar",

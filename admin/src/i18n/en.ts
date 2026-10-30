@@ -209,7 +209,8 @@ export const en = {
       // Buttons
       newEvent: "New Event",
       createEvent: "Create Event",
-      saveChanges: "Save Changes",
+      saveChanges: "Save",
+      saveAndClose: "Save & close",
       saving: "Saving...",
       cancel: "Cancel",
       delete: "Delete",
