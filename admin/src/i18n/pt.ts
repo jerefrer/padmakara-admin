@@ -650,6 +650,7 @@ export const pt = {
       filesFrom: "%{count} ficheiros de áudio de %{folder}",
     },
     transcript: {
+      alreadyAdded: "Já adicionado: %{name}",
       dropzoneTitle: "Arraste transcrições PDF para aqui",
       dropzoneSubtitle: "ou clique para procurar — aceita ficheiros .pdf",
       browse: "Procurar PDFs",
@@ -669,6 +670,7 @@ export const pt = {
       deleteConfirm: "Eliminar esta transcrição? Esta ação não pode ser anulada.",
     },
     documents: {
+      alreadyAdded: "Já adicionado: %{name}",
       title: "Documentos",
       count: "%{count} documento |||| %{count} documentos",
       none: "Ainda não há documentos",

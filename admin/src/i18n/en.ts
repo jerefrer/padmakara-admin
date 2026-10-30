@@ -452,6 +452,7 @@ export const en = {
       filesFrom: "%{count} audio files from %{folder}",
     },
     transcript: {
+      alreadyAdded: "Already added: %{name}",
       dropzoneTitle: "Drop PDF transcripts here",
       dropzoneSubtitle: "or click to browse — accepts .pdf files",
       browse: "Browse PDFs",
@@ -471,6 +472,7 @@ export const en = {
       deleteConfirm: "Delete this transcript? This cannot be undone.",
     },
     documents: {
+      alreadyAdded: "Already added: %{name}",
       title: "Documents",
       count: "%{count} document |||| %{count} documents",
       none: "No documents yet",

@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { splitDuplicateFiles } from "../utils/duplicateFiles";
 import { useDataProvider, useNotify, useTranslate } from "react-admin";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
@@ -168,9 +169,23 @@ export const DocumentsSection = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
+  // Files already uploaded in this session; covers create mode, where `files`
+  // stays empty until the event is saved.
+  const uploadedThisSession = useRef<{ name: string; size: number }[]>([]);
+
   const handleFilesDropped = useCallback(
     async (dropped: File[]) => {
-      const accepted = dropped.filter(isAcceptedDocumentFile);
+      const acceptedAll = dropped.filter(isAcceptedDocumentFile);
+      if (acceptedAll.length === 0) return;
+      const { fresh: accepted, duplicates } = splitDuplicateFiles(acceptedAll, [
+        ...files.map((f) => ({ name: f.originalFilename, size: f.fileSizeBytes ?? -1 })),
+        ...uploadedThisSession.current,
+      ]);
+      for (const dup of duplicates) {
+        notify(translate("padmakara.documents.alreadyAdded", { name: dup.name, _: `Already added: ${dup.name}` }), {
+          type: "warning",
+        });
+      }
       if (accepted.length === 0) return;
       if (!eventCode) {
         notify(translate("padmakara.documents.saveFirst") || "Save the event first, then upload documents", {
@@ -202,6 +217,7 @@ export const DocumentsSection = ({
           setUploads((prev) =>
             prev.map((u) => (u.filename === file.name ? { ...u, status: "done", progress: 1 } : u)),
           );
+          uploadedThisSession.current.push({ name: file.name, size: file.size });
 
           if (eventId) {
             const { data: created } = await dataProvider.create<EventFileRow>("event-files", {
@@ -237,7 +253,7 @@ export const DocumentsSection = ({
         }
       }
     },
-    [eventCode, eventId, files.length, dataProvider, notify, translate, onPendingUpload],
+    [eventCode, eventId, files, dataProvider, notify, translate, onPendingUpload],
   );
 
   const triggerPicker = () => fileInputRef.current?.click();

@@ -9,7 +9,8 @@ const getList = vi.hoisted(() => vi.fn());
 const del = vi.hoisted(() => vi.fn());
 const authFetch = vi.hoisted(() => vi.fn());
 vi.mock("../utils/authFetch", () => ({ authFetch }));
-vi.mock("../utils/uploadManager", () => ({ uploadFile: vi.fn() }));
+const uploadFile = vi.hoisted(() => vi.fn());
+vi.mock("../utils/uploadManager", () => ({ uploadFile }));
 vi.mock("react-admin", () => ({
   useTranslate: () => (key: string) => key,
   useNotify: () => notify,
@@ -117,5 +118,27 @@ describe("DocumentsSection open", () => {
     expect(tab.close).toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("HTTP 404"), { type: "error" });
     open.mockRestore();
+  });
+});
+
+describe("DocumentsSection duplicate drops", () => {
+  const pick = async (files: File[]) => {
+    const input = container.querySelector("input[type=file]") as HTMLInputElement;
+    Object.defineProperty(input, "files", { value: files, configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await flush();
+  };
+  const sized = (name: string, size: number) => {
+    const f = new File(["x"], name, { type: "application/pdf" });
+    Object.defineProperty(f, "size", { value: size });
+    return f;
+  };
+
+  it("should skip and notify when the file name and size match a document already on the event", async () => {
+    await pick([sized(row.originalFilename, row.fileSizeBytes)]);
+    expect(uploadFile).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith("padmakara.documents.alreadyAdded", { type: "warning" });
   });
 });
