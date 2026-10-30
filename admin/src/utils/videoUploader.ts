@@ -1,5 +1,13 @@
 import * as tus from "tus-js-client";
 import { authFetch } from "./authFetch";
+import {
+  MULTIPART_THRESHOLD_BYTES,
+  PART_CONCURRENCY,
+  decidePartRetry,
+  nextPresignBatch,
+  overallFraction,
+  partRange,
+} from "./multipartPlan";
 
 const API_URL = "/api/admin";
 
@@ -218,6 +226,229 @@ export async function uploadVideoFile(opts: UploadVideoOpts): Promise<{ videoId:
 
 // ─── Burn-in path: upload the master to S3, then let AWS Batch merge slides ──
 
+interface MasterUploadOpts {
+  eventCode: string;
+  file: File;
+  contentType: string;
+  signal: { cancelled: boolean; abort?: () => void };
+  onProgress?: (fraction: number) => void;
+}
+
+/** Single presigned PUT of the whole file — used below the multipart threshold. */
+async function uploadMasterSinglePut(opts: MasterUploadOpts): Promise<string> {
+  const { eventCode, file, contentType, signal } = opts;
+
+  // Presign a PUT for the master. Long TTL — these are multi-GB files.
+  const presignRes = await authFetch(`${API_URL}/upload/video/presign`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventCode, filename: file.name, contentType }),
+  });
+  if (!presignRes.ok) {
+    throw new Error(`Presign master failed (${presignRes.status}): ${await presignRes.text()}`);
+  }
+  const { s3Key, uploadUrl } = (await presignRes.json()) as { s3Key: string; uploadUrl: string };
+
+  // PUT the bytes straight to S3, same shape as uploadManager.uploadFile.
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    signal.abort = () => xhr.abort();
+    xhr.open("PUT", uploadUrl);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && opts.onProgress) opts.onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Master upload failed: ${xhr.status} ${xhr.statusText}`));
+    xhr.onerror = () => reject(new Error("Network error during master upload"));
+    xhr.onabort = () => reject(new UploadCancelledError());
+    xhr.send(file);
+  });
+  return s3Key;
+}
+
+async function postJson<T>(path: string, body: unknown, what: string): Promise<T> {
+  const res = await authFetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`${what} failed (${res.status}): ${await res.text()}`);
+  }
+  return (await res.json()) as T;
+}
+
+/**
+ * Multipart upload of a master: parts are PUT straight to S3 four at a time,
+ * each retried independently with backoff, so a flaky connection costs one
+ * part (64 MiB) instead of the whole file. On cancel or final failure the
+ * multipart upload is aborted so S3 does not keep billing for the orphan parts.
+ */
+async function uploadMasterMultipart(opts: MasterUploadOpts): Promise<string> {
+  const { eventCode, file, contentType, signal } = opts;
+
+  const { uploadId, s3Key, partSize, partCount } = await postJson<{
+    uploadId: string;
+    s3Key: string;
+    partSize: number;
+    partCount: number;
+  }>("/upload/video/multipart/create", { eventCode, filename: file.name, contentType, size: file.size }, "Start multipart upload");
+
+  const inFlightXhrs = new Set<XMLHttpRequest>();
+  const inFlightBytes = new Map<number, number>();
+  const pending = new Set<number>();
+  for (let n = 1; n <= partCount; n++) pending.add(n);
+  const urls = new Map<number, string>();
+  let presigning: Promise<void> | null = null;
+  let confirmedBytes = 0;
+  let aborted = false;
+  let failure: unknown = null;
+  let lastEmit = 0;
+
+  const emit = (force = false) => {
+    if (!opts.onProgress) return;
+    const now = Date.now();
+    if (!force && now - lastEmit < 100) return;
+    lastEmit = now;
+    opts.onProgress(overallFraction(confirmedBytes, inFlightBytes.values(), file.size));
+  };
+
+  const isCancelled = () => aborted || signal.cancelled;
+  signal.abort = () => {
+    aborted = true;
+    for (const xhr of inFlightXhrs) xhr.abort();
+  };
+
+  const presignBatch = async (first: number, force: boolean): Promise<void> => {
+    const numbers = nextPresignBatch(first, partCount, (n) => pending.has(n) && !urls.has(n));
+    const batch = force ? [first] : numbers;
+    const { urls: signed } = await postJson<{ urls: Record<string, string> }>(
+      "/upload/video/multipart/presign-parts",
+      { s3Key, uploadId, partNumbers: batch },
+      "Presign parts",
+    );
+    for (const [n, url] of Object.entries(signed)) urls.set(Number(n), url);
+  };
+
+  const getUrl = async (partNumber: number, force: boolean): Promise<string> => {
+    if (force) urls.delete(partNumber);
+    while (!urls.has(partNumber)) {
+      if (presigning) {
+        await presigning;
+        continue;
+      }
+      presigning = presignBatch(partNumber, force).finally(() => {
+        presigning = null;
+      });
+      await presigning;
+    }
+    // Presence checked by the loop above.
+    return urls.get(partNumber) as string;
+  };
+
+  /** PUT one part; resolves on 2xx, rejects with an HttpFailure otherwise. */
+  const putPart = (partNumber: number, url: string): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      const { start, end } = partRange(partNumber, partSize, file.size);
+      const xhr = new XMLHttpRequest();
+      inFlightXhrs.add(xhr);
+      const done = () => {
+        inFlightXhrs.delete(xhr);
+        inFlightBytes.delete(partNumber);
+      };
+      xhr.open("PUT", url);
+      xhr.upload.onprogress = (e) => {
+        inFlightBytes.set(partNumber, e.loaded);
+        emit();
+      };
+      xhr.onload = () => {
+        done();
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new PartHttpError(xhr.status));
+      };
+      xhr.onerror = () => {
+        done();
+        reject(new PartHttpError(0));
+      };
+      xhr.ontimeout = xhr.onerror;
+      xhr.onabort = () => {
+        done();
+        reject(new UploadCancelledError());
+      };
+      xhr.send(file.slice(start, end));
+    });
+
+  const uploadPart = async (partNumber: number): Promise<void> => {
+    const { start, end } = partRange(partNumber, partSize, file.size);
+    let failures = 0;
+    let represign = false;
+    for (;;) {
+      if (isCancelled()) throw new UploadCancelledError();
+      try {
+        await putPart(partNumber, await getUrl(partNumber, represign));
+        confirmedBytes += end - start;
+        pending.delete(partNumber);
+        emit(true);
+        return;
+      } catch (err) {
+        if (isCancelled() || err instanceof UploadCancelledError) throw new UploadCancelledError();
+        const status = err instanceof PartHttpError ? err.status : 0;
+        const decision = decidePartRetry(++failures, status);
+        if (decision.action === "fail") {
+          throw new Error(
+            status
+              ? `Part ${partNumber} of ${partCount} was rejected by storage (HTTP ${status})`
+              : `Part ${partNumber} of ${partCount} failed after ${failures - 1} retries (network error)`,
+          );
+        }
+        represign = decision.represign;
+        await new Promise((r) => setTimeout(r, decision.delayMs));
+      }
+    }
+  };
+
+  const queue = Array.from(pending);
+  const worker = async () => {
+    for (let n = queue.shift(); n !== undefined; n = queue.shift()) {
+      if (failure || isCancelled()) return;
+      try {
+        await uploadPart(n);
+      } catch (err) {
+        failure ??= err;
+        // Stop sibling parts quickly instead of letting them retry on.
+        aborted = true;
+        for (const xhr of inFlightXhrs) xhr.abort();
+        return;
+      }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, partCount) }, worker));
+    if (failure) throw failure;
+    if (signal.cancelled || aborted) throw new UploadCancelledError();
+    await postJson("/upload/video/multipart/complete", { s3Key, uploadId }, "Complete multipart upload");
+    emit(true);
+    return s3Key;
+  } catch (err) {
+    // Best effort: an orphaned multipart upload keeps its parts in storage.
+    await postJson("/upload/video/multipart/abort", { s3Key, uploadId }, "Abort multipart upload").catch(() => {});
+    throw err;
+  }
+}
+
+/** A part PUT answered with a non-2xx status (0 = no response at all). */
+class PartHttpError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`Part upload failed: ${status}`);
+    this.status = status;
+  }
+}
+
 /**
  * Upload a video master for the slide burn-in pipeline.
  *
@@ -246,34 +477,13 @@ export async function uploadVideoMaster(opts: {
   const { eventId, eventCode, position, title, file, slides, signal } = opts;
   const contentType = file.type || "video/mp4";
 
-  // 1. Presign a PUT for the master. Long TTL — these are multi-GB files.
-  const presignRes = await authFetch(`${API_URL}/upload/video/presign`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ eventCode, filename: file.name, contentType }),
-  });
-  if (!presignRes.ok) {
-    throw new Error(`Presign master failed (${presignRes.status}): ${await presignRes.text()}`);
-  }
-  const { s3Key, uploadUrl } = (await presignRes.json()) as { s3Key: string; uploadUrl: string };
-
-  // 2. PUT the bytes straight to S3, same shape as uploadManager.uploadFile.
-  await new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    signal.abort = () => xhr.abort();
-    xhr.open("PUT", uploadUrl);
-    xhr.setRequestHeader("Content-Type", contentType);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && opts.onProgress) opts.onProgress(e.loaded / e.total);
-    };
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Master upload failed: ${xhr.status} ${xhr.statusText}`));
-    xhr.onerror = () => reject(new Error("Network error during master upload"));
-    xhr.onabort = () => reject(new UploadCancelledError());
-    xhr.send(file);
-  });
+  // 1+2. Get the master onto S3. Big files go as a multipart upload (a single
+  //      PUT is capped at 5 GB and one dropped connection restarts it);
+  //      smaller ones keep the single presigned PUT.
+  const s3Key =
+    file.size >= MULTIPART_THRESHOLD_BYTES
+      ? await uploadMasterMultipart({ eventCode, file, contentType, signal, onProgress: opts.onProgress })
+      : await uploadMasterSinglePut({ eventCode, file, contentType, signal, onProgress: opts.onProgress });
 
   if (signal.cancelled) throw new UploadCancelledError();
 
