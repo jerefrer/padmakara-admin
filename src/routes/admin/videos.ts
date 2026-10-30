@@ -13,6 +13,8 @@ import {
   slideImageUrlsSchema,
 } from "../../lib/schemas.ts";
 import { isBuiltinKey } from "../../lib/slides/defaults.ts";
+import { mergeIntroSubtitleCues } from "../../lib/slides/intro-subtitles.ts";
+import { withIntroSubtitlesForVideo } from "../../services/intro-subtitles.ts";
 import { AppError } from "../../lib/errors.ts";
 import { submitVideoBurnJob } from "../../services/video-burn.ts";
 import { fetchSlideTemplateMetadata, generateDefaultSlides } from "../../services/slide-metadata.ts";
@@ -520,7 +522,7 @@ videoRoutes.get("/:videoId/subtitles/:lang/download", async (c) => {
   const subs = await getVideoSubtitles(videoId);
   const sub = subs.find((s) => s.language === lang);
   if (!sub) return c.json({ error: "Not found" }, 404);
-  const vtt = await getObjectText(sub.s3Key);
+  const vtt = await withIntroSubtitlesForVideo(await getObjectText(sub.s3Key), videoId, lang);
   return new Response(vtt, {
     headers: {
       "Content-Type": "text/vtt",
@@ -592,7 +594,12 @@ videoRoutes.put("/:videoId/subtitles/:lang", async (c) => {
     });
 
   if (video.bunnyVideoId) {
-    await addCaption(video.bunnyVideoId, lang, existing?.label ?? lang, vtt);
+    await addCaption(
+      video.bunnyVideoId,
+      lang,
+      existing?.label ?? lang,
+      mergeIntroSubtitleCues(vtt, video.slides, lang),
+    );
   }
 
   // If the English source changed, mark all this video's translations stale.
