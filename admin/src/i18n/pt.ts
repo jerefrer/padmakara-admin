@@ -770,6 +770,7 @@ export const pt = {
         xl: "Extra grande",
       },
       dim: "Esbatido",
+      smallCaps: "Versaletes",
       bold: "Negrito",
       italic: "Itálico",
       underline: "Sublinhado",

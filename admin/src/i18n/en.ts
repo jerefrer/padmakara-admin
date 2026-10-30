@@ -572,6 +572,7 @@ export const en = {
         xl: "Extra large",
       },
       dim: "Dim",
+      smallCaps: "Small caps",
       bold: "Bold",
       italic: "Italic",
       underline: "Underline",

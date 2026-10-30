@@ -99,6 +99,17 @@ export const SlideLineRow = ({
             }
             label={translate("padmakara.slides.dim") || "Dim"}
           />
+          <FormControlLabel
+            sx={{ flexShrink: 0, mr: 0, "& .MuiFormControlLabel-label": { fontSize: "0.72rem" } }}
+            control={
+              <Checkbox
+                size="small"
+                checked={!!line.smallCaps}
+                onChange={(e) => onChange({ ...line, smallCaps: e.target.checked })}
+              />
+            }
+            label={translate("padmakara.slides.smallCaps") || "Small caps"}
+          />
         </>
       )}
 

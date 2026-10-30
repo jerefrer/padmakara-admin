@@ -80,7 +80,9 @@ function renderLine(line: Line, opts: RenderOptions): string {
 
     case "text": {
       const size = SIZE_SCALE[line.size] ?? SIZE_SCALE.md;
-      const cls = line.dim ? "text-line dim" : "text-line";
+      const cls = ["text-line", line.dim ? "dim" : "", line.smallCaps ? "sc" : ""]
+        .filter(Boolean)
+        .join(" ");
       const inner = line.spans.map(renderSpan).join("");
       // An empty text line would collapse; a zero-width space keeps its box.
       const content = inner === "" ? "&#8203;" : inner;
@@ -143,6 +145,7 @@ body{
   white-space:pre-wrap;
 }
 .dim{opacity:${DIM_OPACITY}}
+.sc{font-variant:small-caps;letter-spacing:0.04em}
 .spacer{flex:0 0 auto;height:${SPACER_HEIGHT}rem}
 /* Image lines share whatever vertical space the text lines leave over.
    min-height:0 is required or flex refuses to shrink them below content size. */
