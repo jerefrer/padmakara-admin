@@ -171,6 +171,17 @@ describe("renderSlideHtml — font faces", () => {
   });
 });
 
+describe("renderSlideHtml — image next to text", () => {
+  it("caps the image and stops it filling the frame when text shares the slide", () => {
+    const html = renderSlideHtml(
+      slide([{ id: "i", type: "image", s3Key: "logo.png" }, textLine([{ text: "Padmakara" }])]),
+      BASE_OPTS,
+    );
+    expect(html).toContain(".stage:has(.text-line) .img-line{flex:0 1 auto}");
+    expect(html).toContain(".stage:has(.text-line) .img-line img{max-height:min(100%, 48rem)}");
+  });
+});
+
 describe("renderSlideHtml — small caps", () => {
   it("applies the sc class and the small-caps rule when the line asks for it", () => {
     const line: TextLine = { ...textLine([{ text: "Padmakara" }]), smallCaps: true };

@@ -33,6 +33,9 @@ const SPACER_HEIGHT = 4.0;
 /** Images never exceed this share of the frame height, however much space is free. */
 const IMAGE_MAX_HEIGHT_PCT = 60;
 
+/** Same cap when the slide also has text lines. */
+const IMAGE_WITH_TEXT_MAX_HEIGHT_PCT = 48;
+
 /** Opacity applied to `dim` lines. Matches the date slide in the reference intro. */
 const DIM_OPACITY = 0.75;
 
@@ -159,6 +162,11 @@ body{
   max-height:min(100%, ${IMAGE_MAX_HEIGHT_PCT}rem);
   object-fit:contain;
 }
+/* An image sharing the slide with text (the logo above its wordmark) keeps to
+   a smaller share of the frame and sits against the text instead of pushing
+   it to the bottom edge. */
+.stage:has(.text-line) .img-line{flex:0 1 auto}
+.stage:has(.text-line) .img-line img{max-height:min(100%, ${IMAGE_WITH_TEXT_MAX_HEIGHT_PCT}rem)}
 </style></head>
 <body><div class="stage">${lines}</div></body></html>`;
 }
