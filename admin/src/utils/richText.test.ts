@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Span } from "@slides/types.ts";
-import { domToSpans, escapeHtml, spansTextLength, spansToEditableHtml } from "./richText";
+import { domToSpans, escapeHtml, isLineBreakKey, spansTextLength, spansToEditableHtml } from "./richText";
 
 describe("escapeHtml", () => {
   it("should escape the five HTML-significant characters", () => {
@@ -106,5 +106,40 @@ describe("spansTextLength", () => {
 
   it("should be 0 for an empty span list", () => {
     expect(spansTextLength([])).toBe(0);
+  });
+});
+
+describe("line breaks in a line", () => {
+  const root = () => document.createElement("div");
+
+  it("should show a trailing newline with a placeholder <br> so the caret has a line", () => {
+    expect(spansToEditableHtml([{ text: "Title\n" }])).toBe("Title<br><br>");
+  });
+
+  it("should not turn the caret placeholder into an extra newline", () => {
+    const el = root();
+    el.innerHTML = "Title<br><br>";
+    expect(domToSpans(el)).toEqual([{ text: "Title\n" }]);
+  });
+
+  it("should round-trip a break between words, and a trailing break", () => {
+    for (const spans of [[{ text: "Long\ntitle" }], [{ text: "Long\n" }]] as Span[][]) {
+      const el = root();
+      el.innerHTML = spansToEditableHtml(spans);
+      expect(domToSpans(el)).toEqual(spans);
+    }
+  });
+
+  it("should read pasted blocks as lines", () => {
+    const el = root();
+    el.innerHTML = "<div>one</div><div>two</div>";
+    expect(domToSpans(el)).toEqual([{ text: "one\ntwo" }]);
+  });
+
+  it("should treat Enter as a line break, but not shortcuts or IME confirmation", () => {
+    expect(isLineBreakKey({ key: "Enter" })).toBe(true);
+    expect(isLineBreakKey({ key: "Enter", metaKey: true })).toBe(false);
+    expect(isLineBreakKey({ key: "Enter", isComposing: true })).toBe(false);
+    expect(isLineBreakKey({ key: "a" })).toBe(false);
   });
 });

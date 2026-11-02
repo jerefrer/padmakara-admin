@@ -15,7 +15,7 @@ import ToggleButton from "@mui/material/ToggleButton";
 import { useEffect, useRef } from "react";
 import { useTranslate } from "react-admin";
 import type { Span } from "@slides/types.ts";
-import { domToSpans, spansToEditableHtml } from "../utils/richText";
+import { domToSpans, isLineBreakKey, spansToEditableHtml } from "../utils/richText";
 
 interface RichTextLineFieldProps {
   spans: Span[];
@@ -62,6 +62,15 @@ export const RichTextLineField = ({ spans, onChange, placeholder }: RichTextLine
     emit();
   };
 
+  // Enter (or Shift+Enter) inserts a soft line break inside this one line,
+  // stored as "\n" in the span text.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!isLineBreakKey(e.nativeEvent)) return;
+    e.preventDefault();
+    document.execCommand("insertLineBreak");
+    emit();
+  };
+
   // Selection is lost the instant a button steals focus — prevent that
   // default so execCommand still has something to act on.
   const preventBlur = (e: React.MouseEvent) => e.preventDefault();
@@ -105,6 +114,7 @@ export const RichTextLineField = ({ spans, onChange, placeholder }: RichTextLine
         contentEditable
         suppressContentEditableWarning
         onInput={emit}
+        onKeyDown={onKeyDown}
         onBlur={emit}
         data-placeholder={placeholder}
         sx={{

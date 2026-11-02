@@ -207,3 +207,27 @@ describe("renderSlideHtml — frame dimensions", () => {
     expect(html).toContain("width:1920px;height:1080px;");
   });
 });
+
+describe("renderSlideHtml — line breaks inside a line", () => {
+  it("renders a newline in span text as <br> within the same text line", () => {
+    const html = renderSlideHtml(slide([textLine([{ text: "First part\nSecond part" }])]), BASE_OPTS);
+    expect(html).toContain("First part<br>Second part");
+    expect(html.match(/class="text-line/g)).toHaveLength(1);
+  });
+
+  it("renders CRLF as a single break", () => {
+    const html = renderSlideHtml(slide([textLine([{ text: "a\r\nb" }])]), BASE_OPTS);
+    expect(html).toContain("a<br>b");
+  });
+
+  it("keeps emphasis around a span that contains a break", () => {
+    const html = renderSlideHtml(slide([textLine([{ text: "a\nb", bold: true }])]), BASE_OPTS);
+    expect(html).toContain("<strong>a<br>b</strong>");
+  });
+
+  it("still escapes markup next to a line break", () => {
+    const html = renderSlideHtml(slide([textLine([{ text: "<b>x</b>\n<i>y</i>" }])]), BASE_OPTS);
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;<br>&lt;i&gt;y&lt;/i&gt;");
+    expect(html).not.toContain("<b>x");
+  });
+});

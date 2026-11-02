@@ -61,8 +61,12 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** A "\n" inside a span is a soft line break within one text line: it renders
+ *  as `<br>`, so it keeps the line's own spacing instead of the larger gap
+ *  between two separate lines. Escaping happens first; `<br>` is the only
+ *  markup this adds. */
 function renderSpan(span: Span): string {
-  let html = escapeHtml(span.text);
+  let html = escapeHtml(span.text).replace(/\r\n?|\n/g, "<br>");
   // Order matters only for readability of the output; nesting is equivalent.
   if (span.bold) html = `<strong>${html}</strong>`;
   if (span.italic) html = `<em>${html}</em>`;

@@ -21,7 +21,7 @@ export function escapeHtml(value: string): string {
  *  shared renderer's own span markup (bold/italic/underline nesting) so what
  *  the admin edits looks like what will be burned, just editable in place. */
 export function spansToEditableHtml(spans: Span[]): string {
-  return spans
+  const html = spans
     .map((span) => {
       let html = escapeHtml(span.text).replace(/\n/g, "<br>");
       if (span.bold) html = `<strong>${html}</strong>`;
@@ -30,6 +30,23 @@ export function spansToEditableHtml(spans: Span[]): string {
       return html;
     })
     .join("");
+  // A contentEditable only shows a trailing line break when a second <br>
+  // gives the caret a line to sit on; domToSpans drops that placeholder again.
+  const last = spans[spans.length - 1];
+  return last?.text.endsWith("\n") ? `${html}<br>` : html;
+}
+
+/** True for the keys that insert a line break in the single-line field (Enter
+ *  and Shift+Enter). The browser default would start a new block (`<div>`),
+ *  which the span model has no notion of. */
+export function isLineBreakKey(e: {
+  key: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  altKey?: boolean;
+  isComposing?: boolean;
+}): boolean {
+  return e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing;
 }
 
 const BOLD_WEIGHT_THRESHOLD = 600;
@@ -79,9 +96,21 @@ export function domToSpans(root: HTMLElement): Span[] {
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const el = node as HTMLElement;
-    if (el.tagName.toLowerCase() === "br") {
-      raw.push({ text: "\n" });
+    const tag = el.tagName.toLowerCase();
+    if (tag === "br") {
+      // A last <br> straight after another <br> is the caret placeholder, not a break.
+      const prev = el.previousSibling;
+      const isPlaceholder =
+        el.nextSibling === null &&
+        el.parentNode === root &&
+        prev instanceof HTMLElement &&
+        prev.tagName.toLowerCase() === "br";
+      if (!isPlaceholder) raw.push({ text: "\n" });
       return;
+    }
+    // Pasted content can arrive as blocks; each block after the first starts a new line.
+    if ((tag === "div" || tag === "p") && raw.length > 0 && !raw[raw.length - 1]?.text.endsWith("\n")) {
+      raw.push({ text: "\n" });
     }
     const next = marksFromElement(el, marks);
     for (const child of Array.from(el.childNodes)) visit(child, next);
