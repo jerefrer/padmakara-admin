@@ -21,7 +21,6 @@ export const ALL_SLIDE_INPUTS: readonly MissingSlideInput[] = [
   "place",
   "session",
   "organizer",
-  "production",
 ];
 
 export interface GeneratedSlides {

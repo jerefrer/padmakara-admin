@@ -55,9 +55,9 @@ export interface SlideTemplateMetadata {
   organizer?: string | null;
   placeName?: string | null;
   placeLocation?: string | null;
-  /** Who produced the video; each entry is its own line under "Video Production". */
+  /** Who produced the video; each entry is its own line under "Video production". */
   creditLines?: string[];
-  /** Used for "Video Production" when the event has no credit lines. */
+  /** Used for "Video production" when the event has no credit lines. */
   copyrightHolder?: string | null;
   session?: SlideSessionInfo | null;
   /** Storage key of the logo used on the logo slide and the outro. */
@@ -71,8 +71,7 @@ export type MissingSlideInput =
   | "date"
   | "place"
   | "session"
-  | "organizer"
-  | "production";
+  | "organizer";
 
 /** Deterministic id factory. The caller injects one so tests get stable ids
  *  and the admin gets real uuids. */
@@ -99,7 +98,7 @@ interface Labels {
 const LABELS: Record<SlideLanguage, Labels> = {
   en: {
     organizedBy: "Event organized by",
-    production: "Video Production",
+    production: "Video production",
     session: (n, total) => `Session ${n} of ${total}`,
     periods: { morning: "morning", afternoon: "afternoon", evening: "evening" },
   },
@@ -172,11 +171,15 @@ function resolvePlace(meta: SlideTemplateMetadata): string {
   return [meta.placeName?.trim(), meta.placeLocation?.trim()].filter(Boolean).join(", ");
 }
 
+/** Who is credited for the video when the event names nobody. */
+export const DEFAULT_PRODUCTION_CREDIT = "Padmakara Portugal";
+
+/** Never empty: the credits slide always carries a "Video production" block. */
 function resolveProduction(meta: SlideTemplateMetadata): string[] {
   const credits = (meta.creditLines ?? []).map((l) => l.trim()).filter(Boolean);
   if (credits.length > 0) return credits;
   const holder = meta.copyrightHolder?.trim();
-  return holder ? [holder] : [];
+  return [holder || DEFAULT_PRODUCTION_CREDIT];
 }
 
 function resolveTeachers(meta: SlideTemplateMetadata): string[] {
@@ -195,7 +198,6 @@ export function missingSlideInputs(
   if (!resolvePlace(meta)) missing.push("place");
   if (!meta.session) missing.push("session");
   if (!meta.organizer?.trim()) missing.push("organizer");
-  if (resolveProduction(meta).length === 0) missing.push("production");
   return missing;
 }
 
@@ -319,19 +321,15 @@ function buildKeyedIntro(
   // 6 — Credits: organizer, then the video production.
   const organizer = meta.organizer?.trim();
   const production = resolveProduction(meta);
-  if (organizer || production.length > 0) {
-    const lines: Line[] = [];
-    if (organizer) {
-      lines.push(italicLine(newId, labels.organizedBy, "sm"));
-      lines.push(capsLine(newId, organizer, "md"));
-    }
-    if (organizer && production.length > 0) lines.push(spacer(newId));
-    if (production.length > 0) {
-      lines.push(italicLine(newId, labels.production, "sm"));
-      for (const name of production) lines.push(capsLine(newId, name, "md"));
-    }
-    add("credits", slide(newId, lines));
+  const lines: Line[] = [];
+  if (organizer) {
+    lines.push(italicLine(newId, labels.organizedBy, "sm"));
+    lines.push(capsLine(newId, organizer, "md"));
+    lines.push(spacer(newId));
   }
+  lines.push(italicLine(newId, labels.production, "sm"));
+  for (const name of production) lines.push(capsLine(newId, name, "md"));
+  add("credits", slide(newId, lines));
 
   return slides;
 }

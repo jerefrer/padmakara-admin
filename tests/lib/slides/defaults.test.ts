@@ -90,7 +90,7 @@ describe("buildDefaultIntro — the designer's example", () => {
         "Event organized by (sm italic)",
         "Fundação Kangyur Rinpoche (md caps)",
         "—",
-        "Video Production (sm italic)",
+        "Video production (sm italic)",
         "Padmakara Portugal (md caps)",
       ],
     ]);
@@ -136,8 +136,11 @@ describe("buildDefaultIntro — the designer's example", () => {
 });
 
 describe("buildDefaultIntro — omission", () => {
-  it("keeps only the logo slide when nothing else is known", () => {
-    expect(intro({ teacherNames: [] })).toEqual([["[image]", "Padmakara (lg caps)"]]);
+  it("keeps only the logo and production credit when nothing else is known", () => {
+    expect(intro({ teacherNames: [] })).toEqual([
+      ["[image]", "Padmakara (lg caps)"],
+      ["Video production (sm italic)", "Padmakara Portugal (md caps)"],
+    ]);
   });
 
   it("omits the speaker slide without a teacher", () => {
@@ -178,19 +181,31 @@ describe("buildDefaultIntro — omission", () => {
     expect(rows[4]?.[1]).toBe("10 October 2026 (md italic)");
   });
 
-  it("shows only the organizer, or only the production, when the other is missing", () => {
+  it("credits Padmakara Portugal as the production when the event names nobody", () => {
     expect(intro({ ...ANDRE_META, copyrightHolder: null })[5]).toEqual([
       "Event organized by (sm italic)",
       "Fundação Kangyur Rinpoche (md caps)",
+      "—",
+      "Video production (sm italic)",
+      "Padmakara Portugal (md caps)",
     ]);
-    expect(intro({ ...ANDRE_META, organizer: null })[5]).toEqual([
-      "Video Production (sm italic)",
+    expect(intro({ ...ANDRE_META, copyrightHolder: null }, "pt")[5]?.slice(3)).toEqual([
+      "Produção de vídeo (sm italic)",
       "Padmakara Portugal (md caps)",
     ]);
   });
 
-  it("omits the credits slide with neither organizer nor production", () => {
-    expect(intro({ ...ANDRE_META, organizer: null, copyrightHolder: null })).toHaveLength(5);
+  it("omits the organizer block when there is no organizer", () => {
+    expect(intro({ ...ANDRE_META, organizer: null })[5]).toEqual([
+      "Video production (sm italic)",
+      "Padmakara Portugal (md caps)",
+    ]);
+  });
+
+  it("keeps a production-only credits slide with neither organizer nor copyright holder", () => {
+    const rows = intro({ ...ANDRE_META, organizer: null, copyrightHolder: null });
+    expect(rows).toHaveLength(6);
+    expect(rows[5]).toEqual(["Video production (sm italic)", "Padmakara Portugal (md caps)"]);
   });
 });
 
@@ -208,7 +223,7 @@ describe("buildDefaultIntro — details", () => {
   it("prefers credit lines over the copyright holder for the video production", () => {
     const rows = intro({ ...ANDRE_META, creditLines: ["Projeto Audio-Video", "Padmakara Lusófona"] });
     expect(rows[5]?.slice(3)).toEqual([
-      "Video Production (sm italic)",
+      "Video production (sm italic)",
       "Projeto Audio-Video (md caps)",
       "Padmakara Lusófona (md caps)",
     ]);
@@ -228,7 +243,7 @@ describe("missingSlideInputs", () => {
 
   it("lists everything for an empty event", () => {
     expect(missingSlideInputs({ teacherNames: [] }, "en")).toEqual([
-      "teacher", "title", "date", "place", "session", "organizer", "production",
+      "teacher", "title", "date", "place", "session", "organizer",
     ]);
   });
 
@@ -240,13 +255,6 @@ describe("missingSlideInputs", () => {
 
   it("counts an unparseable date as missing", () => {
     expect(missingSlideInputs({ ...ANDRE_META, date: "2026-13-01" }, "en")).toEqual(["date"]);
-  });
-
-  it("counts the copyright holder as production, and blank credit lines as nothing", () => {
-    expect(missingSlideInputs({ ...ANDRE_META, creditLines: ["  "] }, "en")).toEqual([]);
-    expect(missingSlideInputs({ ...ANDRE_META, copyrightHolder: null, creditLines: ["  "] }, "en")).toEqual([
-      "production",
-    ]);
   });
 });
 

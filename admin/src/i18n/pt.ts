@@ -836,7 +836,6 @@ export const pt = {
         place: "o local",
         session: "uma sessão na data do vídeo",
         organizer: "o organizador",
-        production: "os créditos ou o titular dos direitos",
       },
       generateFailed: "Não foi possível gerar os slides",
       saved: "Slides guardados",
