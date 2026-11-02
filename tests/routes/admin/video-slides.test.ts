@@ -317,10 +317,10 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     expect(body.slides.intro.map(slideLines)).toEqual([
       ["", "Padmakara"],
       ["Jigme Khyentse Rinpoche"],
-      ["Jigme Khyentse Rinpoche", "", "", "Learning to let go and enjoying space", "", "", ""],
+      ["Learning to let go and enjoying space"],
       ["October 2026", "Lisbon, Portugal"],
       ["Session 1 of 4", "10 October 2026, morning"],
-      ["Event organized by", "Fundação Kangyur Rinpoche", "", "Video Production", "Padmakara Portugal"],
+      ["Event organized by", "Fundação Kangyur Rinpoche", "", "Video production", "Padmakara Portugal"],
     ]);
     expect(body.slides.outro).toHaveLength(1);
     expect(body.slides.outro[0].lines[0]).toMatchObject({ type: "image", s3Key: BUILTIN_LOGO_KEY });
@@ -340,7 +340,7 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     expect(status).toBe(200);
     expect(body.language).toBe("pt");
     expect(body.slides.intro.map(slideLines).slice(2)).toEqual([
-      ["Jigme Khyentse Rinpoche", "", "", "Aprender a largar e a apreciar o espaço", "", "", ""],
+      ["Aprender a largar e a apreciar o espaço"],
       ["Outubro 2026", "Lisbon, Portugal"],
       ["Sessão 1 de 4", "10 de outubro de 2026, manhã"],
       ["Evento organizado por", "Fundação Kangyur Rinpoche", "", "Produção de vídeo", "Padmakara Portugal"],
@@ -376,8 +376,9 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
       ["", "Padmakara"],
       ["Retreat"],
       ["January 2017"],
+      ["Video production", "Padmakara Portugal"],
     ]);
-    expect(body.missing).toEqual(["teacher", "place", "session", "organizer", "production"]);
+    expect(body.missing).toEqual(["teacher", "place", "session", "organizer"]);
   });
 
   it("omits slides whose backing data is missing, but always keeps the logo slide and the outro", async () => {
@@ -396,8 +397,12 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     });
 
     expect(status).toBe(200);
-    expect(body.slides.intro.map(slideLines)).toEqual([["", "Padmakara"], ["Jigme Khyentse Rinpoche"]]);
-    expect(body.missing).toEqual(["title", "date", "place", "session", "organizer", "production"]);
+    expect(body.slides.intro.map(slideLines)).toEqual([
+      ["", "Padmakara"],
+      ["Jigme Khyentse Rinpoche"],
+      ["Video production", "Padmakara Portugal"],
+    ]);
+    expect(body.missing).toEqual(["title", "date", "place", "session", "organizer"]);
     expect(body.slides.outro[0].lines[0].s3Key).toBe(BUILTIN_LOGO_KEY);
   });
 

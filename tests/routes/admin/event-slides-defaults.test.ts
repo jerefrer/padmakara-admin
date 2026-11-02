@@ -53,10 +53,10 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     expect(body.slides.intro.map(slideLines)).toEqual([
       ["", "Padmakara"],
       ["Jigme Khyentse Rinpoche"],
-      ["Jigme Khyentse Rinpoche", "", "", "Learning to let go and enjoying space", "", "", ""],
+      ["Learning to let go and enjoying space"],
       ["October 2026", "Lisbon, Portugal"],
       ["Session 1 of 4", "10 October 2026, morning"],
-      ["Event organized by", "Fundação Kangyur Rinpoche", "", "Video Production", "Padmakara Portugal"],
+      ["Event organized by", "Fundação Kangyur Rinpoche", "", "Video production", "Padmakara Portugal"],
     ]);
     expect(body.slides.outro).toHaveLength(1);
     expect(body.slides.outro[0].lines[0]).toMatchObject({ type: "image", s3Key: BUILTIN_LOGO_KEY });
@@ -135,7 +135,12 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     });
 
     expect(status).toBe(200);
-    expect(body.slides.intro.map(slideLines)).toEqual([["", "Padmakara"], ["Retreat"], ["January 2017"]]);
+    expect(body.slides.intro.map(slideLines)).toEqual([
+      ["", "Padmakara"],
+      ["Retreat"],
+      ["January 2017"],
+      ["Video production", "Padmakara Portugal"],
+    ]);
   });
 
   it("returns every missing input when the event has nothing to draw on, and still the logo slide and outro", async () => {
@@ -148,8 +153,8 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     });
 
     expect(status).toBe(200);
-    expect(body.missing).toEqual(["teacher", "title", "date", "place", "session", "organizer", "production"]);
-    expect(body.slides.intro.map(slideLines)).toEqual([["", "Padmakara"]]);
+    expect(body.missing).toEqual(["teacher", "title", "date", "place", "session", "organizer"]);
+    expect(body.slides.intro.map(slideLines)).toEqual([["", "Padmakara"], ["Video production", "Padmakara Portugal"]]);
     expect(body.slides.outro[0].lines[0].s3Key).toBe(BUILTIN_LOGO_KEY);
   });
 

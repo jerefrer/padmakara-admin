@@ -689,6 +689,8 @@ export const aiAssistSchema = z.object({
         // unchanged list can be recognized as a no-op; the recognized codes
         // are enforced in ai-assist.ts, which also cleans the reply.
         languages: z.array(z.string().min(2).max(10)).max(10).optional(),
+        // A translation track (a dub or interpretation of another recording).
+        isTranslation: z.boolean().optional(),
       }),
     )
     .max(5000),

@@ -40,6 +40,9 @@ export interface AiAssistTrack {
   titlePt?: string;
   speaker?: string | null;
   languages?: string[];
+  /** True for a dubbed/interpreted track of another recording; the server
+   *  keeps the AI from giving such a track a title in another language. */
+  isTranslation?: boolean;
 }
 
 export interface AiAssistVideo {

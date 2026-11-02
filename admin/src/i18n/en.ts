@@ -637,7 +637,6 @@ export const en = {
         place: "the place",
         session: "a session on the video's date",
         organizer: "the organizer",
-        production: "the credits or copyright holder",
       },
       retryBurn: "Retry",
       startBurn: "Burn slides",
