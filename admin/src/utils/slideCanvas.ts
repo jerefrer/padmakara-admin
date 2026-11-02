@@ -41,3 +41,15 @@ export function onlySpansChanged(prev: Slide, next: Slide, lineId: string | null
     });
   return strip(prev) === strip(next) && JSON.stringify(prev) !== JSON.stringify(next);
 }
+
+/**
+ * Whether the canvas may keep its current iframe document for `next`: when the
+ * slide is unchanged, or only the line being typed in changed. Reloading the
+ * document mid-typing drops the keystrokes that land in the old one, and React
+ * may compute the canvas twice for one render (StrictMode), the second time
+ * with an unchanged slide.
+ */
+export function canKeepCanvasDocument(prev: Slide, next: Slide, lineId: string | null): boolean {
+  if (prev === next || JSON.stringify(prev) === JSON.stringify(next)) return true;
+  return onlySpansChanged(prev, next, lineId);
+}

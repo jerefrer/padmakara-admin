@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Slide } from "@slides/types.ts";
 import { renderSlideHtml } from "@slides/render.ts";
-import { CANVAS_EDIT_CSS, cleanEditedSpans, onlySpansChanged } from "./slideCanvas";
+import { CANVAS_EDIT_CSS, canKeepCanvasDocument, cleanEditedSpans, onlySpansChanged } from "./slideCanvas";
 import { duplicateSlide, patchTextLine } from "./slideDocument";
 
 const slide = (text: string, over: Partial<Slide> = {}): Slide => ({
@@ -46,6 +46,23 @@ describe("onlySpansChanged", () => {
 
   it("should be false when nothing is being typed", () => {
     expect(onlySpansChanged(slide("one"), slide("one two"), null)).toBe(false);
+  });
+});
+
+describe("canKeepCanvasDocument", () => {
+  it("should keep the document for an unchanged slide, so a second render pass does not reload it mid-typing", () => {
+    const s = slide("one");
+    expect(canKeepCanvasDocument(s, s, "a")).toBe(true);
+    expect(canKeepCanvasDocument(s, slide("one"), null)).toBe(true);
+  });
+
+  it("should keep the document when only the typed line changed", () => {
+    expect(canKeepCanvasDocument(slide("one"), slide("one two"), "a")).toBe(true);
+  });
+
+  it("should reload when a style changed", () => {
+    const next = patchTextLine({ version: 1, intro: [slide("one")], outro: [] }, "intro", "s", "a", { size: "xl" });
+    expect(canKeepCanvasDocument(slide("one"), next.intro[0]!, "a")).toBe(false);
   });
 });
 

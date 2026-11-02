@@ -103,8 +103,9 @@ export function domToSpans(root: HTMLElement): Span[] {
       const isPlaceholder =
         el.nextSibling === null &&
         el.parentNode === root &&
-        prev instanceof HTMLElement &&
-        prev.tagName.toLowerCase() === "br";
+        // nodeName, not `instanceof HTMLElement`: the slide canvas edits inside
+        // an iframe, whose elements belong to another window's HTMLElement.
+        prev?.nodeName.toLowerCase() === "br";
       if (!isPlaceholder) raw.push({ text: "\n" });
       return;
     }

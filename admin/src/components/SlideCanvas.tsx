@@ -16,7 +16,7 @@ import { BUILTIN_CLIPS, isClipSlide, type BuiltinClipId, type Slide, type Span }
 import { renderSlideHtml } from "@slides/render.ts";
 import { slideEditorTokens } from "../slideEditorTokens";
 import { domToSpans, isLineBreakKey } from "../utils/richText";
-import { CANVAS_EDIT_CSS, cleanEditedSpans, onlySpansChanged } from "../utils/slideCanvas";
+import { CANVAS_EDIT_CSS, canKeepCanvasDocument, cleanEditedSpans } from "../utils/slideCanvas";
 
 const FONT_BASE_URL = "/fonts/";
 
@@ -83,7 +83,7 @@ export const SlideCanvas = forwardRef<SlideCanvasHandle, SlideCanvasProps>(funct
       prev.slide !== null &&
       prev.width === frameWidth &&
       prev.resolve === resolveImageUrl &&
-      onlySpansChanged(prev.slide, slide, editingLineRef.current);
+      canKeepCanvasDocument(prev.slide, slide, editingLineRef.current);
     if (keep) {
       rendered.current = { ...prev, slide };
       return prev.html;
