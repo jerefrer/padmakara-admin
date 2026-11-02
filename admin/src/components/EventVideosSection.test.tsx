@@ -70,6 +70,7 @@ const mount = (v: EventVideo, onVideosChange = vi.fn()) =>
         onVideosChange={onVideosChange}
         onUpload={vi.fn()}
         onImportUrl={vi.fn(async () => undefined)}
+        onAttachMaster={vi.fn()}
       />,
     ),
   );

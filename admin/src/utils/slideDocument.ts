@@ -76,7 +76,9 @@ export function addLogoClip(doc: SlideDocument): SlideDocument {
 export function duplicateSlide(doc: SlideDocument, key: SlideSequenceKey, slideId: string): SlideDocument {
   const idx = doc[key].findIndex((s) => s.id === slideId);
   if (idx < 0) return doc;
-  const source = doc[key][idx];
+  // The copy is an ordinary slide: a second "session" role would make a later
+  // copy-from-video replace both.
+  const { role: _role, ...source } = doc[key][idx];
   const copy: Slide = {
     ...source,
     id: newSlideId(),
@@ -153,6 +155,19 @@ export function replaceLine(
   next: Line,
 ): SlideDocument {
   return updateLines(doc, key, slideId, (lines) => lines.map((l) => (l.id === lineId ? next : l)));
+}
+
+/** Change the size, dim or small-caps flag of one text line; other line types are left alone. */
+export function patchTextLine(
+  doc: SlideDocument,
+  key: SlideSequenceKey,
+  slideId: string,
+  lineId: string,
+  patch: Partial<Pick<TextLine, "size" | "dim" | "smallCaps">>,
+): SlideDocument {
+  return updateLines(doc, key, slideId, (lines) =>
+    lines.map((l) => (l.id === lineId && l.type === "text" ? { ...l, ...patch } : l)),
+  );
 }
 
 export type SubtitleLanguage = "en" | "pt";

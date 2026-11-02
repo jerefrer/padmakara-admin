@@ -13,6 +13,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import MovieIcon from "@mui/icons-material/Movie";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SlideshowIcon from "@mui/icons-material/Slideshow";
+import UploadIcon from "@mui/icons-material/Upload";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -25,9 +26,12 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useEffect, useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
+import { hasAnySlides } from "@slides/types.ts";
 import { authFetch } from "../utils/authFetch";
+import { requestDefaultSlides } from "../utils/slideGeneration";
+import { isAwaitingFile, type SessionOption } from "../utils/slideSequence";
 import type { EventVideo } from "../utils/trackParser";
-import { AddVideoDialog } from "./AddVideoDialog";
+import { AddVideoDialog, type PrepareVideoInput } from "./AddVideoDialog";
 import { MediaPreviewDialog, type MediaSource } from "./MediaPreviewDialog";
 import { BurnActionButton, BurnStatusChip, SlideEditor, type PendingUploadSlides, useVideoSlides } from "./SlideEditor";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
@@ -50,7 +54,7 @@ interface PreviewState {
 }
 
 type VideoTitlePatch = Partial<
-  Pick<EventVideo, "titleEn" | "titlePt" | "titleEnReviewed" | "titlePtReviewed" | "videoDate">
+  Pick<EventVideo, "titleEn" | "titlePt" | "titleEnReviewed" | "titlePtReviewed" | "videoDate" | "sessionId">
 >;
 
 interface EventVideosSectionProps {
@@ -70,15 +74,11 @@ interface EventVideosSectionProps {
    *  burn pipeline exactly like a file upload. */
   onUpload: (file: File, pending: PendingUploadSlides) => void;
   onImportUrl: (url: string, title: string | undefined, pending: PendingUploadSlides) => Promise<void>;
-  /** Needed for the slide editor's image-line uploads and its "Generate
-   *  from event data" call. Optional so the section still renders before
-   *  this prop is threaded through from events.tsx (see integration
-   *  report) — the editor degrades gracefully (image upload disabled)
-   *  without it. */
-  eventCode?: string;
-  /** Numeric event id — needed so the draft slide editor's "Generate from
-   *  event data" can call the event-scoped defaults route before any video
-   *  row exists. */
+  /** Uploads a file into a video that has slides and no file yet; queues its burn. */
+  onAttachMaster: (videoId: number, file: File) => void;
+  /** The event's sessions: the video's session, and the add-video dialog's select. */
+  sessions?: SessionOption[];
+  /** Numeric event id, needed to prepare slides for a new video. */
   eventId?: number;
 }
 
@@ -87,13 +87,16 @@ export const EventVideosSection = ({
   onVideosChange,
   onUpload,
   onImportUrl,
-  eventCode,
+  onAttachMaster,
+  sessions = [],
   eventId,
 }: EventVideosSectionProps) => {
   const translate = useTranslate();
   const notify = useNotify();
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [addVideoOpen, setAddVideoOpen] = useState(false);
+  // The video whose slide editor should be open (set right after "Prepare slides").
+  const [editorVideoId, setEditorVideoId] = useState<number | null>(null);
 
   const sorted = [...videos].sort((a, b) => a.position - b.position);
 
@@ -104,12 +107,20 @@ export const EventVideosSection = ({
       body: JSON.stringify(patch),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    try {
+      return JSON.parse(await res.text()) as Partial<EventVideo> | null;
+    } catch {
+      return null; // an empty or non-JSON body: the caller keeps its own patch
+    }
   };
 
   const handleUpdate = async (videoId: number, patch: VideoTitlePatch) => {
     try {
-      await patchVideo(videoId, patch);
-      onVideosChange((prev) => prev.map((v) => (v.id === videoId ? { ...v, ...patch } : v)));
+      const updated = await patchVideo(videoId, patch);
+      // Choosing a session can also date the video; take the stored date.
+      const merged: VideoTitlePatch =
+        patch.sessionId != null && updated?.videoDate !== undefined ? { ...patch, videoDate: updated.videoDate } : patch;
+      onVideosChange((prev) => prev.map((v) => (v.id === videoId ? { ...v, ...merged } : v)));
     } catch (err: any) {
       notify(
         translate("padmakara.videos.updateFailed", { message: err?.message || String(err) }),
@@ -142,6 +153,31 @@ export const EventVideosSection = ({
         { type: "error" },
       );
     }
+  };
+
+  // "Prepare slides": generate the default slides for the chosen session, create
+  // the row with them and no file, and open the editor on it.
+  const handlePrepare = async ({ title, sessionId }: PrepareVideoInput) => {
+    if (!eventId) throw new Error("Save the event first");
+    const generated = await requestDefaultSlides(`/api/admin/events/${eventId}/slides/defaults`, { sessionId });
+    const res = await authFetch(`/api/admin/videos/prepare`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventId,
+        titleEn: title,
+        sessionId,
+        position: sorted.length,
+        slides: generated.slides,
+      }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+      throw new Error(typeof body?.error === "string" ? body.error : `HTTP ${res.status}`);
+    }
+    const created = (await res.json()) as EventVideo;
+    onVideosChange((prev) => [...prev, created]);
+    setEditorVideoId(created.id);
   };
 
   const handleDelete = async (videoId: number) => {
@@ -205,7 +241,11 @@ export const EventVideosSection = ({
             video={video}
             isFirst={idx === 0}
             isLast={idx === sorted.length - 1}
-            eventCode={eventCode}
+            sessions={sessions}
+            otherVideos={sorted.filter((v) => v.id !== video.id)}
+            editorOpen={editorVideoId === video.id}
+            onEditorOpenChange={(open) => setEditorVideoId(open ? video.id : null)}
+            onAttachMaster={onAttachMaster}
             onUpdate={handleUpdate}
             onReorder={handleReorder}
             onDelete={handleDelete}
@@ -245,8 +285,8 @@ export const EventVideosSection = ({
       <AddVideoDialog
         open={addVideoOpen}
         onClose={() => setAddVideoOpen(false)}
-        eventCode={eventCode}
-        eventId={eventId}
+        sessions={sessions}
+        onPrepare={handlePrepare}
         onUpload={onUpload}
         onImportUrl={onImportUrl}
       />
@@ -260,14 +300,32 @@ interface VideoRowProps {
   video: EventVideo;
   isFirst: boolean;
   isLast: boolean;
-  eventCode?: string;
+  sessions: SessionOption[];
+  /** The event's other videos; those with slides can be copied from. */
+  otherVideos: EventVideo[];
+  editorOpen: boolean;
+  onEditorOpenChange: (open: boolean) => void;
+  onAttachMaster: (videoId: number, file: File) => void;
   onUpdate: (videoId: number, patch: VideoTitlePatch) => Promise<void>;
   onReorder: (videoId: number, direction: -1 | 1) => Promise<void>;
   onDelete: (videoId: number) => Promise<void>;
   onPreview: (state: PreviewState) => void;
 }
 
-const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDelete, onPreview }: VideoRowProps) => {
+const VideoRow = ({
+  video,
+  isFirst,
+  isLast,
+  sessions,
+  otherVideos,
+  editorOpen,
+  onEditorOpenChange,
+  onAttachMaster,
+  onUpdate,
+  onReorder,
+  onDelete,
+  onPreview,
+}: VideoRowProps) => {
   const translate = useTranslate();
   const [editingTitle, setEditingTitle] = useState(false);
   const seedEdit = () => ({
@@ -280,7 +338,7 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
   const [deleting, setDeleting] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [subsOpen, setSubsOpen] = useState(false);
-  const [slidesOpen, setSlidesOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const subtitles = useVideoSubtitles(video.id);
   const slides = useVideoSlides(video.id);
   // Subtitle generation reads the transcoded audio from Bunny; until the
@@ -290,6 +348,25 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
   const doneRef = useRef(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const slideCount = slides.doc.intro.length + slides.doc.outro.length;
+  const awaitingFile = isAwaitingFile(video);
+  const copySources = otherVideos
+    .filter((v) => v.slides && hasAnySlides(v.slides))
+    .map((v) => ({
+      id: v.id,
+      label: v.titleEn || v.titlePt || (translate("padmakara.videos.part", { number: v.position + 1 }) || `Part ${v.position + 1}`),
+    }));
+
+  // A file attached, a burn started or finished: the row changed server-side,
+  // so re-read what the slides endpoint reports about it (master, burn status).
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    void slides.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [video.masterS3Key, video.burnStatus, video.bunnyVideoId]);
 
   const openEditor = () => {
     setEdit(seedEdit());
@@ -522,23 +599,57 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
           }}
         />
 
-        <Chip
-          label={
-            video.durationSeconds
-              ? formatDuration(video.durationSeconds)
-              : translate("padmakara.videos.transcoding") || "Transcoding…"
-          }
-          size="small"
-          variant="outlined"
-          sx={{ height: 22, flexShrink: 0, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
-        />
+        {awaitingFile ? (
+          <>
+            <Chip
+              label={translate("padmakara.videos.slidesReadyNoVideo", { _: "Slides ready · video not uploaded" })}
+              size="small"
+              variant="outlined"
+              sx={{ height: 22, flexShrink: 0, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
+            />
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<UploadIcon sx={{ fontSize: 15 }} />}
+              onClick={() => fileInputRef.current?.click()}
+              sx={{ flexShrink: 0, fontSize: "0.72rem", py: 0 }}
+            >
+              {translate("padmakara.videos.uploadVideo", { _: "Upload video" })}
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*,.mp4,.mov,.m4v,.mkv,.webm"
+              style={{ display: "none" }}
+              aria-label={translate("padmakara.videos.uploadVideo", { _: "Upload video" })}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) onAttachMaster(video.id, file);
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <Chip
+              label={
+                video.durationSeconds
+                  ? formatDuration(video.durationSeconds)
+                  : translate("padmakara.videos.transcoding") || "Transcoding…"
+              }
+              size="small"
+              variant="outlined"
+              sx={{ height: 22, flexShrink: 0, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
+            />
 
-        <SubtitleChips
-          state={subtitles}
-          canGenerate={canGenerateSubtitles}
-          open={subsOpen}
-          onToggle={() => setSubsOpen((o) => !o)}
-        />
+            <SubtitleChips
+              state={subtitles}
+              canGenerate={canGenerateSubtitles}
+              open={subsOpen}
+              onToggle={() => setSubsOpen((o) => !o)}
+            />
+          </>
+        )}
 
         <BurnStatusChip status={slides.burnStatus} error={slides.burnError} disk={slides.burnDisk} />
         <BurnActionButton
@@ -556,7 +667,11 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
               : translate("padmakara.slides.editButton") || "Slides"
           }
         >
-          <IconButton size="small" onClick={() => setSlidesOpen(true)}>
+          <IconButton
+            size="small"
+            onClick={() => onEditorOpenChange(true)}
+            aria-label={translate("padmakara.slides.editButton", { _: "Slides" })}
+          >
             <SlideshowIcon sx={{ fontSize: 17, color: slideCount > 0 ? "#b91c1c" : "text.secondary" }} />
           </IconButton>
         </Tooltip>
@@ -580,6 +695,7 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
 
         <IconButton
           size="small"
+          disabled={awaitingFile}
           onClick={() =>
             onPreview({
               source: { kind: "video", videoId: video.id },
@@ -609,26 +725,33 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
         <SubtitleDetails
           state={subtitles}
           canGenerate={canGenerateSubtitles}
-          bunnyVideoId={video.bunnyVideoId}
+          bunnyVideoId={video.bunnyVideoId ?? ""}
         />
       </Collapse>
 
       <SlideEditor
-        open={slidesOpen}
-        onClose={() => setSlidesOpen(false)}
+        open={editorOpen && !slides.loading}
+        onClose={() => onEditorOpenChange(false)}
         title={
           video.titleEn ||
           video.titlePt ||
           translate("padmakara.slides.dialogTitleFallback") ||
           "Title slides"
         }
-        eventCode={eventCode}
         videoId={video.id}
         initialDocument={slides.doc}
         onSave={slides.save}
         saving={slides.saving}
         onGenerateDefaults={slides.generateDefaults}
         generating={slides.generating}
+        copySources={copySources}
+        onCopyFrom={slides.copyFrom}
+        copying={slides.copying}
+        sessions={sessions}
+        sessionId={video.sessionId ?? null}
+        onChangeSession={(sessionId) => onUpdate(video.id, { sessionId })}
+        videoUploaded={!!video.bunnyVideoId || slides.hasMaster}
+        onUploadVideo={awaitingFile ? () => fileInputRef.current?.click() : undefined}
         burnStatus={slides.burnStatus}
         burnError={slides.burnError}
         burnDisk={slides.burnDisk}

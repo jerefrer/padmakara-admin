@@ -28,6 +28,8 @@ interface SlideEditorPreviewProps {
   resolveImageUrl: (s3Key: string) => string;
   /** URL of a built-in clip's video file, for clip slides. */
   resolveClipUrl: (clip: BuiltinClipId) => string;
+  /** Start playing the sequence as soon as the preview mounts. */
+  autoPlay?: boolean;
 }
 
 export const SlideEditorPreview = ({
@@ -36,6 +38,7 @@ export const SlideEditorPreview = ({
   onSelectIndex,
   resolveImageUrl,
   resolveClipUrl,
+  autoPlay,
 }: SlideEditorPreviewProps) => {
   const translate = useTranslate();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -107,6 +110,12 @@ export const SlideEditorPreview = ({
     }
     if (playToken.current === token) stopPlayback();
   };
+
+  useEffect(() => {
+    if (autoPlay) void playSequence();
+    // Starts once, when the preview mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1, position: "sticky", top: 0 }}>
