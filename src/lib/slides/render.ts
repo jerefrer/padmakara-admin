@@ -50,6 +50,14 @@ export interface RenderOptions {
   fontBaseUrl: string;
   /** Resolves an image line's storage key to a URL the renderer can load. */
   resolveImageUrl: (s3Key: string) => string;
+  /**
+   * Extra CSS appended after the slide's own, for the admin editor's
+   * affordances (selection outline, caret). Never used for the burn, and it
+   * must not change layout.
+   */
+  extraCss?: string;
+  /** Tag each line with `data-line-id`, so the admin editor can tell them apart. Off for the burn. */
+  lineIds?: boolean;
 }
 
 function escapeHtml(value: string): string {
@@ -74,15 +82,19 @@ function renderSpan(span: Span): string {
   return html;
 }
 
+function lineIdAttr(line: Line, opts: RenderOptions): string {
+  return opts.lineIds ? ` data-line-id="${escapeHtml(line.id)}"` : "";
+}
+
 function renderLine(line: Line, opts: RenderOptions): string {
   switch (line.type) {
     case "spacer":
-      return `<div class="spacer"></div>`;
+      return `<div class="spacer"${lineIdAttr(line, opts)}></div>`;
 
     case "image": {
       const src = escapeHtml(opts.resolveImageUrl(line.s3Key));
       const alt = escapeHtml(line.alt ?? "");
-      return `<div class="img-line"><img src="${src}" alt="${alt}"></div>`;
+      return `<div class="img-line"${lineIdAttr(line, opts)}><img src="${src}" alt="${alt}"></div>`;
     }
 
     case "text": {
@@ -93,7 +105,7 @@ function renderLine(line: Line, opts: RenderOptions): string {
       const inner = line.spans.map(renderSpan).join("");
       // An empty text line would collapse; a zero-width space keeps its box.
       const content = inner === "" ? "&#8203;" : inner;
-      return `<div class="${cls}" style="font-size:${size}rem">${content}</div>`;
+      return `<div class="${cls}"${lineIdAttr(line, opts)} style="font-size:${size}rem">${content}</div>`;
     }
   }
 }
@@ -171,6 +183,7 @@ body{
    it to the bottom edge. */
 .stage:has(.text-line) .img-line{flex:0 1 auto}
 .stage:has(.text-line) .img-line img{max-height:min(100%, ${IMAGE_WITH_TEXT_MAX_HEIGHT_PCT}rem)}
+${opts.extraCss ?? ""}
 </style></head>
 <body><div class="stage">${lines}</div></body></html>`;
 }
