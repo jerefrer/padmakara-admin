@@ -2,7 +2,7 @@
  * Default slide templates, generated from event metadata.
  *
  * The default intro follows the sequence designed by Padmakara's designer:
- * logo + wordmark, speaker, speaker + event title, month/year + place,
+ * logo + wordmark, speaker, event title, month/year + place,
  * session number + date, credits. White small-caps serif on black, one
  * language per video: an English video gets English slides, and the
  * Portuguese is meant to arrive as subtitles rather than as a second line.
@@ -289,19 +289,10 @@ function buildKeyedIntro(
     add("teacher", slide(newId, teachers.map((name) => capsLine(newId, name, "xl"))));
   }
 
-  // 3 — Speaker small at the top, the event title centred. The layout has no
-  //     positioning, so spacers above and below approximate the reference.
+  // 3 — The event title alone. The speaker already had a slide of their own.
   const title = resolveTitle(meta, lang);
   if (title) {
-    const lines: Line[] = teachers.map((name) => capsLine(newId, name, "sm"));
-    if (teachers.length > 0) lines.push(spacer(newId), spacer(newId));
-    lines.push(capsLine(newId, title, "xl"));
-    if (teachers.length > 0) {
-      lines.push(spacer(newId), spacer(newId));
-      // Balances the speaker lines above so the title stays vertically centred.
-      for (let i = 0; i < teachers.length; i++) lines.push(spacer(newId));
-    }
-    add("title", slide(newId, lines));
+    add("title", slide(newId, [capsLine(newId, title, "xl")]));
   }
 
   // 4 — Month and year, the place in italics beneath.

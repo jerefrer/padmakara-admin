@@ -83,15 +83,7 @@ describe("buildDefaultIntro — the designer's example", () => {
     expect(intro(ANDRE_META)).toEqual([
       ["[image]", "Padmakara (lg caps)"],
       ["Jigme Khyentse Rinpoche (xl caps)"],
-      [
-        "Jigme Khyentse Rinpoche (sm caps)",
-        "—",
-        "—",
-        "Learning to let go and enjoying space (xl caps)",
-        "—",
-        "—",
-        "—",
-      ],
+      ["Learning to let go and enjoying space (xl caps)"],
       ["October 2026 (lg caps)", "Lisbon, Portugal (md italic)"],
       ["Session 1 of 4 (lg caps)", "10 October 2026, morning (md italic)"],
       [
@@ -108,15 +100,7 @@ describe("buildDefaultIntro — the designer's example", () => {
     expect(intro(ANDRE_META, "pt")).toEqual([
       ["[image]", "Padmakara (lg caps)"],
       ["Jigme Khyentse Rinpoche (xl caps)"],
-      [
-        "Jigme Khyentse Rinpoche (sm caps)",
-        "—",
-        "—",
-        "Aprender a largar e a apreciar o espaço (xl caps)",
-        "—",
-        "—",
-        "—",
-      ],
+      ["Aprender a largar e a apreciar o espaço (xl caps)"],
       ["Outubro 2026 (lg caps)", "Lisbon, Portugal (md italic)"],
       ["Sessão 1 de 4 (lg caps)", "10 de outubro de 2026, manhã (md italic)"],
       [
@@ -156,7 +140,7 @@ describe("buildDefaultIntro — omission", () => {
     expect(intro({ teacherNames: [] })).toEqual([["[image]", "Padmakara (lg caps)"]]);
   });
 
-  it("omits the speaker slide without a teacher, and the title slide loses its speaker line", () => {
+  it("omits the speaker slide without a teacher", () => {
     const rows = intro({ ...ANDRE_META, teacherNames: [] });
     expect(rows).toHaveLength(5);
     expect(rows[1]).toEqual(["Learning to let go and enjoying space (xl caps)"]);
@@ -216,9 +200,9 @@ describe("buildDefaultIntro — details", () => {
     expect(rows[1]).toEqual(["Tenga Rinpoche (xl caps)", "Jigme Khyentse Rinpoche (xl caps)"]);
   });
 
-  it("balances the speaker lines above the title with spacers below it", () => {
+  it("shows the title slide as the title alone, whatever the number of speakers", () => {
     const rows = intro({ teacherNames: ["A", "B"], titleEn: "Title" });
-    expect(rows[2]).toEqual(["A (sm caps)", "B (sm caps)", "—", "—", "Title (xl caps)", "—", "—", "—", "—"]);
+    expect(rows[2]).toEqual(["Title (xl caps)"]);
   });
 
   it("prefers credit lines over the copyright holder for the video production", () => {
@@ -335,7 +319,7 @@ describe("intro subtitles for the other language", () => {
     expect(slides.map((s) => s.subtitles)).toEqual([
       undefined, // logo + wordmark
       undefined, // speaker name reads the same in both languages
-      { pt: ["Jigme Khyentse Rinpoche", "Aprender a largar e a apreciar o espaço"] },
+      { pt: ["Aprender a largar e a apreciar o espaço"] },
       { pt: ["Outubro 2026", "Lisbon, Portugal"] },
       { pt: ["Sessão 1 de 4", "10 de outubro de 2026, manhã"] },
       {
