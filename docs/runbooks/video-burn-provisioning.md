@@ -25,7 +25,7 @@ job queue by default, and only needs its own job **definition**.
 > - Compute environment `padmakara-fargate` (FARGATE, maxvCpus 8, same subnets
 >   and security group as the GPU ones) and queue `padmakara-video-burn-queue`.
 > - Job definition `padmakara-video-burn` (FARGATE, `runtimePlatform`
->   LINUX/ARM64, 4 vCPU / 8 GB / 50 GiB, execution role
+>   LINUX/ARM64, 4 vCPU / 8 GB / 200 GiB (revision 4, 2026-11-02; was 50), execution role
 >   `padmakara-batch-execution-role` with `AmazonECSTaskExecutionRolePolicy`).
 >   No job role: storage is Cloudflare R2, and the backend passes the R2
 >   credentials in `containerOverrides` (`storageEnvForContainer()`), so the
@@ -77,7 +77,7 @@ aws batch register-job-definition \
       { "type": "VCPU", "value": "4" },
       { "type": "MEMORY", "value": "8192" }
     ],
-    "ephemeralStorage": { "sizeInGiB": 50 },
+    "ephemeralStorage": { "sizeInGiB": 200 },
     "environment": [
       { "name": "BUNNY_STREAM_LIBRARY_ID", "value": "REPLACE_ME" },
       { "name": "BUNNY_STREAM_API_KEY", "value": "REPLACE_ME" }
@@ -97,7 +97,7 @@ should surface as `failed` in the admin (via the webhook or
 `reconcileVideoBurnRows`), not silently retry and potentially double-charge
 a multi-GB re-encode.
 
-### Sizing rationale — 4 vCPU / 8 GB memory / 50 GB ephemeral storage
+### Sizing rationale — 4 vCPU / 8 GB memory / 200 GB ephemeral storage
 
 This job's cost profile is unlike the read-along/subtitle jobs it shares a
 queue with: those stream audio through Whisper; this one **streams
@@ -117,7 +117,10 @@ multi-GB video files** and occasionally has to fully re-encode one.
   they run against files that are being streamed through `/tmp` at
   multi-GB scale — leave real headroom over the theoretical minimum so an
   unusually large master (a full-day recording) doesn't OOM mid-job.
-- **Ephemeral storage: 50 GiB (Fargate `ephemeralStorage`, needs platform
+- **Ephemeral storage: 200 GiB since 2026-11-02 (was 50; see DECISIONS.md).** A 16 GB
+  master ran 50 GiB out of space while three copies were on disk; the container now
+  deletes the master once its remux exists, so a burn needs about 2× the master.
+  200 GiB is the Fargate maximum. Original rationale for 50 GiB (Fargate `ephemeralStorage`, needs platform
   version ≥ 1.4.0, set above).** The container simultaneously holds, in
   `/tmp`: the downloaded master, all intro/outro slide segments, AND the
   merged output — the master and the merged output alone can each be

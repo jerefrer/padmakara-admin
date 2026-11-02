@@ -229,3 +229,11 @@
 **Revisit if:** the web app moves off `app.padmakara.pt`, or the association wants one passkey to work across several subdomains.
 
 ---
+
+## 2026-11-02 — Video burn scratch disk at 200 GiB
+
+**Chosen:** User decision (Jérémy): the `padmakara-video-burn` Batch job definition (revision 4) gets 200 GiB of Fargate ephemeral storage, the maximum. The container also deletes the downloaded master once its MP4 remux exists, so a burn needs about twice the master size plus the slide segments.
+**Alternatives:** 50 GiB (the original size, too small for a 16 GB master); 100 or 150 GiB (enough for today's masters, up to roughly 45 and 70 GB).
+**Why:** A 16 GB master failed with "No space left on device" while the master, its remux and the merged output (about 49 GB) were all on a 50 GiB disk. Storage above the free 20 GB costs $0.000129 per GB-hour in eu-west-3 and is billed on the size reserved, so 200 GiB costs about 2.3 cents per job-hour against 1.7 cents for 150 GiB: the extra headroom for a full-day single-file recording is nearly free.
+**Trade-offs:** Every burn pays for 200 GiB whether it uses it or not (about 0.6 cent per job-hour more than 150 GiB).
+**Revisit if:** after a few dozen burned videos the largest master stays well under 70 GB, drop to 150 GiB; check master sizes in the bucket under `events/*/masters/` or the burn job logs.
