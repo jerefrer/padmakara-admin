@@ -10,7 +10,6 @@ import {
   builtinFilename,
   BUILTIN_PREFIX,
   BUILTIN_LOGO_KEY,
-  LOGO_SLIDE_DURATION_MS,
   type IdFactory,
   type SlideTemplateMetadata,
 } from "../../../src/lib/slides/defaults.ts";
@@ -38,6 +37,7 @@ const ANDRE_META: SlideTemplateMetadata = {
 
 /** Per slide: each line as `[text, style]`, spacers as "—" and images as "[image]". */
 function describeSlide(slide: Slide): string[] {
+  if (slide.kind === "clip") return [`[clip:${slide.clip}]`];
   return slide.lines.map((l) => {
     if (l.type === "spacer") return "—";
     if (l.type === "image") return "[image]";
@@ -81,7 +81,7 @@ describe("formatLongDate", () => {
 describe("buildDefaultIntro — the designer's example", () => {
   it("produces the English sequence", () => {
     expect(intro(ANDRE_META)).toEqual([
-      ["[image]", "Padmakara (lg caps)"],
+      ["[clip:padmakara-logo-intro]"],
       ["Jigme Khyentse Rinpoche (xl caps)"],
       [
         "Jigme Khyentse Rinpoche (sm caps)",
@@ -106,7 +106,7 @@ describe("buildDefaultIntro — the designer's example", () => {
 
   it("produces the Portuguese sequence", () => {
     expect(intro(ANDRE_META, "pt")).toEqual([
-      ["[image]", "Padmakara (lg caps)"],
+      ["[clip:padmakara-logo-intro]"],
       ["Jigme Khyentse Rinpoche (xl caps)"],
       [
         "Jigme Khyentse Rinpoche (sm caps)",
@@ -129,17 +129,16 @@ describe("buildDefaultIntro — the designer's example", () => {
     ]);
   });
 
-  it("keeps the logo slide short and the others at the default length", () => {
+  it("starts with the logo clip, played as-is, then the default length for the others", () => {
     const slides = buildDefaultIntro(ANDRE_META, makeIdFactory());
-    expect(slides[0]?.durationMs).toBe(LOGO_SLIDE_DURATION_MS);
+    expect(slides[0]).toMatchObject({ kind: "clip", clip: "padmakara-logo-intro", durationMs: 8000, fadeMs: 0, lines: [] });
+    expect(slides[0]?.subtitles).toBeUndefined();
     expect(slides.slice(1).every((s) => s.durationMs === 4000)).toBe(true);
   });
 
-  it("uses the builtin logo, or the supplied one", () => {
-    const [first] = buildDefaultIntro(ANDRE_META, makeIdFactory());
-    expect(first?.lines[0]).toMatchObject({ type: "image", s3Key: BUILTIN_LOGO_KEY });
-    const [custom] = buildDefaultIntro({ ...ANDRE_META, logoS3Key: "events/1/logo.png" }, makeIdFactory());
-    expect(custom?.lines[0]).toMatchObject({ s3Key: "events/1/logo.png" });
+  it("ignores a custom logo key in the intro (it only applies to the outro)", () => {
+    const [first] = buildDefaultIntro({ ...ANDRE_META, logoS3Key: "events/1/logo.png" }, makeIdFactory());
+    expect(first?.kind).toBe("clip");
   });
 
   it("never mixes the two languages on one card", () => {
@@ -153,7 +152,7 @@ describe("buildDefaultIntro — the designer's example", () => {
 
 describe("buildDefaultIntro — omission", () => {
   it("keeps only the logo slide when nothing else is known", () => {
-    expect(intro({ teacherNames: [] })).toEqual([["[image]", "Padmakara (lg caps)"]]);
+    expect(intro({ teacherNames: [] })).toEqual([["[clip:padmakara-logo-intro]"]]);
   });
 
   it("omits the speaker slide without a teacher, and the title slide loses its speaker line", () => {

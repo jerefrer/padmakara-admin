@@ -24,6 +24,10 @@ export interface VideoBurnWebhookPayload {
   /** Non-fatal problem (e.g. thumbnail extraction failed) — job still succeeded. */
   warning?: string;
   error?: string;
+  /** Size of the master file, in bytes. Sent on success and failure when measured. */
+  masterBytes?: number;
+  /** Peak total size of the work directory across the run, in bytes. */
+  peakWorkDirBytes?: number;
 }
 
 /**

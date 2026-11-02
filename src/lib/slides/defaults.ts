@@ -2,7 +2,7 @@
  * Default slide templates, generated from event metadata.
  *
  * The default intro follows the sequence designed by Padmakara's designer:
- * logo + wordmark, speaker, speaker + event title, month/year + place,
+ * the logo animation clip, speaker, speaker + event title, month/year + place,
  * session number + date, credits. White small-caps serif on black, one
  * language per video: an English video gets English slides, and the
  * Portuguese is meant to arrive as subtitles rather than as a second line.
@@ -16,6 +16,7 @@ import {
   DEFAULT_FADE_MS,
   DEFAULT_SLIDE_DURATION_MS,
   SLIDES_VERSION,
+  makeClipSlide,
   type Line,
   type LineSize,
   type Slide,
@@ -160,10 +161,6 @@ function slide(newId: IdFactory, lines: Line[], durationMs = DEFAULT_SLIDE_DURAT
   return { id: newId(), durationMs, fadeMs: DEFAULT_FADE_MS, lines };
 }
 
-/** The logo slide is a beat, not a statement: the designer found the gap
- *  between the logo and the speaker's name too long. */
-export const LOGO_SLIDE_DURATION_MS = 2500;
-
 function resolveTitle(meta: SlideTemplateMetadata, lang: SlideLanguage): string {
   return ((lang === "pt" ? meta.titlePt : meta.titleEn) ?? "").trim();
 }
@@ -223,7 +220,7 @@ export function builtinFilename(s3Key: string): string {
 /**
  * Build the default intro in one language. Slides whose data is missing are
  * omitted, so a sparsely-populated event yields a shorter — but still
- * coherent — sequence rather than blank cards. The logo slide needs no data.
+ * coherent — sequence rather than blank cards. The logo clip needs no data.
  */
 export function buildDefaultIntro(
   meta: SlideTemplateMetadata,
@@ -272,17 +269,8 @@ function buildKeyedIntro(
   };
   const teachers = resolveTeachers(meta);
 
-  // 1 — Logo, then the wordmark beneath it.
-  add("logo", 
-    slide(
-      newId,
-      [
-        { id: newId(), type: "image", s3Key: meta.logoS3Key?.trim() || BUILTIN_LOGO_KEY, alt: "Padmakara" },
-        capsLine(newId, "Padmakara", "lg"),
-      ],
-      LOGO_SLIDE_DURATION_MS,
-    ),
-  );
+  // 1 — The designer's logo animation, played as-is (see BUILTIN_CLIPS).
+  add("logo", makeClipSlide(newId(), "padmakara-logo-intro"));
 
   // 2 — The speaker alone, centred.
   if (teachers.length > 0) {

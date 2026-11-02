@@ -54,8 +54,32 @@ export interface SpacerLine {
 
 export type Line = TextLine | ImageLine | SpacerLine;
 
+/**
+ * Built-in video clips shipped with the app (the burn container image and the
+ * admin's `public/images/`), keyed by the id a clip slide stores. A clip is
+ * played as-is: its length is fixed by the file, so it is recorded here and
+ * not in the slide. Add the file to both places when adding an entry.
+ */
+export const BUILTIN_CLIPS = {
+  "padmakara-logo-intro": { filename: "padmakara-logo-intro.mp4", durationMs: 8000 },
+} as const;
+
+export type BuiltinClipId = keyof typeof BUILTIN_CLIPS;
+
+export function isBuiltinClipId(value: unknown): value is BuiltinClipId {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(BUILTIN_CLIPS, value);
+}
+
 export interface Slide {
   id: string;
+  /**
+   * Absent on an ordinary text/image slide (every document saved before clips
+   * existed). `"clip"` marks a built-in video clip played as-is: `clip` names
+   * it, `lines` is empty, `durationMs` mirrors the clip's length and `fadeMs`
+   * is 0. The clip's own length (BUILTIN_CLIPS) wins in all timing maths.
+   */
+  kind?: "clip";
+  clip?: BuiltinClipId;
   /** How long the slide holds at full opacity, excluding its fades. */
   durationMs: number;
   /** Fade from black in, and back out to black, at each end of the slide. */
@@ -86,12 +110,22 @@ export const DEFAULT_FADE_MS = 800;
 
 /** Total wall-clock time a slide occupies, fades included. */
 export function slideTotalMs(slide: Slide): number {
+  if (isClipSlide(slide)) return BUILTIN_CLIPS[slide.clip as BuiltinClipId].durationMs;
   return slide.fadeMs * 2 + slide.durationMs;
 }
 
 /** Total duration of a sequence, used to predict the burned intro length. */
 export function sequenceTotalMs(slides: Slide[]): number {
   return slides.reduce((sum, s) => sum + slideTotalMs(s), 0);
+}
+
+/** A clip slide for a built-in clip; the document stays plain JSON. */
+export function makeClipSlide(id: string, clip: BuiltinClipId): Slide {
+  return { id, kind: "clip", clip, durationMs: BUILTIN_CLIPS[clip].durationMs, fadeMs: 0, lines: [] };
+}
+
+export function isClipSlide(slide: Slide): boolean {
+  return slide.kind === "clip" && isBuiltinClipId(slide.clip);
 }
 
 export function emptySlideDocument(): SlideDocument {

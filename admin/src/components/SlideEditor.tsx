@@ -22,6 +22,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import ImageIcon from "@mui/icons-material/Image";
+import SlideshowIcon from "@mui/icons-material/Slideshow";
 import ReplayIcon from "@mui/icons-material/Replay";
 import MovieCreationIcon from "@mui/icons-material/MovieCreation";
 import SaveIcon from "@mui/icons-material/Save";
@@ -53,7 +54,16 @@ import Typography from "@mui/material/Typography";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
 import { builtinFilename, isBuiltinKey } from "@slides/defaults.ts";
-import { emptySlideDocument, hasAnySlides, type Line, type Slide, type SlideDocument } from "@slides/types.ts";
+import {
+  BUILTIN_CLIPS,
+  emptySlideDocument,
+  hasAnySlides,
+  isClipSlide,
+  type BuiltinClipId,
+  type Line,
+  type Slide,
+  type SlideDocument,
+} from "@slides/types.ts";
 import { authFetch } from "../utils/authFetch";
 import {
   SlideGenerationError,
@@ -65,7 +75,9 @@ import {
 } from "../utils/slideGeneration";
 import {
   addLine,
+  addLogoClip,
   addSlide,
+  hasLogoClip,
   deleteLine,
   deleteSlide,
   duplicateSlide,
@@ -486,6 +498,13 @@ export const SlideEditor = ({
     setSelectedIndex(0);
   };
 
+  const resolveClipUrl = useCallback((clip: BuiltinClipId): string => `/images/${BUILTIN_CLIPS[clip].filename}`, []);
+
+  const handleAddLogoClip = () => {
+    setDoc((d) => addLogoClip(d));
+    setSelectedIndex(0);
+  };
+
   const handleAddSlide = () => {
     setDoc((d) => addSlide(d, tab));
     setSelectedIndex(activeSlides.length);
@@ -703,6 +722,16 @@ export const SlideEditor = ({
           >
             {translate("padmakara.slides.addSlide") || "Add slide"}
           </Button>
+          {tab === "intro" && !hasLogoClip(doc) && (
+            <Button
+              size="small"
+              startIcon={<SlideshowIcon sx={{ fontSize: 16 }} />}
+              onClick={handleAddLogoClip}
+              sx={{ textTransform: "none", fontSize: "0.8rem", mt: 1, ml: 1 }}
+            >
+              {translate("padmakara.slides.addLogoClip") || "Add logo animation"}
+            </Button>
+          )}
         </Box>
 
         <Box sx={{ flex: "1 1 40%", minWidth: 320, maxWidth: 460 }}>
@@ -711,6 +740,7 @@ export const SlideEditor = ({
             selectedIndex={safeIndex}
             onSelectIndex={setSelectedIndex}
             resolveImageUrl={resolveImageUrl}
+            resolveClipUrl={resolveClipUrl}
           />
         </Box>
       </DialogContent>
@@ -782,6 +812,40 @@ const SlideCard = ({
 }: SlideCardProps) => {
   const translate = useTranslate();
   const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
+
+  // A built-in clip is played as-is: a compact card whose only action is delete.
+  if (isClipSlide(slide)) {
+    return (
+      <Paper
+        variant="outlined"
+        onClick={onSelect}
+        sx={{
+          p: 1.5,
+          mb: 1.5,
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          cursor: "pointer",
+          borderColor: selected ? "primary.main" : undefined,
+          borderWidth: selected ? 2 : 1,
+          backgroundColor: selected ? "rgba(155,27,27,0.03)" : undefined,
+        }}
+      >
+        <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", width: 22 }}>
+          {index + 1}
+        </Typography>
+        <SlideshowIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+        <Typography variant="body2" sx={{ flex: 1 }}>
+          {`${translate("padmakara.slides.logoClipTitle") || "Padmakara logo animation"} · ${slide.durationMs / 1000} s`}
+        </Typography>
+        <Tooltip title={translate("padmakara.slides.deleteLogoClip") || "Remove logo animation"}>
+          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+            <DeleteOutlineIcon sx={{ fontSize: 15, color: "text.secondary" }} />
+          </IconButton>
+        </Tooltip>
+      </Paper>
+    );
+  }
 
   const addLineOfType = (type: "text" | "image" | "spacer") => {
     setAddAnchor(null);

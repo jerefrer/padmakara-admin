@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AppError } from "./errors.ts";
 import { HERO_FRAME_KEYS } from "../db/schema/teachers.ts";
+import { BUILTIN_CLIPS } from "./slides/types.ts";
 
 // Auth
 export const loginSchema = z.object({
@@ -346,13 +347,20 @@ const slideSubtitlesSchema = z.object({
   pt: slideSubtitleLinesSchema.optional(),
 });
 
-const slideSchema = z.object({
-  id: z.string().min(1),
-  durationMs: z.number().int().min(500).max(30000),
-  fadeMs: z.number().int().min(0).max(5000),
-  lines: z.array(slideLineSchema).max(12),
-  subtitles: slideSubtitlesSchema.optional(),
-});
+const slideSchema = z
+  .object({
+    id: z.string().min(1),
+    // Absent on ordinary slides (documents saved before clips existed).
+    kind: z.literal("clip").optional(),
+    clip: z.enum(Object.keys(BUILTIN_CLIPS) as [keyof typeof BUILTIN_CLIPS]).optional(),
+    durationMs: z.number().int().min(500).max(30000),
+    fadeMs: z.number().int().min(0).max(5000),
+    lines: z.array(slideLineSchema).max(12),
+    subtitles: slideSubtitlesSchema.optional(),
+  })
+  .refine((s) => (s.kind === "clip") === (s.clip !== undefined), {
+    message: "A clip slide needs a clip id, and only a clip slide has one",
+  });
 
 const slideSequenceSchema = z.array(slideSchema).max(20);
 

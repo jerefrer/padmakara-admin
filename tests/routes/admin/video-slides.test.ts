@@ -315,7 +315,7 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     expect(body.language).toBe("en");
     expect(body.missing).toEqual([]);
     expect(body.slides.intro.map(slideLines)).toEqual([
-      ["", "Padmakara"],
+      [],
       ["Jigme Khyentse Rinpoche"],
       ["Jigme Khyentse Rinpoche", "", "", "Learning to let go and enjoying space", "", "", ""],
       ["October 2026", "Lisbon, Portugal"],
@@ -373,7 +373,7 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     expect(status).toBe(200);
     // Logo slide, the title slide and the date slide (January 2017, not June 2016).
     expect(body.slides.intro.map(slideLines)).toEqual([
-      ["", "Padmakara"],
+      [],
       ["Retreat"],
       ["January 2017"],
     ]);
@@ -396,7 +396,7 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     });
 
     expect(status).toBe(200);
-    expect(body.slides.intro.map(slideLines)).toEqual([["", "Padmakara"], ["Jigme Khyentse Rinpoche"]]);
+    expect(body.slides.intro.map(slideLines)).toEqual([[], ["Jigme Khyentse Rinpoche"]]);
     expect(body.missing).toEqual(["title", "date", "place", "session", "organizer", "production"]);
     expect(body.slides.outro[0].lines[0].s3Key).toBe(BUILTIN_LOGO_KEY);
   });

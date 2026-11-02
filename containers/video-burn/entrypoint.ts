@@ -24,7 +24,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { createWriteStream, existsSync } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -34,10 +34,11 @@ import { chromium } from "playwright-core";
 
 import { renderSlideHtml } from "../../src/lib/slides/render.ts";
 import { isBuiltinKey, builtinFilename } from "../../src/lib/slides/defaults.ts";
-import type { Slide, SlideDocument, ImageLine } from "../../src/lib/slides/types.ts";
+import { BUILTIN_CLIPS, isBuiltinClipId, type Slide, type SlideDocument, type ImageLine } from "../../src/lib/slides/types.ts";
 import {
   parseFfprobeOutput,
   buildSlideSegmentArgs,
+  buildClipSegmentArgs,
   buildConcatArgs,
   buildConcatListFile,
   computeBurnDurationPlan,
@@ -53,6 +54,7 @@ import {
 import { makeS3Client, downloadToFile, downloadText, uploadFile, presignGet } from "./s3-client.ts";
 import { fetchVideo, setThumbnail, type BunnyConfig } from "./bunny-client.ts";
 import { postWebhook } from "./webhook.ts";
+import { DiskTracker, dirSizeBytes } from "./disk-usage.ts";
 import { resolveMasterSource, type MasterSource } from "./source.ts";
 
 const execFileAsync = promisify(execFile);
@@ -218,8 +220,11 @@ async function downloadImageAssets(
 
 interface RenderedSlide {
   slide: Slide;
-  pngPath: string;
+  /** Screenshot of the slide; absent for a built-in clip slide, which is encoded from its video file. */
+  pngPath?: string;
 }
+
+const isClip = (slide: Slide): boolean => slide.kind === "clip";
 
 async function renderSlides(
   slides: Slide[],
@@ -228,7 +233,8 @@ async function renderSlides(
   workDir: string,
   prefix: string,
 ): Promise<RenderedSlide[]> {
-  if (slides.length === 0) return [];
+  // Clip slides need no screenshot; if every slide is a clip, skip Chromium entirely.
+  if (slides.every(isClip)) return slides.map((slide) => ({ slide }));
 
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH || "/usr/bin/chromium",
@@ -239,6 +245,11 @@ async function renderSlides(
     const rendered: RenderedSlide[] = [];
     let i = 0;
     for (const slide of slides) {
+      if (isClip(slide)) {
+        rendered.push({ slide });
+        i++;
+        continue;
+      }
       const html = renderSlideHtml(slide, {
         width: params.width,
         height: params.height,
@@ -274,11 +285,30 @@ async function renderSlides(
 
 // ─── Segment encoding + concat ──────────────────────────────────────────
 
-async function encodeSegments(rendered: RenderedSlide[], params: MasterParams, workDir: string, prefix: string): Promise<string[]> {
+async function encodeSegments(
+  rendered: RenderedSlide[],
+  params: MasterParams,
+  workDir: string,
+  prefix: string,
+  onStep?: () => Promise<void>,
+): Promise<string[]> {
   const segmentPaths: string[] = [];
   let i = 0;
   for (const { slide, pngPath } of rendered) {
     const outputPath = path.join(workDir, `${prefix}-seg-${i++}.mp4`);
+    if (isClip(slide)) {
+      if (!isBuiltinClipId(slide.clip)) throw new Error(`Unknown built-in clip "${String(slide.clip)}"`);
+      const { filename, durationMs } = BUILTIN_CLIPS[slide.clip];
+      const clipPath = path.join(ASSETS_DIR, filename);
+      if (!existsSync(clipPath)) {
+        throw new Error(`Built-in clip "${filename}" is not bundled in the container image at ${clipPath}`);
+      }
+      await runFfmpeg(buildClipSegmentArgs({ clipPath, outputPath, params, durationMs }));
+      segmentPaths.push(outputPath);
+      await onStep?.();
+      continue;
+    }
+    if (!pngPath) throw new Error("Slide has no rendered image");
     const args = buildSlideSegmentArgs({
       imagePath: pngPath,
       outputPath,
@@ -289,6 +319,7 @@ async function encodeSegments(rendered: RenderedSlide[], params: MasterParams, w
     });
     await runFfmpeg(args);
     segmentPaths.push(outputPath);
+    await onStep?.();
   }
   return segmentPaths;
 }
@@ -311,6 +342,7 @@ async function concatAndValidate(
   expectedTotalMs: number,
   params: MasterParams,
   workDir: string,
+  onStep?: () => Promise<void>,
 ): Promise<string> {
   const listPath = path.join(workDir, "concat-list.txt");
   await writeFile(listPath, buildConcatListFile(segmentPaths), "utf-8");
@@ -318,6 +350,7 @@ async function concatAndValidate(
   const mergedPath = path.join(workDir, "merged.mp4");
 
   await runFfmpeg(buildConcatArgs({ fileListPath: listPath, outputPath: mergedPath, reencode: false }));
+  await onStep?.();
   let outParams = await probeFile(mergedPath);
   let actualMs = outParams.durationSeconds * 1000;
 
@@ -343,6 +376,7 @@ async function concatAndValidate(
     await runFfmpeg(
       buildConcatArgs({ fileListPath: listPath, outputPath: mergedPath, reencode: true, params }),
     );
+    await onStep?.();
     outParams = await probeFile(mergedPath);
     actualMs = outParams.durationSeconds * 1000;
     durationOk = isDurationWithinTolerance(actualMs, expectedTotalMs);
@@ -379,6 +413,11 @@ async function main(): Promise<void> {
 
   const workDir = await mkdtemp(path.join(tmpdir(), "video-burn-"));
   let warning: string | undefined;
+  // Disk evidence, reported on success AND failure (what was measured so far).
+  const disk = new DiskTracker();
+  const sampleDisk = async (): Promise<void> => {
+    disk.recordWorkDirSize(await dirSizeBytes(workDir));
+  };
 
   try {
     // 1–2. Master + ffprobe
@@ -396,11 +435,15 @@ async function main(): Promise<void> {
       masterS3Key = `video-burn/${env.videoId}/master${extFromUrl(env.source.url)}`;
       await uploadFile(s3, env.bucket, masterS3Key, masterPath, "video/mp4");
     }
+    disk.recordMaster((await stat(masterPath)).size);
+    await sampleDisk();
     const params = await probeFile(masterPath);
     // Join an MP4 copy of the master, never the original container (OBS .mkv
     // masters otherwise collapse in the stream-copy concat).
     const concatMasterPath = path.join(workDir, "master-remux.mp4");
     await runFfmpeg(buildMasterRemuxArgs(masterPath, concatMasterPath));
+    // Both the original and the remux are on disk here: the likely peak.
+    await sampleDisk();
     // The remux is a full copy of the master; keeping both plus the merged
     // output held three copies at once and ran a 16 GB master out of disk.
     // Everything after this point reads the remux (same frames, same timing).
@@ -418,8 +461,8 @@ async function main(): Promise<void> {
     // remuxed master alone (burnedIntroMs 0) so slides can be burned in later.
     const introRendered = await renderSlides(doc.intro, params, resolveImageUrl, workDir, "intro");
     const outroRendered = await renderSlides(doc.outro, params, resolveImageUrl, workDir, "outro");
-    const introSegments = await encodeSegments(introRendered, params, workDir, "intro");
-    const outroSegments = await encodeSegments(outroRendered, params, workDir, "outro");
+    const introSegments = await encodeSegments(introRendered, params, workDir, "intro", sampleDisk);
+    const outroSegments = await encodeSegments(outroRendered, params, workDir, "outro", sampleDisk);
 
     // 6. Concat (+ validate, with re-encode fallback)
     const plan = computeBurnDurationPlan(doc.intro, doc.outro, params.durationSeconds * 1000);
@@ -428,6 +471,7 @@ async function main(): Promise<void> {
       plan.totalMs,
       params,
       workDir,
+      sampleDisk,
     );
 
     // 7. Upload merged file, hand to Bunny
@@ -466,6 +510,7 @@ async function main(): Promise<void> {
       outroMs: plan.outroMs,
       masterS3Key,
       warning,
+      ...disk.snapshot(),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -475,6 +520,7 @@ async function main(): Promise<void> {
       videoId: env.videoId,
       status: "failed",
       error: message,
+      ...disk.snapshot(),
     });
     process.exitCode = 1;
   } finally {
