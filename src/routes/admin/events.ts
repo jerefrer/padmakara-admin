@@ -615,11 +615,12 @@ eventRoutes.post("/:id/read-along/:jobId/cancel", async (c) => {
  */
 eventRoutes.post("/:id/slides/defaults", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
-  const body = (await c.req.json().catch(() => ({}))) as { lang?: unknown; date?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { lang?: unknown; date?: unknown; sessionId?: unknown };
   // The draft editor may know the date of the recording about to be uploaded;
   // it lets the "Session N of M" slide be matched. Anything else is ignored.
   const date = typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : null;
-  const result = await fetchSlideTemplateMetadata(id, date);
+  const sessionId = typeof body.sessionId === "number" && Number.isInteger(body.sessionId) ? body.sessionId : null;
+  const result = await fetchSlideTemplateMetadata(id, date, sessionId);
   if (!result) throw AppError.notFound("Event not found");
 
   return c.json(generateDefaultSlides(result, body.lang));
