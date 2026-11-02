@@ -12,8 +12,10 @@
 -- only in Portuguese (languages = {pt}), with a non-empty title_en that is
 -- still unreviewed.
 --
--- The fix: title_en -> NULL and title_en_reviewed -> true (the column default)
--- on exactly those rows. title, title_pt and everything else are untouched.
+-- The fix: title -> title_pt (the base title had been overwritten with the
+-- English one as well, and the admin re-derives title_en from an English
+-- title), title_en -> NULL and title_en_reviewed -> true, on exactly those
+-- rows. title_pt and everything else are untouched.
 --
 -- Usage: psql "$DATABASE_URL" -f src/scripts/fix-event-919-pt-track-title-en.sql
 -- Run the PREVIEW first; the UPDATE is wrapped so it can be checked before COMMIT.
@@ -44,7 +46,8 @@ ORDER BY s.session_number, t.track_number;
 BEGIN;
 
 UPDATE tracks t
-SET title_en = NULL,
+SET title = COALESCE(NULLIF(btrim(t.title_pt), ''), t.title),
+    title_en = NULL,
     title_en_reviewed = true,
     updated_at = now()
 FROM sessions s
@@ -54,7 +57,7 @@ WHERE s.id = t.session_id
   AND t.languages = ARRAY['pt']::text[]
   AND COALESCE(btrim(t.title_en), '') <> ''
   AND t.title_en_reviewed = false
-RETURNING t.id, t.title, t.title_pt;
+RETURNING t.id, t.title AS new_title, t.title_pt;
 
 -- COMMIT;   -- uncomment after checking the rows above
 ROLLBACK;    -- remove this line when committing
