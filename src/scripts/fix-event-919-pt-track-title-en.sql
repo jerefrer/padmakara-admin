@@ -32,7 +32,7 @@ SELECT t.id,
        (NOT t.title_en_reviewed) AS will_be_cleared
 FROM tracks t
 JOIN sessions s ON s.id = t.session_id
-WHERE s.event_id = 919
+WHERE s.retreat_id = 919
   AND t.is_translation
   AND t.languages = ARRAY['pt']::text[]
   AND COALESCE(btrim(t.title_en), '') <> ''
@@ -49,7 +49,7 @@ SET title_en = NULL,
     updated_at = now()
 FROM sessions s
 WHERE s.id = t.session_id
-  AND s.event_id = 919
+  AND s.retreat_id = 919
   AND t.is_translation
   AND t.languages = ARRAY['pt']::text[]
   AND COALESCE(btrim(t.title_en), '') <> ''
