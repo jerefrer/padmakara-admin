@@ -171,15 +171,12 @@ function resolvePlace(meta: SlideTemplateMetadata): string {
   return [meta.placeName?.trim(), meta.placeLocation?.trim()].filter(Boolean).join(", ");
 }
 
-/** Who is credited for the video when the event names nobody. */
+/** Padmakara Portugal produces every video (André, 2026-11-02), whatever the event's credit fields say. */
 export const DEFAULT_PRODUCTION_CREDIT = "Padmakara Portugal";
 
-/** Never empty: the credits slide always carries a "Video production" block. */
-function resolveProduction(meta: SlideTemplateMetadata): string[] {
-  const credits = (meta.creditLines ?? []).map((l) => l.trim()).filter(Boolean);
-  if (credits.length > 0) return credits;
-  const holder = meta.copyrightHolder?.trim();
-  return [holder || DEFAULT_PRODUCTION_CREDIT];
+/** The credits slide always carries a "Video production" block. */
+function resolveProduction(): string[] {
+  return [DEFAULT_PRODUCTION_CREDIT];
 }
 
 function resolveTeachers(meta: SlideTemplateMetadata): string[] {
@@ -320,7 +317,7 @@ function buildKeyedIntro(
 
   // 6 — Credits: organizer, then the video production.
   const organizer = meta.organizer?.trim();
-  const production = resolveProduction(meta);
+  const production = resolveProduction();
   const lines: Line[] = [];
   if (organizer) {
     lines.push(italicLine(newId, labels.organizedBy, "sm"));

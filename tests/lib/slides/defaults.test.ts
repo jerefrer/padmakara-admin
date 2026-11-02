@@ -220,12 +220,15 @@ describe("buildDefaultIntro — details", () => {
     expect(rows[2]).toEqual(["Title (xl caps)"]);
   });
 
-  it("prefers credit lines over the copyright holder for the video production", () => {
-    const rows = intro({ ...ANDRE_META, creditLines: ["Projeto Audio-Video", "Padmakara Lusófona"] });
+  it("should credit Padmakara Portugal for the video production whatever the event's credit fields say", () => {
+    const rows = intro({
+      ...ANDRE_META,
+      creditLines: ["Projeto Audio-Video"],
+      copyrightHolder: "Someone Else",
+    });
     expect(rows[5]?.slice(3)).toEqual([
       "Video production (sm italic)",
-      "Projeto Audio-Video (md caps)",
-      "Padmakara Lusófona (md caps)",
+      "Padmakara Portugal (md caps)",
     ]);
   });
 
