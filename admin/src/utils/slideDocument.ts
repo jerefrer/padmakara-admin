@@ -9,6 +9,7 @@
 import {
   DEFAULT_FADE_MS,
   DEFAULT_SLIDE_DURATION_MS,
+  makeClipSlide,
   type ImageLine,
   type Line,
   type Slide,
@@ -59,6 +60,17 @@ function moveItem<T>(items: T[], index: number, direction: -1 | 1): T[] {
 
 export function addSlide(doc: SlideDocument, key: SlideSequenceKey): SlideDocument {
   return { ...doc, [key]: [...doc[key], newSlide()] };
+}
+
+/** True when the intro starts with (or contains) the built-in logo clip. */
+export function hasLogoClip(doc: SlideDocument): boolean {
+  return doc.intro.some((s) => s.kind === "clip" && s.clip === "padmakara-logo-intro");
+}
+
+/** Put the built-in logo animation first in the intro. No-op when it is already there. */
+export function addLogoClip(doc: SlideDocument): SlideDocument {
+  if (hasLogoClip(doc)) return doc;
+  return { ...doc, intro: [makeClipSlide(newSlideId(), "padmakara-logo-intro"), ...doc.intro] };
 }
 
 export function duplicateSlide(doc: SlideDocument, key: SlideSequenceKey, slideId: string): SlideDocument {

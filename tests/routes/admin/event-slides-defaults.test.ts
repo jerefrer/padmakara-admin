@@ -51,7 +51,7 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     expect(body.language).toBe("en");
     expect(body.missing).toEqual([]);
     expect(body.slides.intro.map(slideLines)).toEqual([
-      ["", "Padmakara"],
+      [],
       ["Jigme Khyentse Rinpoche"],
       ["Learning to let go and enjoying space"],
       ["October 2026", "Lisbon, Portugal"],
@@ -136,7 +136,7 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
 
     expect(status).toBe(200);
     expect(body.slides.intro.map(slideLines)).toEqual([
-      ["", "Padmakara"],
+      [],
       ["Retreat"],
       ["January 2017"],
       ["Video production", "Padmakara Portugal"],
@@ -154,7 +154,7 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
 
     expect(status).toBe(200);
     expect(body.missing).toEqual(["teacher", "title", "date", "place", "session", "organizer"]);
-    expect(body.slides.intro.map(slideLines)).toEqual([["", "Padmakara"], ["Video production", "Padmakara Portugal"]]);
+    expect(body.slides.intro.map(slideLines)).toEqual([[], ["Video production", "Padmakara Portugal"]]);
     expect(body.slides.outro[0].lines[0].s3Key).toBe(BUILTIN_LOGO_KEY);
   });
 

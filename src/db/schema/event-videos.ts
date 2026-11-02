@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, date, timestamp, index, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, bigint, text, integer, date, timestamp, index, boolean, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { events } from "./retreats.ts";
 import type { SlideDocument } from "../../lib/slides/types.ts";
@@ -50,6 +50,11 @@ export const eventVideos = pgTable(
     // Duration of the burned-in intro, so a later re-burn with a different
     // intro length can offset saved resume positions by the delta.
     burnedIntroMs: integer("burned_intro_ms"),
+    // Disk evidence from the last burn container run (null for runs by an old
+    // container): the master's size and the peak size of its work directory,
+    // to size the scratch disk from numbers.
+    burnMasterBytes: bigint("burn_master_bytes", { mode: "number" }),
+    burnPeakDiskBytes: bigint("burn_peak_disk_bytes", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

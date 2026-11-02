@@ -372,6 +372,13 @@
       "when": 1812851200000,
       "tag": "0052_passkeys",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1812937600000,
+      "tag": "0053_video_burn_disk_metrics",
+      "breakpoints": true
     }
   ]
 }

@@ -540,7 +540,7 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
           onToggle={() => setSubsOpen((o) => !o)}
         />
 
-        <BurnStatusChip status={slides.burnStatus} error={slides.burnError} />
+        <BurnStatusChip status={slides.burnStatus} error={slides.burnError} disk={slides.burnDisk} />
         <BurnActionButton
           hasMaster={slides.hasMaster}
           slideCount={slideCount}
@@ -631,6 +631,7 @@ const VideoRow = ({ video, isFirst, isLast, eventCode, onUpdate, onReorder, onDe
         generating={slides.generating}
         burnStatus={slides.burnStatus}
         burnError={slides.burnError}
+        burnDisk={slides.burnDisk}
         hasMaster={slides.hasMaster}
         reburning={slides.reburning}
         onReburn={slides.reburn}

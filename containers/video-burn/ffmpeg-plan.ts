@@ -137,20 +137,34 @@ export function buildSlideSegmentArgs(spec: SlideSegmentSpec): string[] {
   if (fadeInMs > 0) videoFilterParts.push(`fade=t=in:st=0:d=${fadeInSeconds}`);
   if (fadeOutMs > 0) videoFilterParts.push(`fade=t=out:st=${fadeOutStartSeconds}:d=${fadeOutSeconds}`);
 
-  const args = [
+  return [
     "-y",
     "-loop",
     "1",
     "-i",
     imagePath,
-    "-f",
-    "lavfi",
-    "-i",
-    `anullsrc=channel_layout=${params.audioChannels === 1 ? "mono" : "stereo"}:sample_rate=${params.audioSampleRate}`,
+    ...silentAudioInputArgs(params),
     "-t",
     totalSeconds.toFixed(3),
     "-vf",
     videoFilterParts.join(","),
+    ...segmentOutputArgs(params, outputPath),
+  ];
+}
+
+/** The silent audio source every segment carries, matching the master's audio params. */
+function silentAudioInputArgs(params: MasterParams): string[] {
+  return [
+    "-f",
+    "lavfi",
+    "-i",
+    `anullsrc=channel_layout=${params.audioChannels === 1 ? "mono" : "stereo"}:sample_rate=${params.audioSampleRate}`,
+  ];
+}
+
+/** Encoder, pixel format, timescale and audio settings shared by every segment, ending at the output path. */
+function segmentOutputArgs(params: MasterParams, outputPath: string): string[] {
+  const args = [
     "-s",
     `${params.width}x${params.height}`,
     "-c:v",
@@ -174,13 +188,57 @@ export function buildSlideSegmentArgs(spec: SlideSegmentSpec): string[] {
     String(params.audioSampleRate),
     "-ac",
     String(params.audioChannels),
-    // Segment length is fixed by -t above; -shortest guards against
+    // Segment length is fixed by -t; -shortest guards against
     // anullsrc (which is infinite) ever driving the output length instead.
     "-shortest",
     outputPath,
   );
-
   return args;
+}
+
+// ─── Built-in clip → video segment ──────────────────────────────────────
+
+export interface ClipSegmentSpec {
+  clipPath: string;
+  outputPath: string;
+  params: MasterParams;
+  /** The clip's length; the output is cut to exactly this so duration maths holds. */
+  durationMs: number;
+}
+
+/**
+ * Build the ffmpeg args that re-encode a built-in clip (a silent video file)
+ * into a segment matching the master exactly, like a slide segment: same
+ * fps, resolution (letterboxed if the aspect differs), codec, pixel format,
+ * timescale, plus a SILENT audio track in the master's audio format. The
+ * clip's own audio, if it ever has some, is ignored on purpose.
+ */
+export function buildClipSegmentArgs(spec: ClipSegmentSpec): string[] {
+  const { clipPath, outputPath, params, durationMs } = spec;
+  const { width, height } = params;
+  const videoFilter = [
+    `fps=${params.fps}`,
+    `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+    `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`,
+    "setsar=1",
+    `format=${params.pixelFormat}`,
+  ].join(",");
+
+  return [
+    "-y",
+    "-i",
+    clipPath,
+    ...silentAudioInputArgs(params),
+    "-map",
+    "0:v:0",
+    "-map",
+    "1:a:0",
+    "-t",
+    (durationMs / 1000).toFixed(3),
+    "-vf",
+    videoFilter,
+    ...segmentOutputArgs(params, outputPath),
+  ];
 }
 
 // ─── Concat ──────────────────────────────────────────────────────────────

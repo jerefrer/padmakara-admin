@@ -14,7 +14,7 @@ import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslate } from "react-admin";
-import type { Slide } from "@slides/types.ts";
+import { BUILTIN_CLIPS, isClipSlide, type BuiltinClipId, type Slide } from "@slides/types.ts";
 import { renderSlideHtml } from "@slides/render.ts";
 
 const FONT_BASE_URL = "/fonts/";
@@ -26,6 +26,8 @@ interface SlideEditorPreviewProps {
   selectedIndex: number;
   onSelectIndex: (index: number) => void;
   resolveImageUrl: (s3Key: string) => string;
+  /** URL of a built-in clip's video file, for clip slides. */
+  resolveClipUrl: (clip: BuiltinClipId) => string;
 }
 
 export const SlideEditorPreview = ({
@@ -33,6 +35,7 @@ export const SlideEditorPreview = ({
   selectedIndex,
   onSelectIndex,
   resolveImageUrl,
+  resolveClipUrl,
 }: SlideEditorPreviewProps) => {
   const translate = useTranslate();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -62,8 +65,10 @@ export const SlideEditorPreview = ({
   const displayedSlide = slides[activeIndex] ?? null;
   const activeFadeMs = displayedSlide?.fadeMs ?? 800;
 
+  const clipSlide = displayedSlide && isClipSlide(displayedSlide) ? displayedSlide : null;
+
   const html = useMemo(() => {
-    if (!displayedSlide) return null;
+    if (!displayedSlide || isClipSlide(displayedSlide)) return null;
     return renderSlideHtml(displayedSlide, {
       width: frameWidth,
       height: frameHeight,
@@ -116,7 +121,20 @@ export const SlideEditorPreview = ({
           position: "relative",
         }}
       >
-        {html ? (
+        {clipSlide?.clip ? (
+          // A clip is its own animation: no fades of ours, the video carries them.
+          <video
+            key={`${playing ? "play" : "still"}-${activeIndex}`}
+            src={resolveClipUrl(clipSlide.clip)}
+            title={BUILTIN_CLIPS[clipSlide.clip].filename}
+            autoPlay={playing}
+            controls={!playing}
+            muted
+            playsInline
+            preload="metadata"
+            style={{ width: "100%", height: "100%", display: "block", objectFit: "contain" }}
+          />
+        ) : html ? (
           <iframe
             key={`${playing ? "play" : "still"}-${activeIndex}`}
             title="Slide preview"
