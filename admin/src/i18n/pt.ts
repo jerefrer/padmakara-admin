@@ -782,6 +782,7 @@ export const pt = {
       outroHint: "Estes slides são mostrados depois do vídeo.",
       empty: "Ainda não há slides",
       addSlide: "Adicionar slide",
+      burnDisk: { master: "Original", peak: "pico de disco" },
       addLogoClip: "Adicionar animação do logótipo",
       logoClipTitle: "Animação do logótipo Padmakara",
       deleteLogoClip: "Remover animação do logótipo",

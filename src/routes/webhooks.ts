@@ -348,6 +348,15 @@ webhookRoutes.post("/subtitles", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Columns for the burn container's disk evidence; only well-formed values, so old containers change nothing. */
+function burnDiskMetricsFields(masterBytes: unknown, peakWorkDirBytes: unknown) {
+  const valid = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0;
+  return {
+    ...(valid(masterBytes) ? { burnMasterBytes: Math.round(masterBytes) } : {}),
+    ...(valid(peakWorkDirBytes) ? { burnPeakDiskBytes: Math.round(peakWorkDirBytes) } : {}),
+  };
+}
+
 /**
  * POST /api/webhooks/video-burn
  *
@@ -392,8 +401,12 @@ webhookRoutes.post("/video-burn", async (c) => {
     return c.json({ error: "Invalid signature" }, 401);
   }
 
-  const { jobId, videoId, status, bunnyVideoId, introMs, warning, error, masterS3Key } =
-    JSON.parse(rawBody);
+  const {
+    jobId, videoId, status, bunnyVideoId, introMs, warning, error, masterS3Key,
+    masterBytes, peakWorkDirBytes,
+  } = JSON.parse(rawBody);
+  // Optional disk evidence (absent from older containers); stored on success and failure.
+  const diskMetrics = burnDiskMetricsFields(masterBytes, peakWorkDirBytes);
 
   if (!jobId || !videoId || !status) {
     return c.json({ error: "Missing jobId, videoId, or status" }, 400);
@@ -428,6 +441,7 @@ webhookRoutes.post("/video-burn", async (c) => {
           // back here so re-burns have a first-generation master, exactly
           // like the S3-upload path already did from the start.
           ...(typeof masterS3Key === "string" ? { masterS3Key } : {}),
+          ...diskMetrics,
         })
         .where(eq(eventVideos.id, videoId));
 
@@ -451,6 +465,7 @@ webhookRoutes.post("/video-burn", async (c) => {
         burnStatus: "failed",
         burnError: error ?? "Video burn job failed",
         updatedAt: new Date(),
+        ...diskMetrics,
       })
       .where(eq(eventVideos.id, videoId));
   }

@@ -138,6 +138,7 @@ export interface VideoSlidesState {
   hasMaster: boolean;
   burnStatus: string | null;
   burnError: string | null;
+  burnDisk: BurnDisk | null;
   saving: boolean;
   reburning: boolean;
   generating: boolean;
@@ -153,6 +154,8 @@ interface SlidesApiResponse {
   hasMaster?: boolean;
   burnStatus: string | null;
   burnError: string | null;
+  burnMasterBytes?: number | null;
+  burnPeakDiskBytes?: number | null;
 }
 
 export function useVideoSlides(videoId: number): VideoSlidesState {
@@ -163,6 +166,7 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
   const [hasMaster, setHasMaster] = useState(false);
   const [burnStatus, setBurnStatus] = useState<string | null>(null);
   const [burnError, setBurnError] = useState<string | null>(null);
+  const [burnDisk, setBurnDisk] = useState<BurnDisk | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -174,6 +178,11 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
     setHasMaster(!!data.hasMaster);
     setBurnStatus(data.burnStatus ?? null);
     setBurnError(data.burnError ?? null);
+    setBurnDisk(
+      data.burnMasterBytes != null || data.burnPeakDiskBytes != null
+        ? { masterBytes: data.burnMasterBytes ?? null, peakBytes: data.burnPeakDiskBytes ?? null }
+        : null,
+    );
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -258,7 +267,7 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
     }
   }, [videoId, notify, fetchData]);
 
-  return { loading, doc, hasBurnedSlides, hasMaster, burnStatus, burnError, saving, reburning, generating, save, generateDefaults, reburn, refresh: fetchData };
+  return { loading, doc, hasBurnedSlides, hasMaster, burnStatus, burnError, burnDisk, saving, reburning, generating, save, generateDefaults, reburn, refresh: fetchData };
 }
 
 /* ───────── Burn action: start / retry the burn from the retained master ───────── */
@@ -304,15 +313,37 @@ const BURN_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   failed: { bg: "#fef2f2", text: "#b91c1c" },
 };
 
+/** Disk evidence reported by the last burn container run. */
+export interface BurnDisk {
+  masterBytes: number | null;
+  peakBytes: number | null;
+}
+
+const formatGB = (bytes: number): string => `${(bytes / 1e9).toFixed(1)} GB`;
+
+/** "Master 16.3 GB · peak disk 33.1 GB", or null when nothing was measured. */
+export function burnDiskLine(disk: BurnDisk | null | undefined, translate: Translate): string | null {
+  if (!disk) return null;
+  const parts: string[] = [];
+  if (disk.masterBytes != null) {
+    parts.push(`${translate("padmakara.slides.burnDisk.master") || "Master"} ${formatGB(disk.masterBytes)}`);
+  }
+  if (disk.peakBytes != null) {
+    parts.push(`${translate("padmakara.slides.burnDisk.peak") || "peak disk"} ${formatGB(disk.peakBytes)}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 interface BurnStatusChipProps {
   status: string | null;
   error: string | null;
+  disk?: BurnDisk | null;
 }
 
 /** Renders nothing for "none" (the DB default — no burn pipeline activity
  *  yet, e.g. a video with no slides or one flagged "already has slides
  *  burnt in") so old/unaffected rows look exactly as before. */
-export const BurnStatusChip = ({ status, error }: BurnStatusChipProps) => {
+export const BurnStatusChip = ({ status, error, disk }: BurnStatusChipProps) => {
   const translate = useTranslate();
   if (!status || status === "none") return null;
   const colors = BURN_STATUS_COLORS[status] ?? BURN_STATUS_COLORS.pending;
@@ -334,10 +365,21 @@ export const BurnStatusChip = ({ status, error }: BurnStatusChipProps) => {
     />
   );
 
-  if (status === "failed" && error) {
-    return <Tooltip title={error}>{chip}</Tooltip>;
-  }
-  return chip;
+  const diskLine = burnDiskLine(disk, translate);
+  const showError = status === "failed" && !!error;
+  if (!showError && !diskLine) return chip;
+  return (
+    <Tooltip
+      title={
+        <>
+          {showError && <div>{error}</div>}
+          {diskLine && <div style={{ opacity: 0.7, fontSize: "0.7rem" }}>{diskLine}</div>}
+        </>
+      }
+    >
+      {chip}
+    </Tooltip>
+  );
 };
 
 /* ───────── The editor dialog itself ───────── */
@@ -376,6 +418,7 @@ export interface SlideEditorProps {
   generating?: boolean;
   burnStatus?: string | null;
   burnError?: string | null;
+  burnDisk?: BurnDisk | null;
   /** Existing-video mode only: lets the dialog offer the burn action. */
   hasMaster?: boolean;
   reburning?: boolean;
@@ -396,6 +439,7 @@ export const SlideEditor = ({
   generating,
   burnStatus,
   burnError,
+  burnDisk,
   hasMaster,
   reburning,
   onReburn,
@@ -604,7 +648,7 @@ export const SlideEditor = ({
         <Typography variant="h6" sx={{ fontWeight: 600, fontSize: "1.05rem", flex: 1 }} noWrap>
           {title}
         </Typography>
-        <BurnStatusChip status={burnStatus ?? null} error={burnError ?? null} />
+        <BurnStatusChip status={burnStatus ?? null} error={burnError ?? null} disk={burnDisk ?? null} />
         {onReburn && (
           <BurnActionButton
             hasMaster={!!hasMaster}

@@ -584,6 +584,7 @@ export const en = {
       outroHint: "These slides play after the video.",
       empty: "No slides yet",
       addSlide: "Add slide",
+      burnDisk: { master: "Master", peak: "peak disk" },
       addLogoClip: "Add logo animation",
       logoClipTitle: "Padmakara logo animation",
       deleteLogoClip: "Remove logo animation",
