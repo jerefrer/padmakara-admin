@@ -401,6 +401,10 @@ async function main(): Promise<void> {
     // masters otherwise collapse in the stream-copy concat).
     const concatMasterPath = path.join(workDir, "master-remux.mp4");
     await runFfmpeg(buildMasterRemuxArgs(masterPath, concatMasterPath));
+    // The remux is a full copy of the master; keeping both plus the merged
+    // output held three copies at once and ran a 16 GB master out of disk.
+    // Everything after this point reads the remux (same frames, same timing).
+    await rm(masterPath, { force: true });
 
     // 3. Slide document + assets
     const slidesJson = await downloadText(s3, env.bucket, env.slidesS3Key);
@@ -435,14 +439,14 @@ async function main(): Promise<void> {
     const mergedUrl = await presignGet(s3, env.bucket, env.outputS3Key, 6 * 60 * 60);
     const { guid } = await fetchVideo(env.bunny, mergedUrl, env.title || `video-${env.videoId}`);
 
-    // 8. Poster thumbnail from the MASTER (never from the merged file —
+    // 8. Poster thumbnail from the master's remux (never from the merged file —
     // that starts with the burned-in intro, which is exactly the black
     // card we're trying to avoid as a poster). Best-effort: a failure here
     // must not fail an otherwise-successful burn.
     try {
       const offsetSeconds = computeThumbnailOffsetSeconds(params.durationSeconds);
       const thumbPath = path.join(workDir, "thumbnail.jpg");
-      await runFfmpeg(buildThumbnailFrameArgs(masterPath, offsetSeconds, thumbPath));
+      await runFfmpeg(buildThumbnailFrameArgs(concatMasterPath, offsetSeconds, thumbPath));
       const thumbKey = `video-burn/${env.videoId}/thumbnail.jpg`;
       await uploadFile(s3, env.bucket, thumbKey, thumbPath, "image/jpeg");
       const thumbUrl = await presignGet(s3, env.bucket, thumbKey, 60 * 60);
