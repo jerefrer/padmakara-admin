@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AppError } from "./errors.ts";
 import { HERO_FRAME_KEYS } from "../db/schema/teachers.ts";
-import { BUILTIN_CLIPS } from "./slides/types.ts";
+import { BUILTIN_CLIPS, SLIDE_ROLES } from "./slides/types.ts";
 
 // Auth
 export const loginSchema = z.object({
@@ -292,6 +292,7 @@ export const updateEventVideoSchema = z.object({
   titleEnReviewed: z.boolean().optional(),
   titlePtReviewed: z.boolean().optional(),
   videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  sessionId: z.number().int().positive().optional().nullable(),
   hasBurnedSlides: z.boolean().optional(),
   masterS3Key: z.string().optional().nullable(),
 });
@@ -350,6 +351,7 @@ const slideSubtitlesSchema = z.object({
 const slideSchema = z
   .object({
     id: z.string().min(1),
+    role: z.enum(SLIDE_ROLES).optional(),
     // Absent on ordinary slides (documents saved before clips existed).
     kind: z.literal("clip").optional(),
     clip: z.enum(Object.keys(BUILTIN_CLIPS) as [keyof typeof BUILTIN_CLIPS]).optional(),
@@ -392,6 +394,30 @@ export const burnVideoSchema = z.object({
   titleEn: z.string().max(200).nullable().optional(),
   titlePt: z.string().max(200).nullable().optional(),
   videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  sessionId: z.number().int().positive().nullable().optional(),
+});
+
+/**
+ * Create a video row with slides but no file yet ("slides first, video later").
+ * The file is attached later through POST /admin/videos/:id/master.
+ */
+export const prepareVideoSchema = z.object({
+  eventId: z.number().int().positive(),
+  slides: slideDocumentSchema,
+  position: z.number().int().min(0).optional(),
+  titleEn: z.string().max(200).nullable().optional(),
+  titlePt: z.string().max(200).nullable().optional(),
+  videoDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  sessionId: z.number().int().positive().nullable().optional(),
+});
+
+export const attachVideoMasterSchema = z.object({
+  masterS3Key: z.string().min(1).max(512),
+});
+
+export const copyVideoSlidesSchema = z.object({
+  sourceVideoId: z.number().int().positive(),
+  lang: z.enum(["en", "pt"]).optional(),
 });
 
 export const slideImageUrlsSchema = z.object({

@@ -21,6 +21,7 @@ import {
   type LineSize,
   type Slide,
   type SlideDocument,
+  type SlideRole,
   type Span,
   type TextLine,
 } from "./types.ts";
@@ -156,8 +157,13 @@ function spacer(newId: IdFactory): Line {
   return { id: newId(), type: "spacer" };
 }
 
-function slide(newId: IdFactory, lines: Line[], durationMs = DEFAULT_SLIDE_DURATION_MS): Slide {
-  return { id: newId(), durationMs, fadeMs: DEFAULT_FADE_MS, lines };
+function slide(
+  newId: IdFactory,
+  lines: Line[],
+  role?: SlideRole,
+  durationMs = DEFAULT_SLIDE_DURATION_MS,
+): Slide {
+  return { id: newId(), ...(role ? { role } : {}), durationMs, fadeMs: DEFAULT_FADE_MS, lines };
 }
 
 function resolveTitle(meta: SlideTemplateMetadata, lang: SlideLanguage): string {
@@ -240,6 +246,15 @@ export function buildDefaultIntro(
 
 type IntroSlideKey = "logo" | "teacher" | "title" | "date" | "session" | "credits";
 
+const INTRO_ROLES: Record<IntroSlideKey, SlideRole> = {
+  logo: "logo",
+  teacher: "speaker",
+  title: "title",
+  date: "date-place",
+  session: "session",
+  credits: "credits",
+};
+
 /** The visible text of a slide, one entry per text line. */
 function slideTexts(s: Slide): string[] {
   return s.lines.flatMap((l) => (l.type === "text" ? [l.spans.map((sp) => sp.text).join("")] : []));
@@ -264,7 +279,7 @@ function buildKeyedIntro(
   const labels = LABELS[lang];
   const slides: { key: IntroSlideKey; slide: Slide }[] = [];
   const add = (key: IntroSlideKey, s: Slide): void => {
-    slides.push({ key, slide: s });
+    slides.push({ key, slide: { ...s, role: INTRO_ROLES[key] } });
   };
   const teachers = resolveTeachers(meta);
 

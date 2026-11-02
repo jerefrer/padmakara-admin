@@ -35,6 +35,7 @@ export interface SlideMetadataResult {
 }
 
 interface SessionRow {
+  id?: number;
   sessionNumber: number;
   sessionDate: string | null;
   timePeriod: string | null;
@@ -63,6 +64,25 @@ export function matchSession(
   };
 }
 
+/**
+ * The session a video was explicitly linked to, as slide-template info.
+ * Same numbering and single-session rule as matchSession; null when the id
+ * is not one of the event's sessions.
+ */
+export function sessionInfoById(sessionRows: SessionRow[], sessionId: number): SlideSessionInfo | null {
+  if (sessionRows.length < 2) return null;
+  const ordered = [...sessionRows].sort((a, b) => a.sessionNumber - b.sessionNumber);
+  const index = ordered.findIndex((s) => s.id === sessionId);
+  const match = ordered[index];
+  if (!match) return null;
+  return {
+    number: index + 1,
+    total: ordered.length,
+    date: match.sessionDate,
+    period: match.timePeriod,
+  };
+}
+
 /** The language slides default to: the event's original language when we have
  *  templates for it, English otherwise (e.g. Tibetan teachings). */
 export function defaultSlideLanguage(originalLanguage: string | null | undefined): SlideLanguage {
@@ -74,13 +94,15 @@ export function defaultSlideLanguage(originalLanguage: string | null | undefined
  * `SlideTemplateMetadata`. Returns null when the event doesn't exist, so
  * callers can 404 without a separate existence check.
  *
- * `dateOverride` is the video's own date. Without it no session can be
- * matched, because the event's start date says nothing about which of its
- * sessions a recording covers.
+ * `sessionId` is the video's own session link and wins. Without one the
+ * `dateOverride` (the video's own date) is the fallback: with neither, no
+ * session can be matched, because the event's start date says nothing about
+ * which of its sessions a recording covers.
  */
 export async function fetchSlideTemplateMetadata(
   eventId: number,
   dateOverride?: string | null,
+  sessionId?: number | null,
 ): Promise<SlideMetadataResult | null> {
   const event = await db.query.events.findFirst({
     where: eq(events.id, eventId),
@@ -94,6 +116,9 @@ export async function fetchSlideTemplateMetadata(
   if (!event) return null;
 
   const place = event.eventPlaces[0]?.place;
+  const sessionRows = event.sessions ?? [];
+  const linked = sessionId != null ? sessionInfoById(sessionRows, sessionId) : null;
+  const session = linked ?? matchSession(sessionRows, dateOverride);
 
   return {
     defaultLanguage: defaultSlideLanguage(event.originalLanguage),
@@ -101,8 +126,8 @@ export async function fetchSlideTemplateMetadata(
       teacherNames: event.eventTeachers.map((et) => et.teacher.name),
       titleEn: event.titleEn,
       titlePt: event.titlePt,
-      date: dateOverride ?? event.startDate ?? null,
-      session: matchSession(event.sessions ?? [], dateOverride),
+      date: dateOverride ?? linked?.date ?? event.startDate ?? null,
+      session,
       organizer: joinOrganizerNames(orderedOrganizers(event.eventOrganizers)),
       placeName: place?.name ?? null,
       placeLocation: place?.location ?? null,

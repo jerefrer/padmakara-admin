@@ -70,8 +70,18 @@ export function isBuiltinClipId(value: unknown): value is BuiltinClipId {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(BUILTIN_CLIPS, value);
 }
 
+/**
+ * What a generated slide is. Set by the default generator so later code (copying
+ * slides between videos) can find a slide without guessing from its text.
+ * Absent on slides added by hand and on documents saved before roles existed.
+ */
+export const SLIDE_ROLES = ["logo", "speaker", "title", "date-place", "session", "credits"] as const;
+export type SlideRole = (typeof SLIDE_ROLES)[number];
+
 export interface Slide {
   id: string;
+  /** See SlideRole. Purely informational; the renderer ignores it. */
+  role?: SlideRole;
   /**
    * Absent on an ordinary text/image slide (every document saved before clips
    * existed). `"clip"` marks a built-in video clip played as-is: `clip` names
