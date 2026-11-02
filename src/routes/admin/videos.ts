@@ -3,9 +3,13 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { eventVideos } from "../../db/schema/event-videos.ts";
 import { events } from "../../db/schema/retreats.ts";
+import { sessions } from "../../db/schema/sessions.ts";
 import { videoSubtitles } from "../../db/schema/video-subtitles.ts";
 import {
   burnVideoSchema,
+  prepareVideoSchema,
+  attachVideoMasterSchema,
+  copyVideoSlidesSchema,
   createEventVideoSchema,
   updateEventVideoSchema,
   importEventVideoUrlSchema,
@@ -13,6 +17,7 @@ import {
   slideImageUrlsSchema,
 } from "../../lib/schemas.ts";
 import { isBuiltinKey } from "../../lib/slides/defaults.ts";
+import { copySlidesForSession, detectSessionSlideLanguage } from "../../lib/slides/copy.ts";
 import { mergeIntroSubtitleCues } from "../../lib/slides/intro-subtitles.ts";
 import { withIntroSubtitlesForVideo } from "../../services/intro-subtitles.ts";
 import { AppError } from "../../lib/errors.ts";
@@ -248,6 +253,7 @@ videoRoutes.post("/burn", async (c) => {
       titleEn: body.titleEn ?? null,
       titlePt: body.titlePt ?? null,
       videoDate: body.videoDate ?? null,
+      sessionId: body.sessionId ?? null,
       masterS3Key: body.masterS3Key,
       slides: body.slides,
       burnStatus: "pending",
@@ -268,6 +274,96 @@ videoRoutes.post("/burn", async (c) => {
   } catch (err) {
     // Keep the row. The master is uploaded and the slides are saved, so the
     // admin can retry the burn rather than re-uploading multiple gigabytes.
+    const detail = err instanceof Error ? err.message : String(err);
+    await db
+      .update(eventVideos)
+      .set({ burnStatus: "failed", burnError: detail, updatedAt: new Date() })
+      .where(eq(eventVideos.id, video.id));
+    await touchParentEvent(video.eventId);
+    throw new AppError(
+      502,
+      `The video was uploaded but its burn job could not be queued — retry from the video list. (${detail})`,
+      "BURN_SUBMIT_FAILED",
+    );
+  }
+});
+
+/**
+ * The session row for a link, checked to belong to the event. Null when
+ * `sessionId` is null/undefined; throws 400 when it is another event's.
+ */
+async function resolveEventSession(eventId: number, sessionId: number | null | undefined) {
+  if (sessionId == null) return null;
+  const session = await db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
+  if (!session || session.eventId !== eventId) {
+    throw AppError.badRequest("That session does not belong to this event", "INVALID_SESSION");
+  }
+  return session;
+}
+
+/**
+ * POST /api/admin/videos/prepare
+ *
+ * "Slides first, video later": create the row with its slides and session but
+ * no file. It shows in the list as "slides ready, video not uploaded" until a
+ * master is attached (POST /:id/master), which queues the burn with these
+ * slides. burn_status stays "none" meanwhile.
+ */
+videoRoutes.post("/prepare", async (c) => {
+  const body = prepareVideoSchema.parse(await c.req.json());
+  const session = await resolveEventSession(body.eventId, body.sessionId);
+  const position =
+    body.position ?? (await countRows(eventVideos, eq(eventVideos.eventId, body.eventId)));
+
+  const [video] = await db
+    .insert(eventVideos)
+    .values({
+      eventId: body.eventId,
+      bunnyVideoId: null,
+      position,
+      titleEn: body.titleEn ?? null,
+      titlePt: body.titlePt ?? null,
+      videoDate: body.videoDate ?? session?.sessionDate ?? null,
+      sessionId: session?.id ?? null,
+      slides: body.slides,
+      burnStatus: "none",
+    })
+    .returning();
+  if (!video) throw AppError.internal("Failed to create the video row");
+  await touchParentEvent(video.eventId);
+  return c.json(video, 201);
+});
+
+/**
+ * POST /api/admin/videos/:id/master
+ *
+ * Attach the uploaded master to a prepared row and queue its burn with the
+ * slides stored on the row. Only valid while the row has no file and no Bunny
+ * video yet.
+ */
+videoRoutes.post("/:id/master", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const { masterS3Key } = attachVideoMasterSchema.parse(await c.req.json());
+
+  const video = await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, id) });
+  if (!video) throw AppError.notFound("Event video not found");
+  if (!video.slides) throw AppError.conflict("This video has no slides defined");
+  if (video.masterS3Key || video.bunnyVideoId) {
+    throw AppError.conflict("This video already has a file");
+  }
+
+  await db
+    .update(eventVideos)
+    .set({ masterS3Key, burnStatus: "pending", burnError: null, updatedAt: new Date() })
+    .where(eq(eventVideos.id, id));
+
+  const title = video.titleEn || video.titlePt || `Video ${video.id}`;
+  try {
+    const { jobId } = await submitVideoBurnJob({ videoId: video.id, masterS3Key, slides: video.slides, title });
+    await touchParentEvent(video.eventId);
+    return c.json({ videoId: video.id, jobId, burnStatus: "queued" });
+  } catch (err) {
+    // Keep the master: the admin retries the burn from the list, no re-upload.
     const detail = err instanceof Error ? err.message : String(err);
     await db
       .update(eventVideos)
@@ -320,6 +416,15 @@ videoRoutes.patch("/:id", async (c) => {
   const data: Record<string, unknown> = { updatedAt: new Date() };
   for (const [key, val] of Object.entries(parsed)) {
     if (val !== undefined) data[key] = val;
+  }
+  if (parsed.sessionId != null) {
+    // Choosing a session also dates a video that has no date of its own.
+    const current = await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, id) });
+    if (!current) throw AppError.notFound("Event video not found");
+    const session = await resolveEventSession(current.eventId, parsed.sessionId);
+    if (parsed.videoDate === undefined && !current.videoDate && session?.sessionDate) {
+      data.videoDate = session.sessionDate;
+    }
   }
   const [video] = await db
     .update(eventVideos)
@@ -485,10 +590,39 @@ videoRoutes.post("/:id/slides/defaults", async (c) => {
   if (!video) throw AppError.notFound("Event video not found");
 
   const body = (await c.req.json().catch(() => ({}))) as { lang?: unknown };
-  const result = await fetchSlideTemplateMetadata(video.eventId, video.videoDate);
+  const result = await fetchSlideTemplateMetadata(video.eventId, video.videoDate, video.sessionId);
   if (!result) throw AppError.notFound("Event not found");
 
   return c.json(generateDefaultSlides(result, body.lang));
+});
+
+/**
+ * POST /admin/videos/:id/slides/copy
+ *
+ * Take another video's slides of the same event as they were edited, and
+ * regenerate only the session slide for THIS video's session. Does NOT
+ * save (like /defaults): the editor previews it and saves it. Body:
+ * `sourceVideoId`, optional `lang` (default: the language of the source's
+ * session slide, else the event's). Response: `{ slides, sessionSlide }`
+ * where `sessionSlide` is "replaced" | "removed" | "unknown" (see
+ * lib/slides/copy.ts) so the editor can tell the admin to check it.
+ */
+videoRoutes.post("/:id/slides/copy", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const { sourceVideoId, lang } = copyVideoSlidesSchema.parse(await c.req.json());
+
+  const video = await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, id) });
+  if (!video) throw AppError.notFound("Event video not found");
+  const source = await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, sourceVideoId) });
+  if (!source || source.eventId !== video.eventId) throw AppError.notFound("Source video not found in this event");
+  if (!source.slides) throw AppError.conflict("The source video has no slides");
+
+  const result = await fetchSlideTemplateMetadata(video.eventId, video.videoDate, video.sessionId);
+  if (!result) throw AppError.notFound("Event not found");
+
+  const language = lang ?? detectSessionSlideLanguage(source.slides) ?? undefined;
+  const generated = generateDefaultSlides(result, language);
+  return c.json(copySlidesForSession(source.slides, generated.slides, () => crypto.randomUUID()));
 });
 
 // ── Subtitles ─────────────────────────────────────────────────────────

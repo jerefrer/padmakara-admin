@@ -1,6 +1,7 @@
 import { pgTable, serial, bigint, text, integer, date, timestamp, index, boolean, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { events } from "./retreats.ts";
+import { sessions } from "./sessions.ts";
 import type { SlideDocument } from "../../lib/slides/types.ts";
 
 export const eventVideos = pgTable(
@@ -34,6 +35,9 @@ export const eventVideos = pgTable(
     // verbatim with the burn container via src/lib/slides/render.ts. Null
     // until an admin defines slides for this video.
     slides: jsonb("slides").$type<SlideDocument>(),
+    // The session this recording covers. Drives the "Session N of M" title
+    // slide; null for videos that predate the link or span several sessions.
+    sessionId: integer("session_id").references(() => sessions.id, { onDelete: "set null" }),
     // Admin assertion that the uploaded file already has slides burnt in —
     // skips the burn pipeline entirely for this video.
     hasBurnedSlides: boolean("has_burned_slides").notNull().default(false),
@@ -60,6 +64,7 @@ export const eventVideos = pgTable(
   },
   (t) => [
     index("event_videos_event_id_idx").on(t.eventId),
+    index("event_videos_session_id_idx").on(t.sessionId),
     // Webhook + playback look videos up by their Bunny GUID.
     index("event_videos_bunny_video_id_idx").on(t.bunnyVideoId),
   ],
@@ -69,5 +74,9 @@ export const eventVideosRelations = relations(eventVideos, ({ one }) => ({
   event: one(events, {
     fields: [eventVideos.eventId],
     references: [events.id],
+  }),
+  session: one(sessions, {
+    fields: [eventVideos.sessionId],
+    references: [sessions.id],
   }),
 }));

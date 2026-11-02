@@ -1,7 +1,7 @@
 /**
- * "Add video" dialog: the three Section-1 choices and what each hands to the
- * parent. "Add slides later" must take the burn path (a slide document, not
- * the burnt-in declaration) with an EMPTY document, without defining slides.
+ * "Add video" dialog: exactly two choices. "Prepare slides" hands a title and
+ * a session to onPrepare (no file); "Upload a finished video" keeps the
+ * straight-to-Bunny path and pre-selects the session from the file name.
  */
 
 import { act } from "react";
@@ -11,25 +11,40 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("react-admin", () => ({
   useTranslate: () => (key: string) => key,
 }));
-vi.mock("./SlideEditor", () => ({ SlideEditor: () => null }));
 
 import { AddVideoDialog } from "./AddVideoDialog";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const SESSIONS = [
+  { id: 11, sessionNumber: 1, date: "2026-10-10", timePeriod: "morning" },
+  { id: 12, sessionNumber: 2, date: "2026-10-10", timePeriod: "evening" },
+];
+
 let container: HTMLDivElement;
 let root: Root;
 const onUpload = vi.fn();
 const onImportUrl = vi.fn(async () => {});
+const onPrepare = vi.fn(async () => {});
 
 beforeEach(() => {
   onUpload.mockClear();
   onImportUrl.mockClear();
+  onPrepare.mockClear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root.render(<AddVideoDialog open onClose={() => {}} onUpload={onUpload} onImportUrl={onImportUrl} />);
+    root.render(
+      <AddVideoDialog
+        open
+        onClose={() => {}}
+        sessions={SESSIONS}
+        onPrepare={onPrepare}
+        onUpload={onUpload}
+        onImportUrl={onImportUrl}
+      />,
+    );
   });
 });
 
@@ -48,12 +63,11 @@ const byText = (text: string): HTMLElement => {
 
 const click = (el: HTMLElement) => act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
-const uploadButton = () =>
-  byText("padmakara.videos.addDialog.uploadAction").closest("button") as HTMLButtonElement;
+const submitButton = (label: string) => byText(label).closest("button") as HTMLButtonElement;
 
-const pickFile = () => {
+const pickFile = (name: string) => {
   const input = document.body.querySelector<HTMLInputElement>('input[type="file"]')!;
-  const file = new File(["x"], "talk.mp4", { type: "video/mp4" });
+  const file = new File(["x"], name, { type: "video/mp4" });
   Object.defineProperty(input, "files", { value: [file], configurable: true });
   act(() => {
     input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -61,43 +75,60 @@ const pickFile = () => {
   return file;
 };
 
-describe("AddVideoDialog slide choices", () => {
-  it("should render the add-slides-later card next to the other two", () => {
-    expect(byText("padmakara.videos.addDialog.cardDefineTitle")).toBeTruthy();
-    expect(byText("padmakara.videos.addDialog.cardLaterTitle")).toBeTruthy();
-    expect(byText("padmakara.videos.addDialog.cardBurnedTitle")).toBeTruthy();
+const typeTitle = (value: string) => {
+  const input = document.body.querySelector<HTMLInputElement>('input[type="text"], input:not([type])')!;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  act(() => {
+    setter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+};
+
+describe("AddVideoDialog choices", () => {
+  it("should offer exactly the two choices", () => {
+    expect(byText("padmakara.videos.addDialog.cardPrepareTitle")).toBeTruthy();
+    expect(byText("padmakara.videos.addDialog.cardFinishedTitle")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("cardDefineTitle");
+    expect(document.body.textContent).not.toContain("cardLaterTitle");
+    expect(document.body.textContent).not.toContain("cardBurnedTitle");
   });
 
-  it("should keep upload disabled until a card is chosen", () => {
-    expect(uploadButton().disabled).toBe(true);
+  it("should keep the submit button disabled until a choice is made", () => {
+    expect(submitButton("padmakara.videos.addDialog.uploadAction").disabled).toBe(true);
+  });
+});
+
+describe("Prepare slides", () => {
+  it("should need a title before it can be submitted", () => {
+    click(byText("padmakara.videos.addDialog.cardPrepareTitle"));
+    expect(submitButton("padmakara.videos.addDialog.prepareAction").disabled).toBe(true);
+    typeTitle("Day 1 morning");
+    expect(submitButton("padmakara.videos.addDialog.prepareAction").disabled).toBe(false);
   });
 
-  it("should enable upload for a file without defining slides when add-slides-later is chosen", () => {
-    click(byText("padmakara.videos.addDialog.cardLaterTitle"));
-    pickFile();
-    expect(uploadButton().disabled).toBe(false);
+  it("should call onPrepare with the title and no file", async () => {
+    click(byText("padmakara.videos.addDialog.cardPrepareTitle"));
+    typeTitle("Day 1 morning");
+    await act(async () => submitButton("padmakara.videos.addDialog.prepareAction").click());
+    expect(onPrepare).toHaveBeenCalledWith({ title: "Day 1 morning", sessionId: null });
+    expect(onUpload).not.toHaveBeenCalled();
   });
+});
 
-  it("should not show the define-slides button when add-slides-later is chosen", () => {
-    click(byText("padmakara.videos.addDialog.cardLaterTitle"));
-    expect(document.body.textContent).not.toContain("padmakara.slides.gate.defineButton");
-  });
-
-  it("should submit the file with an empty slide document and no burnt-in flag", () => {
-    click(byText("padmakara.videos.addDialog.cardLaterTitle"));
-    const file = pickFile();
-    click(uploadButton());
+describe("Upload a finished video", () => {
+  it("should send null slides, the burnt-in flag and no session for a file without a date", () => {
+    click(byText("padmakara.videos.addDialog.cardFinishedTitle"));
+    const file = pickFile("talk.mp4");
+    click(submitButton("padmakara.videos.addDialog.uploadAction"));
     expect(onUpload).toHaveBeenCalledTimes(1);
-    const [sentFile, pending] = onUpload.mock.calls[0]!;
-    expect(sentFile).toBe(file);
-    expect(pending.hasBurnedSlides).toBe(false);
-    expect(pending.slides).toEqual({ version: expect.any(Number), intro: [], outro: [] });
+    expect(onUpload.mock.calls[0]![0]).toBe(file);
+    expect(onUpload.mock.calls[0]![1]).toEqual({ slides: null, hasBurnedSlides: true, sessionId: null });
   });
 
-  it("should still send null slides and the burnt-in flag for the burnt-in card", () => {
-    click(byText("padmakara.videos.addDialog.cardBurnedTitle"));
-    pickFile();
-    click(uploadButton());
-    expect(onUpload.mock.calls[0]![1]).toEqual({ slides: null, hasBurnedSlides: true });
+  it("should pre-select the session named by the file's date and period", () => {
+    click(byText("padmakara.videos.addDialog.cardFinishedTitle"));
+    pickFile("JKR-Lx-2026-10-10-PM.mp4");
+    click(submitButton("padmakara.videos.addDialog.uploadAction"));
+    expect(onUpload.mock.calls[0]![1]).toEqual({ slides: null, hasBurnedSlides: true, sessionId: 12 });
   });
 });

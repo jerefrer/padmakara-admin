@@ -1,55 +1,27 @@
 /**
- * Title-slide editor — a dialog for authoring the intro/outro slide
- * sequence burned in front of/behind an event video. Reused for two rather
- * different callers (see EventVideosSection.tsx):
+ * Title-slide editor: a full-height dialog for the intro/outro slides burned
+ * around one event video. Three columns: the sequence (left), the selected
+ * slide, editable in place (centre), and its timing and subtitle (right).
+ * Slides are always scoped to an existing video row (the add-video dialog
+ * creates it first), so every call here has a `videoId`.
  *
- *  - An EXISTING video: `useVideoSlides()` below owns the GET/PUT/POST-
- *    defaults network calls; the row's "Slides" button opens this dialog
- *    wired to that hook's `save`/`generateDefaults`.
- *  - A DRAFT for the next upload (no video id yet, since slides are always
- *    scoped to `event_videos.id`): the caller keeps a local `SlideDocument`
- *    and passes a synchronous `onSave`, with `onGenerateDefaults` omitted
- *    (there is no event_video row yet to generate defaults from).
- *
- * The editor itself doesn't know which mode it's in — it only edits a
- * SlideDocument and reports it back through `onSave`. See the design doc:
- * docs/superpowers/specs/2026-08-21-video-slides-burn-in-design.md
+ * `useVideoSlides()` below owns the GET/PUT/POST network calls; the dialog
+ * itself only edits a SlideDocument and reports it back through `onSave`.
  */
 
-import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
-import ImageIcon from "@mui/icons-material/Image";
-import SlideshowIcon from "@mui/icons-material/Slideshow";
-import ReplayIcon from "@mui/icons-material/Replay";
-import MovieCreationIcon from "@mui/icons-material/MovieCreation";
-import SaveIcon from "@mui/icons-material/Save";
-import ShortTextIcon from "@mui/icons-material/ShortText";
-import HorizontalRuleIcon from "@mui/icons-material/HorizontalRule";
-import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
-import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
-import ToggleButton from "@mui/material/ToggleButton";
-import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
 import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
-import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
-import Paper from "@mui/material/Paper";
-import Tab from "@mui/material/Tab";
-import Tabs from "@mui/material/Tabs";
-import TextField from "@mui/material/TextField";
-import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
@@ -60,10 +32,13 @@ import {
   hasAnySlides,
   isClipSlide,
   type BuiltinClipId,
-  type Line,
+  type LineSize,
   type Slide,
   type SlideDocument,
+  type Span,
+  type TextLine,
 } from "@slides/types.ts";
+import { slideEditorTokens } from "../slideEditorTokens";
 import { authFetch } from "../utils/authFetch";
 import {
   SlideGenerationError,
@@ -81,23 +56,33 @@ import {
   deleteLine,
   deleteSlide,
   duplicateSlide,
-  moveLine,
+  introSubtitleLanguage,
   moveSlide,
-  newImageLine,
   newSpacerLine,
   newTextLine,
-  type SlideSequenceKey,
-  introSubtitleLanguage,
-  subtitleText,
-  type SubtitleLanguage,
+  patchTextLine,
+  replaceLine,
   updateSlide,
-  withSubtitleText,
+  type SlideSequenceKey,
 } from "../utils/slideDocument";
+import {
+  documentDurationMs,
+  formatClock,
+  sessionLabel,
+  videoBlockState,
+  type SessionOption,
+} from "../utils/slideSequence";
+import { BurnActionButton, BurnStatusChip, type BurnDisk } from "./SlideBurnStatus";
+import { SlideCanvas, type CanvasMark, type SlideCanvasHandle } from "./SlideCanvas";
 import { SlideEditorPreview } from "./SlideEditorPreview";
-import { SlideLineRow } from "./SlideLineRow";
+import { SlideInspector } from "./SlideInspector";
+import { SlideLineToolbar } from "./SlideLineToolbar";
+import { SlideSequenceList } from "./SlideSequenceList";
+
+export { BurnActionButton, BurnStatusChip };
+export type { BurnDisk };
 
 const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
-const SEQUENCES: SlideSequenceKey[] = ["intro", "outro"];
 
 type Translate = ReturnType<typeof useTranslate>;
 
@@ -142,6 +127,9 @@ export interface VideoSlidesState {
   saving: boolean;
   reburning: boolean;
   generating: boolean;
+  copying: boolean;
+  /** Another video's slides with this video's session slide regenerated. Does not save. */
+  copyFrom: (sourceVideoId: number) => Promise<CopiedSlides | null>;
   save: (doc: SlideDocument) => Promise<boolean>;
   generateDefaults: (lang: SlideLanguage) => Promise<GeneratedSlides | null>;
   reburn: () => Promise<boolean>;
@@ -171,6 +159,7 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [reburning, setReburning] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const applyResponse = useCallback((data: SlidesApiResponse) => {
     setDoc(data.slides ?? emptySlideDocument());
@@ -267,176 +256,141 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
     }
   }, [videoId, notify, fetchData]);
 
-  return { loading, doc, hasBurnedSlides, hasMaster, burnStatus, burnError, burnDisk, saving, reburning, generating, save, generateDefaults, reburn, refresh: fetchData };
-}
-
-/* ───────── Burn action: start / retry the burn from the retained master ───────── */
-
-interface BurnActionButtonProps {
-  hasMaster: boolean;
-  slideCount: number;
-  burnStatus: string | null;
-  reburning: boolean;
-  onReburn: () => void | Promise<unknown>;
-}
-
-/** Shown only when a burn can actually be started: a retained master, at
- *  least one slide, and a burn that failed or went stale after a slide edit. */
-export const BurnActionButton = ({ hasMaster, slideCount, burnStatus, reburning, onReburn }: BurnActionButtonProps) => {
-  const translate = useTranslate();
-  if (!hasMaster || slideCount <= 0) return null;
-  if (burnStatus !== "failed" && burnStatus !== "pending") return null;
-  const label =
-    burnStatus === "failed"
-      ? translate("padmakara.slides.retryBurn", { _: "Retry" })
-      : translate("padmakara.slides.startBurn", { _: "Burn slides" });
-  return (
-    <Button
-      size="small"
-      disabled={reburning}
-      onClick={() => void onReburn()}
-      startIcon={reburning ? <CircularProgress size={12} thickness={5} color="inherit" /> : <ReplayIcon sx={{ fontSize: 15 }} />}
-      sx={{ color: "#b91c1c", fontWeight: 700, fontSize: "0.7rem", textTransform: "none", minWidth: 0, py: 0 }}
-    >
-      {label}
-    </Button>
-  );
-};
-
-/* ───────── Row chip: at-a-glance burn pipeline status ───────── */
-
-const BURN_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  pending: { bg: "rgba(0,0,0,0.05)", text: "text.secondary" },
-  queued: { bg: "#fdf2f2", text: "#9b1b1b" },
-  running: { bg: "#fffbeb", text: "#b45309" },
-  done: { bg: "#f0fdf4", text: "#15803d" },
-  failed: { bg: "#fef2f2", text: "#b91c1c" },
-};
-
-/** Disk evidence reported by the last burn container run. */
-export interface BurnDisk {
-  masterBytes: number | null;
-  peakBytes: number | null;
-}
-
-const formatGB = (bytes: number): string => `${(bytes / 1e9).toFixed(1)} GB`;
-
-/** "Master 16.3 GB · peak disk 33.1 GB", or null when nothing was measured. */
-export function burnDiskLine(disk: BurnDisk | null | undefined, translate: Translate): string | null {
-  if (!disk) return null;
-  const parts: string[] = [];
-  if (disk.masterBytes != null) {
-    parts.push(`${translate("padmakara.slides.burnDisk.master") || "Master"} ${formatGB(disk.masterBytes)}`);
-  }
-  if (disk.peakBytes != null) {
-    parts.push(`${translate("padmakara.slides.burnDisk.peak") || "peak disk"} ${formatGB(disk.peakBytes)}`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
-
-interface BurnStatusChipProps {
-  status: string | null;
-  error: string | null;
-  disk?: BurnDisk | null;
-}
-
-/** Renders nothing for "none" (the DB default — no burn pipeline activity
- *  yet, e.g. a video with no slides or one flagged "already has slides
- *  burnt in") so old/unaffected rows look exactly as before. */
-export const BurnStatusChip = ({ status, error, disk }: BurnStatusChipProps) => {
-  const translate = useTranslate();
-  if (!status || status === "none") return null;
-  const colors = BURN_STATUS_COLORS[status] ?? BURN_STATUS_COLORS.pending;
-  const label = translate(`padmakara.slides.burnStatus.${status}`, { _: status }) || status;
-
-  const chip = (
-    <Chip
-      label={label}
-      size="small"
-      icon={status === "running" ? <CircularProgress size={10} thickness={5} sx={{ color: `${colors.text} !important` }} /> : undefined}
-      sx={{
-        height: 20,
-        fontWeight: 700,
-        backgroundColor: colors.bg,
-        color: colors.text,
-        "& .MuiChip-label": { px: 0.7, fontSize: "0.65rem", letterSpacing: "0.02em" },
-        "& .MuiChip-icon": { ml: 0.6, mr: -0.2 },
-      }}
-    />
-  );
-
-  const diskLine = burnDiskLine(disk, translate);
-  const showError = status === "failed" && !!error;
-  if (!showError && !diskLine) return chip;
-  return (
-    <Tooltip
-      title={
-        <>
-          {showError && <div>{error}</div>}
-          {diskLine && <div style={{ opacity: 0.7, fontSize: "0.7rem" }}>{diskLine}</div>}
-        </>
+  const copyFrom = useCallback(
+    async (sourceVideoId: number): Promise<CopiedSlides | null> => {
+      setCopying(true);
+      try {
+        const res = await authFetch(`/api/admin/videos/${videoId}/slides/copy`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceVideoId }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return (await res.json()) as CopiedSlides;
+      } catch (err) {
+        notify(
+          `${translate("padmakara.slides.copyFailed", { _: "Could not copy slides" })}: ${err instanceof Error ? err.message : String(err)}`,
+          { type: "error" },
+        );
+        return null;
+      } finally {
+        setCopying(false);
       }
-    >
-      {chip}
-    </Tooltip>
+    },
+    [videoId, notify, translate],
   );
-};
+
+  return { loading, doc, hasBurnedSlides, hasMaster, burnStatus, burnError, burnDisk, saving, reburning, generating, copying, copyFrom, save, generateDefaults, reburn, refresh: fetchData };
+}
+
+/* ───────── Copy slides from another video ───────── */
+
+/** How a copy handled the session slide; mirrors src/lib/slides/copy.ts. */
+export type SessionSlideOutcome = "replaced" | "removed" | "unknown";
+
+export interface CopiedSlides {
+  slides: SlideDocument;
+  sessionSlide: SessionSlideOutcome;
+}
+
+export interface CopySource {
+  id: number;
+  label: string;
+}
+
+/** What the last generation, copy or session change has to tell the admin, until dismissed. */
+type EditorNotice =
+  | { kind: "generation"; missing: MissingSlideInput[] }
+  | { kind: "copy"; outcome: SessionSlideOutcome }
+  | { kind: "session" };
 
 /* ───────── The editor dialog itself ───────── */
 
 export interface PendingUploadSlides {
   slides: SlideDocument | null;
   hasBurnedSlides: boolean;
+  /** The session the finished file belongs to, when known. */
+  sessionId?: number | null;
 }
 
 export interface SlideEditorProps {
   open: boolean;
   onClose: () => void;
   title: string;
-  /** Needed for image-line uploads (presign-file) — see ImageLineEditor. */
-  eventCode?: string;
-  /** Needed to resolve already-saved image s3Keys to previewable URLs (see
-   *  the image-urls fetch below). Omitted for the pre-upload draft editor —
-   *  there is no event_video row yet, so every image line in that document
-   *  is necessarily a fresh upload already covered by the blob cache. */
-  videoId?: number;
-  /** Needed so "Generate from event data" works in draft mode (no videoId
-   *  yet — see AddVideoDialog.tsx). When `onGenerateDefaults` isn't given
-   *  explicitly, the editor falls back to calling the event-scoped
-   *  POST /api/admin/events/:id/slides/defaults itself using this id. Not
-   *  needed when `onGenerateDefaults` IS given (the existing-video case —
-   *  useVideoSlides already wires up the video-scoped equivalent). */
-  eventId?: number;
+  videoId: number;
   initialDocument: SlideDocument;
   onSave: (doc: SlideDocument) => Promise<boolean | void> | boolean | void;
   saving?: boolean;
-  /** Explicit override for "Generate from event data" — used for an
-   *  EXISTING video (useVideoSlides.generateDefaults, video-scoped: prefers
-   *  the video's own date). Omit to fall back to the event-scoped generator
-   *  driven by `eventId` above (draft/pre-upload mode). */
-  onGenerateDefaults?: (lang: SlideLanguage) => Promise<GeneratedSlides | null>;
+  onGenerateDefaults: (lang: SlideLanguage) => Promise<GeneratedSlides | null>;
   generating?: boolean;
+  /** Other videos of the event that have slides, for "Copy from another video". */
+  copySources: CopySource[];
+  onCopyFrom: (sourceVideoId: number) => Promise<CopiedSlides | null>;
+  copying?: boolean;
+  /** The event's sessions, the video's own, and the change handler. */
+  sessions: SessionOption[];
+  sessionId: number | null;
+  onChangeSession: (sessionId: number | null) => Promise<void> | void;
+  /** True when the row has a file (a master or a Bunny video). */
+  videoUploaded: boolean;
+  onUploadVideo?: () => void;
   burnStatus?: string | null;
   burnError?: string | null;
   burnDisk?: BurnDisk | null;
-  /** Existing-video mode only: lets the dialog offer the burn action. */
   hasMaster?: boolean;
   reburning?: boolean;
   onReburn?: () => void | Promise<unknown>;
+}
+
+interface Selection {
+  sequence: SlideSequenceKey;
+  slideId: string | null;
+}
+
+/** Text of the notice shown under the header. */
+function noticeText(notice: EditorNotice, translate: Translate): string | null {
+  switch (notice.kind) {
+    case "generation":
+      return generationNoticeText(notice.missing, translate);
+    case "copy":
+      if (notice.outcome === "replaced") {
+        return translate("padmakara.slides.copyReplaced", {
+          _: "Slides copied. Only the session slide was regenerated for this video's session.",
+        });
+      }
+      if (notice.outcome === "removed") {
+        return translate("padmakara.slides.copyRemoved", {
+          _: "Slides copied. This video has no session, so the session slide was left out.",
+        });
+      }
+      return translate("padmakara.slides.copyUnknown", {
+        _: "Slides copied as they are. The source has no marked session slide, so check the session slide before saving.",
+      });
+    case "session":
+      return translate("padmakara.slides.sessionChanged", {
+        _: "Session changed. Generate the slides again or check the session slide.",
+      });
+  }
 }
 
 export const SlideEditor = ({
   open,
   onClose,
   title,
-  eventCode,
   videoId,
-  eventId,
   initialDocument,
   onSave,
   saving,
   onGenerateDefaults,
   generating,
+  copySources,
+  onCopyFrom,
+  copying,
+  sessions,
+  sessionId,
+  onChangeSession,
+  videoUploaded,
+  onUploadVideo,
   burnStatus,
   burnError,
   burnDisk,
@@ -445,51 +399,41 @@ export const SlideEditor = ({
   onReburn,
 }: SlideEditorProps) => {
   const translate = useTranslate();
-  const notify = useNotify();
   const [doc, setDoc] = useState<SlideDocument>(initialDocument);
-  const [tab, setTab] = useState<SlideSequenceKey>("intro");
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selection, setSelection] = useState<Selection>({ sequence: "intro", slideId: initialDocument.intro[0]?.id ?? null });
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
+  const [marks, setMarks] = useState<Record<CanvasMark, boolean>>({ bold: false, italic: false });
+  const [notice, setNotice] = useState<EditorNotice | null>(null);
+  const [slidesLanguage, setSlidesLanguage] = useState<SlideLanguage>("en");
   const [localSaving, setLocalSaving] = useState(false);
-  const blobUrls = useRef<Map<string, string>>(new Map());
-  // Presigned GET URLs for image s3Keys that came from an already-saved
-  // slide document (as opposed to a fresh upload in this session, which
-  // lives in blobUrls above). Populated by the effect below.
+  const [playing, setPlaying] = useState(false);
+  const [generateAnchor, setGenerateAnchor] = useState<HTMLElement | null>(null);
+  const [copyAnchor, setCopyAnchor] = useState<HTMLElement | null>(null);
+  const [sessionAnchor, setSessionAnchor] = useState<HTMLElement | null>(null);
+  const canvasRef = useRef<SlideCanvasHandle | null>(null);
+  // Presigned GET URLs for image s3Keys of an already-saved document.
   const remoteUrls = useRef<Map<string, string>>(new Map());
   const [, forceRerender] = useReducer((c: number) => c + 1, 0);
 
-  // Re-seed from whatever the caller currently has whenever the dialog opens
-  // — covers both "existing video" (freshly fetched doc) and "draft" (the
-  // parent's in-progress local document) callers.
+  // Re-seed from the caller's document whenever the dialog opens.
   useEffect(() => {
     if (!open) return;
     setDoc(initialDocument);
-    setTab("intro");
-    setSelectedIndex(0);
+    setSelection({ sequence: "intro", slideId: initialDocument.intro[0]?.id ?? null });
+    setSelectedLineId(null);
+    setNotice(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  useEffect(
-    () => () => {
-      for (const url of blobUrls.current.values()) URL.revokeObjectURL(url);
-    },
-    [],
-  );
-
-  // Resolve already-saved image lines (neither builtin nor a blob from this
-  // session) to presigned URLs in one batched call, so the preview can show
-  // an image line that was uploaded in a previous editing session. Draft
-  // mode (no videoId yet) has nothing to resolve — every image there is
-  // necessarily a fresh upload already covered by blobUrls.
+  // Resolve saved image lines (neither builtin nor empty) to presigned URLs in
+  // one batched call, so the slide can show an image uploaded earlier.
   useEffect(() => {
-    if (!open || !videoId) return;
+    if (!open) return;
     const keys = new Set<string>();
-    for (const seq of SEQUENCES) {
-      for (const s of initialDocument[seq]) {
+    for (const slides of [initialDocument.intro, initialDocument.outro]) {
+      for (const s of slides) {
         for (const line of s.lines) {
-          if (line.type !== "image" || !line.s3Key) continue;
-          if (isBuiltinKey(line.s3Key)) continue;
-          if (blobUrls.current.has(line.s3Key)) continue;
-          keys.add(line.s3Key);
+          if (line.type === "image" && line.s3Key && !isBuiltinKey(line.s3Key)) keys.add(line.s3Key);
         }
       }
     }
@@ -505,13 +449,10 @@ export const SlideEditor = ({
         });
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as { urls: Record<string, string> };
-        for (const [key, url] of Object.entries(data.urls)) {
-          remoteUrls.current.set(key, url);
-        }
+        for (const [key, url] of Object.entries(data.urls)) remoteUrls.current.set(key, url);
         if (!cancelled) forceRerender();
       } catch {
-        // Silent — mirrors fetchData above: the affected images just stay
-        // unresolved in the preview instead of crashing the dialog.
+        // Silent: the affected images stay unresolved instead of crashing the dialog.
       }
     })();
     return () => {
@@ -522,101 +463,127 @@ export const SlideEditor = ({
   const resolveImageUrl = useCallback((key: string): string => {
     if (!key) return TRANSPARENT_PIXEL;
     if (isBuiltinKey(key)) return `/images/${builtinFilename(key)}`;
-    return blobUrls.current.get(key) ?? remoteUrls.current.get(key) ?? TRANSPARENT_PIXEL;
+    return remoteUrls.current.get(key) ?? TRANSPARENT_PIXEL;
   }, []);
-
-  const handleImageUploaded = useCallback((key: string, file: File) => {
-    const prev = blobUrls.current.get(key);
-    if (prev) URL.revokeObjectURL(prev);
-    blobUrls.current.set(key, URL.createObjectURL(file));
-    forceRerender();
-  }, []);
+  const resolveClipUrl = useCallback((clip: BuiltinClipId): string => `/images/${BUILTIN_CLIPS[clip].filename}`, []);
 
   const dirty = useMemo(() => JSON.stringify(doc) !== JSON.stringify(initialDocument), [doc, initialDocument]);
 
-  const activeSlides = doc[tab];
-  const safeIndex = activeSlides.length === 0 ? 0 : Math.min(selectedIndex, activeSlides.length - 1);
+  // The selection can point at a slide that was deleted or replaced; fall back to the first one.
+  const sequenceSlides = doc[selection.sequence];
+  const selectedSlide: Slide | null =
+    sequenceSlides.find((s) => s.id === selection.slideId) ?? sequenceSlides[0] ?? null;
+  const selectedSlideId = selectedSlide?.id ?? null;
+  const selectedLine = selectedSlide?.lines.find((l) => l.id === selectedLineId) ?? null;
+  const isClip = !!selectedSlide && isClipSlide(selectedSlide);
 
-  const handleTabChange = (_: React.SyntheticEvent, value: SlideSequenceKey) => {
-    setTab(value);
-    setSelectedIndex(0);
+  const subtitleLang = introSubtitleLanguage(doc, slidesLanguage);
+  const session = sessions.find((s) => s.id === sessionId) ?? null;
+
+  const select = (sequence: SlideSequenceKey, slideId: string | null) => {
+    setSelection({ sequence, slideId });
+    setSelectedLineId(null);
   };
 
-  const resolveClipUrl = useCallback((clip: BuiltinClipId): string => `/images/${BUILTIN_CLIPS[clip].filename}`, []);
-
-  const handleAddLogoClip = () => {
-    setDoc((d) => addLogoClip(d));
-    setSelectedIndex(0);
+  const replaceDocument = (next: SlideDocument) => {
+    setDoc(next);
+    if (next.intro.length > 0 || next.outro.length === 0) select("intro", next.intro[0]?.id ?? null);
+    else select("outro", next.outro[0]?.id ?? null);
   };
 
-  const handleAddSlide = () => {
-    setDoc((d) => addSlide(d, tab));
-    setSelectedIndex(activeSlides.length);
+  const handleAddSlide = (sequence: SlideSequenceKey) => {
+    const next = addSlide(doc, sequence);
+    setDoc(next);
+    select(sequence, next[sequence][next[sequence].length - 1]?.id ?? null);
   };
 
-  const handleDuplicateSlide = (slideId: string) => {
-    const idx = activeSlides.findIndex((s) => s.id === slideId);
-    setDoc((d) => duplicateSlide(d, tab, slideId));
-    if (idx >= 0) setSelectedIndex(idx + 1);
+  const handleDeleteSlide = () => {
+    if (!selectedSlide) return;
+    const { sequence } = selection;
+    const index = doc[sequence].findIndex((s) => s.id === selectedSlide.id);
+    const next = deleteSlide(doc, sequence, selectedSlide.id);
+    setDoc(next);
+    select(sequence, next[sequence][Math.min(index, next[sequence].length - 1)]?.id ?? null);
   };
 
-  const handleDeleteSlide = (slideId: string) => {
-    setDoc((d) => deleteSlide(d, tab, slideId));
+  const handleDuplicateSlide = () => {
+    if (!selectedSlide) return;
+    const { sequence } = selection;
+    const index = doc[sequence].findIndex((s) => s.id === selectedSlide.id);
+    const next = duplicateSlide(doc, sequence, selectedSlide.id);
+    setDoc(next);
+    select(sequence, next[sequence][index + 1]?.id ?? null);
   };
 
-  const handleMoveSlide = (slideId: string, direction: -1 | 1) => {
-    const idx = activeSlides.findIndex((s) => s.id === slideId);
-    setDoc((d) => moveSlide(d, tab, slideId, direction));
-    if (idx === selectedIndex) setSelectedIndex(idx + direction);
+  const handleMoveSlide = (direction: -1 | 1) => {
+    if (!selectedSlide) return;
+    setDoc((d) => moveSlide(d, selection.sequence, selectedSlide.id, direction));
   };
 
-  // Draft mode (no videoId → no video-scoped useVideoSlides hook to supply
-  // onGenerateDefaults) falls back to the event-scoped defaults route, so
-  // "Generate from event data" is just as usable before a video exists as
-  // after — slides are meant to be authored BEFORE the upload, not after.
-  const [eventGenerating, setEventGenerating] = useState(false);
-  const generateFromEvent = useCallback(
-    async (lang: SlideLanguage): Promise<GeneratedSlides | null> => {
-      if (!eventId) return null;
-      setEventGenerating(true);
-      try {
-        return await requestDefaultSlides(`/api/admin/events/${eventId}/slides/defaults`, { lang });
-      } catch (err) {
-        notify(generationErrorMessage(err, translate), { type: "error" });
-        return null;
-      } finally {
-        setEventGenerating(false);
-      }
-    },
-    [eventId, notify, translate],
-  );
+  const handleSpans = (lineId: string, spans: Span[]) => {
+    if (!selectedSlideId) return;
+    const line = selectedSlide?.lines.find((l) => l.id === lineId);
+    if (!line || line.type !== "text") return;
+    setDoc((d) => replaceLine(d, selection.sequence, selectedSlideId, lineId, { ...line, spans }));
+  };
 
-  // The language the generated slides are written in. Slides are burned in one
-  // language per video; the other arrives as subtitles.
-  const [generateLang, setGenerateLang] = useState<SlideLanguage>("en");
-  const subtitleLang = introSubtitleLanguage(doc, generateLang);
-  // What the last generation could not find, shown until the next one.
-  const [generationNotice, setGenerationNotice] = useState<MissingSlideInput[] | null>(null);
+  const patchSelectedText = (patch: Partial<Pick<TextLine, "size" | "dim" | "smallCaps">>) => {
+    if (!selectedSlideId || !selectedLineId) return;
+    setDoc((d) => patchTextLine(d, selection.sequence, selectedSlideId, selectedLineId, patch));
+  };
 
-  const effectiveGenerateDefaults = onGenerateDefaults ?? (eventId ? generateFromEvent : undefined);
-  const effectiveGenerating = onGenerateDefaults ? (generating ?? false) : eventGenerating;
+  const handleAddLine = (kind: "text" | "space") => {
+    if (!selectedSlideId) return;
+    const line = kind === "text" ? newTextLine() : newSpacerLine();
+    setDoc((d) => addLine(d, selection.sequence, selectedSlideId, line));
+    setSelectedLineId(line.id);
+  };
 
-  const handleGenerate = async () => {
-    if (!effectiveGenerateDefaults) return;
-    if (hasAnySlides(doc)) {
-      const ok = window.confirm(
-        translate("padmakara.slides.generateConfirm") ||
-          "This replaces the current slides with a template generated from the event's data. Continue?",
-      );
-      if (!ok) return;
+  const handleDeleteLine = () => {
+    if (!selectedSlideId || !selectedLineId) return;
+    setDoc((d) => deleteLine(d, selection.sequence, selectedSlideId, selectedLineId));
+    setSelectedLineId(null);
+  };
+
+  const confirmReplace = (): boolean =>
+    !hasAnySlides(doc) ||
+    window.confirm(
+      translate("padmakara.slides.generateConfirm", {
+        _: "This replaces the current slides with a template generated from the event's data. Continue?",
+      }),
+    );
+
+  const handleGenerate = async (lang: SlideLanguage) => {
+    setGenerateAnchor(null);
+    if (!confirmReplace()) return;
+    const generated = await onGenerateDefaults(lang);
+    if (!generated) return;
+    replaceDocument(generated.slides);
+    setSlidesLanguage(generated.language);
+    setNotice({ kind: "generation", missing: generated.missing });
+  };
+
+  const handleCopy = async (sourceId: number) => {
+    setCopyAnchor(null);
+    if (
+      hasAnySlides(doc) &&
+      !window.confirm(
+        translate("padmakara.slides.copyConfirm", { _: "This replaces the current slides with the other video's. Continue?" }),
+      )
+    ) {
+      return;
     }
-    const generated = await effectiveGenerateDefaults(generateLang);
-    if (generated) {
-      setDoc(generated.slides);
-      setGenerationNotice(generated.missing);
-      setTab("intro");
-      setSelectedIndex(0);
-    }
+    const copied = await onCopyFrom(sourceId);
+    if (!copied) return;
+    replaceDocument(copied.slides);
+    setNotice({ kind: "copy", outcome: copied.sessionSlide });
+  };
+
+  const handleChangeSession = async (next: number) => {
+    setSessionAnchor(null);
+    if (next === sessionId) return;
+    await onChangeSession(next);
+    setNotice({ kind: "session" });
   };
 
   const handleSave = async () => {
@@ -630,401 +597,276 @@ export const SlideEditor = ({
   };
 
   const handleRequestClose = () => {
-    if (dirty) {
-      const ok = window.confirm(
-        translate("padmakara.slides.unsavedConfirm") || "Discard unsaved changes to the slides?",
-      );
-      if (!ok) return;
+    if (
+      dirty &&
+      !window.confirm(translate("padmakara.slides.unsavedConfirm", { _: "Discard unsaved changes to the slides?" }))
+    ) {
+      return;
     }
     onClose();
   };
 
   const isSaving = saving ?? localSaving;
+  const noticeMessage = notice ? noticeText(notice, translate) : null;
+  const busy = !!generating || !!copying;
+  const languageName = (lang: SlideLanguage) =>
+    lang === "pt"
+      ? translate("padmakara.slides.languagePortuguese", { _: "Portuguese" })
+      : translate("padmakara.slides.languageEnglish", { _: "English" });
 
   return (
-    <Dialog open={open} onClose={handleRequestClose} maxWidth="lg" fullWidth slotProps={{ paper: { sx: { height: "88vh" } } }}>
-      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 6 }}>
-        <MovieCreationIcon sx={{ color: "primary.main" }} />
-        <Typography variant="h6" sx={{ fontWeight: 600, fontSize: "1.05rem", flex: 1 }} noWrap>
-          {title}
-        </Typography>
-        <BurnStatusChip status={burnStatus ?? null} error={burnError ?? null} disk={burnDisk ?? null} />
-        {onReburn && (
-          <BurnActionButton
-            hasMaster={!!hasMaster}
-            slideCount={initialDocument.intro.length + initialDocument.outro.length}
-            burnStatus={burnStatus ?? null}
-            reburning={!!reburning}
-            onReburn={onReburn}
-          />
-        )}
-        <IconButton onClick={handleRequestClose} sx={{ position: "absolute", right: 12, top: 12 }}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </DialogTitle>
-
-      <Box sx={{ px: 3, display: "flex", alignItems: "center", gap: 2, borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
-        <Tabs value={tab} onChange={handleTabChange} sx={{ minHeight: 40 }}>
-          <Tab
-            value="intro"
-            label={`${translate("padmakara.slides.intro") || "Intro"} (${doc.intro.length})`}
-            sx={{ minHeight: 40, textTransform: "none", fontSize: "0.85rem" }}
-          />
-          <Tab
-            value="outro"
-            label={`${translate("padmakara.slides.outro") || "Outro"} (${doc.outro.length})`}
-            sx={{ minHeight: 40, textTransform: "none", fontSize: "0.85rem" }}
-          />
-        </Tabs>
-        <Box sx={{ flex: 1 }} />
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          value={generateLang}
-          onChange={(_, value: SlideLanguage | null) => value && setGenerateLang(value)}
-          aria-label={translate("padmakara.slides.generateLanguage") || "Language of the generated slides"}
-          disabled={effectiveGenerating}
+    <Dialog open={open} onClose={handleRequestClose} fullScreen>
+      <Box sx={{ display: "flex", flexDirection: "column", height: "100%", color: slideEditorTokens.ink }}>
+        <Box
+          component="header"
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1.5,
+            px: 2.5,
+            py: 1.25,
+            borderBottom: `1px solid ${slideEditorTokens.border}`,
+          }}
         >
-          <ToggleButton value="en" sx={{ px: 1, py: 0.25, fontSize: "0.72rem" }}>EN</ToggleButton>
-          <ToggleButton value="pt" sx={{ px: 1, py: 0.25, fontSize: "0.72rem" }}>PT</ToggleButton>
-        </ToggleButtonGroup>
-        <Button
-          size="small"
-          startIcon={effectiveGenerating ? <CircularProgress size={14} /> : <AutoAwesomeIcon sx={{ fontSize: 16 }} />}
-          disabled={!effectiveGenerateDefaults || effectiveGenerating}
-          onClick={() => void handleGenerate()}
-          sx={{ textTransform: "none", fontSize: "0.78rem" }}
-        >
-          {translate("padmakara.slides.generateFromEvent") || "Generate from event data"}
-        </Button>
-      </Box>
-
-      {effectiveGenerating && (
-        <Alert severity="info" icon={<CircularProgress size={16} />} sx={{ mx: 3, mt: 1.5 }}>
-          {translate("padmakara.slides.generating") || "Generating slides from the event data…"}
-        </Alert>
-      )}
-      {!effectiveGenerating && generationNotice && generationNoticeText(generationNotice, translate) && (
-        <Alert
-          severity={nothingToGenerateFrom(generationNotice) ? "warning" : "info"}
-          onClose={() => setGenerationNotice(null)}
-          sx={{ mx: 3, mt: 1.5 }}
-        >
-          {generationNoticeText(generationNotice, translate)}
-        </Alert>
-      )}
-
-      <DialogContent sx={{ display: "flex", gap: 3, p: 3, overflow: "hidden" }}>
-        <Box sx={{ flex: "1 1 60%", overflowY: "auto", pr: 1 }}>
-          {/* The two tabs look like separate sequences; say where each one plays. */}
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            {tab === "intro"
-              ? translate("padmakara.slides.introHint") || "These slides play before the video."
-              : translate("padmakara.slides.outroHint") || "These slides play after the video."}
-          </Typography>
-          {activeSlides.length === 0 && (
-            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: "italic", mb: 2 }}>
-              {translate("padmakara.slides.empty") || "No slides yet"}
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="h6" component="h2" noWrap sx={{ fontWeight: 600, fontSize: "1.05rem", color: slideEditorTokens.ink }}>
+              {title}
             </Typography>
-          )}
-          {activeSlides.map((slide, idx) => (
-            <SlideCard
-              key={slide.id}
-              slide={slide}
-              index={idx}
-              isFirst={idx === 0}
-              isLast={idx === activeSlides.length - 1}
-              selected={idx === safeIndex}
-              eventCode={eventCode}
-              resolveImageUrl={resolveImageUrl}
-              onSelect={() => setSelectedIndex(idx)}
-              onUpdateSlide={(patch) => setDoc((d) => updateSlide(d, tab, slide.id, patch))}
-              subtitleLang={tab === "intro" ? subtitleLang : undefined}
-              onDuplicate={() => handleDuplicateSlide(slide.id)}
-              onDelete={() => handleDeleteSlide(slide.id)}
-              onMoveUp={() => handleMoveSlide(slide.id, -1)}
-              onMoveDown={() => handleMoveSlide(slide.id, 1)}
-              onAddLine={(line) => setDoc((d) => addLine(d, tab, slide.id, line))}
-              onUpdateLine={(line) =>
-                setDoc((d) => ({
-                  ...d,
-                  [tab]: d[tab].map((s) =>
-                    s.id === slide.id ? { ...s, lines: s.lines.map((l) => (l.id === line.id ? line : l)) } : s,
-                  ),
-                }))
-              }
-              onDeleteLine={(lineId) => setDoc((d) => deleteLine(d, tab, slide.id, lineId))}
-              onMoveLine={(lineId, direction) => setDoc((d) => moveLine(d, tab, slide.id, lineId, direction))}
-              onImageUploaded={handleImageUploaded}
-            />
-          ))}
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, fontSize: "0.8rem", color: slideEditorTokens.muted }}>
+              <span>
+                {session
+                  ? sessionLabel(session, sessions)
+                  : translate("padmakara.slides.noSession", { _: "No session chosen" })}
+              </span>
+              {sessions.length > 0 && (
+                <Button
+                  size="small"
+                  onClick={(e) => setSessionAnchor(e.currentTarget)}
+                  aria-haspopup="menu"
+                  sx={{ minWidth: 0, py: 0, px: 0.5, fontSize: "0.8rem", color: "primary.main" }}
+                >
+                  {translate("padmakara.slides.changeSession", { _: "Change" })}
+                </Button>
+              )}
+              <Menu anchorEl={sessionAnchor} open={!!sessionAnchor} onClose={() => setSessionAnchor(null)}>
+                {[...sessions]
+                  .sort((a, b) => a.sessionNumber - b.sessionNumber)
+                  .map((s) => (
+                    <MenuItem key={s.id} selected={s.id === sessionId} onClick={() => void handleChangeSession(s.id)}>
+                      {sessionLabel(s, sessions)}
+                    </MenuItem>
+                  ))}
+              </Menu>
+            </Box>
+          </Box>
+
           <Button
             size="small"
-            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-            onClick={handleAddSlide}
-            sx={{ textTransform: "none", fontSize: "0.8rem", mt: 1 }}
+            startIcon={copying ? <CircularProgress size={14} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
+            disabled={copySources.length === 0 || busy}
+            onClick={(e) => setCopyAnchor(e.currentTarget)}
+            aria-haspopup="menu"
+            sx={{ color: slideEditorTokens.ink }}
           >
-            {translate("padmakara.slides.addSlide") || "Add slide"}
+            {translate("padmakara.slides.copyFromVideo", { _: "Copy from another video" })}
           </Button>
-          {tab === "intro" && !hasLogoClip(doc) && (
-            <Button
-              size="small"
-              startIcon={<SlideshowIcon sx={{ fontSize: 16 }} />}
-              onClick={handleAddLogoClip}
-              sx={{ textTransform: "none", fontSize: "0.8rem", mt: 1, ml: 1 }}
-            >
-              {translate("padmakara.slides.addLogoClip") || "Add logo animation"}
-            </Button>
-          )}
+          <Menu anchorEl={copyAnchor} open={!!copyAnchor} onClose={() => setCopyAnchor(null)}>
+            {copySources.map((source) => (
+              <MenuItem key={source.id} onClick={() => void handleCopy(source.id)}>
+                {source.label}
+              </MenuItem>
+            ))}
+          </Menu>
+
+          <Button
+            size="small"
+            startIcon={generating ? <CircularProgress size={14} /> : <AutoAwesomeIcon sx={{ fontSize: 16 }} />}
+            endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 16 }} />}
+            disabled={busy}
+            onClick={(e) => setGenerateAnchor(e.currentTarget)}
+            aria-haspopup="menu"
+            sx={{ color: slideEditorTokens.ink }}
+          >
+            {translate("padmakara.slides.generateIn", { language: languageName(slidesLanguage), _: `Generate in ${languageName(slidesLanguage)}` })}
+          </Button>
+          <Menu anchorEl={generateAnchor} open={!!generateAnchor} onClose={() => setGenerateAnchor(null)}>
+            {(["en", "pt"] as const).map((lang) => (
+              <MenuItem key={lang} onClick={() => void handleGenerate(lang)}>
+                {languageName(lang)}
+              </MenuItem>
+            ))}
+          </Menu>
+
+          <Button
+            variant="contained"
+            disableElevation
+            disabled={!dirty || isSaving}
+            startIcon={isSaving ? <CircularProgress size={14} color="inherit" /> : undefined}
+            onClick={() => void handleSave()}
+          >
+            {translate("padmakara.slides.saveSlides", { _: "Save slides" })}
+          </Button>
+          <IconButton onClick={handleRequestClose} aria-label={translate("padmakara.slides.close", { _: "Close" })}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
         </Box>
 
-        <Box sx={{ flex: "1 1 40%", minWidth: 320, maxWidth: 460 }}>
-          <SlideEditorPreview
-            slides={activeSlides}
-            selectedIndex={safeIndex}
-            onSelectIndex={setSelectedIndex}
+        {busy && (
+          <Alert severity="info" icon={<CircularProgress size={16} />} sx={{ mx: 2.5, mt: 1.5 }}>
+            {generating
+              ? translate("padmakara.slides.generating", { _: "Generating slides from the event data…" })
+              : translate("padmakara.slides.copying", { _: "Copying slides…" })}
+          </Alert>
+        )}
+        {!busy && notice && noticeMessage && (
+          <Alert
+            severity={notice.kind === "generation" && nothingToGenerateFrom(notice.missing) ? "warning" : "info"}
+            onClose={() => setNotice(null)}
+            sx={{ mx: 2.5, mt: 1.5 }}
+          >
+            {noticeMessage}
+          </Alert>
+        )}
+
+        <Box sx={{ flex: 1, minHeight: 0, display: "flex", mt: 1.5, borderTop: `1px solid ${slideEditorTokens.border}` }}>
+          <SlideSequenceList
+            intro={doc.intro}
+            outro={doc.outro}
+            selection={{ sequence: selection.sequence, slideId: selectedSlideId }}
             resolveImageUrl={resolveImageUrl}
-            resolveClipUrl={resolveClipUrl}
+            onSelect={select}
+            onAdd={handleAddSlide}
+            onAddLogo={
+              hasLogoClip(doc)
+                ? undefined
+                : () => {
+                    const next = addLogoClip(doc);
+                    setDoc(next);
+                    select("intro", next.intro[0]?.id ?? null);
+                  }
+            }
+            video={{
+              state: videoBlockState({ hasFile: videoUploaded, burnStatus: burnStatus ?? null }),
+              burnStatus: burnStatus ?? null,
+              burnError: burnError ?? null,
+              burnDisk: burnDisk ?? null,
+              hasMaster: !!hasMaster,
+              slideCount: initialDocument.intro.length + initialDocument.outro.length,
+              reburning: !!reburning,
+              onReburn: onReburn ?? (() => undefined),
+              onUploadVideo,
+            }}
+          />
+
+          <Box
+            component="main"
+            sx={{
+              flex: 1,
+              minWidth: 0,
+              overflowY: "auto",
+              backgroundColor: slideEditorTokens.ground,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 2,
+              p: 3,
+            }}
+          >
+            {!isClip && selectedSlide && (
+              <SlideLineToolbar
+                line={selectedLine}
+                marks={marks}
+                onSize={(size: LineSize) => patchSelectedText({ size })}
+                onMark={(mark) => canvasRef.current?.applyMark(mark)}
+                onToggleSmallCaps={() =>
+                  patchSelectedText({ smallCaps: selectedLine?.type === "text" ? !selectedLine.smallCaps : undefined })
+                }
+                onToggleDim={() => patchSelectedText({ dim: selectedLine?.type === "text" ? !selectedLine.dim : undefined })}
+                onDelete={handleDeleteLine}
+              />
+            )}
+
+            <Box sx={{ width: "100%", maxWidth: 760 }}>
+              <SlideCanvas
+                ref={canvasRef}
+                slide={selectedSlide}
+                selectedLineId={selectedLineId}
+                onSelectLine={setSelectedLineId}
+                onChangeSpans={handleSpans}
+                onMarksChange={setMarks}
+                resolveImageUrl={resolveImageUrl}
+                resolveClipUrl={resolveClipUrl}
+                emptyLabel={translate("padmakara.slides.empty", { _: "No slides yet" })}
+                frameLabel={translate("padmakara.slides.canvasLabel", { _: "Selected slide" })}
+              />
+            </Box>
+
+            <Box sx={{ width: "100%", maxWidth: 760, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+              <Box sx={{ flex: 1, minWidth: 220, fontSize: "0.78rem", color: slideEditorTokens.muted }}>
+                {!isClip &&
+                  translate("padmakara.slides.canvasHint", {
+                    _: "Click any text on the slide to edit it. Enter starts a new line.",
+                  })}
+              </Box>
+              {!isClip && selectedSlide && (
+                <>
+                  <Button size="small" onClick={() => handleAddLine("text")} sx={{ color: "primary.main" }}>
+                    {translate("padmakara.slides.addText", { _: "+ Add text" })}
+                  </Button>
+                  <Button size="small" onClick={() => handleAddLine("space")} sx={{ color: "primary.main" }}>
+                    {translate("padmakara.slides.addSpace", { _: "+ Add space" })}
+                  </Button>
+                </>
+              )}
+              <Button
+                size="small"
+                variant="outlined"
+                disabled={doc.intro.length === 0}
+                startIcon={<PlayArrowIcon sx={{ fontSize: 16 }} />}
+                onClick={() => setPlaying(true)}
+              >
+                {translate("padmakara.slides.playIntro", { _: "Play intro" })}
+              </Button>
+            </Box>
+            <Box sx={{ fontSize: "0.72rem", color: slideEditorTokens.muted }}>
+              {`${translate("padmakara.slides.totalLength", { _: "Slides total" })}: ${formatClock(documentDurationMs(doc))}`}
+            </Box>
+          </Box>
+
+          <SlideInspector
+            slide={selectedSlide}
+            subtitleLang={selection.sequence === "intro" ? subtitleLang : undefined}
+            onTiming={(patch) => selectedSlideId && setDoc((d) => updateSlide(d, selection.sequence, selectedSlideId, patch))}
+            onSubtitle={(patch) => selectedSlideId && setDoc((d) => updateSlide(d, selection.sequence, selectedSlideId, patch))}
+            onMove={handleMoveSlide}
+            canMoveUp={!!selectedSlide && sequenceSlides.findIndex((s) => s.id === selectedSlide.id) > 0}
+            canMoveDown={
+              !!selectedSlide && sequenceSlides.findIndex((s) => s.id === selectedSlide.id) < sequenceSlides.length - 1
+            }
+            onDuplicate={handleDuplicateSlide}
+            onDelete={handleDeleteSlide}
           />
         </Box>
-      </DialogContent>
+      </Box>
 
-      <DialogActions sx={{ px: 3, py: 2, borderTop: "1px solid rgba(0,0,0,0.08)" }}>
-        <Button onClick={handleRequestClose} color="inherit" sx={{ textTransform: "none" }}>
-          {translate("padmakara.slides.cancel") || translate("ra.action.cancel") || "Cancel"}
-        </Button>
-        <Button
-          variant="contained"
-          disableElevation
-          disabled={!dirty || isSaving}
-          startIcon={isSaving ? <CircularProgress size={14} color="inherit" /> : <SaveIcon sx={{ fontSize: 16 }} />}
-          onClick={() => void handleSave()}
-          sx={{ textTransform: "none" }}
-        >
-          {translate("padmakara.slides.save") || "Save"}
-        </Button>
-      </DialogActions>
+      <Dialog open={playing} onClose={() => setPlaying(false)} maxWidth="md" fullWidth>
+        <Box sx={{ p: 2 }}>
+          <SlideEditorPreview
+            slides={doc.intro}
+            selectedIndex={0}
+            onSelectIndex={() => undefined}
+            resolveImageUrl={resolveImageUrl}
+            resolveClipUrl={resolveClipUrl}
+            autoPlay
+          />
+          <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
+            <Button color="inherit" onClick={() => setPlaying(false)}>
+              {translate("padmakara.slides.close", { _: "Close" })}
+            </Button>
+          </Box>
+        </Box>
+      </Dialog>
     </Dialog>
   );
 };
-
-/* ───────── One slide card: timing + line list ───────── */
-
-interface SlideCardProps {
-  slide: Slide;
-  index: number;
-  isFirst: boolean;
-  isLast: boolean;
-  selected: boolean;
-  eventCode?: string;
-  resolveImageUrl: (s3Key: string) => string;
-  onSelect: () => void;
-  onUpdateSlide: (patch: Partial<Pick<Slide, "durationMs" | "fadeMs" | "subtitles">>) => void;
-  /** Language of the subtitle field; undefined hides it (the outro has none). */
-  subtitleLang?: SubtitleLanguage;
-  onDuplicate: () => void;
-  onDelete: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onAddLine: (line: Line) => void;
-  onUpdateLine: (line: Line) => void;
-  onDeleteLine: (lineId: string) => void;
-  onMoveLine: (lineId: string, direction: -1 | 1) => void;
-  onImageUploaded: (s3Key: string, file: File) => void;
-}
-
-const SlideCard = ({
-  slide,
-  index,
-  isFirst,
-  isLast,
-  selected,
-  eventCode,
-  resolveImageUrl,
-  onSelect,
-  onUpdateSlide,
-  subtitleLang,
-  onDuplicate,
-  onDelete,
-  onMoveUp,
-  onMoveDown,
-  onAddLine,
-  onUpdateLine,
-  onDeleteLine,
-  onMoveLine,
-  onImageUploaded,
-}: SlideCardProps) => {
-  const translate = useTranslate();
-  const [addAnchor, setAddAnchor] = useState<HTMLElement | null>(null);
-
-  // A built-in clip is played as-is: a compact card whose only action is delete.
-  if (isClipSlide(slide)) {
-    return (
-      <Paper
-        variant="outlined"
-        onClick={onSelect}
-        sx={{
-          p: 1.5,
-          mb: 1.5,
-          display: "flex",
-          alignItems: "center",
-          gap: 1,
-          cursor: "pointer",
-          borderColor: selected ? "primary.main" : undefined,
-          borderWidth: selected ? 2 : 1,
-          backgroundColor: selected ? "rgba(155,27,27,0.03)" : undefined,
-        }}
-      >
-        <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", width: 22 }}>
-          {index + 1}
-        </Typography>
-        <SlideshowIcon sx={{ fontSize: 18, color: "text.secondary" }} />
-        <Typography variant="body2" sx={{ flex: 1 }}>
-          {`${translate("padmakara.slides.logoClipTitle") || "Padmakara logo animation"} · ${slide.durationMs / 1000} s`}
-        </Typography>
-        <Tooltip title={translate("padmakara.slides.deleteLogoClip") || "Remove logo animation"}>
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
-            <DeleteOutlineIcon sx={{ fontSize: 15, color: "text.secondary" }} />
-          </IconButton>
-        </Tooltip>
-      </Paper>
-    );
-  }
-
-  const addLineOfType = (type: "text" | "image" | "spacer") => {
-    setAddAnchor(null);
-    if (type === "text") onAddLine(newTextLine());
-    else if (type === "image") onAddLine(newImageLine());
-    else onAddLine(newSpacerLine());
-  };
-
-  return (
-    <Paper
-      variant="outlined"
-      onClick={onSelect}
-      // Focus moving into any field inside this card selects it too, so the
-      // preview follows the caret — including when tabbing between lines,
-      // which a click handler alone never catches.
-      onFocusCapture={onSelect}
-      sx={{
-        p: 1.5,
-        mb: 1.5,
-        cursor: "pointer",
-        borderColor: selected ? "primary.main" : undefined,
-        borderWidth: selected ? 2 : 1,
-        backgroundColor: selected ? "rgba(155,27,27,0.03)" : undefined,
-      }}
-    >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-        <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", width: 22 }}>
-          {index + 1}
-        </Typography>
-        <TextField
-          size="small"
-          type="number"
-          label={translate("padmakara.slides.duration") || "Duration (s)"}
-          value={slide.durationMs / 1000}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onUpdateSlide({ durationMs: Math.max(0, Number(e.target.value) || 0) * 1000 })}
-          sx={{ width: 96 }}
-          slotProps={{ htmlInput: { min: 0, step: 0.5 }, inputLabel: { shrink: true } }}
-        />
-        <TextField
-          size="small"
-          type="number"
-          label={translate("padmakara.slides.fade") || "Fade (ms)"}
-          value={slide.fadeMs}
-          onClick={(e) => e.stopPropagation()}
-          onChange={(e) => onUpdateSlide({ fadeMs: Math.max(0, Number(e.target.value) || 0) })}
-          sx={{ width: 96 }}
-          slotProps={{ htmlInput: { min: 0, step: 50 }, inputLabel: { shrink: true } }}
-        />
-        <Box sx={{ flex: 1 }} />
-        <IconButton size="small" disabled={isFirst} onClick={(e) => { e.stopPropagation(); onMoveUp(); }}>
-          <ArrowUpwardIcon sx={{ fontSize: 15 }} />
-        </IconButton>
-        <IconButton size="small" disabled={isLast} onClick={(e) => { e.stopPropagation(); onMoveDown(); }}>
-          <ArrowDownwardIcon sx={{ fontSize: 15 }} />
-        </IconButton>
-        <Tooltip title={translate("padmakara.slides.duplicateSlide") || "Duplicate slide"}>
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDuplicate(); }}>
-            <ContentCopyIcon sx={{ fontSize: 14 }} />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title={translate("padmakara.slides.deleteSlide") || "Delete slide"}>
-          <IconButton size="small" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
-            <DeleteOutlineIcon sx={{ fontSize: 15, color: "text.secondary" }} />
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      <Divider sx={{ mb: 1 }} />
-
-      <Box onClick={(e) => e.stopPropagation()}>
-        {slide.lines.map((line, lineIdx) => (
-          <SlideLineRow
-            key={line.id}
-            line={line}
-            isFirst={lineIdx === 0}
-            isLast={lineIdx === slide.lines.length - 1}
-            eventCode={eventCode}
-            resolveImageUrl={resolveImageUrl}
-            onChange={onUpdateLine}
-            onDelete={() => onDeleteLine(line.id)}
-            onMoveUp={() => onMoveLine(line.id, -1)}
-            onMoveDown={() => onMoveLine(line.id, 1)}
-            onImageUploaded={onImageUploaded}
-          />
-        ))}
-
-        <Button
-          size="small"
-          startIcon={<AddIcon sx={{ fontSize: 14 }} />}
-          onClick={(e) => setAddAnchor(e.currentTarget)}
-          sx={{ textTransform: "none", fontSize: "0.72rem", mt: 0.5 }}
-        >
-          {translate("padmakara.slides.addLine") || "Add line"}
-        </Button>
-        <Menu anchorEl={addAnchor} open={!!addAnchor} onClose={() => setAddAnchor(null)}>
-          <MenuItem onClick={() => addLineOfType("text")}>
-            <ShortTextIcon sx={{ fontSize: 16, mr: 1 }} />
-            {translate("padmakara.slides.lineTypeText") || "Text"}
-          </MenuItem>
-          <MenuItem onClick={() => addLineOfType("image")}>
-            <ImageIcon sx={{ fontSize: 16, mr: 1 }} />
-            {translate("padmakara.slides.lineTypeImage") || "Image"}
-          </MenuItem>
-          <MenuItem onClick={() => addLineOfType("spacer")}>
-            <HorizontalRuleIcon sx={{ fontSize: 16, mr: 1 }} />
-            {translate("padmakara.slides.lineTypeSpacer") || "Spacer"}
-          </MenuItem>
-        </Menu>
-      </Box>
-
-      {subtitleLang && (
-        <Box onClick={(e) => e.stopPropagation()} sx={{ mt: 1 }}>
-          <TextField
-            size="small"
-            fullWidth
-            multiline
-            minRows={1}
-            maxRows={4}
-            label={
-              subtitleLang === "pt"
-                ? translate("padmakara.slides.subtitlePt") || "Subtitle (PT)"
-                : translate("padmakara.slides.subtitleEn") || "Subtitle (EN)"
-            }
-            helperText={translate("padmakara.slides.subtitleHint") || "Shown when subtitles are on. One line per row."}
-            value={subtitleText(slide, subtitleLang)}
-            onChange={(e) => onUpdateSlide(withSubtitleText(slide, subtitleLang, e.target.value))}
-            slotProps={{
-              htmlInput: { style: { fontSize: "0.8rem" } },
-              formHelperText: { sx: { fontSize: "0.65rem", mt: 0.25 } },
-            }}
-          />
-        </Box>
-      )}
-    </Paper>
-  );
-};
-

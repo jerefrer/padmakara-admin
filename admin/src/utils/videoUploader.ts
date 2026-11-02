@@ -466,15 +466,18 @@ class PartHttpError extends Error {
 export async function uploadVideoMaster(opts: {
   eventId: number;
   eventCode: string;
-  position: number;
-  title: string | null;
+  /** Attach the master to this existing row (prepared with slides, no file)
+   *  instead of creating one; the burn then uses the row's stored slides. */
+  videoId?: number;
+  position?: number;
+  title?: string | null;
   file: File;
-  slides: unknown;
+  slides?: unknown;
   signal: { cancelled: boolean; abort?: () => void };
   onProgress?: (fraction: number) => void;
   onBurnQueued?: () => void;
 }): Promise<{ videoId: number }> {
-  const { eventId, eventCode, position, title, file, slides, signal } = opts;
+  const { eventId, eventCode, videoId: existingVideoId, position, title, file, slides, signal } = opts;
   const contentType = file.type || "video/mp4";
 
   // 1+2. Get the master onto S3. Big files go as a multipart upload (a single
@@ -487,7 +490,21 @@ export async function uploadVideoMaster(opts: {
 
   if (signal.cancelled) throw new UploadCancelledError();
 
-  // 3. Create the row (no Bunny video yet — bunnyVideoId stays null until the
+  // 3a. A prepared row already owns the slides: hand it the master.
+  if (existingVideoId != null) {
+    const attachRes = await authFetch(`${API_URL}/videos/${existingVideoId}/master`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ masterS3Key: s3Key }),
+    });
+    if (!attachRes.ok) {
+      throw new Error(`Queueing burn job failed (${attachRes.status}): ${await attachRes.text()}`);
+    }
+    opts.onBurnQueued?.();
+    return { videoId: existingVideoId };
+  }
+
+  // 3b. Create the row (no Bunny video yet — bunnyVideoId stays null until the
   //    completion webhook fires) and queue the Batch burn job.
   const burnRes = await authFetch(`${API_URL}/videos/burn`, {
     method: "POST",

@@ -49,7 +49,7 @@ export class SlideGenerationError extends Error {
  */
 export async function requestDefaultSlides(
   url: string,
-  body: { lang: SlideLanguage },
+  body: { lang?: SlideLanguage; sessionId?: number | null },
   timeoutMs: number = SLIDE_GENERATION_TIMEOUT_MS,
 ): Promise<GeneratedSlides> {
   const controller = new AbortController();
@@ -63,7 +63,7 @@ export async function requestDefaultSlides(
     });
     if (!res.ok) throw new SlideGenerationError("http", `HTTP ${res.status}`);
     const data = (await res.json()) as Partial<GeneratedSlides> & { slides: SlideDocument };
-    return { slides: data.slides, missing: data.missing ?? [], language: data.language ?? body.lang };
+    return { slides: data.slides, missing: data.missing ?? [], language: data.language ?? body.lang ?? "en" };
   } catch (err) {
     if (err instanceof SlideGenerationError) throw err;
     if (controller.signal.aborted) {

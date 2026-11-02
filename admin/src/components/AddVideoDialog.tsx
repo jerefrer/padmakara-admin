@@ -1,21 +1,15 @@
 /**
- * "Add video" modal — the single entry point for attaching a new video to
- * an event. Replaces the old ambient footer (a checkbox describing a video
- * that didn't exist yet, plus separate "Import from URL" / "Add video"
- * buttons) with one gated flow:
+ * "Add video" modal: the single entry point for attaching a new video to an
+ * event. Slides come first, the video later, so there are exactly two choices:
  *
- *  1. Title slides (Section 1) — pick exactly one of "define slides now",
- *     "add slides later" (burn path with an empty slide document: the master
- *     is retained, so slides can be designed and burned in afterwards) or
- *     "this file already has slides burnt in". Nothing below is usable
- *     until one is chosen.
- *  2. The file (Section 2) — a drop zone (drag/drop or click-to-browse) OR
- *     a pasted URL. Exactly one source.
- *  3. Upload — hands off to the parent's onUpload/onImportUrl exactly the
- *     way the old gate did (see EventVideosSection.tsx), so the existing
- *     UploadProgress overlay behaviour is unchanged for the file path.
- *
- * See docs/superpowers/specs/2026-08-21-video-slides-burn-in-design.md.
+ *  - "Prepare slides (upload the video later)": a title and a session. The
+ *    parent creates the video row with generated slides and no file, and opens
+ *    the slide editor on it. The file is uploaded into that row afterwards
+ *    ("Upload video"), which queues the burn with the stored slides.
+ *  - "Upload a finished video (no slides)": a file (or a URL) that already
+ *    carries its own title slides. It goes straight to Bunny, and slides can't
+ *    be added afterwards. The session is pre-selected from a file name that
+ *    carries a date and period, e.g. `JKR-Lx-2026-10-10-AM.mp4`.
  */
 
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -25,25 +19,25 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
 import MovieIcon from "@mui/icons-material/Movie";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
-import ScheduleIcon from "@mui/icons-material/Schedule";
 import SlideshowIcon from "@mui/icons-material/Slideshow";
 import UploadIcon from "@mui/icons-material/Upload";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
+import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useEffect, useRef, useState } from "react";
 import { useTranslate } from "react-admin";
-import { emptySlideDocument, hasAnySlides, sequenceTotalMs, type SlideDocument } from "@slides/types.ts";
-import { SlideEditor, type PendingUploadSlides } from "./SlideEditor";
+import { slideEditorTokens } from "../slideEditorTokens";
+import { matchSessionFromFilename, orderedSessions, sessionLabel, type SessionOption } from "../utils/slideSequence";
+import type { PendingUploadSlides } from "./SlideEditor";
 
 const ACCEPTED_EXTENSIONS = [".mp4", ".mov", ".m4v", ".mkv", ".webm"];
 
@@ -65,43 +59,44 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(1)} ${units[i]}`;
 }
 
-type SlidesMode = "define" | "later" | "burnedIn" | null;
+type Mode = "prepare" | "finished" | null;
+
+export interface PrepareVideoInput {
+  title: string;
+  sessionId: number | null;
+}
 
 export interface AddVideoDialogProps {
   open: boolean;
   onClose: () => void;
-  /** Needed for the slide editor's image-line uploads. */
-  eventCode?: string;
-  /** Needed so "Generate from event data" works before a video row exists —
-   *  see the eventId prop on SlideEditor. */
-  eventId?: number;
+  /** The event's sessions, for the session select. */
+  sessions?: SessionOption[];
+  /** "Prepare slides": create the row with generated slides, then open the editor. */
+  onPrepare: (input: PrepareVideoInput) => Promise<void>;
   onUpload: (file: File, pending: PendingUploadSlides) => void;
   onImportUrl: (url: string, title: string | undefined, pending: PendingUploadSlides) => Promise<void>;
 }
 
-export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, onImportUrl }: AddVideoDialogProps) => {
+export const AddVideoDialog = ({ open, onClose, sessions = [], onPrepare, onUpload, onImportUrl }: AddVideoDialogProps) => {
   const translate = useTranslate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [slidesMode, setSlidesMode] = useState<SlidesMode>(null);
-  const [draftDoc, setDraftDoc] = useState<SlideDocument>(emptySlideDocument());
-  const [slideEditorOpen, setSlideEditorOpen] = useState(false);
-
+  const [mode, setMode] = useState<Mode>(null);
+  const [title, setTitle] = useState("");
+  const [sessionId, setSessionId] = useState<number | "">("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [url, setUrl] = useState("");
   const [urlTitle, setUrlTitle] = useState("");
-
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset to a clean slate every time the dialog opens — nothing persists
-  // across an "Add video" click that was cancelled.
+  // A clean slate every time the dialog opens.
   useEffect(() => {
     if (!open) return;
-    setSlidesMode(null);
-    setDraftDoc(emptySlideDocument());
-    setSlideEditorOpen(false);
+    setMode(null);
+    setTitle("");
+    setSessionId("");
     setSelectedFile(null);
     setDragActive(false);
     setUrl("");
@@ -110,16 +105,12 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
     setError(null);
   }, [open]);
 
-  const slidesReady = slidesMode === "burnedIn" || slidesMode === "later" || (slidesMode === "define" && hasAnySlides(draftDoc));
-  const sectionTwoEnabled = slidesMode !== null;
-  const slideCount = draftDoc.intro.length + draftDoc.outro.length;
-  const slideSeconds = Math.round((sequenceTotalMs(draftDoc.intro) + sequenceTotalMs(draftDoc.outro)) / 1000);
-
   const pickFile = (file: File) => {
     if (!looksLikeVideoFile(file)) {
       setError(
-        translate("padmakara.videos.addDialog.invalidFileType") ||
-          "Choose a video file (MP4, MOV, M4V, MKV, or WEBM)",
+        translate("padmakara.videos.addDialog.invalidFileType", {
+          _: "Choose a video file (MP4, MOV, M4V, MKV, or WEBM)",
+        }),
       );
       return;
     }
@@ -127,6 +118,9 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
     setSelectedFile(file);
     setUrl("");
     setUrlTitle("");
+    // Pre-select the session the file name points at, unless one was chosen.
+    const match = matchSessionFromFilename(file.name, sessions);
+    if (match && sessionId === "") setSessionId(match.id);
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -138,7 +132,6 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragActive(false);
-    if (!sectionTwoEnabled) return;
     const file = e.dataTransfer.files?.[0];
     if (file) pickFile(file);
   };
@@ -149,32 +142,35 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
   };
 
   const source: "file" | "url" | null = selectedFile ? "file" : url.trim() ? "url" : null;
-  const canSubmit = sectionTwoEnabled && slidesReady && source !== null && !submitting;
-
-  const resetAndClose = () => {
-    setSubmitting(false);
-    onClose();
-  };
+  const canSubmit =
+    !submitting && (mode === "prepare" ? title.trim().length > 0 : mode === "finished" && source !== null);
 
   const handleClose = () => {
-    if (submitting) return;
-    onClose();
+    if (!submitting) onClose();
   };
 
-  const handleUpload = async () => {
-    if (!canSubmit) return;
-    // "later" rides the burn path (a non-null document) with an empty one, so
-    // the master is retained and slides can be burned in afterwards.
-    const pending: PendingUploadSlides =
-      slidesMode === "burnedIn"
-        ? { slides: null, hasBurnedSlides: true }
-        : slidesMode === "later"
-          ? { slides: emptySlideDocument(), hasBurnedSlides: false }
-          : { slides: draftDoc, hasBurnedSlides: false };
+  const chosenSession: number | null = sessionId === "" ? null : sessionId;
 
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+
+    if (mode === "prepare") {
+      setSubmitting(true);
+      setError(null);
+      try {
+        await onPrepare({ title: title.trim(), sessionId: chosenSession });
+        onClose();
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    const pending: PendingUploadSlides = { slides: null, hasBurnedSlides: true, sessionId: chosenSession };
     if (selectedFile) {
       onUpload(selectedFile, pending);
-      resetAndClose();
+      onClose();
       return;
     }
 
@@ -182,101 +178,93 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
     setError(null);
     try {
       await onImportUrl(url.trim(), urlTitle.trim() || undefined, pending);
-      resetAndClose();
-    } catch (e: any) {
-      setError(e?.message || String(e));
+      onClose();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);
     }
   };
 
+  const sessionSelect = sessions.length > 0 && (
+    <TextField
+      select
+      fullWidth
+      size="small"
+      label={translate("padmakara.videos.addDialog.session", { _: "Session" })}
+      value={sessionId}
+      onChange={(e) => setSessionId(e.target.value === "" ? "" : Number(e.target.value))}
+      sx={{ mt: 2 }}
+      slotProps={{ inputLabel: { shrink: true }, select: { displayEmpty: true } }}
+    >
+      <MenuItem value="">{translate("padmakara.videos.addDialog.noSession", { _: "No session" })}</MenuItem>
+      {orderedSessions(sessions).map((s) => (
+        <MenuItem key={s.id} value={s.id}>
+          {sessionLabel(s, sessions)}
+        </MenuItem>
+      ))}
+    </TextField>
+  );
+
   return (
-    <>
-      <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 6 }}>
-          <MovieIcon sx={{ color: "primary.main" }} />
-          <Typography variant="h6" sx={{ fontWeight: 600, fontSize: "1.05rem", flex: 1 }}>
-            {translate("padmakara.videos.addDialog.title") || "Add video"}
-          </Typography>
-          <IconButton onClick={handleClose} disabled={submitting} sx={{ position: "absolute", right: 12, top: 12 }}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </DialogTitle>
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1.5, pr: 6 }}>
+        <MovieIcon sx={{ color: "primary.main" }} />
+        <Typography variant="h6" component="span" sx={{ fontWeight: 600, fontSize: "1.05rem", flex: 1 }}>
+          {translate("padmakara.videos.addDialog.title", { _: "Add video" })}
+        </Typography>
+        <IconButton
+          onClick={handleClose}
+          disabled={submitting}
+          aria-label={translate("padmakara.slides.close", { _: "Close" })}
+          sx={{ position: "absolute", right: 12, top: 12 }}
+        >
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
 
-        <DialogContent sx={{ pt: 1 }}>
-          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: "0.05em" }}>
-            {translate("padmakara.videos.addDialog.section1Title") || "Title slides"}
-          </Typography>
-          <Box sx={{ display: "flex", gap: 1.5, mt: 1, mb: 2.5, flexDirection: "column" }}>
-            <SlidesModeCard
-              selected={slidesMode === "define"}
-              icon={<SlideshowIcon sx={{ fontSize: 20 }} />}
-              title={translate("padmakara.videos.addDialog.cardDefineTitle") || "Add title slides"}
-              description={
-                translate("padmakara.videos.addDialog.cardDefineDesc") ||
-                "Design an intro/outro sequence — it's burned into the video automatically."
-              }
-              onClick={() => setSlidesMode("define")}
+      <DialogContent sx={{ pt: 1 }}>
+        <Box sx={{ display: "flex", gap: 1.5, flexDirection: "column" }}>
+          <ModeCard
+            selected={mode === "prepare"}
+            icon={<SlideshowIcon sx={{ fontSize: 20 }} />}
+            title={translate("padmakara.videos.addDialog.cardPrepareTitle", { _: "Prepare slides (upload the video later)" })}
+            description={translate("padmakara.videos.addDialog.cardPrepareDesc", {
+              _: "Design the intro and outro first. When the video is ready, upload it into this entry and the slides are burned in automatically.",
+            })}
+            onClick={() => setMode("prepare")}
+          />
+          <ModeCard
+            selected={mode === "finished"}
+            icon={<MovieIcon sx={{ fontSize: 20 }} />}
+            title={translate("padmakara.videos.addDialog.cardFinishedTitle", { _: "Upload a finished video (no slides)" })}
+            description={translate("padmakara.videos.addDialog.cardFinishedDesc", {
+              _: "This file already includes its own intro and outro. It goes straight to Bunny, and slides can't be added afterwards.",
+            })}
+            onClick={() => setMode("finished")}
+          />
+        </Box>
+
+        {mode === "prepare" && (
+          <Box sx={{ mt: 2.5 }}>
+            <TextField
+              fullWidth
+              size="small"
+              autoFocus
+              label={translate("padmakara.videos.addDialog.videoTitle", { _: "Video title" })}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              slotProps={{ inputLabel: { shrink: true } }}
             />
-            <SlidesModeCard
-              selected={slidesMode === "later"}
-              icon={<ScheduleIcon sx={{ fontSize: 20 }} />}
-              title={translate("padmakara.videos.addDialog.cardLaterTitle") || "Add slides later"}
-              description={
-                translate("padmakara.videos.addDialog.cardLaterDesc") ||
-                "Upload now and design the intro/outro whenever you like — the original is kept so slides can be burned in later."
-              }
-              onClick={() => setSlidesMode("later")}
-            />
-            <SlidesModeCard
-              selected={slidesMode === "burnedIn"}
-              icon={<MovieIcon sx={{ fontSize: 20 }} />}
-              title={translate("padmakara.videos.addDialog.cardBurnedTitle") || "Already has title slides burnt in"}
-              description={
-                translate("padmakara.videos.addDialog.cardBurnedDesc") ||
-                "This file already includes its own intro/outro — it goes straight to Bunny, and slides can't be added afterwards."
-              }
-              onClick={() => setSlidesMode("burnedIn")}
-            />
+            {sessionSelect}
           </Box>
+        )}
 
-          {slidesMode === "define" && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 2.5, flexWrap: "wrap" }}>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<SlideshowIcon sx={{ fontSize: 15 }} />}
-                onClick={() => setSlideEditorOpen(true)}
-                sx={{ textTransform: "none", fontSize: "0.78rem" }}
-              >
-                {translate("padmakara.slides.gate.defineButton") || "Define slides"}
-              </Button>
-              {slideCount > 0 && (
-                <Chip
-                  label={
-                    translate("padmakara.videos.addDialog.slidesSummary", {
-                      count: slideCount,
-                      seconds: slideSeconds,
-                    }) || `${slideCount} slides · ${slideSeconds}s total`
-                  }
-                  size="small"
-                  variant="outlined"
-                  sx={{ height: 22, "& .MuiChip-label": { fontSize: "0.7rem" } }}
-                />
-              )}
-            </Box>
-          )}
-
-          <Divider sx={{ mb: 2.5 }} />
-
-          <Typography
-            variant="overline"
-            color={sectionTwoEnabled ? "text.secondary" : "text.disabled"}
-            sx={{ fontWeight: 700, letterSpacing: "0.05em" }}
-          >
-            {translate("padmakara.videos.addDialog.section2Title") || "The file"}
-          </Typography>
-
-          <Box sx={{ opacity: sectionTwoEnabled ? 1 : 0.5, pointerEvents: sectionTwoEnabled ? "auto" : "none", mt: 1 }}>
+        {mode === "finished" && (
+          <Box sx={{ mt: 2.5 }}>
+            <Divider sx={{ mb: 2 }} />
+            <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: "0.05em" }}>
+              {translate("padmakara.videos.addDialog.section2Title", { _: "The file" })}
+            </Typography>
             <Paper
               variant="outlined"
               onClick={() => fileInputRef.current?.click()}
@@ -287,6 +275,7 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
               onDragLeave={() => setDragActive(false)}
               onDrop={handleDrop}
               sx={{
+                mt: 1,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -298,7 +287,7 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
                 cursor: "pointer",
                 borderStyle: "dashed",
                 borderWidth: 2,
-                borderColor: dragActive ? "primary.main" : "rgba(0,0,0,0.15)",
+                borderColor: dragActive ? "primary.main" : slideEditorTokens.borderStrong,
                 backgroundColor: dragActive ? "rgba(155,27,27,0.04)" : "transparent",
                 transition: "border-color 0.15s, background-color 0.15s",
               }}
@@ -319,20 +308,21 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
                       e.stopPropagation();
                       setSelectedFile(null);
                     }}
-                    sx={{ textTransform: "none", fontSize: "0.72rem", mt: 0.5 }}
+                    sx={{ fontSize: "0.72rem", mt: 0.5 }}
                   >
-                    {translate("padmakara.videos.addDialog.removeFile") || "Remove"}
+                    {translate("padmakara.videos.addDialog.removeFile", { _: "Remove" })}
                   </Button>
                 </>
               ) : (
                 <>
                   <CloudUploadIcon sx={{ fontSize: 28, color: "text.secondary" }} />
                   <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                    {translate("padmakara.videos.addDialog.dropZoneLabel") ||
-                      "Drag and drop a video file here, or click to browse"}
+                    {translate("padmakara.videos.addDialog.dropZoneLabel", {
+                      _: "Drag and drop a video file here, or click to browse",
+                    })}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {translate("padmakara.videos.addDialog.dropZoneHint") || "MP4, MOV, M4V, MKV, or WEBM"}
+                    {translate("padmakara.videos.addDialog.dropZoneHint", { _: "MP4, MOV, M4V, MKV, or WEBM" })}
                   </Typography>
                 </>
               )}
@@ -343,79 +333,75 @@ export const AddVideoDialog = ({ open, onClose, eventCode, eventId, onUpload, on
               accept="video/*,.mp4,.mov,.m4v,.mkv,.webm"
               style={{ display: "none" }}
               onChange={handleFileInputChange}
-              disabled={!sectionTwoEnabled}
             />
 
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", textAlign: "center", my: 1.5 }}>
-              {translate("padmakara.videos.addDialog.orImportFromUrl") || "or import from a URL"}
+              {translate("padmakara.videos.addDialog.orImportFromUrl", { _: "or import from a URL" })}
             </Typography>
 
             <TextField
               fullWidth
               size="small"
-              label={translate("padmakara.videos.importUrlField") || "Video URL"}
+              label={translate("padmakara.videos.importUrlField", { _: "Video URL" })}
               placeholder="https://drive.google.com/file/d/…"
-              helperText={
-                translate("padmakara.videos.importUrlHelp") ||
-                "Paste a Google Drive share link (the file must be shared as \"Anyone with the link\") or a direct link to a public video file."
-              }
+              helperText={translate("padmakara.videos.importUrlHelp", {
+                _: 'Paste a Google Drive share link (the file must be shared as "Anyone with the link") or a direct link to a public video file.',
+              })}
               value={url}
               onChange={(e) => handleUrlChange(e.target.value)}
-              disabled={!sectionTwoEnabled || !!selectedFile}
+              disabled={!!selectedFile}
               sx={{ mb: 1.5 }}
             />
             <TextField
               fullWidth
               size="small"
-              label={translate("padmakara.videos.importTitleField") || "Title (optional)"}
+              label={translate("padmakara.videos.importTitleField", { _: "Title (optional)" })}
               value={urlTitle}
               onChange={(e) => setUrlTitle(e.target.value)}
-              disabled={!sectionTwoEnabled || !!selectedFile || !url.trim()}
+              disabled={!!selectedFile || !url.trim()}
             />
+            {sessionSelect}
           </Box>
+        )}
 
-          {error && (
-            <Typography variant="body2" color="error" sx={{ mt: 2 }}>
-              {error}
-            </Typography>
-          )}
-        </DialogContent>
+        {error && (
+          <Typography variant="body2" color="error" sx={{ mt: 2 }}>
+            {error}
+          </Typography>
+        )}
+      </DialogContent>
 
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={handleClose} disabled={submitting} color="inherit" sx={{ textTransform: "none" }}>
-            {translate("ra.action.cancel") || "Cancel"}
-          </Button>
-          <Button
-            onClick={() => void handleUpload()}
-            disabled={!canSubmit}
-            variant="contained"
-            disableElevation
-            startIcon={submitting ? <CircularProgress size={14} color="inherit" /> : <UploadIcon sx={{ fontSize: 16 }} />}
-            sx={{ textTransform: "none" }}
-          >
-            {translate("padmakara.videos.addDialog.uploadAction") || "Upload"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <SlideEditor
-        open={slideEditorOpen}
-        onClose={() => setSlideEditorOpen(false)}
-        title={translate("padmakara.slides.gate.draftDialogTitle") || "Slides for the next upload"}
-        eventCode={eventCode}
-        eventId={eventId}
-        initialDocument={draftDoc}
-        onSave={(doc) => {
-          setDraftDoc(doc);
-        }}
-      />
-    </>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={handleClose} disabled={submitting} color="inherit">
+          {translate("ra.action.cancel", { _: "Cancel" })}
+        </Button>
+        <Button
+          onClick={() => void handleSubmit()}
+          disabled={!canSubmit}
+          variant="contained"
+          disableElevation
+          startIcon={
+            submitting ? (
+              <CircularProgress size={14} color="inherit" />
+            ) : mode === "prepare" ? (
+              <SlideshowIcon sx={{ fontSize: 16 }} />
+            ) : (
+              <UploadIcon sx={{ fontSize: 16 }} />
+            )
+          }
+        >
+          {mode === "prepare"
+            ? translate("padmakara.videos.addDialog.prepareAction", { _: "Prepare slides" })
+            : translate("padmakara.videos.addDialog.uploadAction", { _: "Upload" })}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 };
 
-/* ───────── One Section-1 selectable card ───────── */
+/* ───────── One selectable choice ───────── */
 
-interface SlidesModeCardProps {
+interface ModeCardProps {
   selected: boolean;
   icon: React.ReactNode;
   title: string;
@@ -423,18 +409,25 @@ interface SlidesModeCardProps {
   onClick: () => void;
 }
 
-const SlidesModeCard = ({ selected, icon, title, description, onClick }: SlidesModeCardProps) => (
+const ModeCard = ({ selected, icon, title, description, onClick }: ModeCardProps) => (
   <Paper
+    component="button"
+    type="button"
     variant="outlined"
     onClick={onClick}
+    aria-pressed={selected}
     sx={{
-      flex: 1,
+      all: "unset",
+      boxSizing: "border-box",
       p: 1.5,
       cursor: "pointer",
-      borderWidth: selected ? 2 : 1,
-      borderColor: selected ? "primary.main" : "rgba(0,0,0,0.15)",
-      backgroundColor: selected ? "rgba(155,27,27,0.04)" : "transparent",
+      border: "1px solid",
+      borderRadius: 2,
+      borderColor: selected ? "primary.main" : slideEditorTokens.borderStrong,
+      boxShadow: selected ? "0 0 0 1px #9B1B1B" : "none",
+      backgroundColor: selected ? "rgba(155,27,27,0.04)" : "background.paper",
       transition: "border-color 0.15s, background-color 0.15s",
+      "&:focus-visible": { outline: "2px solid #9B1B1B", outlineOffset: 2 },
     }}
   >
     <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
@@ -446,7 +439,7 @@ const SlidesModeCard = ({ selected, icon, title, description, onClick }: SlidesM
       <Box sx={{ minWidth: 0 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, color: selected ? "primary.main" : "text.primary" }}>
           {icon}
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+          <Typography variant="body2" component="span" sx={{ fontWeight: 600 }}>
             {title}
           </Typography>
         </Box>

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../../src/db/index.ts", () => ({ db: { query: { events: { findFirst: vi.fn() } } } }));
 
-import { matchSession, defaultSlideLanguage } from "../../src/services/slide-metadata.ts";
+import { matchSession, defaultSlideLanguage, sessionInfoById } from "../../src/services/slide-metadata.ts";
 
 const FOUR_DAYS = [
   { sessionNumber: 1, sessionDate: "2026-10-10", timePeriod: "morning" },
@@ -58,5 +58,20 @@ describe("defaultSlideLanguage", () => {
     [null, "en"],
   ])("maps %j to %s", (input, expected) => {
     expect(defaultSlideLanguage(input)).toBe(expected);
+  });
+});
+
+describe("sessionInfoById", () => {
+  const rows = [
+    { id: 11, sessionNumber: 1, sessionDate: "2026-10-10", timePeriod: "morning" },
+    { id: 12, sessionNumber: 2, sessionDate: "2026-10-10", timePeriod: "evening" },
+  ];
+
+  it("should find a session by id even when two share the date", () => {
+    expect(sessionInfoById(rows, 12)).toEqual({ number: 2, total: 2, date: "2026-10-10", period: "evening" });
+  });
+
+  it("should return null for an id that is not one of the sessions", () => {
+    expect(sessionInfoById(rows, 99)).toBeNull();
   });
 });

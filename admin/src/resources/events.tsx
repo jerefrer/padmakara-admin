@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   List,
   Datagrid,
@@ -113,6 +113,7 @@ import {
 } from "../utils/pendingAudioUpload";
 import { UploadIncompleteAlert } from "../components/UploadIncompleteAlert";
 import { uploadVideoFile, uploadVideoMaster } from "../utils/videoUploader";
+import type { SessionOption } from "../utils/slideSequence";
 import { authFetch } from "../utils/authFetch";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "../components/TranslatableField";
@@ -642,8 +643,10 @@ interface EventFormProps {
   /** Functional-updater setter for `videos` — EventVideosSection performs its
    *  own PATCH/DELETE network calls and syncs the result back through this. */
   onVideosChange?: (updater: (prev: EventVideo[]) => EventVideo[]) => void;
-  /** Edit-mode only: triggered when admin picks a new video file for the event. */
-  onVideoUpload?: (file: File) => void;
+  /** Edit-mode only: triggered when admin picks a finished video file for the event. */
+  onVideoUpload?: (file: File, pending?: PendingUploadSlides) => void;
+  /** Edit-mode only: uploads a file into a video that has slides and no file yet. */
+  onVideoAttachMaster?: (videoId: number, file: File) => void;
   /** Imports a video from a pasted URL (Drive share link or public direct
    *  URL) — carries the AddVideoDialog gate's slide declaration too, since a
    *  URL import can go through the burn pipeline exactly like a file upload. */
@@ -748,12 +751,20 @@ export const EventFormFields = ({
   sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onTrackAudioUpload,
   selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, moveBusy,
-  videos, onVideosChange, onVideoUpload, onVideoImportUrl, eventId,
+  videos, onVideosChange, onVideoUpload, onVideoAttachMaster, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
 }: EventFormProps) => {
   const translate = useTranslate();
+  // The saved sessions a video can belong to (those without an id are previews).
+  const videoSessions = useMemo<SessionOption[]>(
+    () =>
+      sessions.flatMap((s) =>
+        s.id != null ? [{ id: s.id, sessionNumber: s.sessionNumber, date: s.date, timePeriod: s.timePeriod }] : [],
+      ),
+    [sessions],
+  );
   const [locale] = useLocaleState();
 
   const updateField =
@@ -1515,13 +1526,14 @@ export const EventFormFields = ({
       </Paper>
 
       {/* ── Event-level videos (edit mode only — needs a real event id) ── */}
-      {onVideosChange && onVideoUpload && onVideoImportUrl && (
+      {onVideosChange && onVideoUpload && onVideoImportUrl && onVideoAttachMaster && (
         <EventVideosSection
           videos={videos ?? []}
           onVideosChange={onVideosChange}
           onUpload={onVideoUpload}
           onImportUrl={onVideoImportUrl}
-          eventCode={form.eventCode}
+          onAttachMaster={onVideoAttachMaster}
+          sessions={videoSessions}
           eventId={eventId}
         />
       )}
@@ -3449,70 +3461,6 @@ export const EventEdit = () => {
       };
       setUploadProgress(baseProgress);
 
-      const finishOk = () => {
-        setUploadProgress((p) => p && {
-          ...p,
-          phase: "done",
-          filesCompleted: 1,
-          files: p.files.map((f) =>
-            f.filename === file.name ? { ...f, status: "done", progress: 1 } : f,
-          ),
-        });
-        notify(translate("padmakara.videos.uploadSuccess") || "Video uploaded", { type: "success" });
-        refresh();
-        setTimeout(() => setUploadProgress(null), 1500);
-      };
-      const finishErr = (err: any) => {
-        setUploadProgress((p) => p && {
-          ...p,
-          phase: "error",
-          error: err?.message || String(err),
-          files: p.files.map((f) => (f.filename === file.name ? { ...f, status: "error" } : f)),
-        });
-        notify("padmakara.common.videoUploadFailed", {
-          type: "error",
-          messageArgs: { message: err?.message || String(err) },
-        });
-      };
-
-      // Slides drafted for this upload → the burn pipeline. The master goes
-      // to S3 and is retained there; an AWS Batch job renders the slides,
-      // concatenates them around it, and hands the merged file to Bunny.
-      // Resolves once the job is QUEUED — burnStatus on the row reports the
-      // rest, so the admin isn't held on a multi-minute transcode.
-      if (pending?.slides && !pending.hasBurnedSlides) {
-        uploadVideoMaster({
-          eventId: eventIdNum,
-          eventCode: form.eventCode,
-          position,
-          title: file.name.replace(/\.[^.]+$/, ""),
-          file,
-          slides: pending.slides,
-          signal,
-          onProgress: (fraction) => {
-            const loaded = Math.round(fraction * file.size);
-            speedTracker.record(loaded);
-            setUploadProgress((p) => p && {
-              ...p,
-              phase: "uploading",
-              bytesUploaded: loaded,
-              bytesTotal: file.size,
-              fileProgress: fraction,
-              speed: speedTracker.getSpeed(),
-              files: p.files.map((f) =>
-                f.filename === file.name ? { ...f, status: "uploading", progress: fraction } : f,
-              ),
-            });
-          },
-        })
-          .then(finishOk)
-          .catch(finishErr)
-          .finally(() => {
-            cancelUploadRef.current = null;
-          });
-        return;
-      }
-
       uploadVideoFile({
         eventId: eventIdNum,
         position,
@@ -3557,7 +3505,10 @@ export const EventEdit = () => {
             await authFetch(`/api/admin/videos/${videoId}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ hasBurnedSlides: true }),
+              body: JSON.stringify({
+                hasBurnedSlides: true,
+                ...(pending.sessionId != null ? { sessionId: pending.sessionId } : {}),
+              }),
             }).catch(() => {});
           }
           setUploadProgress((p) => p && {
@@ -3591,7 +3542,89 @@ export const EventEdit = () => {
           cancelUploadRef.current = null;
         });
     },
-    [notify, refresh, translate, id, videos, form.eventCode],
+    [notify, refresh, translate, id, videos],
+  );
+
+  // Upload a file into a video that was prepared with slides and no file. The
+  // master goes to S3 and is retained there; attaching it queues the burn with
+  // the row's stored slides, which render around it and go to Bunny. Resolves
+  // once the job is QUEUED; burnStatus on the row reports the rest.
+  const handleVideoAttachMaster = useCallback(
+    (videoId: number, file: File) => {
+      if (!id) return;
+      const signal: { cancelled: boolean; abort?: () => void } = { cancelled: false };
+      const speedTracker = new SpeedTracker();
+      cancelUploadRef.current = () => {
+        signal.cancelled = true;
+        signal.abort?.();
+      };
+
+      setUploadProgress({
+        phase: "uploading",
+        currentFilename: file.name,
+        fileProgress: 0,
+        filesCompleted: 0,
+        filesTotal: 1,
+        bytesUploaded: 0,
+        bytesTotal: file.size,
+        speed: 0,
+        files: [{ filename: file.name, size: file.size, status: "uploading", progress: 0 }],
+      });
+
+      uploadVideoMaster({
+        eventId: Number(id),
+        eventCode: form.eventCode,
+        videoId,
+        file,
+        signal,
+        onProgress: (fraction) => {
+          const loaded = Math.round(fraction * file.size);
+          speedTracker.record(loaded);
+          setUploadProgress((p) => p && {
+            ...p,
+            phase: "uploading",
+            bytesUploaded: loaded,
+            bytesTotal: file.size,
+            fileProgress: fraction,
+            speed: speedTracker.getSpeed(),
+            files: p.files.map((f) =>
+              f.filename === file.name ? { ...f, status: "uploading", progress: fraction } : f,
+            ),
+          });
+        },
+      })
+        .then(() => {
+          setUploadProgress((p) => p && {
+            ...p,
+            phase: "done",
+            filesCompleted: 1,
+            files: p.files.map((f) =>
+              f.filename === file.name ? { ...f, status: "done", progress: 1 } : f,
+            ),
+          });
+          notify(translate("padmakara.videos.uploadSuccess") || "Video uploaded", { type: "success" });
+          refresh();
+          setTimeout(() => setUploadProgress(null), 1500);
+        })
+        .catch((err: any) => {
+          setUploadProgress((p) => p && {
+            ...p,
+            phase: "error",
+            error: err?.message || String(err),
+            files: p.files.map((f) => (f.filename === file.name ? { ...f, status: "error" } : f)),
+          });
+          notify("padmakara.common.videoUploadFailed", {
+            type: "error",
+            messageArgs: { message: err?.message || String(err) },
+          });
+          // The row keeps its slides; a failed queueing leaves the master for a retry.
+          refresh();
+        })
+        .finally(() => {
+          cancelUploadRef.current = null;
+        });
+    },
+    [notify, refresh, translate, id, form.eventCode],
   );
 
   // Import a video from a pasted URL (Google Drive share link or any public
@@ -3613,7 +3646,6 @@ export const EventEdit = () => {
           eventId: Number(id),
           url,
           ...(title ? { title } : {}),
-          ...(pending.slides && !pending.hasBurnedSlides ? { slides: pending.slides } : {}),
         }),
       });
       if (!res.ok) {
@@ -3634,7 +3666,10 @@ export const EventEdit = () => {
           await authFetch(`/api/admin/videos/${video.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ hasBurnedSlides: true }),
+            body: JSON.stringify({
+              hasBurnedSlides: true,
+              ...(pending.sessionId != null ? { sessionId: pending.sessionId } : {}),
+            }),
           }).catch(() => {});
         }
       }
@@ -4038,6 +4073,7 @@ export const EventEdit = () => {
         videos={videos}
         onVideosChange={setVideos}
         onVideoUpload={handleVideoUpload}
+        onVideoAttachMaster={handleVideoAttachMaster}
         onVideoImportUrl={handleVideoImportUrl}
         eventId={id ? Number(id) : undefined}
         onStatusChange={handleStatusChange}

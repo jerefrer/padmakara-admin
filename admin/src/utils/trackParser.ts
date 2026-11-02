@@ -3,6 +3,8 @@
  * Mirrors the backend parser — extracts metadata from audio filenames.
  */
 
+import type { SlideDocument } from "@slides/types.ts";
+
 export type TrackMediaType = "audio" | "video";
 
 export interface ParsedTrack {
@@ -41,7 +43,8 @@ export interface ParsedTrack {
 export interface EventVideo {
   id: number;
   eventId: number;
-  bunnyVideoId: string;
+  /** Null until the burn pipeline finishes, or while only slides exist. */
+  bunnyVideoId: string | null;
   position: number;
   titleEn: string | null;
   titlePt: string | null;
@@ -52,6 +55,13 @@ export interface EventVideo {
   videoDate: string | null;
   durationSeconds: number | null;
   posterUrl: string | null;
+  /** The session this video covers (drives the "Session N of M" slide). */
+  sessionId?: number | null;
+  /** Retained master recording, set once a file was uploaded for the burn. */
+  masterS3Key?: string | null;
+  hasBurnedSlides?: boolean;
+  burnStatus?: string | null;
+  slides?: SlideDocument | null;
   createdAt?: string;
   updatedAt?: string;
 }
