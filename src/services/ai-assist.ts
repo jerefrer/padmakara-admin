@@ -20,6 +20,23 @@ export interface RenameTrackRow {
   titlePt?: string;
   speaker?: string | null;
   languages?: string[];
+  /** A dub or interpretation of another recording of the same teaching. */
+  isTranslation?: boolean;
+}
+
+/**
+ * A translation track spoken only in Portuguese. Its title belongs in
+ * `titlePt` (and the base `title`); an English title on it would show up above
+ * the Portuguese one, for a recording English listeners cannot follow.
+ */
+export function isPortugueseOnlyTranslation(
+  track: Pick<RenameTrackRow, "isTranslation" | "languages"> | undefined,
+): boolean {
+  return (
+    track?.isTranslation === true &&
+    track.languages?.length === 1 &&
+    track.languages[0] === "pt"
+  );
 }
 
 export interface RenameSuggestion {
@@ -323,6 +340,11 @@ const ASSIST_SYSTEM_PROMPT =
   "entry; no other code exists. Setting languages REPLACES the whole list, so " +
   "list every language the track should end up with, in the order tib, en, " +
   "pt, fr. Omit languages for a track whose list is already correct.\n" +
+  "A track with isTranslation true is a dub or interpretation of another " +
+  'recording. When its languages are exactly ["pt"], it is a Portuguese ' +
+  "translation track: give it a Portuguese title only. NEVER set titleEn on " +
+  "such a track, not even as a translation of its title — titleEn is for " +
+  "tracks an English listener can follow.\n" +
   "Each track also carries sessionNumber — the session it belongs to — and " +
   "trackNumber, its position within that session; both are the numbers the " +
   "admin displays. Resolve instructions that address rows by position against " +
@@ -479,7 +501,16 @@ async function runAssistBatch(args: {
         const s = item as Record<string, unknown>;
         const sug: RenameSuggestion = { rowKey: String(s.rowKey ?? "") };
         const cur = currentByKey.get(sug.rowKey);
-        if (typeof s.titleEn === "string" && changed(cur?.titleEn, s.titleEn)) sug.titleEn = s.titleEn;
+        // Never give a Portuguese-only translation track an English title,
+        // whatever the model returned: the prompt asks it not to, this is the
+        // guarantee.
+        if (
+          typeof s.titleEn === "string" &&
+          !isPortugueseOnlyTranslation(cur) &&
+          changed(cur?.titleEn, s.titleEn)
+        ) {
+          sug.titleEn = s.titleEn;
+        }
         if (typeof s.titlePt === "string" && changed(cur?.titlePt, s.titlePt)) sug.titlePt = s.titlePt;
         if (s.languages !== undefined) {
           const langs = cleanLanguages(s.languages);

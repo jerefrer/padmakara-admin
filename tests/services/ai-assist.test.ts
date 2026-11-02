@@ -640,3 +640,53 @@ describe("aiAssistEvent with empty tracks", () => {
     expect(out.videos).toEqual([{ rowKey: "v1", titleEn: "Closing Ceremony" }]);
   });
 });
+
+describe("aiAssistEvent — Portuguese translation tracks", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const PT_DUB = {
+    rowKey: "pt1", originalFilename: "001 PT.mp3", title: "Bodicita na intenção",
+    speaker: null, languages: ["pt"], isTranslation: true,
+  };
+  const EN_TRACK = {
+    rowKey: "en1", originalFilename: "001.mp3", title: "Bodhicitta in intention",
+    speaker: null, languages: ["en"], isTranslation: false,
+  };
+
+  it("should drop titleEn from a Portuguese-only translation track but keep titlePt", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "pt1", titleEn: "Bodhicitta in Intention", titlePt: "Bodicita na intenção" }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Fill in titles", tracks: [PT_DUB], roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([{ rowKey: "pt1", titlePt: "Bodicita na intenção" }]);
+  });
+
+  it("should return no suggestion for a Portuguese translation track when only titleEn comes back", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "pt1", titleEn: "Bodhicitta in Intention" }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Fill in titles", tracks: [PT_DUB], roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([]);
+  });
+
+  it("should still allow titleEn on a non-translation track", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(
+      aiReply({ tracks: [{ rowKey: "en1", titleEn: "Bodhicitta in Intention" }] }),
+    );
+    const out = await aiAssistEvent({
+      instruction: "Fill in titles", tracks: [EN_TRACK], roster: ROSTER, apiKey: "k",
+    });
+    expect(out.tracks).toEqual([{ rowKey: "en1", titleEn: "Bodhicitta in Intention" }]);
+  });
+
+  it("should tell the model never to set titleEn on a Portuguese translation track", async () => {
+    mockMessagesCreate.mockResolvedValueOnce(aiReply({}));
+    await aiAssistEvent({ instruction: "Fill in titles", tracks: [PT_DUB], roster: ROSTER, apiKey: "k" });
+    const call = mockMessagesCreate.mock.calls[0]?.[0] as { system: unknown };
+    expect(JSON.stringify(call.system)).toContain("NEVER set titleEn");
+  });
+});

@@ -2639,6 +2639,7 @@ export const EventCreate = () => {
                 titlePt: tk.titlePt ?? "",
                 speaker: tk.speaker ?? "",
                 languages: tk.languages,
+                isTranslation: tk.isTranslation,
               })))}
               onApply={handleAiApply}
             />
@@ -4082,6 +4083,7 @@ export const EventEdit = () => {
             titlePt: tk.titlePt ?? "",
             speaker: tk.speaker ?? "",
             languages: tk.languages,
+            isTranslation: tk.isTranslation,
           })))}
           selectedTrackKeys={[...selectedTrackIds].map(String)}
           onApply={handleAiApply}
