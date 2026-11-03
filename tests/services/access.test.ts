@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../../src/db/index.ts", () => ({
   db: {
     query: {
+      eventAccessGrants: { findFirst: vi.fn(() => Promise.resolve(undefined)) },
       userEventAttendance: {
         findFirst: vi.fn(),
       },
@@ -390,6 +391,7 @@ describe("Access Control Service", () => {
         makeEvent(AUDIENCE_SLUGS.SUBSCRIBERS, 2),
         makeEvent("unknown-slug", 3),
       ];
+      mockSelectChain([]); // the user's access grants: none
 
       const result = await filterAccessibleEvents(user, events);
 

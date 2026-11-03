@@ -22,6 +22,7 @@ const {
 vi.mock("../../src/db/index.ts", () => ({
   db: {
     query: {
+      eventAccessGrants: { findFirst: () => Promise.resolve(undefined) },
       eventVideos: {
         findFirst: (...args: any[]) => mockEventVideoFindFirst(...args),
       },

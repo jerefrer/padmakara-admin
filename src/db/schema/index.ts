@@ -48,6 +48,14 @@ export {
   userEventAttendanceRelations,
 } from "./users.ts";
 
+// Per-event access grants and single-teaching orders
+export {
+  eventAccessGrants,
+  teachingOrders,
+  eventAccessGrantsRelations,
+  teachingOrdersRelations,
+} from "./event-access.ts";
+
 // Auth
 export {
   refreshTokens,

@@ -11,6 +11,7 @@ vi.mock("../../src/db/index.ts", () => ({
       transcripts: { findFirst: (...a: any[]) => transcriptFindFirst(...a) },
       users: { findFirst: (...a: any[]) => usersFindFirst(...a) },
       userEventAttendance: { findFirst: vi.fn(() => Promise.resolve(null)) },
+      eventAccessGrants: { findFirst: vi.fn(() => Promise.resolve(undefined)) },
       userGroupMemberships: { findFirst: vi.fn(() => Promise.resolve(null)) },
     },
     select: vi.fn(),

@@ -68,6 +68,13 @@ export const events = pgTable("retreats", {
   /** Imported library CSV fields that have no column of their own. */
   librarySnapshot: jsonb("library_snapshot").$type<Record<string, unknown>>(),
   featuredAt: timestamp("featured_at", { withTimezone: true }),
+  /**
+   * Single-teaching sale: 'none' (not offered), 'free' (anyone gets it by
+   * leaving their details) or 'paid' (one-off payment of `priceCents`).
+   * `priceCents` is only meaningful when saleMode is 'paid'.
+   */
+  saleMode: text("sale_mode").notNull().default("none"),
+  priceCents: integer("price_cents"),
   // Video title-slide defaults (src/lib/slides/defaults.ts, intro slide 4/5).
   // creditLines/copyrightHolder override the global credits block for this
   // event's videos. Organizers are linked through `retreat_organizers`.

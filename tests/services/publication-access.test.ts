@@ -75,6 +75,7 @@ vi.mock("../../src/db/index.ts", () => {
       query: {
         users: { findFirst: () => Promise.resolve(state.user) },
         eventPublications: { findMany: () => Promise.resolve(state.links) },
+        eventAccessGrants: { findFirst: () => Promise.resolve(undefined) },
         userEventAttendance: {
           findFirst: ({ where }: { where: unknown }) =>
             Promise.resolve(
