@@ -24,6 +24,12 @@ import {
   easypayDateTime,
   type MembershipInterval,
 } from "../services/membership.ts";
+import { teachingOrders } from "../db/schema/event-access.ts";
+import {
+  probeSinglePayment,
+  paymentBelongsToOrder,
+  refreshOrderFromEasypay,
+} from "../services/teaching-orders.ts";
 
 const EASYPAY_API_BASE = config.easypay.testing
   ? "https://api.test.easypay.pt/2.0"
@@ -31,7 +37,7 @@ const EASYPAY_API_BASE = config.easypay.testing
 
 const EASYPAY_CHECKOUT_SDK = "https://cdn.easypay.pt/checkout/2.9.1/";
 
-const isMockMode = !config.easypay.accountId;
+export const isMockMode = !config.easypay.accountId;
 
 if (isMockMode) {
   console.log(
@@ -89,6 +95,9 @@ const SUCCESS_STATUSES = new Set(["success", "paid", "active", "completed"]);
 
 type NotificationKind = "payment" | "payment_failed" | "reversal" | "unknown";
 
+/** The `key` of a teaching order's Easypay payment; see `teachingOrderKey`. */
+const TEACHING_ORDER_KEY = /^teaching-order-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
 function classifyNotification(
   type: string | null,
   status: string | null,
@@ -122,14 +131,14 @@ function resolveUserId(subscription: EasypaySubscriptionResponse): number | null
  * not look (so they behave as before: a 500 to our client), but carries Easypay's own status
  * for the few that must tell "refused, 4xx" from "unreachable or broken, 5xx".
  */
-class EasypayHttpError extends AppError {
+export class EasypayHttpError extends AppError {
   constructor(public readonly easypayStatus: number) {
     super(500, `Easypay API error: ${easypayStatus}`, "INTERNAL_ERROR");
     this.name = "EasypayHttpError";
   }
 }
 
-async function easypayFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+export async function easypayFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${EASYPAY_API_BASE}${path}`, {
     ...options,
     headers: {
@@ -935,6 +944,72 @@ paymentRoutes.post("/webhook", async (c) => {
       .set(fields)
       .where(eq(paymentTransactions.id, txId));
 
+  // One-off teaching purchases (Easypay "single" payments) share this endpoint. Every
+  // subscription notification type starts with "subscription"; anything else (a bare
+  // "capture", say) may be a single payment, so it is checked first. Only a payment whose
+  // own `key` is `teaching-order-<publicId>` belongs to us: everything else falls through
+  // to the subscription path below, exactly as before.
+  if (!(type ?? "").toLowerCase().startsWith("subscription")) {
+    // Give the claim back and answer 503 so Easypay retries: the claimed dedupe row would
+    // otherwise swallow the retry and the payment would wait for the buyer's polling.
+    const retryLater = async (why: string) => {
+      console.error(`[EASYPAY WEBHOOK] ${id}: ${why} — answering 503 so Easypay retries`);
+      try {
+        await db.delete(paymentTransactions).where(eq(paymentTransactions.id, txId));
+      } catch (err) {
+        // Still answer 503: Easypay retries either way, and a leftover claim only means the
+        // retry is treated as a duplicate and the buyer's polling finishes the order.
+        console.error(`[EASYPAY WEBHOOK] ${id}: could not release the dedupe row:`, err);
+      }
+      return c.json({ received: false, retry: true }, 503);
+    };
+    try {
+      const single = await probeSinglePayment(id);
+      let publicId = single && single.key ? (TEACHING_ORDER_KEY.exec(single.key)?.[1] ?? null) : null;
+      // Easypay sometimes omits the payment's own key. The notification's key is then only a
+      // lookup hint: it is trusted for nothing until the order's own checkout confirms it.
+      let hinted = false;
+      if (single && !single.key && typeof body.key === "string") {
+        publicId = TEACHING_ORDER_KEY.exec(body.key)?.[1] ?? null;
+        hinted = publicId !== null;
+      }
+      if (single && publicId) {
+        const order = await db.query.teachingOrders.findFirst({
+          where: eq(teachingOrders.publicId, publicId),
+        });
+        if (!order) {
+          console.error(`[EASYPAY WEBHOOK] single payment ${id} references unknown teaching order ${publicId}`);
+          await recordOutcome({ action: "teaching_ignored", note: "unknown teaching order" });
+          return c.json({ received: true });
+        }
+        if (hinted && !(await paymentBelongsToOrder(order, id))) {
+          console.error(`[EASYPAY WEBHOOK] payment ${id} is not the payment of teaching order ${order.id}; ignored`);
+          await recordOutcome({ action: "teaching_ignored", note: "payment not linked to the hinted order" });
+          return c.json({ received: true });
+        }
+        // Reads the status and amount from Easypay (never from this body) and finalizes
+        // idempotently: a duplicate or a race with the confirmation page grants once.
+        const result = await refreshOrderFromEasypay(order, single);
+        console.log(`[EASYPAY WEBHOOK] teaching order ${order.id}: ${result}`);
+        // A success notification whose payment Easypay does not yet report as paid may
+        // simply be ahead of Easypay's own state: retry. Amount mismatches, key mismatches
+        // and the like are deliberate and terminal, so they are not retried.
+        if (result === "pending" && (status ?? "").toLowerCase() === "success") {
+          return await retryLater(`order ${order.id} not yet paid at Easypay (payment_status ${single.status})`);
+        }
+        await recordOutcome({
+          userId: order.userId,
+          action: `teaching_${result}`,
+          note: `order ${order.id}, payment_status ${single.status}`,
+          amount: single.amountCents === null ? null : String(single.amountCents / 100),
+        });
+        return c.json({ received: true });
+      }
+    } catch (err) {
+      return await retryLater(`teaching branch failed (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
   // Never act on the request body — re-read the subscription from Easypay and trust
   // only what Easypay itself says about it.
   let subscription: EasypaySubscriptionResponse;
@@ -999,7 +1074,13 @@ paymentRoutes.post("/webhook", async (c) => {
       console.error(
         `[EASYPAY WEBHOOK] ${id} for user ${userId} (${adoption.outcome}) left a subscription that could not be stopped — answering 503 so Easypay retries`,
       );
-      await db.delete(paymentTransactions).where(eq(paymentTransactions.id, txId));
+      try {
+        await db.delete(paymentTransactions).where(eq(paymentTransactions.id, txId));
+      } catch (err) {
+        // Still answer 503: Easypay retries either way, and a leftover claim only means the
+        // retry is treated as a duplicate and the buyer's polling finishes the order.
+        console.error(`[EASYPAY WEBHOOK] ${id}: could not release the dedupe row:`, err);
+      }
       return c.json({ received: false, retry: true }, 503);
     }
     if (adoption.outcome === "discard") {

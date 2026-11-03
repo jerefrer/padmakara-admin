@@ -25,6 +25,15 @@ export const verifyCodeSchema = requestMagicLinkSchema.extend({
   code: z.string().trim().regex(/^\d{6}$/),
 });
 
+// Single teachings (public sale page)
+export const teachingCheckoutSchema = z.object({
+  email: z.string().trim().pipe(z.email()),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+  language: z.enum(["pt", "en"]),
+  consent: z.literal(true),
+});
+
 // Passkeys. `response` is the browser/OS WebAuthn JSON; the service verifies its content.
 export const passkeyRegisterVerifySchema = z.object({
   challengeId: z.string().uuid(),
@@ -245,6 +254,10 @@ export const createEventSchema = z.object({
   status: z.enum(["draft", "published", "archived"]).optional().default("draft"),
   imageUrl: z.string().url().optional().nullable(),
   featuredAt: z.string().datetime().optional().nullable(),
+  // Single-teaching sale settings; cross-field rules live in lib/sale-settings.ts.
+  saleMode: z.enum(["none", "free", "paid"]).optional(),
+  priceCents: z.number().int().optional().nullable(),
+  includedInMembership: z.boolean().optional(),
   teacherIds: z.array(z.object({
     id: z.number().int(),
     role: z.enum(["teacher", "guest", "translator"]).optional().default("teacher"),

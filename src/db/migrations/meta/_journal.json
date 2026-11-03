@@ -393,6 +393,27 @@
       "when": 1813110400000,
       "tag": "0055_search_queries",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1813196800000,
+      "tag": "0056_single_teachings",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1813283200000,
+      "tag": "0057_teaching_membership_inclusion",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1813369600000,
+      "tag": "0058_teaching_orders_keep_accounting",
+      "breakpoints": true
     }
   ]
 }

@@ -2,6 +2,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users, userGroupMemberships, userEventAttendance } from "../db/schema/users.ts";
 import { eventRetreatGroups } from "../db/schema/retreats.ts";
+import { eventAccessGrants } from "../db/schema/event-access.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 
@@ -69,6 +70,8 @@ interface EventForAccess {
   status: string;
   audience?: { slug: string } | null;
   audienceId?: number | null;
+  /** Teaching included in the membership: active members get it whatever the audience. */
+  includedInMembership?: boolean | null;
 }
 
 /**
@@ -125,11 +128,26 @@ export async function canUserSeeSubscriberContent(
   return dbUser ? hasActiveSubscription(dbUser) : false;
 }
 
+/** Whether the user holds an access grant (purchase, free claim or manual) on the event. */
+export async function hasEventGrant(userId: number, eventId: number): Promise<boolean> {
+  const grant = await db.query.eventAccessGrants.findFirst({
+    where: and(
+      eq(eventAccessGrants.userId, userId),
+      eq(eventAccessGrants.eventId, eventId),
+    ),
+  });
+  return !!grant;
+}
+
 /**
  * Check if a user can access a specific event based on audience rules.
  *
  * Access model:
  * - Admin/superadmin: always allowed
+ * - Included in the membership (per event flag) + active subscription: allowed
+ *   whatever the audience, no grant row (status gate still applies first)
+ * - Per-event access grant: allowed whatever the audience and subscription
+ *   (only once the status gate has passed, so a granted draft stays hidden)
  * - Public events: always allowed
  * - Subscriber events: active subscription
  * - Group member events: active subscription + user in event's group
@@ -139,6 +157,26 @@ export async function canUserSeeSubscriberContent(
 export async function checkEventAccess(
   user: UserForAccess | null,
   event: EventForAccess,
+): Promise<AccessResult> {
+  return checkEventAccessWith(user, event, (u) => hasEventGrant(u.id, event.id));
+}
+
+/**
+ * The audience rule alone: no per-event grant and no membership inclusion. For derived
+ * views that must not widen because someone bought or was included in one event (the
+ * groups card, legacy publication access, which only ever followed the audience).
+ */
+export async function checkEventAccessAudienceOnly(
+  user: UserForAccess | null,
+  event: EventForAccess,
+): Promise<AccessResult> {
+  return checkEventAccessWith(user, { ...event, includedInMembership: false }, async () => false);
+}
+
+async function checkEventAccessWith(
+  user: UserForAccess | null,
+  event: EventForAccess,
+  hasGrant: (user: UserForAccess) => Promise<boolean>,
 ): Promise<AccessResult> {
   // Status gate: runs before all other checks, including admin bypass.
   // archived is hidden from everyone; draft is hidden from non-admins.
@@ -160,6 +198,17 @@ export async function checkEventAccess(
 
   // Admin/superadmin bypass all checks
   if (user.role === "admin" || user.role === "superadmin") {
+    return { allowed: true };
+  }
+
+  // Included in the membership: active members get it whatever the audience.
+  // Pure check on data already loaded, so it costs no query (also in filterAccessibleEvents).
+  if (event.includedInMembership && hasActiveSubscription(user)) {
+    return { allowed: true };
+  }
+
+  // Per-event grant: wins over audience rules and subscription state
+  if (await hasGrant(user)) {
     return { allowed: true };
   }
 
@@ -245,10 +294,31 @@ export async function checkEventAccess(
 export async function filterAccessibleEvents<T extends EventForAccess>(
   user: UserForAccess | null,
   eventList: T[],
+  opts: { audienceOnly?: boolean } = {},
 ): Promise<T[]> {
+  if (opts.audienceOnly) {
+    const kept: (T | null)[] = await Promise.all(
+      eventList.map(async (event) => ((await checkEventAccessAudienceOnly(user, event)).allowed ? event : null)),
+    );
+    return kept.filter((e): e is T => e !== null);
+  }
+
+  // Load the user's granted event ids once instead of once per event.
+  let granted: Set<number> | null = null;
+  if (user && user.role !== "admin" && user.role !== "superadmin" && eventList.length > 0) {
+    const rows = await db
+      .select({ eventId: eventAccessGrants.eventId })
+      .from(eventAccessGrants)
+      .where(eq(eventAccessGrants.userId, user.id));
+    granted = new Set(rows.map((r) => r.eventId));
+  }
+  const grantedIds = granted ?? new Set<number>();
+
   const results: (T | null)[] = await Promise.all(
     eventList.map(async (event) => {
-      const result = await checkEventAccess(user, event);
+      const result = await checkEventAccessWith(user, event, async () =>
+        grantedIds.has(event.id),
+      );
       return result.allowed ? event : null;
     }),
   );

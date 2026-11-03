@@ -97,7 +97,7 @@ const eventWithSessions = {
  * event detail endpoint serves. Without it every signed-in user saw "0
  * sessions" and no audio icon on events that do have audio.
  */
-const eventListWith = {
+export const eventListWith = {
   ...eventWith,
   sessions: {
     columns: { id: true },

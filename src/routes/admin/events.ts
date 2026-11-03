@@ -18,6 +18,8 @@ import { transcripts } from "../../db/schema/transcripts.ts";
 import { eventFiles } from "../../db/schema/event-files.ts";
 import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
+import { resolveSaleSettings } from "../../lib/sale-settings.ts";
+import { eventAccessRoutes } from "./event-access.ts";
 import { eventSortColumns } from "./events-sort.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs, cancelReadAlongJob } from "../../services/read-along.ts";
@@ -27,6 +29,9 @@ import { fetchSlideTemplateMetadata, generateDefaultSlides } from "../../service
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../../lib/organizer-utils.ts";
 
 const eventRoutes = new Hono();
+
+// People with access / manual grants: /:id/access (see event-access.ts).
+eventRoutes.route("/", eventAccessRoutes);
 
 
 eventRoutes.get("/", async (c) => {
@@ -379,7 +384,9 @@ eventRoutes.post("/", async (c) => {
   const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, featuredAt: _ignored, ...eventData } =
     createEventSchema.parse(body);
 
-  const [event] = await db.insert(events).values(eventData).returning();
+  const { saleMode, priceCents, ...rest } = eventData;
+  const sale = resolveSaleSettings({ saleMode, priceCents }, null);
+  const [event] = await db.insert(events).values({ ...rest, ...sale }).returning();
 
   // Insert junction records
   await syncJunctions(event!.id, teacherIds, groupIds, placeIds, organizerIds);
@@ -430,6 +437,19 @@ eventRoutes.put("/:id", async (c) => {
     if (bodyKeys.has(key)) {
       filteredEventData[key] = value;
     }
+  }
+
+  // Sale mode and price are validated together; a paid event needs a price >= 100 cents.
+  if (bodyKeys.has("saleMode") || bodyKeys.has("priceCents")) {
+    const { saleMode, priceCents } = filteredEventData;
+    const current =
+      saleMode === undefined
+        ? await db.query.events.findFirst({ where: eq(events.id, id), columns: { saleMode: true } })
+        : null;
+    if (saleMode === undefined && !current) throw AppError.notFound("Event not found");
+    delete filteredEventData.saleMode;
+    delete filteredEventData.priceCents;
+    Object.assign(filteredEventData, resolveSaleSettings({ saleMode, priceCents }, current ?? null));
   }
 
   // The highlighted event must stay published: the highlight has to be moved first.
@@ -500,10 +520,21 @@ eventRoutes.put("/:id", async (c) => {
 eventRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   await assertNotFeatured(id);
-  const [event] = await db
-    .delete(events)
-    .where(eq(events.id, id))
-    .returning();
+  let event;
+  try {
+    [event] = await db.delete(events).where(eq(events.id, id)).returning();
+  } catch (err) {
+    // teaching_orders.event_id is ON DELETE RESTRICT: orders are accounting records.
+    const pg = (err as { cause?: { code?: string; constraint_name?: string } }).cause ?? (err as { code?: string; constraint_name?: string });
+    if (pg?.code === "23503" && /teaching_orders/.test(pg.constraint_name ?? "")) {
+      throw new AppError(
+        409,
+        "This event has teaching orders and cannot be deleted. Archive it instead.",
+        "EVENT_HAS_ORDERS",
+      );
+    }
+    throw err;
+  }
   if (!event) throw AppError.notFound("Event not found");
   bumpVersion("events").catch((err) =>
     console.error("[sync] failed to bump events version:", err),

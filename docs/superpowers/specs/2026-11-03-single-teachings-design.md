@@ -21,8 +21,11 @@ iOS, Android) for good.
 - **One event per order** (v1). Several events = several purchases.
 - **Retreat groups**: members keep access through their groups as today. A non-member may buy a single event
   of a group like any other event. No whole-group purchase. (André's options A + B; to confirm with him.)
-- **Benefactor members**: same price as everyone in v1 (most of them already have access through their
-  groups). A member price can come later.
+- **Benefactor members**: per event, the admin chooses whether the teaching is included in the membership
+  (`included_in_membership`, default false). When included, members with an active membership get access
+  whatever the audience, with no grant row; the sale page says 'Included for benefactor members' and
+  signed-in active members see 'Included in your membership' with an Open button instead of the form.
+  Decided by André, option C.
 - **Payment methods**: from config `EASYPAY_SINGLE_METHODS` (default `mb,mbw`). Card (`cc`) is added there
   once Easypay activates it (Easypay, 2026-10-29: card and direct debit wait for a signed amendment).
 - **Accounts**: the buyer's email finds or creates a user (active, not verified, preferred language = the
@@ -38,7 +41,7 @@ iOS, Android) for good.
 ## Data model (API, one migration)
 
 - `events` (table `retreats`): `sale_mode text not null default 'none'` (none|free|paid),
-  `price_cents integer` (null unless paid).
+  `price_cents integer` (null unless paid), `included_in_membership boolean not null default false`.
 - New `event_access_grants`: `user_id` (FK users, cascade), `event_id` (FK retreats, cascade),
   `source text not null` (purchase|free|manual), `order_id integer null` (FK teaching_orders, set null),
   `granted_by integer null` (FK users, set null; the admin for manual), `created_at`. PK (user_id, event_id).
@@ -59,7 +62,7 @@ the same behaviour; it should load the user's grants once per call, not once per
 
 Public (no auth), under `/api/teachings`:
 - `GET /:eventId` → `{ id, titleEn, titlePt, startDate, endDate, imageUrl, teachers[], places[], sessionCount,
-  published: boolean, saleMode, priceCents }`. 404 when saleMode is none or the event is archived.
+  published: boolean, saleMode, priceCents, includedInMembership: boolean }`. 404 when saleMode is none or the event is archived.
 - `POST /:eventId/checkout` body `{ email, firstName, lastName, language: "pt"|"en", consent: true }`
   (zod; consent must be true). IP rate-limited like the auth routes.
   - Finds or creates the user. If they already have access to the event (grant, group, admin…) → 409

@@ -14,6 +14,7 @@ const { mockDb, insertedValues, mockGenerateRetreatZip } = vi.hoisted(() => {
       users: { findFirst: vi.fn() },
       downloadRequests: { findFirst: vi.fn() },
       userEventAttendance: { findFirst: vi.fn() },
+      eventAccessGrants: { findFirst: vi.fn(() => Promise.resolve(undefined)) },
       userGroupMemberships: { findFirst: vi.fn() },
     },
     insert: vi.fn((_table: unknown) => ({

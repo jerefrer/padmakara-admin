@@ -44,6 +44,7 @@ vi.mock("../../src/routes/payment.ts", async (importOriginal) => ({
 import { db } from "../../src/db/index.ts";
 import { paymentTransactions } from "../../src/db/schema/payment-transactions.ts";
 import { users } from "../../src/db/schema/users.ts";
+import { teachingOrders, eventAccessGrants } from "../../src/db/schema/event-access.ts";
 import { passkeyCredentials, webauthnChallenges } from "../../src/db/schema/passkeys.ts";
 import { createAccessToken, hashToken } from "../../src/services/auth.ts";
 import { sendEmail, buildAccountDeletionEmail } from "../../src/services/email.ts";
@@ -125,6 +126,33 @@ describe("account deletion", () => {
       expect(updatedTables).toContain(paymentTransactions);
       const set = txUpdate.mock.results[updatedTables.indexOf(paymentTransactions)]!.value.set;
       expect(set).toHaveBeenCalledWith(expect.objectContaining({ userId: null }));
+    });
+
+    it("should scrub personal fields of the user's teaching orders but keep the orders", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(member());
+
+      await deleteAccount(await bearer());
+
+      expect(deletedTables()).not.toContain(teachingOrders);
+      const updatedTables = txUpdate.mock.calls.map((c) => c[0]);
+      const i = updatedTables.indexOf(teachingOrders);
+      expect(i).toBeGreaterThanOrEqual(0);
+      const set = txUpdate.mock.results[i]!.value.set;
+      const arg = set.mock.calls.map((c: any[]) => c[0]).find((a: any) => "firstName" in a);
+      expect(Object.keys(arg).sort()).toEqual(["email", "firstName", "lastName", "userId"]);
+      expect(arg.userId).toBeNull();
+      expect(arg).not.toHaveProperty("amountCents");
+      expect(arg).not.toHaveProperty("status");
+    });
+
+    it("should delete the user's access grants explicitly before the user row", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(member());
+
+      await deleteAccount(await bearer());
+
+      const tables = deletedTables();
+      expect(tables).toContain(eventAccessGrants);
+      expect(tables.indexOf(eventAccessGrants)).toBeLessThan(tables.indexOf(users));
     });
 
     it("should cancel the recurring Easypay payment before deleting", async () => {

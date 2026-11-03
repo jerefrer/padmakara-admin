@@ -74,6 +74,9 @@ import { EventVideosSection } from "../components/EventVideosSection";
 import type { PendingUploadSlides } from "../components/SlideEditor";
 import { splitDuplicateFiles } from "../utils/duplicateFiles";
 import { EventPublicationsPanel } from "../components/EventPublicationsPanel";
+import { EventSaleSection } from "../components/EventSaleSection";
+import { EventAccessSection } from "../components/EventAccessSection";
+import { useEventAccess } from "../components/useEventAccess";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
@@ -569,6 +572,10 @@ export interface EventFormData {
   guestTeacherIds: number[];
   status: string;
   featuredAt: string | null;
+  /** How the event is offered on its own: none | free | paid (price in cents). */
+  saleMode: "none" | "free" | "paid";
+  priceCents: number | null;
+  includedInMembership: boolean;
 }
 
 export interface TeacherOption { id: number; name: string; abbreviation: string }
@@ -590,6 +597,7 @@ export const EMPTY_FORM: EventFormData = {
   wixId: null, librarySnapshot: null, guestTeacherIds: [],
   status: "draft",
   featuredAt: null,
+  saleMode: "none", priceCents: null, includedInMembership: false,
 };
 
 /* ───────────── Shared form fields ───────────── */
@@ -1043,6 +1051,7 @@ export const EventFormFields = ({
     [allAudiences, setSelectedEventType, setSelectedAudience, setSelectedGroups],
   );
 
+  const { access, reload: reloadAccess } = useEventAccess(eventId);
   const showGroups = isParallelRetreats(selectedEventType);
   const audienceFrozen = isParallelRetreats(selectedEventType);
 
@@ -1529,6 +1538,15 @@ export const EventFormFields = ({
           sx={{ "& input": { fontFamily: "monospace", fontWeight: 600, letterSpacing: "0.02em" } }}
         />
       </Paper>
+
+      {/* ── Access & sale, then who has access (the list needs an event id) ── */}
+      <EventSaleSection
+        value={{ saleMode: form.saleMode, priceCents: form.priceCents, includedInMembership: form.includedInMembership }}
+        onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+        eventId={eventId}
+        stats={access?.stats}
+      />
+      {eventId !== undefined && <EventAccessSection eventId={eventId} access={access} reload={reloadAccess} />}
 
       {/* ── Event-level videos (edit mode only — needs a real event id) ── */}
       {onVideosChange && onVideoUpload && onVideoImportUrl && onVideoAttachMaster && (
@@ -3056,6 +3074,9 @@ export const EventEdit = () => {
         .map((rt: any) => rt.teacherId),
       status: event.status || "draft",
       featuredAt: event.featuredAt || null,
+      saleMode: event.saleMode ?? "none",
+      priceCents: event.priceCents ?? null,
+      includedInMembership: event.includedInMembership ?? false,
       titleEnReviewed: event.titleEnReviewed ?? true,
       titlePtReviewed: event.titlePtReviewed ?? true,
       mainThemesEnReviewed: event.mainThemesEnReviewed ?? true,

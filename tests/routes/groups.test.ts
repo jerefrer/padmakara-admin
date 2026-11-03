@@ -199,3 +199,46 @@ describe("GET /api/groups/:id/events — draft visibility", () => {
     expect(userRendered.params).toContain("published");
   });
 });
+
+// ─── GET /api/groups: groups come from audience rules only ───────────────────
+
+describe("GET /api/groups — grants and membership inclusion do not create groups", () => {
+  const eventInGroup = (over: Record<string, unknown>) => ({
+    id: 1,
+    status: "published",
+    audience: { slug: "restricted" },
+    includedInMembership: false,
+    eventRetreatGroups: [{ retreatGroup: mockGroup }],
+    ...over,
+  });
+  const activeMember = { ...makeUserRow("user"), subscriptionStatus: "active" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue({
+      from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([{ eventId: 1 }])) })),
+    } as any);
+  });
+
+  it("should not list a group because the user bought one of its events", async () => {
+    mockDb.query.events.findMany.mockResolvedValueOnce([eventInGroup({})]);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
+    const { status, body } = await testJson("/api/groups", { headers: await bearerToken("user") });
+    expect(status).toBe(200);
+    expect(body).toEqual([]);
+  });
+
+  it("should not list a group because an event is included in the membership", async () => {
+    mockDb.query.events.findMany.mockResolvedValueOnce([eventInGroup({ includedInMembership: true })]);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(activeMember);
+    const { body } = await testJson("/api/groups", { headers: await bearerToken("user") });
+    expect(body).toEqual([]);
+  });
+
+  it("should still list a group reached through its audience rule", async () => {
+    mockDb.query.events.findMany.mockResolvedValueOnce([eventInGroup({ audience: { slug: "free-anyone" } })]);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
+    const { body } = await testJson("/api/groups", { headers: await bearerToken("user") });
+    expect((body as Array<{ id: number }>).map((g) => g.id)).toEqual([GROUP_ID]);
+  });
+});
