@@ -124,7 +124,8 @@ const searchEventWith = {
 searchRoutes.use("/*", optionalAuthMiddleware);
 
 const searchLogSchema = z.object({
-  query: z.string(),
+  // Generous bound before normalisation (which cuts to 200).
+  query: z.string().max(1000),
   resultCount: z.number().int().min(0),
   language: z.enum(["en", "pt"]).optional(),
 });
