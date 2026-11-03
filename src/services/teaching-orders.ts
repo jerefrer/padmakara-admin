@@ -168,6 +168,8 @@ export async function lookupSinglePayment(
   }
 }
 
+export type RefreshResult = FinalizeResult | "unknown" | "key_mismatch" | "no_amount" | "failed" | "expired" | "pending";
+
 const FAILED_STATUSES = new Set(["failed", "error", "voided"]);
 
 /**
@@ -178,28 +180,27 @@ const FAILED_STATUSES = new Set(["failed", "error", "voided"]);
 export async function refreshOrderFromEasypay(
   order: TeachingOrder,
   info?: SinglePaymentInfo | null,
-): Promise<void> {
+): Promise<RefreshResult> {
   const payment = info === undefined ? await lookupSinglePayment(order) : info;
-  if (!payment) return;
+  if (!payment) return "unknown";
 
   if (payment.key !== null && payment.key !== teachingOrderKey(order.publicId)) {
     console.error(
       `[TEACHINGS] payment ${payment.paymentId} has key ${payment.key}, not ${teachingOrderKey(order.publicId)}; ignored.`,
     );
-    return;
+    return "key_mismatch";
   }
 
   if (payment.status === "paid") {
     if (payment.amountCents === null) {
       console.error(`[TEACHINGS] paid payment ${payment.paymentId} has no readable value; order ${order.id} not finalized.`);
-      return;
+      return "no_amount";
     }
-    await finalizeOrder(order.id, {
+    return finalizeOrder(order.id, {
       paymentId: payment.paymentId,
       method: payment.methodType?.toLowerCase(),
       amountCents: payment.amountCents,
     });
-    return;
   }
 
   const next = FAILED_STATUSES.has(payment.status) ? "failed" : payment.status === "deleted" ? "expired" : null;
@@ -209,4 +210,5 @@ export async function refreshOrderFromEasypay(
       .set({ status: next, easypayPaymentId: payment.paymentId })
       .where(and(eq(teachingOrders.id, order.id), eq(teachingOrders.status, "pending")));
   }
+  return next ?? "pending";
 }

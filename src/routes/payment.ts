@@ -24,6 +24,11 @@ import {
   easypayDateTime,
   type MembershipInterval,
 } from "../services/membership.ts";
+import { teachingOrders } from "../db/schema/event-access.ts";
+import {
+  lookupSinglePayment,
+  refreshOrderFromEasypay,
+} from "../services/teaching-orders.ts";
 
 const EASYPAY_API_BASE = config.easypay.testing
   ? "https://api.test.easypay.pt/2.0"
@@ -88,6 +93,9 @@ const REVERSAL_TYPES = new Set(["refund", "void", "chargeback", "dispute"]);
 const SUCCESS_STATUSES = new Set(["success", "paid", "active", "completed"]);
 
 type NotificationKind = "payment" | "payment_failed" | "reversal" | "unknown";
+
+/** The `key` of a teaching order's Easypay payment; see `teachingOrderKey`. */
+const TEACHING_ORDER_KEY = /^teaching-order-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 function classifyNotification(
   type: string | null,
@@ -934,6 +942,37 @@ paymentRoutes.post("/webhook", async (c) => {
       .update(paymentTransactions)
       .set(fields)
       .where(eq(paymentTransactions.id, txId));
+
+  // One-off teaching purchases (Easypay "single" payments) share this endpoint. Every
+  // subscription notification type starts with "subscription"; anything else (a bare
+  // "capture", say) may be a single payment, so it is checked first. Only a payment whose
+  // own `key` is `teaching-order-<publicId>` belongs to us: everything else falls through
+  // to the subscription path below, exactly as before.
+  if (!(type ?? "").toLowerCase().startsWith("subscription")) {
+    const single = await lookupSinglePayment({ id: 0, easypayCheckoutId: null, easypayPaymentId: id });
+    const match = single && single.key ? TEACHING_ORDER_KEY.exec(single.key) : null;
+    if (single && match) {
+      const order = await db.query.teachingOrders.findFirst({
+        where: eq(teachingOrders.publicId, match[1]!),
+      });
+      if (!order) {
+        console.error(`[EASYPAY WEBHOOK] single payment ${id} references unknown teaching order ${match[1]}`);
+        await recordOutcome({ action: "teaching_ignored", note: "unknown teaching order" });
+        return c.json({ received: true });
+      }
+      // Reads the status and amount from Easypay (never from this body) and finalizes
+      // idempotently: a duplicate or a race with the confirmation page grants once.
+      const result = await refreshOrderFromEasypay(order, single);
+      console.log(`[EASYPAY WEBHOOK] teaching order ${order.id}: ${result}`);
+      await recordOutcome({
+        userId: order.userId,
+        action: `teaching_${result}`,
+        note: `order ${order.id}, payment_status ${single.status}`,
+        amount: single.amountCents === null ? null : String(single.amountCents / 100),
+      });
+      return c.json({ received: true });
+    }
+  }
 
   // Never act on the request body — re-read the subscription from Easypay and trust
   // only what Easypay itself says about it.
