@@ -80,7 +80,7 @@ export async function finalizeOrder(
 
 /** Best-effort "your recordings" email for an order or a free claim: never throws. */
 export async function sendTeachingAvailableEmail(
-  order: Pick<TeachingOrder, "id" | "eventId" | "email" | "firstName" | "language">,
+  order: Pick<TeachingOrder, "eventId" | "email" | "firstName" | "language"> & { id?: number },
 ): Promise<void> {
   try {
     const event = await db.query.events.findFirst({ where: (e, { eq }) => eq(e.id, order.eventId) });
@@ -97,7 +97,7 @@ export async function sendTeachingAvailableEmail(
     });
     await sendEmail({ to: order.email, ...mail });
   } catch (err) {
-    console.error(`[TEACHINGS] could not send access email for order ${order.id}:`, err);
+    console.error(`[TEACHINGS] could not send access email for ${order.id === undefined ? `free claim of event ${order.eventId}` : `order ${order.id}`}:`, err);
   }
 }
 

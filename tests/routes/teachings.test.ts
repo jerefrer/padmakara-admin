@@ -67,6 +67,7 @@ vi.mock("../../src/services/teaching-orders.ts", async (orig) => ({
 }));
 
 import { testJson } from "../helpers.ts";
+import { resetOrderPollCache } from "../../src/routes/teachings.ts";
 import { createAccessToken } from "../../src/services/auth.ts";
 
 const PUBLIC_ID = "11111111-1111-1111-1111-111111111111";
@@ -95,6 +96,7 @@ function event(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetOrderPollCache();
   insertReturns = [{ id: 5, publicId: PUBLIC_ID }];
   eventFindFirst.mockResolvedValue(event());
   userFindFirst.mockResolvedValue({ id: 3, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null });
@@ -297,7 +299,7 @@ describe("GET /api/teachings/orders/:publicId", () => {
   });
 
   it("should show the Multibanco reference while the order is pending", async () => {
-    orderFindFirst.mockResolvedValue(order);
+    orderFindFirst.mockResolvedValue({ ...order, createdAt: new Date(Date.now() - 60_000) });
     lookupSinglePayment.mockResolvedValue({ paymentId: "p", status: "pending", key: null, amountCents: 1500, methodType: "MB", entity: "11683", reference: "663000450" });
     const { body: b } = await testJson(`/api/teachings/orders/${PUBLIC_ID}`);
     expect(b).toEqual({
@@ -317,10 +319,19 @@ describe("GET /api/teachings/orders/:publicId", () => {
     expect(b.status).toBe("paid");
   });
 
-  it("should not hit Easypay refresh for a pending order younger than 10 seconds", async () => {
+  it("should not call Easypay at all for a pending order younger than 10 seconds", async () => {
     orderFindFirst.mockResolvedValue(order);
     await testJson(`/api/teachings/orders/${PUBLIC_ID}`);
+    expect(lookupSinglePayment).not.toHaveBeenCalled();
     expect(refreshOrderFromEasypay).not.toHaveBeenCalled();
+  });
+
+  it("should call Easypay at most once per window for repeated polls of an old pending order", async () => {
+    orderFindFirst.mockResolvedValue({ ...order, createdAt: new Date(Date.now() - 60_000) });
+    await testJson(`/api/teachings/orders/${PUBLIC_ID}`);
+    await testJson(`/api/teachings/orders/${PUBLIC_ID}`);
+    await testJson(`/api/teachings/orders/${PUBLIC_ID}`);
+    expect(lookupSinglePayment).toHaveBeenCalledTimes(1);
   });
 });
 

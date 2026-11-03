@@ -15,6 +15,8 @@ import { grantEventAccess } from "../services/event-access.ts";
 import {
   finalizeOrder,
   lookupSinglePayment,
+  type SinglePaymentInfo,
+  type TeachingOrder,
   refreshOrderFromEasypay,
   sendTeachingAvailableEmail,
   teachingOrderKey,
@@ -31,6 +33,22 @@ const teachingRoutes = new Hono();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A pending order is re-read from Easypay once it is older than this (the webhook had its chance). */
 const REFRESH_AFTER_MS = 10_000;
+
+const pollCache = new Map<string, { at: number; info: SinglePaymentInfo | null }>();
+
+/** Test hook: forget cached Easypay lookups. */
+export function resetOrderPollCache(): void {
+  pollCache.clear();
+}
+
+async function cachedLookup(order: TeachingOrder): Promise<SinglePaymentInfo | null> {
+  const hit = pollCache.get(order.publicId);
+  if (hit && Date.now() - hit.at < REFRESH_AFTER_MS) return hit.info;
+  const info = await lookupSinglePayment(order);
+  if (pollCache.size > 1000) pollCache.clear();
+  pollCache.set(order.publicId, { at: Date.now(), info });
+  return info;
+}
 
 function parseEventId(raw: string): number {
   const id = Number(raw);
@@ -94,15 +112,15 @@ teachingRoutes.get("/orders/:publicId", async (c) => {
   if (!order) throw AppError.notFound("Order not found");
 
   let mbReference: { entity: string; reference: string; amount: number } | undefined;
-  if (order.status === "pending") {
-    const info = await lookupSinglePayment(order);
-    if (Date.now() - order.createdAt.getTime() > REFRESH_AFTER_MS) {
-      await refreshOrderFromEasypay(order, info);
-      const fresh = await db.query.teachingOrders.findFirst({
-        where: eq(teachingOrders.publicId, publicId),
-      });
-      if (fresh) order = fresh;
-    }
+  // Unauthenticated and unlimited: Easypay is only asked once the webhook has had its
+  // chance (order older than REFRESH_AFTER_MS), and at most once per window per order.
+  if (order.status === "pending" && Date.now() - order.createdAt.getTime() > REFRESH_AFTER_MS) {
+    const info = await cachedLookup(order);
+    await refreshOrderFromEasypay(order, info);
+    const fresh = await db.query.teachingOrders.findFirst({
+      where: eq(teachingOrders.publicId, publicId),
+    });
+    if (fresh) order = fresh;
     if (order.status === "pending" && info?.methodType?.toUpperCase() === "MB" && info.entity && info.reference) {
       mbReference = { entity: info.entity, reference: info.reference, amount: order.amountCents / 100 };
     }
@@ -182,8 +200,15 @@ teachingRoutes.post("/:eventId/checkout", authIpLimiter(), async (c) => {
 
   if (event.saleMode === "free") {
     await grantEventAccess({ userId: user.id, eventId: event.id, source: "free" });
-    await sendTeachingAvailableEmail({ id: 0, eventId: event.id, ...buyer });
+    await sendTeachingAvailableEmail({ eventId: event.id, ...buyer });
     return c.json({ status: "granted" });
+  }
+
+  // Mock mode (no Easypay account) is a dev convenience that marks orders paid. It must
+  // never run in production: a missing EASYPAY_ACCOUNT_ID would give paid teachings away.
+  if (isMockMode && config.nodeEnv === "production") {
+    console.error("[TEACHINGS] EASYPAY_ACCOUNT_ID is not configured in production; refusing paid checkout.");
+    throw new AppError(503, "Payments are temporarily unavailable", "PAYMENTS_UNAVAILABLE");
   }
 
   const [order] = await db
@@ -194,7 +219,15 @@ teachingRoutes.post("/:eventId/checkout", authIpLimiter(), async (c) => {
 
   if (isMockMode) {
     console.log(`[MOCK PAYMENT] Marking teaching order ${order.id} paid`);
-    await finalizeOrder(order.id, { paymentId: `mock_${order.publicId}`, method: "mock", amountCents: priceCents });
+    const result = await finalizeOrder(order.id, {
+      paymentId: `mock_${order.publicId}`,
+      method: "mock",
+      amountCents: priceCents,
+    });
+    if (result !== "finalized") {
+      console.error(`[MOCK PAYMENT] teaching order ${order.id} not finalized: ${result}`);
+      throw AppError.internal("Could not complete the mock payment");
+    }
     return c.json({
       status: "checkout",
       orderId: order.publicId,
