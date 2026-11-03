@@ -481,6 +481,7 @@ export const pt = {
       applying: "A aplicar…",
       reviewTitle: "Alterações propostas",
       noChanges: "A AI não propôs alterações.",
+      moveToSessionHint: "Para mover as faixas selecionadas para outra sessão ou uma nova, use “Mover para sessão…” no topo.",
       apply: "Aplicar alterações",
       discard: "Descartar",
       sectionEvent: "Evento",

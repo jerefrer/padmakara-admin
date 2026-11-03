@@ -283,6 +283,7 @@ export const en = {
       applying: "Applying…",
       reviewTitle: "Proposed changes",
       noChanges: "The AI proposed no changes.",
+      moveToSessionHint: "To move the selected tracks to another or a new session, use “Move to session…” at the top.",
       apply: "Apply changes",
       discard: "Discard",
       sectionEvent: "Event",

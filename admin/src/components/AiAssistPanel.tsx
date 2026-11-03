@@ -99,6 +99,8 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
   const [busy, setBusy] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<AiAssistResult | null>(null);
+  // The instruction the current result answers (the field may be edited since).
+  const [askedText, setAskedText] = useState("");
   // Ids of rows the admin has unticked. Tracking exclusions rather than
   // selections means a fresh reply arrives fully selected with no sync step.
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(() => new Set());
@@ -146,6 +148,7 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
     if (!text) return;
     setBusy(true);
     setResult(null);
+    setAskedText(text);
     try {
       const res = await authFetch(endpoint, {
         method: "POST",
@@ -410,6 +413,11 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
         {t("batchHint")}
       </Typography>
+      {selectedTrackKeys.length > 0 && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+          {t("moveToSessionHint")}
+        </Typography>
+      )}
 
       {result && (
         <Box sx={{ mt: 2 }}>
@@ -430,7 +438,11 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
             )}
           </Box>
           {totalChanges === 0 ? (
-            <Typography variant="body2" color="text.secondary">{t("noChanges")}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {/* The assistant cannot create or move sessions; point at the
+                  tool that can instead of a bare "no changes". */}
+              {/sess(ion|ão|ao|ões|oes)/i.test(askedText) ? t("moveToSessionHint") : t("noChanges")}
+            </Typography>
           ) : (
             <>
               {/* Scrolls in place so a few hundred track rows can't push the

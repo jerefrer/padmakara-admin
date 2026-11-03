@@ -68,7 +68,12 @@ const TWO_SESSIONS_RESULT: AiAssistResult = {
  * Mount the panel and drive one round-trip, with `fetch` stubbed so the reply
  * is `result` without touching the network.
  */
-async function ask(tracks: AiAssistTrack[], result: AiAssistResult): Promise<void> {
+async function ask(
+  tracks: AiAssistTrack[],
+  result: AiAssistResult,
+  instruction = "translate the titles to Portuguese",
+  selectedTrackKeys?: string[],
+): Promise<void> {
   vi.stubGlobal("fetch", vi.fn(() =>
     Promise.resolve(new Response(JSON.stringify(result), {
       status: 200, headers: { "Content-Type": "application/json" },
@@ -83,6 +88,7 @@ async function ask(tracks: AiAssistTrack[], result: AiAssistResult): Promise<voi
         event={{ titleEn: "Spring retreat" }}
         sessions={[]}
         tracks={tracks}
+        selectedTrackKeys={selectedTrackKeys}
         onApply={(r) => { applied = r; }}
       />,
     );
@@ -96,7 +102,7 @@ async function ask(tracks: AiAssistTrack[], result: AiAssistResult): Promise<voi
     const setValue = Object.getOwnPropertyDescriptor(
       window.HTMLTextAreaElement.prototype, "value",
     )?.set;
-    setValue?.call(textarea, "translate the titles to Portuguese");
+    setValue?.call(textarea, instruction);
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
@@ -232,6 +238,32 @@ describe("AiAssistPanel selection", () => {
 
     expect(button("aiAssist.apply").disabled).toBe(true);
     expect(container.textContent).toContain("aiAssist.changeCountSelected");
+  });
+});
+
+describe("AiAssistPanel move-to-session hint", () => {
+  const EMPTY: AiAssistResult = { sessions: [], videos: [], tracks: [] };
+
+  it("should show the hint under the input when tracks are selected", async () => {
+    await ask(TWO_SESSIONS, EMPTY, "hello", ["t1"]);
+    expect(container.textContent).toContain("aiAssist.moveToSessionHint");
+  });
+
+  it("should not show the hint when no tracks are selected", async () => {
+    await ask(TWO_SESSIONS, EMPTY, "hello");
+    expect(container.textContent).not.toContain("aiAssist.moveToSessionHint");
+    expect(container.textContent).toContain("aiAssist.noChanges");
+  });
+
+  it("should show the hint instead of 'no changes' when the instruction mentions a session", async () => {
+    await ask(TWO_SESSIONS, EMPTY, "make these a new separate session");
+    expect(container.textContent).toContain("aiAssist.moveToSessionHint");
+    expect(container.textContent).not.toContain("aiAssist.noChanges");
+  });
+
+  it("should recognise the Portuguese word sessão", async () => {
+    await ask(TWO_SESSIONS, EMPTY, "criar uma nova sessão");
+    expect(container.textContent).toContain("aiAssist.moveToSessionHint");
   });
 });
 

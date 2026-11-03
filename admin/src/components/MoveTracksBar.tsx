@@ -58,7 +58,21 @@ export const MoveTracksBar = ({
   return (
     <Paper
       variant="outlined"
-      sx={{ display: "flex", alignItems: "center", gap: 2, px: 2, py: 1, mb: 1.5 }}
+      data-testid="move-tracks-bar"
+      sx={{
+        // Sticky so the bar stays in view while the admin ticks tracks far
+        // down the page (it used to sit above the first session only).
+        position: "sticky",
+        top: 8,
+        zIndex: 10,
+        backgroundColor: "background.paper",
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        px: 2,
+        py: 1,
+        mb: 1.5,
+      }}
     >
       <Typography variant="body2" sx={{ fontWeight: 600 }}>
         {translate("padmakara.tracks.selectedCount", { smart_count: selectedCount })}
