@@ -17,6 +17,7 @@ import {
   presignVideoPartsSchema,
   completeVideoMultipartSchema,
   abortVideoMultipartSchema,
+  listVideoPartsSchema,
   presignUploadSchema,
   presignTranscriptSchema,
   presignFileSchema,
@@ -164,6 +165,32 @@ uploadRoutes.post("/video/multipart/complete", async (c) => {
   }
   await completeMultipartUpload(s3Key, uploadId, parts);
   return c.json({ s3Key });
+});
+
+/**
+ * Parts S3 already holds for an in-progress upload, so a reloaded or
+ * discarded tab can resume instead of starting over. 404 NO_SUCH_UPLOAD when
+ * S3 no longer knows the upload (aborted, completed or expired).
+ */
+uploadRoutes.post("/video/multipart/list-parts", async (c) => {
+  const parsed = listVideoPartsSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+  }
+  const { s3Key, uploadId } = parsed.data;
+  if (!isVideoMasterKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
+  let listed: Awaited<ReturnType<typeof listUploadedParts>>;
+  try {
+    listed = await listUploadedParts(s3Key, uploadId);
+  } catch (err) {
+    if (err instanceof Error && err.name === "NoSuchUpload") {
+      throw new AppError(404, "Multipart upload not found", "NO_SUCH_UPLOAD");
+    }
+    throw err;
+  }
+  return c.json({
+    parts: listed.map((p) => ({ partNumber: p.partNumber, size: p.size, etag: p.etag })),
+  });
 });
 
 uploadRoutes.post("/video/multipart/abort", async (c) => {

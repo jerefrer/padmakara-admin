@@ -131,8 +131,8 @@ export async function generatePresignedPartUrl(
 export async function listUploadedParts(
   key: string,
   uploadId: string,
-): Promise<{ partNumber: number; etag: string }[]> {
-  const parts: { partNumber: number; etag: string }[] = [];
+): Promise<{ partNumber: number; etag: string; size: number }[]> {
+  const parts: { partNumber: number; etag: string; size: number }[] = [];
   let marker: string | undefined;
   do {
     const res = await s3Client.send(
@@ -144,7 +144,7 @@ export async function listUploadedParts(
       }),
     );
     for (const p of res.Parts ?? []) {
-      if (p.PartNumber !== undefined && p.ETag) parts.push({ partNumber: p.PartNumber, etag: p.ETag });
+      if (p.PartNumber !== undefined && p.ETag) parts.push({ partNumber: p.PartNumber, etag: p.ETag, size: p.Size ?? 0 });
     }
     marker = res.IsTruncated ? res.NextPartNumberMarker : undefined;
   } while (marker);

@@ -3583,6 +3583,7 @@ export const EventEdit = () => {
         bytesTotal: file.size,
         speed: 0,
         files: [{ filename: file.name, size: file.size, status: "uploading", progress: 0 }],
+        keepOpenHint: true,
       });
 
       uploadVideoMaster({
@@ -3591,6 +3592,9 @@ export const EventEdit = () => {
         videoId,
         file,
         signal,
+        onResume: (fraction) => {
+          setUploadProgress((p) => p && { ...p, resumedPercent: Math.round(fraction * 100) });
+        },
         onProgress: (fraction) => {
           const loaded = Math.round(fraction * file.size);
           speedTracker.record(loaded);

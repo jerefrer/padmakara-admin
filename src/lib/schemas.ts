@@ -611,6 +611,7 @@ export const presignVideoPartsSchema = multipartTargetSchema.extend({
 
 export const completeVideoMultipartSchema = multipartTargetSchema;
 export const abortVideoMultipartSchema = multipartTargetSchema;
+export const listVideoPartsSchema = multipartTargetSchema;
 
 // Persist an event_files row after the S3 PUT completes.
 export const createEventFileSchema = z.object({

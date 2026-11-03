@@ -7,7 +7,13 @@ import {
   nextPresignBatch,
   overallFraction,
   partRange,
+  resumeStorageKey,
+  parseResumeEntry,
+  partsToSkip,
+  bytesOfParts,
+  type ResumeEntry,
 } from "./multipartPlan";
+import { holdUploadGuard } from "./uploadGuard";
 
 const API_URL = "/api/admin";
 
@@ -232,6 +238,10 @@ interface MasterUploadOpts {
   contentType: string;
   signal: { cancelled: boolean; abort?: () => void };
   onProgress?: (fraction: number) => void;
+  /** Target video row when attaching to a prepared one (part of the resume key). */
+  videoId?: number;
+  /** Called once when an earlier partial upload is resumed, with the fraction already on S3. */
+  onResume?: (fraction: number) => void;
 }
 
 /** Single presigned PUT of the whole file — used below the multipart threshold. */
@@ -281,6 +291,49 @@ async function postJson<T>(path: string, body: unknown, what: string): Promise<T
   return (await res.json()) as T;
 }
 
+function loadResumeEntry(storageKey: string, fileSize: number): ResumeEntry | null {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    const entry = parseResumeEntry(raw, Date.now(), fileSize);
+    if (raw && !entry) localStorage.removeItem(storageKey);
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+function saveResumeEntry(storageKey: string, entry: ResumeEntry): void {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(entry));
+  } catch {
+    // Storage blocked or full: the upload still works, it just cannot resume.
+  }
+}
+
+function clearResumeEntry(storageKey: string): void {
+  try {
+    localStorage.removeItem(storageKey);
+  } catch {
+    // Nothing to clean up if storage is unavailable.
+  }
+}
+
+/** Parts S3 holds for a stored session, or null when the upload no longer exists. */
+async function listExistingParts(
+  session: ResumeEntry,
+): Promise<{ partNumber: number; size: number }[] | null> {
+  const res = await authFetch(`${API_URL}/upload/video/multipart/list-parts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ s3Key: session.s3Key, uploadId: session.uploadId }),
+  });
+  if (res.status === 404) return null; // NO_SUCH_UPLOAD
+  if (!res.ok) {
+    throw new Error(`List uploaded parts failed (${res.status}): ${await res.text()}`);
+  }
+  return ((await res.json()) as { parts: { partNumber: number; size: number }[] }).parts;
+}
+
 /**
  * Multipart upload of a master: parts are PUT straight to S3 four at a time,
  * each retried independently with backoff, so a flaky connection costs one
@@ -290,20 +343,50 @@ async function postJson<T>(path: string, body: unknown, what: string): Promise<T
 async function uploadMasterMultipart(opts: MasterUploadOpts): Promise<string> {
   const { eventCode, file, contentType, signal } = opts;
 
-  const { uploadId, s3Key, partSize, partCount } = await postJson<{
-    uploadId: string;
-    s3Key: string;
-    partSize: number;
-    partCount: number;
-  }>("/upload/video/multipart/create", { eventCode, filename: file.name, contentType, size: file.size }, "Start multipart upload");
+  const storageKey = resumeStorageKey({
+    eventCode,
+    videoId: opts.videoId,
+    name: file.name,
+    size: file.size,
+    lastModified: file.lastModified,
+  });
+
+  // Resume a stored session if S3 still has it; otherwise start a new one.
+  let session = loadResumeEntry(storageKey, file.size);
+  let skipped: number[] = [];
+  if (session) {
+    const listed = await listExistingParts(session);
+    if (listed === null) {
+      clearResumeEntry(storageKey);
+      session = null;
+    } else {
+      skipped = partsToSkip(listed, session.partSize, session.partCount, file.size);
+    }
+  }
+  if (!session) {
+    const created = await postJson<{
+      uploadId: string;
+      s3Key: string;
+      partSize: number;
+      partCount: number;
+    }>("/upload/video/multipart/create", { eventCode, filename: file.name, contentType, size: file.size }, "Start multipart upload");
+    session = { ...created, createdAt: Date.now() };
+    saveResumeEntry(storageKey, session);
+  }
+  const { uploadId, s3Key, partSize, partCount } = session;
 
   const inFlightXhrs = new Set<XMLHttpRequest>();
   const inFlightBytes = new Map<number, number>();
   const pending = new Set<number>();
   for (let n = 1; n <= partCount; n++) pending.add(n);
+  for (const n of skipped) pending.delete(n);
   const urls = new Map<number, string>();
   let presigning: Promise<void> | null = null;
-  let confirmedBytes = 0;
+  let confirmedBytes = bytesOfParts(skipped, partSize, file.size);
+  if (skipped.length > 0) {
+    opts.onResume?.(confirmedBytes / file.size);
+    opts.onProgress?.(overallFraction(confirmedBytes, [], file.size));
+  }
   let aborted = false;
   let failure: unknown = null;
   let lastEmit = 0;
@@ -431,11 +514,19 @@ async function uploadMasterMultipart(opts: MasterUploadOpts): Promise<string> {
     if (failure) throw failure;
     if (signal.cancelled || aborted) throw new UploadCancelledError();
     await postJson("/upload/video/multipart/complete", { s3Key, uploadId }, "Complete multipart upload");
+    clearResumeEntry(storageKey);
     emit(true);
     return s3Key;
   } catch (err) {
-    // Best effort: an orphaned multipart upload keeps its parts in storage.
-    await postJson("/upload/video/multipart/abort", { s3Key, uploadId }, "Abort multipart upload").catch(() => {});
+    // Only an explicit cancel throws the parts away. Any other failure (a
+    // long network outage, a frozen background tab) keeps the S3 upload and
+    // the stored session, so choosing the same file again resumes it. Stale
+    // sessions expire client-side after 6 days.
+    if (err instanceof UploadCancelledError) {
+      // Best effort: an orphaned multipart upload keeps its parts in storage.
+      await postJson("/upload/video/multipart/abort", { s3Key, uploadId }, "Abort multipart upload").catch(() => {});
+      clearResumeEntry(storageKey);
+    }
     throw err;
   }
 }
@@ -475,6 +566,7 @@ export async function uploadVideoMaster(opts: {
   slides?: unknown;
   signal: { cancelled: boolean; abort?: () => void };
   onProgress?: (fraction: number) => void;
+  onResume?: (fraction: number) => void;
   onBurnQueued?: () => void;
 }): Promise<{ videoId: number }> {
   const { eventId, eventCode, videoId: existingVideoId, position, title, file, slides, signal } = opts;
@@ -483,10 +575,19 @@ export async function uploadVideoMaster(opts: {
   // 1+2. Get the master onto S3. Big files go as a multipart upload (a single
   //      PUT is capped at 5 GB and one dropped connection restarts it);
   //      smaller ones keep the single presigned PUT.
-  const s3Key =
-    file.size >= MULTIPART_THRESHOLD_BYTES
-      ? await uploadMasterMultipart({ eventCode, file, contentType, signal, onProgress: opts.onProgress })
-      : await uploadMasterSinglePut({ eventCode, file, contentType, signal, onProgress: opts.onProgress });
+  //    The tab is kept alive (Web Lock) and protected from accidental close
+  //    for the whole transfer.
+  const releaseGuard = holdUploadGuard(`${eventCode}-${Date.now()}`);
+  let s3Key: string;
+  try {
+    const master = { eventCode, file, contentType, signal, onProgress: opts.onProgress };
+    s3Key =
+      file.size >= MULTIPART_THRESHOLD_BYTES
+        ? await uploadMasterMultipart({ ...master, videoId: existingVideoId, onResume: opts.onResume })
+        : await uploadMasterSinglePut(master);
+  } finally {
+    releaseGuard();
+  }
 
   if (signal.cancelled) throw new UploadCancelledError();
 
