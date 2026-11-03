@@ -12,4 +12,5 @@ export const slideEditorTokens = {
   borderStrong: "#D9D2C7",
   ink: "#1F1D1B",
   muted: "#6B645D",
+  warning: "#B7791F",
 } as const;

@@ -358,6 +358,7 @@ const slideSchema = z
     durationMs: z.number().int().min(500).max(30000),
     fadeMs: z.number().int().min(0).max(5000),
     lines: z.array(slideLineSchema).max(12),
+    needsReview: z.boolean().optional(),
     subtitles: slideSubtitlesSchema.optional(),
   })
   .refine((s) => (s.kind === "clip") === (s.clip !== undefined), {
@@ -417,7 +418,6 @@ export const attachVideoMasterSchema = z.object({
 
 export const copyVideoSlidesSchema = z.object({
   sourceVideoId: z.number().int().positive(),
-  lang: z.enum(["en", "pt"]).optional(),
 });
 
 export const slideImageUrlsSchema = z.object({
