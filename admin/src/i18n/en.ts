@@ -816,6 +816,8 @@ export const en = {
       failedFilesNote: "%{completed} of %{total} files were uploaded successfully. The event and tracks have been saved — you can retry the upload later.",
       preparing: "Preparing upload...",
       uploading: "Uploading to S3",
+      keepTabOpen: "Keep this tab open until the upload finishes. If it stops, choose the same file again: it resumes where it left off.",
+      resuming: "Resuming: %{percent}% already uploaded",
       cancel: "Cancel",
       filesProgress: "%{completed} of %{total} files",
       estimating: "Estimating...",

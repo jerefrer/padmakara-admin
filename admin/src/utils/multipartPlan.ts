@@ -74,3 +74,88 @@ export function overallFraction(
   for (const b of inFlight) bytes += b;
   return Math.min(1, bytes / totalBytes);
 }
+
+// ─── Resume support ──────────────────────────────────────────────────────────
+
+/** A stored multipart session older than this is dropped (S3 may have expired it). */
+export const RESUME_MAX_AGE_MS = 6 * 24 * 60 * 60 * 1000;
+
+/** The multipart session persisted in localStorage so a reload can resume it. */
+export interface ResumeEntry {
+  uploadId: string;
+  s3Key: string;
+  partSize: number;
+  partCount: number;
+  createdAt: number;
+}
+
+/**
+ * localStorage key identifying "the same file for the same target": event,
+ * target row (when attaching to a prepared video), and the file's name, size
+ * and modification time.
+ */
+export function resumeStorageKey(opts: {
+  eventCode: string;
+  videoId?: number | null;
+  name: string;
+  size: number;
+  lastModified: number;
+}): string {
+  const target = opts.videoId != null ? `video-${opts.videoId}` : "new";
+  return `padmakara.videoUpload:${opts.eventCode}:${target}:${opts.size}:${opts.lastModified}:${opts.name}`;
+}
+
+/**
+ * Parse and validate a stored entry. Returns null for missing/corrupt data,
+ * entries older than RESUME_MAX_AGE_MS (or dated in the future), and entries
+ * whose part plan does not match the file size.
+ */
+export function parseResumeEntry(raw: string | null, now: number, fileSize: number): ResumeEntry | null {
+  if (!raw) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (typeof v.uploadId !== "string" || v.uploadId === "") return null;
+  if (typeof v.s3Key !== "string" || v.s3Key === "") return null;
+  if (typeof v.partSize !== "number" || !Number.isInteger(v.partSize) || v.partSize <= 0) return null;
+  if (typeof v.partCount !== "number" || !Number.isInteger(v.partCount) || v.partCount <= 0) return null;
+  if (typeof v.createdAt !== "number") return null;
+  const age = now - v.createdAt;
+  if (age < 0 || age > RESUME_MAX_AGE_MS) return null;
+  if (Math.max(1, Math.ceil(fileSize / v.partSize)) !== v.partCount) return null;
+  return { uploadId: v.uploadId, s3Key: v.s3Key, partSize: v.partSize, partCount: v.partCount, createdAt: v.createdAt };
+}
+
+/**
+ * Part numbers S3 already holds in full, i.e. present with exactly the size we
+ * would send. A part with a different size is re-uploaded (S3 keeps the latest).
+ */
+export function partsToSkip(
+  listed: { partNumber: number; size: number }[],
+  partSize: number,
+  partCount: number,
+  fileSize: number,
+): number[] {
+  const done = new Set<number>();
+  for (const p of listed) {
+    if (p.partNumber < 1 || p.partNumber > partCount) continue;
+    const { start, end } = partRange(p.partNumber, partSize, fileSize);
+    if (p.size === end - start) done.add(p.partNumber);
+  }
+  return [...done].sort((a, b) => a - b);
+}
+
+/** Bytes covered by the given (already uploaded) part numbers. */
+export function bytesOfParts(parts: Iterable<number>, partSize: number, fileSize: number): number {
+  let total = 0;
+  for (const n of parts) {
+    const { start, end } = partRange(n, partSize, fileSize);
+    total += end - start;
+  }
+  return total;
+}

@@ -1016,6 +1016,8 @@ export const pt = {
       failedFilesNote: "%{completed} de %{total} ficheiros foram carregados com sucesso. O evento e as faixas foram guardados — pode tentar novamente mais tarde.",
       preparing: "A preparar carregamento...",
       uploading: "A carregar para S3",
+      keepTabOpen: "Mantenha este separador aberto até o envio terminar. Se parar, escolha o mesmo ficheiro de novo: o envio continua onde ficou.",
+      resuming: "A retomar: %{percent}% já enviado",
       cancel: "Cancelar",
       filesProgress: "%{completed} de %{total} ficheiros",
       estimating: "A estimar...",

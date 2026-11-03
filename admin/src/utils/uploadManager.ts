@@ -186,6 +186,10 @@ export interface UploadProgress {
   speed: number;
   error?: string;
   files: FileStatus[];
+  /** Show the "keep this tab open" hint (long video master uploads). */
+  keepOpenHint?: boolean;
+  /** Percent already on S3 when a partial upload was resumed. */
+  resumedPercent?: number;
 }
 
 export type ProgressCallback = (progress: UploadProgress) => void;

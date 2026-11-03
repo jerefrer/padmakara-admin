@@ -190,3 +190,44 @@ describe("POST /api/admin/upload/video/multipart/abort", () => {
     expect(mAbort).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /api/admin/upload/video/multipart/list-parts", () => {
+  it("should return the parts S3 holds with their sizes", async () => {
+    mList.mockResolvedValueOnce([
+      { partNumber: 1, etag: '"a"', size: 64 * MIB },
+      { partNumber: 2, etag: '"b"', size: 10 },
+    ]);
+    const { status, body } = await post("list-parts", { s3Key: KEY, uploadId: "u" });
+    expect(status).toBe(200);
+    expect(body.parts).toEqual([
+      { partNumber: 1, size: 64 * MIB, etag: '"a"' },
+      { partNumber: 2, size: 10, etag: '"b"' },
+    ]);
+    expect(mList).toHaveBeenCalledWith(KEY, "u");
+  });
+
+  it("should return 404 NO_SUCH_UPLOAD when S3 no longer knows the upload", async () => {
+    const err = new Error("gone");
+    err.name = "NoSuchUpload";
+    mList.mockRejectedValueOnce(err);
+    const { status, body } = await post("list-parts", { s3Key: KEY, uploadId: "u" });
+    expect(status).toBe(404);
+    expect(JSON.stringify(body)).toContain("NO_SUCH_UPLOAD");
+  });
+
+  it("should surface other S3 errors as 500", async () => {
+    mList.mockRejectedValueOnce(new Error("S3 down"));
+    expect((await post("list-parts", { s3Key: KEY, uploadId: "u" })).status).toBe(500);
+  });
+
+  it("should refuse keys outside the masters prefix", async () => {
+    const { status } = await post("list-parts", { s3Key: "events/EVT-1/a.mp3", uploadId: "u" });
+    expect(status).toBe(400);
+    expect(mList).not.toHaveBeenCalled();
+  });
+
+  it("should return 401 without a token and 403 for non-admins", async () => {
+    expect((await post("list-parts", { s3Key: KEY, uploadId: "u" }, null)).status).toBe(401);
+    expect((await post("list-parts", { s3Key: KEY, uploadId: "u" }, "user")).status).toBe(403);
+  });
+});

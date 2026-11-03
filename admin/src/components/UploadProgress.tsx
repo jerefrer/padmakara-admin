@@ -207,6 +207,19 @@ export const UploadProgress = ({ progress, onCancel }: UploadProgressProps) => {
         </Box>
       </Box>
 
+      {progress.keepOpenHint && phase === "uploading" && (
+        <Box sx={{ mb: 1.5 }}>
+          {progress.resumedPercent !== undefined && (
+            <Typography variant="caption" color="info.main" sx={{ display: "block", fontWeight: 600 }}>
+              {translate("padmakara.upload.resuming", { percent: progress.resumedPercent })}
+            </Typography>
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+            {translate("padmakara.upload.keepTabOpen")}
+          </Typography>
+        </Box>
+      )}
+
       {/* File list */}
       {progress.files && progress.files.length > 0 && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
