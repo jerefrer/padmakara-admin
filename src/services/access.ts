@@ -297,7 +297,7 @@ export async function filterAccessibleEvents<T extends EventForAccess>(
   opts: { audienceOnly?: boolean } = {},
 ): Promise<T[]> {
   if (opts.audienceOnly) {
-    const kept = await Promise.all(
+    const kept: (T | null)[] = await Promise.all(
       eventList.map(async (event) => ((await checkEventAccessAudienceOnly(user, event)).allowed ? event : null)),
     );
     return kept.filter((e): e is T => e !== null);

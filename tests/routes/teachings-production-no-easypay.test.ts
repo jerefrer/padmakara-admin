@@ -22,8 +22,9 @@ vi.mock("../../src/db/index.ts", () => ({
     update: vi.fn(() => ({ set: () => ({ where: () => Promise.resolve() }) })),
   },
 }));
+const findOrCreateUserByEmail = vi.fn(async () => ({ user: { id: 3, email: "b@example.com", preferredLanguage: "pt" }, created: false }));
 vi.mock("../../src/services/users-lookup.ts", () => ({
-  findOrCreateUserByEmail: vi.fn(async () => ({ user: { id: 3, email: "b@example.com", preferredLanguage: "pt" }, created: false })),
+  findOrCreateUserByEmail: (...a: unknown[]) => (findOrCreateUserByEmail as any)(...a),
 }));
 vi.mock("../../src/services/access.ts", async (orig) => ({
   ...(await orig<object>()),
@@ -48,6 +49,7 @@ describe("POST /api/teachings/:eventId/checkout in production without Easypay", 
     expect(status).toBe(503);
     expect(finalizeOrder).not.toHaveBeenCalled();
     expect(insertValues).not.toHaveBeenCalled();
+    expect(findOrCreateUserByEmail).not.toHaveBeenCalled();
     err.mockRestore();
   });
 });

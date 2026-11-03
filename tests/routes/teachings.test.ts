@@ -22,7 +22,8 @@ vi.mock("../../src/db/index.ts", () => ({
       events: { findFirst: (...a: unknown[]) => eventFindFirst(...a), findMany: (...a: unknown[]) => eventFindMany(...a) },
       users: { findFirst: (...a: unknown[]) => userFindFirst(...a) },
       teachingOrders: { findFirst: (...a: unknown[]) => orderFindFirst(...a) },
-      eventAccessGrants: { findMany: (...a: unknown[]) => grantFindMany(...a) },
+      eventAccessGrants: { findMany: (...a: unknown[]) => grantFindMany(...a), findFirst: async () => undefined },
+      userEventAttendance: { findFirst: async () => undefined },
     },
     insert: vi.fn(() => ({
       values: (v: unknown) => {
@@ -218,7 +219,7 @@ describe("POST /api/teachings/:eventId/checkout", () => {
     checkEventAccess.mockImplementation(actual.checkEventAccess);
     eventFindFirst.mockResolvedValue(event({ includedInMembership: true }));
     const { status } = await post("/api/teachings/8/checkout", body);
-    expect(status).not.toBe(409);
+    expect(status).toBe(200);
   });
 
   it("should return 409 when the user already has access another way (group, admin)", async () => {
@@ -226,6 +227,20 @@ describe("POST /api/teachings/:eventId/checkout", () => {
     const { status, body: b } = await post("/api/teachings/8/checkout", body);
     expect(status).toBe(409);
     expect(b.code).toBe("ALREADY_HAS_ACCESS");
+  });
+
+  it("should return 409 for an active member when the event is included in the membership, even as a draft", async () => {
+    eventFindFirst.mockResolvedValue(event({ status: "draft", includedInMembership: true }));
+    userFindFirst.mockResolvedValue({ id: 3, role: "user", subscriptionStatus: "active", subscriptionExpiresAt: null });
+    const { status, body: b } = await post("/api/teachings/8/checkout", body);
+    expect(status).toBe(409);
+    expect(b.code).toBe("ALREADY_HAS_ACCESS");
+  });
+
+  it("should not return 409 for a lapsed member on an included draft event", async () => {
+    eventFindFirst.mockResolvedValue(event({ status: "draft", includedInMembership: true }));
+    userFindFirst.mockResolvedValue({ id: 3, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null });
+    expect((await post("/api/teachings/8/checkout", body)).status).toBe(200);
   });
 
   describe("free mode", () => {

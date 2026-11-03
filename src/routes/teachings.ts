@@ -9,7 +9,7 @@ import { authIpLimiter } from "../middleware/rate-limit.ts";
 import { AppError } from "../lib/errors.ts";
 import { teachingCheckoutSchema } from "../lib/schemas.ts";
 import { config } from "../config.ts";
-import { checkEventAccess, hasEventGrant } from "../services/access.ts";
+import { checkEventAccess, hasActiveSubscription, hasEventGrant } from "../services/access.ts";
 import { findOrCreateUserByEmail } from "../services/users-lookup.ts";
 import { grantEventAccess } from "../services/event-access.ts";
 import {
@@ -176,6 +176,13 @@ teachingRoutes.post("/:eventId/checkout", authIpLimiter(), async (c) => {
     throw AppError.internal("This teaching is not available right now");
   }
 
+  // Mock mode (no Easypay account) is a dev convenience that marks orders paid. It must
+  // never run in production: a missing EASYPAY_ACCOUNT_ID would give paid teachings away.
+  if (event.saleMode === "paid" && isMockMode && config.nodeEnv === "production") {
+    console.error("[TEACHINGS] EASYPAY_ACCOUNT_ID is not configured in production; refusing paid checkout.");
+    throw new AppError(503, "Payments are temporarily unavailable", "PAYMENTS_UNAVAILABLE");
+  }
+
   const { user } = await findOrCreateUserByEmail({
     email: input.email,
     firstName: input.firstName,
@@ -187,6 +194,9 @@ teachingRoutes.post("/:eventId/checkout", authIpLimiter(), async (c) => {
   const fullUser = await db.query.users.findFirst({ where: eq(users.id, user.id) });
   const alreadyHasAccess =
     (await hasEventGrant(user.id, event.id)) ||
+    // Included in the membership: an active member already has it (checked here because
+    // checkEventAccess hides a draft behind its status gate).
+    (!!event.includedInMembership && !!fullUser && hasActiveSubscription(fullUser)) ||
     (fullUser ? (await checkEventAccess(fullUser, event)).allowed : false);
   if (alreadyHasAccess) {
     throw new AppError(409, "You already have access to these recordings", "ALREADY_HAS_ACCESS");
@@ -203,13 +213,6 @@ teachingRoutes.post("/:eventId/checkout", authIpLimiter(), async (c) => {
     await grantEventAccess({ userId: user.id, eventId: event.id, source: "free" });
     await sendTeachingAvailableEmail({ eventId: event.id, ...buyer });
     return c.json({ status: "granted" });
-  }
-
-  // Mock mode (no Easypay account) is a dev convenience that marks orders paid. It must
-  // never run in production: a missing EASYPAY_ACCOUNT_ID would give paid teachings away.
-  if (isMockMode && config.nodeEnv === "production") {
-    console.error("[TEACHINGS] EASYPAY_ACCOUNT_ID is not configured in production; refusing paid checkout.");
-    throw new AppError(503, "Payments are temporarily unavailable", "PAYMENTS_UNAVAILABLE");
   }
 
   const [order] = await db
