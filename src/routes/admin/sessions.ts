@@ -7,6 +7,7 @@ import { createSessionSchema, updateSessionSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
+import { renumberEventSessions } from "../../services/session-order.ts";
 
 const sessionRoutes = new Hono();
 
@@ -60,15 +61,21 @@ sessionRoutes.get("/:id", async (c) => {
 sessionRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const data = createSessionSchema.parse(body);
-  const [session] = await db.insert(sessions).values(data).returning();
+  const [inserted] = await db.insert(sessions).values(data).returning();
+  // Sessions are numbered by date: one created after the fact (e.g. when
+  // moving tracks to a new session) takes its chronological place.
+  const renumbered = await renumberEventSessions(inserted!.eventId);
+  const session = renumbered
+    ? (await db.query.sessions.findFirst({ where: eq(sessions.id, inserted!.id) }))!
+    : inserted!;
   await db
     .update(events)
     .set({ updatedAt: new Date() })
-    .where(eq(events.id, session!.eventId));
+    .where(eq(events.id, session.eventId));
   bumpVersion("events").catch((err) =>
     console.error("[sync] failed to bump events version:", err),
   );
-  return c.json(session!, 201);
+  return c.json(session, 201);
 });
 
 sessionRoutes.put("/:id", async (c) => {
@@ -76,12 +83,18 @@ sessionRoutes.put("/:id", async (c) => {
   const body = await c.req.json();
   const data = updateSessionSchema.parse(body);
 
-  const [session] = await db
+  const [updated] = await db
     .update(sessions)
     .set({ ...data, updatedAt: new Date() })
     .where(eq(sessions.id, id))
     .returning();
-  if (!session) throw AppError.notFound("Session not found");
+  if (!updated) throw AppError.notFound("Session not found");
+  const renumbered =
+    (data.sessionDate !== undefined || data.timePeriod !== undefined) &&
+    (await renumberEventSessions(updated.eventId));
+  const session = renumbered
+    ? (await db.query.sessions.findFirst({ where: eq(sessions.id, id) }))!
+    : updated;
 
   await db
     .update(events)
@@ -104,6 +117,7 @@ sessionRoutes.delete("/:id", async (c) => {
     .where(eq(sessions.id, id))
     .returning();
   if (!session) throw AppError.notFound("Session not found");
+  await renumberEventSessions(session.eventId);
 
   await db
     .update(events)
