@@ -86,14 +86,14 @@ describe("buildDefaultIntro — the designer's example", () => {
       ["[clip:padmakara-logo-intro]"],
       ["Jigme Khyentse Rinpoche (xl caps)"],
       ["Learning to let go and enjoying space (xl caps)"],
-      ["October 2026 (lg caps)", "Lisbon, Portugal (md italic)"],
-      ["Session 1 of 4 (lg caps)", "10 October 2026, morning (md italic)"],
+      ["October 2026 (xl caps)", "Lisbon, Portugal (lg italic)"],
+      ["Session 1 of 4 (xl caps)", "10 October 2026, morning (lg italic)"],
       [
-        "Event organized by (sm italic)",
-        "Fundação Kangyur Rinpoche (md caps)",
+        "Event organized by (md italic)",
+        "Fundação Kangyur Rinpoche (lg caps)",
         "—",
-        "Video production (sm italic)",
-        "Padmakara Portugal (md caps)",
+        "Video production (md italic)",
+        "Padmakara Portugal (lg caps)",
       ],
     ]);
   });
@@ -103,23 +103,24 @@ describe("buildDefaultIntro — the designer's example", () => {
       ["[clip:padmakara-logo-intro]"],
       ["Jigme Khyentse Rinpoche (xl caps)"],
       ["Aprender a largar e a apreciar o espaço (xl caps)"],
-      ["Outubro 2026 (lg caps)", "Lisbon, Portugal (md italic)"],
-      ["Sessão 1 de 4 (lg caps)", "10 de outubro de 2026, manhã (md italic)"],
+      ["Outubro 2026 (xl caps)", "Lisbon, Portugal (lg italic)"],
+      ["Sessão 1 de 4 (xl caps)", "10 de outubro de 2026, manhã (lg italic)"],
       [
-        "Evento organizado por (sm italic)",
-        "Fundação Kangyur Rinpoche (md caps)",
+        "Evento organizado por (md italic)",
+        "Fundação Kangyur Rinpoche (lg caps)",
         "—",
-        "Produção de vídeo (sm italic)",
-        "Padmakara Portugal (md caps)",
+        "Produção de vídeo (md italic)",
+        "Padmakara Portugal (lg caps)",
       ],
     ]);
   });
 
-  it("starts with the logo clip, played as-is, then the default length for the others", () => {
+  it("starts with the logo clip, played as-is, then the timings André tuned on event 923", () => {
     const slides = buildDefaultIntro(ANDRE_META, makeIdFactory());
     expect(slides[0]).toMatchObject({ kind: "clip", clip: "padmakara-logo-intro", durationMs: 8000, fadeMs: 0, lines: [] });
     expect(slides[0]?.subtitles).toBeUndefined();
-    expect(slides.slice(1).every((s) => s.durationMs === 4000)).toBe(true);
+    // speaker, title, date and place, session, credits
+    expect(slides.slice(1).map((s) => s.durationMs)).toEqual([2000, 3000, 2000, 2000, 3000]);
   });
 
   it("ignores a custom logo key in the intro (it only applies to the outro)", () => {
@@ -140,7 +141,7 @@ describe("buildDefaultIntro — omission", () => {
   it("keeps only the logo clip and production credit when nothing else is known", () => {
     expect(intro({ teacherNames: [] })).toEqual([
       ["[clip:padmakara-logo-intro]"],
-      ["Video production (sm italic)", "Padmakara Portugal (md caps)"],
+      ["Video production (md italic)", "Padmakara Portugal (lg caps)"],
     ]);
   });
 
@@ -157,8 +158,8 @@ describe("buildDefaultIntro — omission", () => {
   });
 
   it("shows the place alone when the date is missing, and the date alone when the place is", () => {
-    expect(intro({ ...ANDRE_META, date: null, session: null })[3]).toEqual(["Lisbon, Portugal (md italic)"]);
-    expect(intro({ ...ANDRE_META, placeName: null, placeLocation: null })[3]).toEqual(["October 2026 (lg caps)"]);
+    expect(intro({ ...ANDRE_META, date: null, session: null })[3]).toEqual(["Lisbon, Portugal (lg italic)"]);
+    expect(intro({ ...ANDRE_META, placeName: null, placeLocation: null })[3]).toEqual(["October 2026 (xl caps)"]);
   });
 
   it("drops the date slide for an unparseable date", () => {
@@ -174,39 +175,39 @@ describe("buildDefaultIntro — omission", () => {
 
   it("falls back to the metadata date, and omits the period, when the session lacks them", () => {
     const rows = intro({ ...ANDRE_META, session: { number: 2, total: 4 } });
-    expect(rows[4]).toEqual(["Session 2 of 4 (lg caps)", "10 October 2026 (md italic)"]);
+    expect(rows[4]).toEqual(["Session 2 of 4 (xl caps)", "10 October 2026 (lg italic)"]);
   });
 
   it("omits the period word it has no translation for", () => {
     const rows = intro({ ...ANDRE_META, session: { number: 1, total: 4, date: "2026-10-10", period: "dawn" } });
-    expect(rows[4]?.[1]).toBe("10 October 2026 (md italic)");
+    expect(rows[4]?.[1]).toBe("10 October 2026 (lg italic)");
   });
 
   it("credits Padmakara Portugal as the production when the event names nobody", () => {
     expect(intro({ ...ANDRE_META, copyrightHolder: null })[5]).toEqual([
-      "Event organized by (sm italic)",
-      "Fundação Kangyur Rinpoche (md caps)",
+      "Event organized by (md italic)",
+      "Fundação Kangyur Rinpoche (lg caps)",
       "—",
-      "Video production (sm italic)",
-      "Padmakara Portugal (md caps)",
+      "Video production (md italic)",
+      "Padmakara Portugal (lg caps)",
     ]);
     expect(intro({ ...ANDRE_META, copyrightHolder: null }, "pt")[5]?.slice(3)).toEqual([
-      "Produção de vídeo (sm italic)",
-      "Padmakara Portugal (md caps)",
+      "Produção de vídeo (md italic)",
+      "Padmakara Portugal (lg caps)",
     ]);
   });
 
   it("omits the organizer block when there is no organizer", () => {
     expect(intro({ ...ANDRE_META, organizer: null })[5]).toEqual([
-      "Video production (sm italic)",
-      "Padmakara Portugal (md caps)",
+      "Video production (md italic)",
+      "Padmakara Portugal (lg caps)",
     ]);
   });
 
   it("keeps a production-only credits slide with neither organizer nor copyright holder", () => {
     const rows = intro({ ...ANDRE_META, organizer: null, copyrightHolder: null });
     expect(rows).toHaveLength(6);
-    expect(rows[5]).toEqual(["Video production (sm italic)", "Padmakara Portugal (md caps)"]);
+    expect(rows[5]).toEqual(["Video production (md italic)", "Padmakara Portugal (lg caps)"]);
   });
 });
 
@@ -228,8 +229,8 @@ describe("buildDefaultIntro — details", () => {
       copyrightHolder: "Someone Else",
     });
     expect(rows[5]?.slice(3)).toEqual([
-      "Video production (sm italic)",
-      "Padmakara Portugal (md caps)",
+      "Video production (md italic)",
+      "Padmakara Portugal (lg caps)",
     ]);
   });
 

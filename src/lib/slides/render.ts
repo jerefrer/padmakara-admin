@@ -27,8 +27,8 @@ const SIZE_SCALE: Record<string, number> = {
 /** Gap between consecutive lines, in percent of frame height. */
 const LINE_GAP = 1.4;
 
-/** A spacer's height, in percent of frame height. */
-const SPACER_HEIGHT = 4.0;
+/** A spacer's height, in percent of frame height. 20% under the original 4.0 (André, 2026-11-03). */
+const SPACER_HEIGHT = 3.2;
 
 /** Images never exceed this share of the frame height, however much space is free. */
 const IMAGE_MAX_HEIGHT_PCT = 60;

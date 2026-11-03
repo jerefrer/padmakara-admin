@@ -288,13 +288,13 @@ function buildKeyedIntro(
 
   // 2 — The speaker alone, centred.
   if (teachers.length > 0) {
-    add("teacher", slide(newId, teachers.map((name) => capsLine(newId, name, "xl"))));
+    add("teacher", slide(newId, teachers.map((name) => capsLine(newId, name, "xl")), undefined, 2000));
   }
 
   // 3 — The event title alone. The speaker already had a slide of their own.
   const title = resolveTitle(meta, lang);
   if (title) {
-    add("title", slide(newId, [capsLine(newId, title, "xl")]));
+    add("title", slide(newId, [capsLine(newId, title, "xl")], undefined, 3000));
   }
 
   // 4 — Month and year, the place in italics beneath.
@@ -302,34 +302,35 @@ function buildKeyedIntro(
   const place = resolvePlace(meta);
   if (monthYear || place) {
     const lines: Line[] = [];
-    if (monthYear) lines.push(capsLine(newId, monthYear, "lg"));
-    if (place) lines.push(italicLine(newId, place, "md"));
-    add("date", slide(newId, lines));
+    if (monthYear) lines.push(capsLine(newId, monthYear, "xl"));
+    if (place) lines.push(italicLine(newId, place, "lg"));
+    add("date", slide(newId, lines, undefined, 2000));
   }
 
   // 5 — Session number, with the session's date and period in italics.
   if (meta.session) {
-    const lines: Line[] = [capsLine(newId, labels.session(meta.session.number, meta.session.total), "lg")];
+    const lines: Line[] = [capsLine(newId, labels.session(meta.session.number, meta.session.total), "xl")];
     const sessionDate = meta.session.date ?? meta.date;
     const longDate = sessionDate ? formatLongDate(sessionDate, lang) : null;
     const period = meta.session.period ? labels.periods[meta.session.period] : undefined;
     const detail = [longDate, period].filter(Boolean).join(", ");
-    if (detail) lines.push(italicLine(newId, detail, "md"));
-    add("session", slide(newId, lines));
+    if (detail) lines.push(italicLine(newId, detail, "lg"));
+    add("session", slide(newId, lines, undefined, 2000));
   }
 
-  // 6 — Credits: organizer, then the video production.
+  // 6 — Credits: organizer, then the video production. Sizes and timings
+  // follow André's hand-tuned intro on event 923 (2026-11-03).
   const organizer = meta.organizer?.trim();
   const production = resolveProduction();
   const lines: Line[] = [];
   if (organizer) {
-    lines.push(italicLine(newId, labels.organizedBy, "sm"));
-    lines.push(capsLine(newId, organizer, "md"));
+    lines.push(italicLine(newId, labels.organizedBy, "md"));
+    lines.push(capsLine(newId, organizer, "lg"));
     lines.push(spacer(newId));
   }
-  lines.push(italicLine(newId, labels.production, "sm"));
-  for (const name of production) lines.push(capsLine(newId, name, "md"));
-  add("credits", slide(newId, lines));
+  lines.push(italicLine(newId, labels.production, "md"));
+  for (const name of production) lines.push(capsLine(newId, name, "lg"));
+  add("credits", slide(newId, lines, undefined, 3000));
 
   return slides;
 }
