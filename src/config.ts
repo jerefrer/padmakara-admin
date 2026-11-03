@@ -69,6 +69,13 @@ export const config = {
     testing: env("EASYPAY_TESTING", "true") === "true",
   },
 
+  teachings: {
+    /** Price (in cents) prefilled for a single teaching on sale. */
+    defaultPriceCents: parseInt(env("TEACHING_DEFAULT_PRICE_CENTS", "1500"), 10),
+    /** Easypay methods offered for one-off teaching payments (card joins once Easypay enables it). */
+    singleMethods: splitList(env("EASYPAY_SINGLE_METHODS", "mb,mbw")),
+  },
+
   subscription: {
     /**
      * Days of access granted past `subscriptionExpiresAt` before we actually lock
