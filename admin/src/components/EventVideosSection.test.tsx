@@ -17,8 +17,12 @@ vi.mock("../utils/authFetch", () => ({ authFetch: (...a: unknown[]) => (authFetc
 
 vi.mock("./AddVideoDialog", () => ({ AddVideoDialog: () => null }));
 vi.mock("./MediaPreviewDialog", () => ({ MediaPreviewDialog: () => null }));
+const editorProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
 vi.mock("./SlideEditor", () => ({
-  SlideEditor: () => null,
+  SlideEditor: (props: Record<string, unknown>) => {
+    editorProps.last = props;
+    return null;
+  },
   BurnStatusChip: () => null,
   BurnActionButton: () => null,
   useVideoSlides: () => ({ doc: { intro: [], outro: [] }, burnStatus: "none", burnError: null }),
@@ -62,7 +66,11 @@ const video = (over: Partial<EventVideo> = {}): EventVideo => ({
   ...over,
 });
 
-const mount = (v: EventVideo, onVideosChange = vi.fn()) =>
+const mount = (
+  v: EventVideo,
+  onVideosChange = vi.fn(),
+  extra: Partial<React.ComponentProps<typeof EventVideosSection>> = {},
+) =>
   act(() =>
     root.render(
       <EventVideosSection
@@ -71,9 +79,44 @@ const mount = (v: EventVideo, onVideosChange = vi.fn()) =>
         onUpload={vi.fn()}
         onImportUrl={vi.fn(async () => undefined)}
         onAttachMaster={vi.fn()}
+        {...extra}
       />,
     ),
   );
+
+const progress = (over: Record<string, unknown> = {}) => ({
+  phase: "uploading" as const,
+  currentFilename: "a.mp4",
+  fileProgress: 0.25,
+  filesCompleted: 0,
+  filesTotal: 1,
+  bytesUploaded: 25,
+  bytesTotal: 100,
+  speed: 0,
+  files: [],
+  ...over,
+});
+
+describe("EventVideosSection upload progress in the slide editor", () => {
+  it("should hand the attach upload's progress to the editor of that video", () => {
+    const onCancelUpload = vi.fn();
+    mount(video(), vi.fn(), { masterUpload: { videoId: 5, progress: progress() }, onCancelUpload });
+    expect(editorProps.last?.videoUpload).toEqual({ phase: "uploading", fraction: 0.25 });
+    expect(editorProps.last?.onCancelUpload).toBe(onCancelUpload);
+  });
+
+  it("should report a finished upload as done and a failed one with its error", () => {
+    mount(video(), vi.fn(), { masterUpload: { videoId: 5, progress: progress({ phase: "done" }) } });
+    expect(editorProps.last?.videoUpload).toEqual({ phase: "done", fraction: 1 });
+    mount(video(), vi.fn(), { masterUpload: { videoId: 5, progress: progress({ phase: "error", error: "boom" }) } });
+    expect(editorProps.last?.videoUpload).toEqual({ phase: "error", fraction: 0.25, error: "boom" });
+  });
+
+  it("should not show another video's upload in this editor", () => {
+    mount(video(), vi.fn(), { masterUpload: { videoId: 99, progress: progress() } });
+    expect(editorProps.last?.videoUpload).toBeNull();
+  });
+});
 
 describe("EventVideosSection collapsed row", () => {
   it("should show the Portuguese title under the English one", () => {

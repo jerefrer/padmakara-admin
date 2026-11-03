@@ -647,6 +647,9 @@ interface EventFormProps {
   onVideoUpload?: (file: File, pending?: PendingUploadSlides) => void;
   /** Edit-mode only: uploads a file into a video that has slides and no file yet. */
   onVideoAttachMaster?: (videoId: number, file: File) => void;
+  /** Progress of the attach upload in flight and its cancel, shown inside that video's slide editor. */
+  masterUpload?: { videoId: number; progress: UploadProgressData } | null;
+  onCancelVideoUpload?: () => void;
   /** Imports a video from a pasted URL (Drive share link or public direct
    *  URL) — carries the AddVideoDialog gate's slide declaration too, since a
    *  URL import can go through the burn pipeline exactly like a file upload. */
@@ -751,7 +754,7 @@ export const EventFormFields = ({
   sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onTrackAudioUpload,
   selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, moveBusy,
-  videos, onVideosChange, onVideoUpload, onVideoAttachMaster, onVideoImportUrl, eventId,
+  videos, onVideosChange, onVideoUpload, onVideoAttachMaster, masterUpload, onCancelVideoUpload, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
@@ -1533,6 +1536,8 @@ export const EventFormFields = ({
           onUpload={onVideoUpload}
           onImportUrl={onVideoImportUrl}
           onAttachMaster={onVideoAttachMaster}
+          masterUpload={masterUpload}
+          onCancelUpload={onCancelVideoUpload}
           sessions={videoSessions}
           eventId={eventId}
         />
@@ -3000,6 +3005,13 @@ export const EventEdit = () => {
   const [deleting, setDeleting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
   const cancelUploadRef = useRef<(() => void) | null>(null);
+  // The video the in-flight upload is attaching a file to, so its slide editor can show the progress.
+  const [attachingVideoId, setAttachingVideoId] = useState<number | null>(null);
+  const handleCancelVideoUpload = useCallback(() => {
+    cancelUploadRef.current?.();
+    setUploadProgress(null);
+    setAttachingVideoId(null);
+  }, []);
   const [transcriptUploads, setTranscriptUploads] = useState<TranscriptUploadState[]>([]);
   // 6.2 — new-tracks drop state (used when adding sessions to an existing event)
   const [addTracksUploading, setAddTracksUploading] = useState(false);
@@ -3441,6 +3453,7 @@ export const EventEdit = () => {
       if (!id) return;
       const eventIdNum = Number(id);
       const position = videos.length;
+      setAttachingVideoId(null);
       const signal: { cancelled: boolean; abort?: () => void } = { cancelled: false };
       const speedTracker = new SpeedTracker();
       cancelUploadRef.current = () => {
@@ -3559,6 +3572,7 @@ export const EventEdit = () => {
         signal.abort?.();
       };
 
+      setAttachingVideoId(videoId);
       setUploadProgress({
         phase: "uploading",
         currentFilename: file.name,
@@ -3604,7 +3618,10 @@ export const EventEdit = () => {
           });
           notify(translate("padmakara.videos.uploadSuccess") || "Video uploaded", { type: "success" });
           refresh();
-          setTimeout(() => setUploadProgress(null), 1500);
+          setTimeout(() => {
+            setUploadProgress(null);
+            setAttachingVideoId(null);
+          }, 1500);
         })
         .catch((err: any) => {
           setUploadProgress((p) => p && {
@@ -4074,6 +4091,8 @@ export const EventEdit = () => {
         onVideosChange={setVideos}
         onVideoUpload={handleVideoUpload}
         onVideoAttachMaster={handleVideoAttachMaster}
+        masterUpload={uploadProgress && attachingVideoId != null ? { videoId: attachingVideoId, progress: uploadProgress } : null}
+        onCancelVideoUpload={handleCancelVideoUpload}
         onVideoImportUrl={handleVideoImportUrl}
         eventId={id ? Number(id) : undefined}
         onStatusChange={handleStatusChange}
@@ -4191,10 +4210,7 @@ export const EventEdit = () => {
         <Box sx={{ position: "fixed", bottom: 24, right: 24, width: 420, zIndex: 1300 }}>
           <UploadProgress
             progress={uploadProgress}
-            onCancel={() => {
-              cancelUploadRef.current?.();
-              setUploadProgress(null);
-            }}
+            onCancel={handleCancelVideoUpload}
           />
         </Box>
       )}
