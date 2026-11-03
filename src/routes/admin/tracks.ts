@@ -1,10 +1,10 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { tracks } from "../../db/schema/tracks.ts";
 import { sessions } from "../../db/schema/sessions.ts";
 import { events } from "../../db/schema/retreats.ts";
-import { createTrackSchema, updateTrackSchema } from "../../lib/schemas.ts";
+import { bulkUpdateTracksSchema, createTrackSchema, updateTrackSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
@@ -66,6 +66,58 @@ trackRoutes.post("/", async (c) => {
     console.error("[sync] failed to bump events version:", err),
   );
   return c.json(track!, 201);
+});
+
+/**
+ * PATCH /bulk — apply the same metadata patch (speaker, languages,
+ * isTranslation) to many tracks in one request. Mirrors PUT /:id: sets
+ * `updatedAt`, touches the owning events' `updatedAt` and bumps the events
+ * sync version. `originalLanguage` follows `languages[0]` like the inline editor.
+ */
+trackRoutes.patch("/bulk", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = bulkUpdateTracksSchema.safeParse(body);
+  if (!parsed.success) {
+    throw AppError.badRequest(
+      parsed.error.issues[0]?.message ?? "Invalid request",
+      "VALIDATION_ERROR",
+    );
+  }
+  const { patch } = parsed.data;
+  const ids = [...new Set(parsed.data.ids)];
+
+  const data: Record<string, unknown> = { updatedAt: new Date() };
+  if (patch.speaker !== undefined) data.speaker = patch.speaker;
+  if (patch.isTranslation !== undefined) data.isTranslation = patch.isTranslation;
+  if (patch.languages !== undefined) {
+    data.languages = patch.languages;
+    data.originalLanguage = patch.languages[0];
+  }
+
+  const updated = await db
+    .update(tracks)
+    .set(data)
+    .where(inArray(tracks.id, ids))
+    .returning({ id: tracks.id, sessionId: tracks.sessionId });
+
+  const sessionIds = [...new Set(updated.map((t) => t.sessionId))];
+  if (sessionIds.length > 0) {
+    const owners = await db
+      .select({ eventId: sessions.eventId })
+      .from(sessions)
+      .where(inArray(sessions.id, sessionIds));
+    const eventIds = [...new Set(owners.map((s) => s.eventId))];
+    if (eventIds.length > 0) {
+      await db
+        .update(events)
+        .set({ updatedAt: new Date() })
+        .where(inArray(events.id, eventIds));
+    }
+  }
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
+  return c.json({ updated: updated.length, ids: updated.map((t) => t.id) });
 });
 
 trackRoutes.put("/:id", async (c) => {
