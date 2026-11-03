@@ -31,7 +31,7 @@ const EASYPAY_API_BASE = config.easypay.testing
 
 const EASYPAY_CHECKOUT_SDK = "https://cdn.easypay.pt/checkout/2.9.1/";
 
-const isMockMode = !config.easypay.accountId;
+export const isMockMode = !config.easypay.accountId;
 
 if (isMockMode) {
   console.log(
@@ -129,7 +129,7 @@ class EasypayHttpError extends AppError {
   }
 }
 
-async function easypayFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+export async function easypayFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${EASYPAY_API_BASE}${path}`, {
     ...options,
     headers: {

@@ -25,6 +25,15 @@ export const verifyCodeSchema = requestMagicLinkSchema.extend({
   code: z.string().trim().regex(/^\d{6}$/),
 });
 
+// Single teachings (public sale page)
+export const teachingCheckoutSchema = z.object({
+  email: z.string().trim().pipe(z.email()),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+  language: z.enum(["pt", "en"]),
+  consent: z.literal(true),
+});
+
 // Passkeys. `response` is the browser/OS WebAuthn JSON; the service verifies its content.
 export const passkeyRegisterVerifySchema = z.object({
   challengeId: z.string().uuid(),

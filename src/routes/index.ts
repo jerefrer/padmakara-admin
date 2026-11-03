@@ -16,6 +16,7 @@ import { webhookRoutes } from "./webhooks.ts";
 import { publicationRoutes } from "./publications.ts";
 import { syncRoutes } from "./sync.ts";
 import { teacherRoutes } from "./teachers.ts";
+import { teachingRoutes } from "./teachings.ts";
 import { testRoutes } from "./test.ts";
 
 const api = new Hono();
@@ -48,6 +49,8 @@ api.route("/users", userRoutes);
 api.route("/download-requests", downloadsRoutes);
 api.route("/publications", publicationRoutes);
 api.route("/teachers", teacherRoutes);
+// Single teachings: public sale page + checkout; /mine needs auth (set per route)
+api.route("/teachings", teachingRoutes);
 api.route("/sync", syncRoutes);
 
 // Test-only routes — never mounted in production
