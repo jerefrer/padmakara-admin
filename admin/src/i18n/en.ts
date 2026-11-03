@@ -400,6 +400,18 @@ export const en = {
       logoUrlHelper: "Legacy field — replaced by Avatar above",
     },
     tracks: {
+      bulk: {
+        editSelected: "Edit selected…",
+        title: "Edit %{smart_count} selected track |||| Edit %{smart_count} selected tracks",
+        unchanged: "Leave unchanged",
+        languages: "Languages",
+        yes: "Yes",
+        no: "No",
+        reset: "Reset",
+        apply: "Apply",
+        updated: "Updated %{smart_count} track |||| Updated %{smart_count} tracks",
+        failed: "Could not update tracks: %{message}",
+      },
       select: "Select track",
       clearSelection: "Clear selection",
       moveTo: "Move to session…",
