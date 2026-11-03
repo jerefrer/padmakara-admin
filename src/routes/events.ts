@@ -15,6 +15,7 @@ import { checkEventAccess, filterAccessibleEvents, eventStatusVisibleTo, denialT
 import { publicationsViaGroups, mergePublications } from "../services/event-publications.ts";
 import { openablePublications } from "../services/publication-access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
+import { teacherArtworkUrl } from "../lib/teacher-artwork.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
@@ -24,19 +25,35 @@ const eventRoutes = new Hono();
 
 // ─── Speaker name resolution ────────────────────────────────────────────
 
-/** Cache of abbreviation → teacher name (loaded once, refreshed per request batch) */
-let speakerNameCache: Map<string, string> | null = null;
+interface SpeakerInfo {
+  name: string;
+  artworkUrl: string | null;
+}
 
-async function getSpeakerNameMap(): Promise<Map<string, string>> {
+/** Cache of abbreviation/alias → teacher name and square artwork URL (loaded once, refreshed every 5 minutes) */
+let speakerNameCache: Map<string, SpeakerInfo> | null = null;
+
+async function getSpeakerNameMap(): Promise<Map<string, SpeakerInfo>> {
   if (speakerNameCache) return speakerNameCache;
   const allTeachers = await db
-    .select({ name: teachers.name, abbreviation: teachers.abbreviation, aliases: teachers.aliases })
+    .select({
+      id: teachers.id,
+      name: teachers.name,
+      abbreviation: teachers.abbreviation,
+      aliases: teachers.aliases,
+      heroS3Key: teachers.heroS3Key,
+      heroFocalX: teachers.heroFocalX,
+      heroFocalY: teachers.heroFocalY,
+      heroFrameOverrides: teachers.heroFrameOverrides,
+      updatedAt: teachers.updatedAt,
+    })
     .from(teachers);
-  const map = new Map<string, string>();
+  const map = new Map<string, SpeakerInfo>();
   for (const t of allTeachers) {
-    map.set(t.abbreviation.toUpperCase(), t.name);
+    const info = { name: t.name, artworkUrl: teacherArtworkUrl(t) };
+    map.set(t.abbreviation.toUpperCase(), info);
     for (const alias of t.aliases) {
-      map.set(alias.toUpperCase(), t.name);
+      map.set(alias.toUpperCase(), info);
     }
   }
   speakerNameCache = map;
@@ -45,14 +62,21 @@ async function getSpeakerNameMap(): Promise<Map<string, string>> {
   return map;
 }
 
-/** Add speakerName and hasReadAlong to each track in-place, strip internal fields */
-async function enrichTracksWithSpeakerNames(trackList: any[]): Promise<void> {
+/**
+ * Add speakerName, speakerArtworkUrl and hasReadAlong to each track in-place, strip internal fields.
+ * speakerArtworkUrl is the track speaker's square artwork, else the event's first teacher's
+ * (when the event's teachers were loaded), else null.
+ */
+async function enrichTracksWithSpeakerNames(trackList: any[], event?: any): Promise<void> {
   if (!trackList.length) return;
   const nameMap = await getSpeakerNameMap();
+  const fallbackArtworkUrl = teacherArtworkUrl(event?.eventTeachers?.[0]?.teacher);
   for (const track of trackList) {
+    const speaker = track.speaker ? nameMap.get(track.speaker.toUpperCase()) : undefined;
     if (track.speaker) {
-      track.speakerName = nameMap.get(track.speaker.toUpperCase()) ?? null;
+      track.speakerName = speaker?.name ?? null;
     }
+    track.speakerArtworkUrl = speaker?.artworkUrl ?? fallbackArtworkUrl;
     // Expose hasReadAlong boolean, strip the internal S3 key
     track.hasReadAlong = !!track.readAlongS3Key;
     delete track.readAlongS3Key;
@@ -170,7 +194,7 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
 
   // Enrich all tracks with speaker names + hasReadAlong (strips readAlongS3Key)
   for (const session of (event as any).sessions ?? []) {
-    await enrichTracksWithSpeakerNames(session.tracks ?? []);
+    await enrichTracksWithSpeakerNames(session.tracks ?? [], event);
   }
 
   await resolveEventTeacherUrls(event);
@@ -203,7 +227,7 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
 
   // Enrich all tracks with speaker names + hasReadAlong (strips readAlongS3Key)
   for (const session of (event as any).sessions ?? []) {
-    await enrichTracksWithSpeakerNames(session.tracks ?? []);
+    await enrichTracksWithSpeakerNames(session.tracks ?? [], event);
   }
 
   await resolveEventTeacherUrls(event);
@@ -490,7 +514,7 @@ eventRoutes.get("/:id", async (c) => {
 
   // Enrich all tracks with speaker names
   for (const session of (event as any).sessions ?? []) {
-    await enrichTracksWithSpeakerNames(session.tracks ?? []);
+    await enrichTracksWithSpeakerNames(session.tracks ?? [], event);
   }
 
   // Build related publications with presigned cover URLs, listing only what
