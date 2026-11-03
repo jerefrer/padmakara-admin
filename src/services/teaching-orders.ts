@@ -36,6 +36,12 @@ export async function finalizeOrder(
     where: eq(teachingOrders.id, orderId),
   });
   if (!order) return "already";
+  if (order.userId === null) {
+    // The buyer deleted their account: there is nobody to grant to (and no address to mail).
+    console.error(`[TEACHINGS] order ${order.id} has no user anymore; payment ${payment.paymentId} not finalized.`);
+    return "already";
+  }
+  const userId = order.userId;
   if (!FINALIZABLE_STATUSES.includes(order.status)) {
     if (order.status === "paid" && order.easypayPaymentId && order.easypayPaymentId !== payment.paymentId) {
       console.error(
@@ -68,7 +74,7 @@ export async function finalizeOrder(
     const granted = await tx
       .insert(eventAccessGrants)
       .values({
-        userId: order.userId,
+        userId,
         eventId: order.eventId,
         source: "purchase",
         orderId: order.id,
@@ -82,9 +88,9 @@ export async function finalizeOrder(
 
   // Past the commit: neither of these may fail the notification, or Easypay retries into "already".
   try {
-    if (grantCreated) await bumpUserAccessVersion(order.userId);
+    if (grantCreated) await bumpUserAccessVersion(userId);
   } catch (err) {
-    console.error(`[TEACHINGS] could not bump access version for user ${order.userId}:`, err);
+    console.error(`[TEACHINGS] could not bump access version for user ${userId}:`, err);
   }
   await sendTeachingAvailableEmail(order);
   return "finalized";

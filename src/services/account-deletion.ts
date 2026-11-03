@@ -19,6 +19,7 @@ import { videoProgress } from "../db/schema/video-progress.ts";
 import { downloadRequests } from "../db/schema/download-requests.ts";
 import { publicationAccessUsers } from "../db/schema/publications.ts";
 import { userSyncVersions } from "../db/schema/user-sync-versions.ts";
+import { teachingOrders, eventAccessGrants } from "../db/schema/event-access.ts";
 import { paymentTransactions } from "../db/schema/payment-transactions.ts";
 import { passkeyCredentials, webauthnChallenges } from "../db/schema/passkeys.ts";
 import { config } from "../config.ts";
@@ -66,6 +67,18 @@ export async function deleteUserAccount(userId: number): Promise<void> {
       })
       .where(eq(paymentTransactions.userId, userId));
 
+    // Teaching orders are accounting records too: amounts, status and Easypay ids stay,
+    // the person (email, name) goes and the order is detached from the user.
+    await tx
+      .update(teachingOrders)
+      .set({
+        userId: null,
+        email: sql`'deleted-' || ${teachingOrders.id} || '@deleted.invalid'`,
+        firstName: "",
+        lastName: "",
+      })
+      .where(eq(teachingOrders.userId, userId));
+
     // Rows that reference the user without ON DELETE CASCADE, or by email.
     await tx
       .update(userApprovalRequests)
@@ -88,6 +101,7 @@ export async function deleteUserAccount(userId: number): Promise<void> {
     await tx.delete(videoBookmarks).where(eq(videoBookmarks.userId, userId));
     await tx.delete(videoProgress).where(eq(videoProgress.userId, userId));
     await tx.delete(downloadRequests).where(eq(downloadRequests.userId, userId));
+    await tx.delete(eventAccessGrants).where(eq(eventAccessGrants.userId, userId));
     await tx.delete(publicationAccessUsers).where(eq(publicationAccessUsers.userId, userId));
     await tx.delete(userSyncVersions).where(eq(userSyncVersions.userId, userId));
     await tx.delete(passkeyCredentials).where(eq(passkeyCredentials.userId, userId));

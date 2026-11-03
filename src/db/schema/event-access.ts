@@ -25,12 +25,12 @@ export const teachingOrders = pgTable(
       .notNull()
       .unique()
       .default(sql`gen_random_uuid()`),
+    // An order is an accounting record: deleting the event is refused (RESTRICT) and
+    // deleting the user detaches it (SET NULL, personal fields scrubbed by account deletion).
     eventId: integer("event_id")
       .notNull()
-      .references(() => events.id, { onDelete: "cascade" }),
-    userId: integer("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+      .references(() => events.id, { onDelete: "restrict" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
     email: text("email").notNull(),
     firstName: text("first_name").notNull(),
     lastName: text("last_name").notNull(),

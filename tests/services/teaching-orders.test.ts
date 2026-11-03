@@ -197,6 +197,18 @@ describe("finalizeOrder after a failed or expired attempt", () => {
   });
 });
 
+describe("finalizeOrder for an order whose user was deleted", () => {
+  it("should not grant or email and report already", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    orderFindFirst.mockResolvedValue({ ...order, userId: null });
+    expect(await finalizeOrder(5, paid)).toBe("already");
+    expect(txSet).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+});
+
 describe("probeSinglePayment", () => {
   const status = (n: number) => vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: n })));
   it.each([404, 400, 422])("should return null when Easypay answers %i", async (n) => {

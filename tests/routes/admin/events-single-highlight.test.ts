@@ -184,5 +184,18 @@ describe("admin events: single highlight", () => {
       expect(status).toBe(200);
       expect(mockDb.delete).toHaveBeenCalled();
     });
+
+    it("should answer 409 EVENT_HAS_ORDERS when teaching orders reference the event", async () => {
+      mockDb.delete.mockReturnValueOnce({
+        where: vi.fn(() => ({
+          returning: vi.fn(() =>
+            Promise.reject(Object.assign(new Error("fk"), { cause: { code: "23503", constraint_name: "teaching_orders_event_id_retreats_id_fk" } })),
+          ),
+        })),
+      });
+      const { status, body } = await testJson("/api/admin/events/5", { method: "DELETE", headers: await auth() });
+      expect(status).toBe(409);
+      expect(body.code).toBe("EVENT_HAS_ORDERS");
+    });
   });
 });

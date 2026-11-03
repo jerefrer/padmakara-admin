@@ -520,10 +520,21 @@ eventRoutes.put("/:id", async (c) => {
 eventRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   await assertNotFeatured(id);
-  const [event] = await db
-    .delete(events)
-    .where(eq(events.id, id))
-    .returning();
+  let event;
+  try {
+    [event] = await db.delete(events).where(eq(events.id, id)).returning();
+  } catch (err) {
+    // teaching_orders.event_id is ON DELETE RESTRICT: orders are accounting records.
+    const pg = (err as { cause?: { code?: string; constraint_name?: string } }).cause ?? (err as { code?: string; constraint_name?: string });
+    if (pg?.code === "23503" && /teaching_orders/.test(pg.constraint_name ?? "")) {
+      throw new AppError(
+        409,
+        "This event has teaching orders and cannot be deleted. Archive it instead.",
+        "EVENT_HAS_ORDERS",
+      );
+    }
+    throw err;
+  }
   if (!event) throw AppError.notFound("Event not found");
   bumpVersion("events").catch((err) =>
     console.error("[sync] failed to bump events version:", err),

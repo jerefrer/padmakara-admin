@@ -407,6 +407,13 @@
       "when": 1813283200000,
       "tag": "0057_teaching_membership_inclusion",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1813369600000,
+      "tag": "0058_teaching_orders_keep_accounting",
+      "breakpoints": true
     }
   ]
 }
