@@ -72,7 +72,7 @@ vi.mock("../../src/services/email.ts", () => ({
   sendEmail: (...a: unknown[]) => sendEmail(...a),
 }));
 
-import { finalizeOrder, refreshOrderFromEasypay } from "../../src/services/teaching-orders.ts";
+import { finalizeOrder, refreshOrderFromEasypay, probeSinglePayment, paymentBelongsToOrder } from "../../src/services/teaching-orders.ts";
 
 const paid = { paymentId: "pay-1", method: "mbw", amountCents: 1500 };
 
@@ -163,7 +163,91 @@ function stubFetch(responses: Record<string, unknown>) {
   return calls;
 }
 
+describe("finalizeOrder after a failed or expired attempt", () => {
+  it.each(["failed", "expired"])("should grant and email once when a %s order is reported paid", async (status) => {
+    orderFindFirst.mockResolvedValue({ ...order, status });
+    expect(await finalizeOrder(5, paid)).toBe("finalized");
+    expect(txValues).toHaveBeenCalledTimes(1);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("should grant once when the same paid report arrives twice for a failed order", async () => {
+    orderFindFirst.mockResolvedValueOnce({ ...order, status: "failed" }).mockResolvedValueOnce({ ...order, status: "paid", easypayPaymentId: "pay-1" });
+    await finalizeOrder(5, paid);
+    expect(await finalizeOrder(5, paid)).toBe("already");
+    expect(txValues).toHaveBeenCalledTimes(1);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("should log an error when an already paid order is reported paid by a different payment", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    orderFindFirst.mockResolvedValue({ ...order, status: "paid", easypayPaymentId: "pay-0" });
+    expect(await finalizeOrder(5, paid)).toBe("already");
+    expect(err).toHaveBeenCalledWith(expect.stringContaining("double payment"));
+    expect(txSet).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it("should stay quiet when the same payment is reported again", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    orderFindFirst.mockResolvedValue({ ...order, status: "paid", easypayPaymentId: "pay-1" });
+    await finalizeOrder(5, paid);
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+});
+
+describe("probeSinglePayment", () => {
+  const status = (n: number) => vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: n })));
+  it.each([404, 400, 422])("should return null when Easypay answers %i", async (n) => {
+    status(n);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await probeSinglePayment("x")).toBeNull();
+  });
+  it.each([401, 403, 408, 429, 500, 502])("should throw when Easypay answers %i", async (n) => {
+    status(n);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(probeSinglePayment("x")).rejects.toBeTruthy();
+  });
+  it("should throw on a network error", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("fetch failed"))));
+    await expect(probeSinglePayment("x")).rejects.toBeTruthy();
+  });
+});
+
+describe("paymentBelongsToOrder", () => {
+  it("should compare with the stored payment id without calling Easypay", async () => {
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    expect(await paymentBelongsToOrder({ easypayCheckoutId: "c", easypayPaymentId: "p1" }, "p1")).toBe(true);
+    expect(await paymentBelongsToOrder({ easypayCheckoutId: "c", easypayPaymentId: "p1" }, "p2")).toBe(false);
+    expect(f).not.toHaveBeenCalled();
+  });
+  it("should confirm through the order's checkout when no payment id is stored", async () => {
+    stubFetch({ "/checkout/chk-1": { payment: { id: "pay-1" } } });
+    expect(await paymentBelongsToOrder({ easypayCheckoutId: "chk-1", easypayPaymentId: null }, "pay-1")).toBe(true);
+    expect(await paymentBelongsToOrder({ easypayCheckoutId: "chk-1", easypayPaymentId: null }, "other")).toBe(false);
+  });
+});
+
 describe("refreshOrderFromEasypay", () => {
+  it("should store the payment id as soon as the checkout reveals it", async () => {
+    stubFetch({
+      "/checkout/chk-1": { payment: { id: "pay-1", status: "pending" } },
+      "/single/pay-1": { id: "pay-1", key: `teaching-order-${order.publicId}`, payment_status: "pending", value: 15, method: { type: "MB" } },
+    });
+    await refreshOrderFromEasypay(order as never);
+    expect(dbSet).toHaveBeenCalledWith({ easypayPaymentId: "pay-1" });
+  });
+
+  it("should need only the single call once the payment id is known", async () => {
+    const calls = stubFetch({
+      "/single/pay-1": { id: "pay-1", key: `teaching-order-${order.publicId}`, payment_status: "pending", value: 15, method: { type: "MB" } },
+    });
+    await refreshOrderFromEasypay({ ...order, easypayPaymentId: "pay-1" } as never);
+    expect(calls).toHaveLength(1);
+  });
+
   it("should finalize when Easypay says the single payment is paid for the order amount", async () => {
     stubFetch({
       "/checkout/chk-1": { checkout: { id: "chk-1", status: "complete" }, payment: { id: "pay-1", status: "paid" } },
@@ -192,7 +276,7 @@ describe("refreshOrderFromEasypay", () => {
     });
     await refreshOrderFromEasypay(order as never);
     expect(txSet).not.toHaveBeenCalled();
-    expect(dbSet).not.toHaveBeenCalled();
+    expect(dbSet).not.toHaveBeenCalledWith(expect.objectContaining({ status: expect.anything() }));
   });
 
   it("should mark the order failed when the payment failed, without granting", async () => {

@@ -22,6 +22,7 @@ const txValues = vi.fn();
 const subscriptionUserFind = vi.fn();
 const deleteCalls: unknown[] = [];
 let orderLookupThrows = false;
+let failDelete = false;
 
 vi.mock("../../src/db/index.ts", () => {
   const tx = {
@@ -56,7 +57,7 @@ vi.mock("../../src/db/index.ts", () => {
         },
       })),
       select: vi.fn(() => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]), orderBy: () => ({ limit: () => Promise.resolve([]) }) }) }) })),
-      delete: vi.fn((t: unknown) => { deleteCalls.push(t); return { where: () => Promise.resolve() }; }),
+      delete: vi.fn((t: unknown) => { deleteCalls.push(t); return { where: () => (failDelete ? Promise.reject(new Error("db")) : Promise.resolve()) }; }),
     },
   };
 });
@@ -100,6 +101,7 @@ beforeEach(() => {
   orderSets.length = 0;
   deleteCalls.length = 0;
   orderLookupThrows = false;
+  failDelete = false;
   subscriptionUserFind.mockResolvedValue(null);
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -244,5 +246,56 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
     stubEasypay({ "/single/pay-1": single({ value: 1 }) });
     expect((await notify()).status).toBe(200);
     expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("should use the notification key as a hint when the single has no key, then verify through the order's checkout", async () => {
+    stubEasypay({
+      "/single/pay-1": single({ key: undefined }),
+      "/checkout/chk-1": { ok: true, body: { payment: { id: "pay-1" } } },
+    });
+    const { status } = await notify({ ...notification, key: `teaching-order-${PUBLIC_ID}` });
+    expect(status).toBe(200);
+    expect(txValues).toHaveBeenCalledWith(expect.objectContaining({ orderId: 5 }));
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("should ignore a hinted order when its checkout names a different payment", async () => {
+    stubEasypay({
+      "/single/pay-1": single({ key: undefined }),
+      "/checkout/chk-1": { ok: true, body: { payment: { id: "pay-OTHER" } } },
+    });
+    const { status } = await notify({ ...notification, key: `teaching-order-${PUBLIC_ID}` });
+    expect(status).toBe(200);
+    expect(txValues).not.toHaveBeenCalled();
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(ledgerSets.some((s) => s.action === "teaching_ignored")).toBe(true);
+  });
+
+  it("should answer 503 when the hinted-order verification cannot reach Easypay", async () => {
+    stubEasypay({
+      "/single/pay-1": single({ key: undefined }),
+      "/checkout/chk-1": { ok: false, status: 502, body: {} },
+    });
+    const { status } = await notify({ ...notification, key: `teaching-order-${PUBLIC_ID}` });
+    expect(status).toBe(503);
+    expect(txValues).not.toHaveBeenCalled();
+  });
+
+  it("should not use the hint when the single already carries a different key", async () => {
+    stubEasypay({ "/single/pay-1": single({ key: "something-else" }) });
+    await notify({ ...notification, key: `teaching-order-${PUBLIC_ID}` });
+    expect(txValues).not.toHaveBeenCalled();
+  });
+
+  it("should still answer 503 when releasing the dedupe row fails", async () => {
+    stubEasypay({ "/single/pay-1": { ok: false, status: 502, body: {} } });
+    failDelete = true;
+    const { status } = await notify();
+    expect(status).toBe(503);
+  });
+
+  it("should retry (503) on Easypay 429 from the single probe", async () => {
+    stubEasypay({ "/single/pay-1": { ok: false, status: 429, body: {} } });
+    expect((await notify()).status).toBe(503);
   });
 });

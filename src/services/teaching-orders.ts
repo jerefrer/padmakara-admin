@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { teachingOrders, eventAccessGrants } from "../db/schema/event-access.ts";
 import { sendEmail } from "./email.ts";
@@ -14,10 +14,14 @@ export function teachingOrderKey(publicId: string): string {
   return `teaching-order-${publicId}`;
 }
 
+/** A verified paid result may revive an order we had already given up on. */
+const FINALIZABLE_STATUSES = ["pending", "failed", "expired"];
+
 /**
  * Turn a paid order into access. Idempotent and safe to race (webhook, polling,
  * duplicate notifications): the status flip is a single UPDATE ... WHERE
- * status = 'pending', so exactly one caller wins; only that caller grants access
+ * status IN (pending, failed, expired), so exactly one caller wins (a payment that
+ * Easypay reports paid after we marked the order failed or expired still counts); only that caller grants access
  * and sends the email. The flip and the grant share one transaction, so a crash
  * cannot leave a paid order without its grant.
  *
@@ -31,7 +35,15 @@ export async function finalizeOrder(
   const order = await db.query.teachingOrders.findFirst({
     where: eq(teachingOrders.id, orderId),
   });
-  if (!order || order.status !== "pending") return "already";
+  if (!order) return "already";
+  if (!FINALIZABLE_STATUSES.includes(order.status)) {
+    if (order.status === "paid" && order.easypayPaymentId && order.easypayPaymentId !== payment.paymentId) {
+      console.error(
+        `[TEACHINGS] order ${order.id} is already paid by payment ${order.easypayPaymentId}, but payment ${payment.paymentId} was also reported paid. Possible double payment: check Easypay.`,
+      );
+    }
+    return "already";
+  }
 
   if (payment.amountCents !== order.amountCents) {
     console.error(
@@ -49,7 +61,7 @@ export async function finalizeOrder(
         method: payment.method ?? null,
         easypayPaymentId: payment.paymentId,
       })
-      .where(and(eq(teachingOrders.id, order.id), eq(teachingOrders.status, "pending")))
+      .where(and(eq(teachingOrders.id, order.id), inArray(teachingOrders.status, FINALIZABLE_STATUSES)))
       .returning({ id: teachingOrders.id });
     if (won.length === 0) return null;
 
@@ -151,6 +163,11 @@ export async function lookupSinglePayment(
       );
       paymentId = checkout.payment?.id ?? null;
       if (!paymentId) return null;
+      // Remember it: later reads need one Easypay call instead of two.
+      await db
+        .update(teachingOrders)
+        .set({ easypayPaymentId: paymentId })
+        .where(and(eq(teachingOrders.id, order.id), isNull(teachingOrders.easypayPaymentId)));
     }
     return await readSingle(paymentId);
   } catch (err) {
@@ -172,20 +189,40 @@ async function readSingle(paymentId: string): Promise<SinglePaymentInfo> {
   };
 }
 
+/** Easypay answers meaning "this id is not a single payment" (as opposed to "cannot tell"). */
+const NOT_A_SINGLE_STATUSES = new Set([400, 404, 422]);
+
 /**
- * Webhook probe: is this notification id a single payment? Null when Easypay says it is
- * not (a 4xx, e.g. 404: the id belongs to something else). THROWS when the answer is
- * unknown (network error or Easypay 5xx), so the webhook can ask Easypay to retry
- * instead of recording the notification as unverified.
+ * Webhook probe: is this notification id a single payment? Null only when Easypay says it
+ * is not (404, 400, 422: the id belongs to something else). THROWS on anything that leaves
+ * the answer unknown (401/403/408/429, 5xx, network error), so the webhook can ask Easypay
+ * to retry instead of recording the notification as unverified.
  */
 export async function probeSinglePayment(paymentId: string): Promise<SinglePaymentInfo | null> {
   if (isMockMode) return null;
   try {
     return await readSingle(paymentId);
   } catch (err) {
-    if (err instanceof EasypayHttpError && err.easypayStatus < 500) return null;
+    if (err instanceof EasypayHttpError && NOT_A_SINGLE_STATUSES.has(err.easypayStatus)) return null;
     throw err;
   }
+}
+
+/**
+ * Does this Easypay payment id belong to the order? Used when a notification carries only a
+ * key hint: the order's own checkout (or the payment id we already stored) must say so.
+ * THROWS when Easypay cannot answer.
+ */
+export async function paymentBelongsToOrder(
+  order: Pick<TeachingOrder, "easypayCheckoutId" | "easypayPaymentId">,
+  paymentId: string,
+): Promise<boolean> {
+  if (order.easypayPaymentId) return order.easypayPaymentId === paymentId;
+  if (!order.easypayCheckoutId) return false;
+  const checkout = await easypayFetch<EasypayCheckoutDetails>(
+    `/checkout/${encodeURIComponent(order.easypayCheckoutId)}`,
+  );
+  return checkout.payment?.id === paymentId;
 }
 
 export type RefreshResult = FinalizeResult | "unknown" | "key_mismatch" | "no_amount" | "failed" | "expired" | "pending";
