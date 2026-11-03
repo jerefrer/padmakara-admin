@@ -26,7 +26,7 @@ import {
 } from "../services/membership.ts";
 import { teachingOrders } from "../db/schema/event-access.ts";
 import {
-  lookupSinglePayment,
+  probeSinglePayment,
   refreshOrderFromEasypay,
 } from "../services/teaching-orders.ts";
 
@@ -130,7 +130,7 @@ function resolveUserId(subscription: EasypaySubscriptionResponse): number | null
  * not look (so they behave as before: a 500 to our client), but carries Easypay's own status
  * for the few that must tell "refused, 4xx" from "unreachable or broken, 5xx".
  */
-class EasypayHttpError extends AppError {
+export class EasypayHttpError extends AppError {
   constructor(public readonly easypayStatus: number) {
     super(500, `Easypay API error: ${easypayStatus}`, "INTERNAL_ERROR");
     this.name = "EasypayHttpError";
@@ -949,28 +949,45 @@ paymentRoutes.post("/webhook", async (c) => {
   // own `key` is `teaching-order-<publicId>` belongs to us: everything else falls through
   // to the subscription path below, exactly as before.
   if (!(type ?? "").toLowerCase().startsWith("subscription")) {
-    const single = await lookupSinglePayment({ id: 0, easypayCheckoutId: null, easypayPaymentId: id });
-    const match = single && single.key ? TEACHING_ORDER_KEY.exec(single.key) : null;
-    if (single && match) {
-      const order = await db.query.teachingOrders.findFirst({
-        where: eq(teachingOrders.publicId, match[1]!),
-      });
-      if (!order) {
-        console.error(`[EASYPAY WEBHOOK] single payment ${id} references unknown teaching order ${match[1]}`);
-        await recordOutcome({ action: "teaching_ignored", note: "unknown teaching order" });
+    // Give the claim back and answer 503 so Easypay retries: the claimed dedupe row would
+    // otherwise swallow the retry and the payment would wait for the buyer's polling.
+    const retryLater = async (why: string) => {
+      console.error(`[EASYPAY WEBHOOK] ${id}: ${why} — answering 503 so Easypay retries`);
+      await db.delete(paymentTransactions).where(eq(paymentTransactions.id, txId));
+      return c.json({ received: false, retry: true }, 503);
+    };
+    try {
+      const single = await probeSinglePayment(id);
+      const match = single && single.key ? TEACHING_ORDER_KEY.exec(single.key) : null;
+      if (single && match) {
+        const order = await db.query.teachingOrders.findFirst({
+          where: eq(teachingOrders.publicId, match[1]!),
+        });
+        if (!order) {
+          console.error(`[EASYPAY WEBHOOK] single payment ${id} references unknown teaching order ${match[1]}`);
+          await recordOutcome({ action: "teaching_ignored", note: "unknown teaching order" });
+          return c.json({ received: true });
+        }
+        // Reads the status and amount from Easypay (never from this body) and finalizes
+        // idempotently: a duplicate or a race with the confirmation page grants once.
+        const result = await refreshOrderFromEasypay(order, single);
+        console.log(`[EASYPAY WEBHOOK] teaching order ${order.id}: ${result}`);
+        // A success notification whose payment Easypay does not yet report as paid may
+        // simply be ahead of Easypay's own state: retry. Amount mismatches, key mismatches
+        // and the like are deliberate and terminal, so they are not retried.
+        if (result === "pending" && (status ?? "").toLowerCase() === "success") {
+          return await retryLater(`order ${order.id} not yet paid at Easypay (payment_status ${single.status})`);
+        }
+        await recordOutcome({
+          userId: order.userId,
+          action: `teaching_${result}`,
+          note: `order ${order.id}, payment_status ${single.status}`,
+          amount: single.amountCents === null ? null : String(single.amountCents / 100),
+        });
         return c.json({ received: true });
       }
-      // Reads the status and amount from Easypay (never from this body) and finalizes
-      // idempotently: a duplicate or a race with the confirmation page grants once.
-      const result = await refreshOrderFromEasypay(order, single);
-      console.log(`[EASYPAY WEBHOOK] teaching order ${order.id}: ${result}`);
-      await recordOutcome({
-        userId: order.userId,
-        action: `teaching_${result}`,
-        note: `order ${order.id}, payment_status ${single.status}`,
-        amount: single.amountCents === null ? null : String(single.amountCents / 100),
-      });
-      return c.json({ received: true });
+    } catch (err) {
+      return await retryLater(`teaching branch failed (${err instanceof Error ? err.message : String(err)})`);
     }
   }
 

@@ -20,6 +20,8 @@ const ledgerSets: Array<Record<string, any>> = [];
 const orderSets: Array<Record<string, any>> = [];
 const txValues = vi.fn();
 const subscriptionUserFind = vi.fn();
+const deleteCalls: unknown[] = [];
+let orderLookupThrows = false;
 
 vi.mock("../../src/db/index.ts", () => {
   const tx = {
@@ -35,7 +37,7 @@ vi.mock("../../src/db/index.ts", () => {
     db: {
       query: {
         users: { findFirst: (...a: unknown[]) => subscriptionUserFind(...a) },
-        teachingOrders: { findFirst: () => Promise.resolve(currentOrder) },
+        teachingOrders: { findFirst: () => (orderLookupThrows ? Promise.reject(new Error("db down")) : Promise.resolve(currentOrder)) },
         events: { findFirst: () => Promise.resolve({ id: 8, titleEn: "T", titlePt: "T", status: "published" }) },
       },
       transaction: vi.fn((cb: (t: unknown) => unknown) => cb(tx)),
@@ -54,7 +56,7 @@ vi.mock("../../src/db/index.ts", () => {
         },
       })),
       select: vi.fn(() => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([]), orderBy: () => ({ limit: () => Promise.resolve([]) }) }) }) })),
-      delete: vi.fn(() => ({ where: () => Promise.resolve() })),
+      delete: vi.fn((t: unknown) => { deleteCalls.push(t); return { where: () => Promise.resolve() }; }),
     },
   };
 });
@@ -64,14 +66,14 @@ vi.mock("../../src/services/email.ts", () => ({ sendEmail: (...a: unknown[]) => 
 
 import { testJson } from "../helpers.ts";
 
-type Routes = Record<string, { ok: boolean; body: unknown }>;
+type Routes = Record<string, { ok: boolean; body: unknown; status?: number }>;
 function stubEasypay(routes: Routes) {
   const fn = vi.fn((url: string) => {
     const path = url.replace(/^.*\/2\.0/, "");
     const hit = routes[path];
     return Promise.resolve({
       ok: !!hit?.ok,
-      status: hit?.ok ? 200 : 404,
+      status: hit?.ok ? 200 : (hit?.status ?? 404),
       json: () => Promise.resolve(hit?.body ?? {}),
       text: () => Promise.resolve("{}"),
     } as unknown as Response);
@@ -96,6 +98,8 @@ beforeEach(() => {
   currentOrder = { ...order };
   ledgerSets.length = 0;
   orderSets.length = 0;
+  deleteCalls.length = 0;
+  orderLookupThrows = false;
   subscriptionUserFind.mockResolvedValue(null);
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
@@ -194,5 +198,51 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
     await notify({ id: "sub-abc", type: "capture", status: "success", date: "d" });
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/subscription/sub-abc"))).toBe(true);
     expect(txValues).not.toHaveBeenCalled();
+  });
+
+  it("should release the dedupe row and answer 503 when the single probe gets a 5xx", async () => {
+    stubEasypay({ "/single/pay-1": { ok: false, status: 502, body: {} } });
+    const { status, body } = await notify();
+    expect(status).toBe(503);
+    expect(body).toEqual({ received: false, retry: true });
+    expect(deleteCalls).toHaveLength(1);
+    expect(txValues).not.toHaveBeenCalled();
+  });
+
+  it("should release the dedupe row and answer 503 when the single probe hits a network error", async () => {
+    global.fetch = vi.fn(() => Promise.reject(new TypeError("fetch failed"))) as unknown as typeof fetch;
+    const { status } = await notify();
+    expect(status).toBe(503);
+    expect(deleteCalls).toHaveLength(1);
+  });
+
+  it("should keep falling through to the subscription path when the single probe answers 404", async () => {
+    stubEasypay({ "/subscription/pay-1": { ok: true, body: { id: "pay-1", value: 5, customer: { key: "user-7" } } } });
+    subscriptionUserFind.mockResolvedValue({ id: 7, email: "m@test.com", subscriptionStatus: "none", subscriptionExpiresAt: null });
+    const { status } = await notify();
+    expect(status).toBe(200);
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("should release the dedupe row and answer 503 when the teaching branch throws", async () => {
+    orderLookupThrows = true;
+    stubEasypay({ "/single/pay-1": single() });
+    const { status } = await notify();
+    expect(status).toBe(503);
+    expect(deleteCalls).toHaveLength(1);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("should answer 503 for a success notification whose single is not paid yet", async () => {
+    stubEasypay({ "/single/pay-1": single({ payment_status: "pending" }) });
+    const { status } = await notify();
+    expect(status).toBe(503);
+    expect(deleteCalls).toHaveLength(1);
+  });
+
+  it("should not retry an amount mismatch", async () => {
+    stubEasypay({ "/single/pay-1": single({ value: 1 }) });
+    expect((await notify()).status).toBe(200);
+    expect(deleteCalls).toHaveLength(0);
   });
 });

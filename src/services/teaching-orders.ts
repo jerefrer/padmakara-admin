@@ -4,7 +4,7 @@ import { teachingOrders, eventAccessGrants } from "../db/schema/event-access.ts"
 import { sendEmail } from "./email.ts";
 import { buildTeachingAvailableEmail } from "./teaching-emails.ts";
 import { bumpUserAccessVersion } from "./sync-versions.ts";
-import { easypayFetch, isMockMode } from "../routes/payment.ts";
+import { easypayFetch, isMockMode, EasypayHttpError } from "../routes/payment.ts";
 
 export type TeachingOrder = typeof teachingOrders.$inferSelect;
 export type FinalizeResult = "finalized" | "already" | "amount_mismatch";
@@ -152,19 +152,39 @@ export async function lookupSinglePayment(
       paymentId = checkout.payment?.id ?? null;
       if (!paymentId) return null;
     }
-    const single = await easypayFetch<EasypaySingleResponse>(`/single/${encodeURIComponent(paymentId)}`);
-    return {
-      paymentId,
-      status: (single.payment_status ?? "").toLowerCase(),
-      key: single.key ?? null,
-      amountCents: typeof single.value === "number" ? Math.round(single.value * 100) : null,
-      methodType: single.method?.type ?? null,
-      entity: single.method?.entity ?? null,
-      reference: single.method?.reference ?? null,
-    };
+    return await readSingle(paymentId);
   } catch (err) {
     console.error(`[TEACHINGS] could not read Easypay payment for order ${order.id}:`, err);
     return null;
+  }
+}
+
+async function readSingle(paymentId: string): Promise<SinglePaymentInfo> {
+  const single = await easypayFetch<EasypaySingleResponse>(`/single/${encodeURIComponent(paymentId)}`);
+  return {
+    paymentId,
+    status: (single.payment_status ?? "").toLowerCase(),
+    key: single.key ?? null,
+    amountCents: typeof single.value === "number" ? Math.round(single.value * 100) : null,
+    methodType: single.method?.type ?? null,
+    entity: single.method?.entity ?? null,
+    reference: single.method?.reference ?? null,
+  };
+}
+
+/**
+ * Webhook probe: is this notification id a single payment? Null when Easypay says it is
+ * not (a 4xx, e.g. 404: the id belongs to something else). THROWS when the answer is
+ * unknown (network error or Easypay 5xx), so the webhook can ask Easypay to retry
+ * instead of recording the notification as unverified.
+ */
+export async function probeSinglePayment(paymentId: string): Promise<SinglePaymentInfo | null> {
+  if (isMockMode) return null;
+  try {
+    return await readSingle(paymentId);
+  } catch (err) {
+    if (err instanceof EasypayHttpError && err.easypayStatus < 500) return null;
+    throw err;
   }
 }
 
