@@ -10,6 +10,7 @@ import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
+import SearchIcon from "@mui/icons-material/Search";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
@@ -78,6 +79,7 @@ export const Menu = () => {
       <SectionLabel>{translate("padmakara.menu.administration")}</SectionLabel>
       <RaMenu.Item to="/users" primaryText={translate("resources.users.name", { smart_count: 2 })} leftIcon={<PeopleIcon />} />
       <RaMenu.Item to="/library" primaryText={translate("padmakara.library.menu")} leftIcon={<LibraryBooksIcon />} />
+      <RaMenu.Item to="/searches" primaryText={translate("padmakara.searches.menu")} leftIcon={<SearchIcon />} />
       <RaMenu.Item to="/approvals" primaryText={translate("resources.approvals.name", { smart_count: 2 })} leftIcon={<HowToRegIcon />} />
     </Box>
   );

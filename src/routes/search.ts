@@ -4,7 +4,10 @@ import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
 import { users } from "../db/schema/users.ts";
 import { optionalAuthMiddleware, getOptionalUser } from "../middleware/auth.ts";
+import { z } from "zod";
 import { AppError } from "../lib/errors.ts";
+import { authIpLimiter } from "../middleware/rate-limit.ts";
+import { recordSearch, purgeIfDue } from "../services/search-log.ts";
 import { filterAccessibleEvents, AUDIENCE_SLUGS, eventStatusVisibleTo } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 
@@ -119,6 +122,31 @@ const searchEventWith = {
 // ─── Search endpoint ─────────────────────────────────────────────────────
 
 searchRoutes.use("/*", optionalAuthMiddleware);
+
+const searchLogSchema = z.object({
+  // Generous bound before normalisation (which cuts to 200).
+  query: z.string().max(1000),
+  resultCount: z.number().int().min(0),
+  language: z.enum(["en", "pt"]).optional(),
+});
+
+/**
+ * POST /api/search/log
+ *
+ * Anonymous log of a "final" search (the app sends one call per finished
+ * search, not one per keystroke). Accepts anonymous and signed-in callers
+ * alike, but NEVER stores or reads who called.
+ */
+searchRoutes.post("/log", authIpLimiter({ limit: 60, windowMs: 60 * 1000 }), async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = searchLogSchema.safeParse(body);
+  if (!parsed.success) {
+    throw AppError.badRequest("Validation failed", "VALIDATION_ERROR");
+  }
+  await recordSearch(parsed.data);
+  purgeIfDue();
+  return c.body(null, 204);
+});
 
 /**
  * GET /api/search?q=bodhicitta&lang=pt
