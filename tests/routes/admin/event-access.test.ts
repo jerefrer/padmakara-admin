@@ -197,6 +197,11 @@ describe("POST /api/admin/events/:id/access", () => {
     expect(sendTeachingAvailableEmail).not.toHaveBeenCalled();
   });
 
+  it("should report a repeated invalid address once", async () => {
+    const { body } = await post({ emails: ["bad", "bad", "ok@x.com"], notify: false });
+    expect(body.invalid).toEqual(["bad"]);
+  });
+
   it("should email only newly added people when notify is true, in the chosen language", async () => {
     vi.mocked(grantEventAccess).mockImplementation(async ({ userId }: any) => ({ created: userId !== 101 }));
 

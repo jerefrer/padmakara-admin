@@ -452,19 +452,6 @@ eventRoutes.put("/:id", async (c) => {
     Object.assign(filteredEventData, resolveSaleSettings({ saleMode, priceCents }, current ?? null));
   }
 
-  // Sale mode and price are validated together; a paid event needs a price >= 100 cents.
-  if (bodyKeys.has("saleMode") || bodyKeys.has("priceCents")) {
-    const { saleMode, priceCents } = filteredEventData;
-    const current =
-      saleMode === undefined
-        ? await db.query.events.findFirst({ where: eq(events.id, id), columns: { saleMode: true } })
-        : null;
-    if (saleMode === undefined && !current) throw AppError.notFound("Event not found");
-    delete filteredEventData.saleMode;
-    delete filteredEventData.priceCents;
-    Object.assign(filteredEventData, resolveSaleSettings({ saleMode, priceCents }, current ?? null));
-  }
-
   // The highlighted event must stay published: the highlight has to be moved first.
   if (filteredEventData.status !== undefined && filteredEventData.status !== "published") {
     await assertNotFeatured(id);

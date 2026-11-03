@@ -149,7 +149,7 @@ eventAccessRoutes.post("/:id/access", async (c) => {
     const email = raw.trim().toLowerCase();
     if (!email) continue;
     if (!emailSchema.safeParse(email).success) {
-      invalid.push(raw.trim());
+      if (!invalid.includes(raw.trim())) invalid.push(raw.trim());
       continue;
     }
     if (seen.has(email)) continue;
