@@ -6,9 +6,11 @@
 
 import AddIcon from "@mui/icons-material/Add";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import UploadIcon from "@mui/icons-material/Upload";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import LinearProgress from "@mui/material/LinearProgress";
 import { useMemo } from "react";
 import { useTranslate } from "react-admin";
 import { renderSlideHtml } from "@slides/render.ts";
@@ -164,6 +166,16 @@ const SequenceSection = ({
                     {formatSecondsLabel(slideTotalMs(slide))}
                   </Box>
                 </Box>
+                {slide.needsReview && (
+                  <WarningAmberIcon
+                    role="img"
+                    aria-label={translate("padmakara.slides.needsReviewIcon", { _: "Needs review" })}
+                    titleAccess={translate("padmakara.slides.needsReview", {
+                      _: "Copied from another video: check the session number and date.",
+                    })}
+                    sx={{ fontSize: 18, flexShrink: 0, color: slideEditorTokens.warning }}
+                  />
+                )}
               </Box>
             </li>
           );
@@ -181,8 +193,19 @@ const SequenceSection = ({
   );
 };
 
+/** Progress of the video file being uploaded into this row, as the editor shows it. */
+export interface VideoUploadState {
+  phase: "uploading" | "done" | "error";
+  /** 0 to 1, while uploading. */
+  fraction: number;
+  error?: string;
+}
+
 interface VideoBlockProps {
   state: VideoBlockState;
+  /** Set while a file is going up (or just did): replaces the "not uploaded" state. */
+  upload?: VideoUploadState | null;
+  onCancelUpload?: () => void;
   burnStatus: string | null;
   burnError: string | null;
   burnDisk: BurnDisk | null;
@@ -195,6 +218,8 @@ interface VideoBlockProps {
 
 const VideoBlock = ({
   state,
+  upload,
+  onCancelUpload,
   burnStatus,
   burnError,
   burnDisk,
@@ -222,7 +247,46 @@ const VideoBlock = ({
       <Box sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: "0.08em", color: slideEditorTokens.muted }}>
         {translate("padmakara.slides.videoBlock.title", { _: "Video" }).toUpperCase()}
       </Box>
-      {state === "notUploaded" && (
+      {upload?.phase === "uploading" && (
+        <>
+          <Box sx={{ fontSize: "0.8rem", color: slideEditorTokens.ink }}>
+            {translate("padmakara.slides.videoBlock.uploading", {
+              percent: Math.round(upload.fraction * 100),
+              _: `Uploading… ${Math.round(upload.fraction * 100)}%`,
+            })}
+          </Box>
+          <LinearProgress
+            variant="determinate"
+            value={upload.fraction * 100}
+            aria-label={translate("padmakara.slides.videoBlock.title", { _: "Video" })}
+            sx={{ height: 6, borderRadius: 1 }}
+          />
+          {onCancelUpload && (
+            <Button
+              size="small"
+              color="inherit"
+              onClick={onCancelUpload}
+              sx={{ alignSelf: "flex-start", color: slideEditorTokens.muted, fontSize: "0.78rem", px: 0.5 }}
+            >
+              {translate("padmakara.slides.videoBlock.cancelUpload", { _: "Cancel" })}
+            </Button>
+          )}
+        </>
+      )}
+      {upload?.phase === "done" && (
+        <Box sx={{ fontSize: "0.8rem", color: slideEditorTokens.ink }}>
+          {translate("padmakara.slides.videoBlock.uploadedBurning", { _: "Uploaded, burning…" })}
+        </Box>
+      )}
+      {upload?.phase === "error" && (
+        <Box role="alert" sx={{ fontSize: "0.8rem", color: "error.main" }}>
+          {translate("padmakara.slides.videoBlock.uploadFailed", {
+            error: upload.error ?? "",
+            _: `Upload failed: ${upload.error ?? ""}`,
+          })}
+        </Box>
+      )}
+      {state === "notUploaded" && upload?.phase !== "uploading" && upload?.phase !== "done" && (
         <>
           <Box sx={{ fontSize: "0.8rem", color: slideEditorTokens.ink }}>
             {translate("padmakara.slides.videoBlock.notUploaded", { _: "Not uploaded yet" })}
@@ -239,7 +303,7 @@ const VideoBlock = ({
           )}
         </>
       )}
-      {state === "uploaded" && (
+      {state === "uploaded" && upload?.phase !== "done" && (
         <Box sx={{ fontSize: "0.8rem", color: slideEditorTokens.ink }}>
           {translate("padmakara.slides.videoBlock.uploaded", { _: "Uploaded" })}
         </Box>
@@ -316,7 +380,7 @@ export const SlideSequenceList = ({
       )}
       <VideoBlock {...video} />
       <SequenceSection
-        title={translate("padmakara.slides.outro", { _: "Outro" }).toUpperCase()}
+        title={translate("padmakara.slides.outro", { _: "End" }).toUpperCase()}
         sequence="outro"
         slides={outro}
         selectedId={selection.sequence === "outro" ? selection.slideId : null}

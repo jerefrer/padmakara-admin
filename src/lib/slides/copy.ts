@@ -1,22 +1,21 @@
 /**
  * Copy a slide document from one video to another.
  *
- * Everything the admin edited is kept exactly as is; only the slide that
- * depends on which session the target video covers ("Session 2 of 4 —
- * 11 October 2026, morning") is replaced by the freshly generated one. That
- * slide is found by its `role`, set by the generator. Documents saved before
- * roles existed carry none, so they are copied as they are and the caller
- * tells the admin to check the session slide.
+ * Everything the admin edited is kept exactly as is, including the slide that
+ * depends on which session the video covers ("Session 2 of 4 — 11 October
+ * 2026, morning"): it is cloned like every other slide but flagged
+ * `needsReview`, so the editor asks the admin to check the session number and
+ * date. That slide is found by its `role`, set by the generator. Documents
+ * saved before roles existed carry none, so they are copied as they are and
+ * the caller tells the admin to check the session slide.
  */
 
 import type { IdFactory } from "./defaults.ts";
 import type { Line, Slide, SlideDocument } from "./types.ts";
 
 export type SessionSlideOutcome =
-  /** The source's session slide was replaced by the target's. */
-  | "replaced"
-  /** The source had a session slide but the target has no session: it was dropped. */
-  | "removed"
+  /** The source's session slide was copied and flagged for review. */
+  | "flagged"
   /** The source has no session slide to find (legacy document or deleted by hand). */
   | "unknown";
 
@@ -30,30 +29,18 @@ function cloneSlide(slide: Slide, newId: IdFactory): Slide {
   return { ...structuredClone(slide), id: newId(), lines };
 }
 
-/**
- * @param source    the document being copied, as saved
- * @param generated the default document generated for the target video, whose
- *                  `session`-role slide (if any) replaces the source's
- */
-export function copySlidesForSession(
-  source: SlideDocument,
-  generated: SlideDocument,
-  newId: IdFactory,
-): CopiedSlides {
-  const replacement = generated.intro.find((s) => s.role === "session");
+/** @param source the document being copied, as saved */
+export function copySlidesForSession(source: SlideDocument, newId: IdFactory): CopiedSlides {
   let outcome: SessionSlideOutcome = "unknown";
 
-  const intro: Slide[] = [];
-  for (const slide of source.intro) {
-    if (slide.role !== "session") {
-      intro.push(cloneSlide(slide, newId));
-    } else if (replacement) {
-      intro.push(cloneSlide(replacement, newId));
-      outcome = "replaced";
-    } else {
-      outcome = "removed";
+  const intro: Slide[] = source.intro.map((slide) => {
+    const copy = cloneSlide(slide, newId);
+    if (slide.role === "session") {
+      outcome = "flagged";
+      copy.needsReview = true;
     }
-  }
+    return copy;
+  });
 
   return {
     slides: {

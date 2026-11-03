@@ -9,8 +9,10 @@ import {
   deleteLine,
   deleteSlide,
   duplicateSlide,
+  markSlideReviewed,
   moveLine,
   moveSlide,
+  patchTextLine,
   newImageLine,
   newSlide,
   newSpacerLine,
@@ -196,5 +198,39 @@ describe("intro subtitles", () => {
     const doc: SlideDocument = { version: 1, intro: [slide()], outro: [] };
     const next = updateSlide(doc, "intro", "s", withSubtitleText(doc.intro[0]!, "pt", "Olá"));
     expect(next.intro[0]?.subtitles).toEqual({ pt: ["Olá"] });
+  });
+});
+
+describe("needsReview flag", () => {
+  const flagged = (): SlideDocument => ({
+    version: 1,
+    intro: [{ ...newSlide([{ ...newTextLine(), id: "l" }]), id: "s", needsReview: true }],
+    outro: [],
+  });
+
+  it("should clear when the slide's timing changes", () => {
+    expect(updateSlide(flagged(), "intro", "s", { durationMs: 5000 }).intro[0]?.needsReview).toBeUndefined();
+  });
+
+  it("should clear when a line of the slide is edited", () => {
+    const line = { ...newTextLine(), id: "l", spans: [{ text: "Session 2 of 4" }] };
+    expect(replaceLine(flagged(), "intro", "s", "l", line).intro[0]?.needsReview).toBeUndefined();
+    expect(patchTextLine(flagged(), "intro", "s", "l", { size: "lg" }).intro[0]?.needsReview).toBeUndefined();
+  });
+
+  it("should clear on markSlideReviewed without changing anything else", () => {
+    const next = markSlideReviewed(flagged(), "intro", "s");
+    expect(next.intro[0]?.needsReview).toBeUndefined();
+    expect(next.intro[0]?.durationMs).toBe(4000);
+  });
+
+  it("should stay on the flagged slide when a different slide is edited", () => {
+    const doc = flagged();
+    doc.intro.push({ ...newSlide(), id: "t" });
+    expect(updateSlide(doc, "intro", "t", { durationMs: 6000 }).intro[0]?.needsReview).toBe(true);
+  });
+
+  it("should not carry over to a duplicate", () => {
+    expect(duplicateSlide(flagged(), "intro", "s").intro[1]?.needsReview).toBeUndefined();
   });
 });

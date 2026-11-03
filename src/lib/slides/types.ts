@@ -96,6 +96,12 @@ export interface Slide {
   fadeMs: number;
   lines: Line[];
   /**
+   * Set when the slide was copied from another video and depends on this
+   * video's own data (the session slide): the editor asks the admin to check
+   * it and clears the flag on the first edit or when marked as reviewed.
+   */
+  needsReview?: boolean;
+  /**
    * Subtitle text shown over this slide when subtitles are on, one string per
    * cue line, keyed by subtitle language. Slides are burned in the video's own
    * language, so this normally holds the other language only. Optional:

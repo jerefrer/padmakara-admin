@@ -301,7 +301,7 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
     vi.clearAllMocks();
   });
 
-  it("generates André's English intro + builtin-logo outro from full metadata", async () => {
+  it("generates André's English intro + black end slide from full metadata", async () => {
     mockFindFirstEventVideo.mockResolvedValueOnce({ id: 5, eventId: 7, videoDate: "2026-10-10" });
     mockFindFirstEvent.mockResolvedValueOnce(ANDRE_EVENT);
 
@@ -323,7 +323,7 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
       ["Event organized by", "Fundação Kangyur Rinpoche", "", "Video production", "Padmakara Portugal"],
     ]);
     expect(body.slides.outro).toHaveLength(1);
-    expect(body.slides.outro[0].lines[0]).toMatchObject({ type: "image", s3Key: BUILTIN_LOGO_KEY });
+    expect(body.slides.outro[0].lines).toEqual([]);
   });
 
   it("generates the Portuguese intro when asked", async () => {
@@ -403,7 +403,7 @@ describe("POST /api/admin/videos/:id/slides/defaults", () => {
       ["Video production", "Padmakara Portugal"],
     ]);
     expect(body.missing).toEqual(["title", "date", "place", "session", "organizer"]);
-    expect(body.slides.outro[0].lines[0].s3Key).toBe(BUILTIN_LOGO_KEY);
+    expect(body.slides.outro[0].lines).toEqual([]);
   });
 
   it("leaves the session slide out when two sessions share the video's date", async () => {

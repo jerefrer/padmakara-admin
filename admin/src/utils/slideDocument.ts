@@ -78,7 +78,7 @@ export function duplicateSlide(doc: SlideDocument, key: SlideSequenceKey, slideI
   if (idx < 0) return doc;
   // The copy is an ordinary slide: a second "session" role would make a later
   // copy-from-video replace both.
-  const { role: _role, ...source } = doc[key][idx];
+  const { role: _role, needsReview: _needsReview, ...source } = doc[key][idx];
   const copy: Slide = {
     ...source,
     id: newSlideId(),
@@ -104,13 +104,25 @@ export function moveSlide(
   return { ...doc, [key]: moveItem(doc[key], idx, direction) };
 }
 
+/** The slide after an edit: an admin who changed it has looked at it, so it no longer needs review. */
+function withoutReviewFlag(slide: Slide): Slide {
+  if (!slide.needsReview) return slide;
+  const { needsReview: _needsReview, ...rest } = slide;
+  return rest;
+}
+
 export function updateSlide(
   doc: SlideDocument,
   key: SlideSequenceKey,
   slideId: string,
   patch: Partial<Pick<Slide, "durationMs" | "fadeMs" | "subtitles">>,
 ): SlideDocument {
-  return { ...doc, [key]: doc[key].map((s) => (s.id === slideId ? { ...s, ...patch } : s)) };
+  return { ...doc, [key]: doc[key].map((s) => (s.id === slideId ? { ...withoutReviewFlag(s), ...patch } : s)) };
+}
+
+/** Clear a slide's "copied from another video, check it" flag without changing anything else. */
+export function markSlideReviewed(doc: SlideDocument, key: SlideSequenceKey, slideId: string): SlideDocument {
+  return { ...doc, [key]: doc[key].map((s) => (s.id === slideId ? withoutReviewFlag(s) : s)) };
 }
 
 function updateLines(
@@ -121,7 +133,7 @@ function updateLines(
 ): SlideDocument {
   return {
     ...doc,
-    [key]: doc[key].map((s) => (s.id === slideId ? { ...s, lines: fn(s.lines) } : s)),
+    [key]: doc[key].map((s) => (s.id === slideId ? { ...withoutReviewFlag(s), lines: fn(s.lines) } : s)),
   };
 }
 

@@ -57,6 +57,7 @@ import {
   deleteSlide,
   duplicateSlide,
   introSubtitleLanguage,
+  markSlideReviewed,
   moveSlide,
   newSpacerLine,
   newTextLine,
@@ -77,7 +78,7 @@ import { SlideCanvas, type CanvasMark, type SlideCanvasHandle } from "./SlideCan
 import { SlideEditorPreview } from "./SlideEditorPreview";
 import { SlideInspector } from "./SlideInspector";
 import { SlideLineToolbar } from "./SlideLineToolbar";
-import { SlideSequenceList } from "./SlideSequenceList";
+import { SlideSequenceList, type VideoUploadState } from "./SlideSequenceList";
 
 export { BurnActionButton, BurnStatusChip };
 export type { BurnDisk };
@@ -128,7 +129,7 @@ export interface VideoSlidesState {
   reburning: boolean;
   generating: boolean;
   copying: boolean;
-  /** Another video's slides with this video's session slide regenerated. Does not save. */
+  /** Another video's slides, session slide flagged for review. Does not save. */
   copyFrom: (sourceVideoId: number) => Promise<CopiedSlides | null>;
   save: (doc: SlideDocument) => Promise<boolean>;
   generateDefaults: (lang: SlideLanguage) => Promise<GeneratedSlides | null>;
@@ -205,7 +206,7 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
           throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
         }
         applyResponse(await res.json());
-        notify(translate("padmakara.slides.saved") || "Slides saved", { type: "success" });
+        // The editor stays open and confirms the save itself (see SlideEditor).
         return true;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -286,7 +287,7 @@ export function useVideoSlides(videoId: number): VideoSlidesState {
 /* ───────── Copy slides from another video ───────── */
 
 /** How a copy handled the session slide; mirrors src/lib/slides/copy.ts. */
-export type SessionSlideOutcome = "replaced" | "removed" | "unknown";
+export type SessionSlideOutcome = "flagged" | "unknown";
 
 export interface CopiedSlides {
   slides: SlideDocument;
@@ -302,7 +303,8 @@ export interface CopySource {
 type EditorNotice =
   | { kind: "generation"; missing: MissingSlideInput[] }
   | { kind: "copy"; outcome: SessionSlideOutcome }
-  | { kind: "session" };
+  | { kind: "session" }
+  | { kind: "saved" };
 
 /* ───────── The editor dialog itself ───────── */
 
@@ -334,6 +336,9 @@ export interface SlideEditorProps {
   /** True when the row has a file (a master or a Bunny video). */
   videoUploaded: boolean;
   onUploadVideo?: () => void;
+  /** Progress of the file being uploaded into this video, owned by the page that runs the upload. */
+  videoUpload?: VideoUploadState | null;
+  onCancelUpload?: () => void;
   burnStatus?: string | null;
   burnError?: string | null;
   burnDisk?: BurnDisk | null;
@@ -353,14 +358,9 @@ function noticeText(notice: EditorNotice, translate: Translate): string | null {
     case "generation":
       return generationNoticeText(notice.missing, translate);
     case "copy":
-      if (notice.outcome === "replaced") {
-        return translate("padmakara.slides.copyReplaced", {
-          _: "Slides copied. Only the session slide was regenerated for this video's session.",
-        });
-      }
-      if (notice.outcome === "removed") {
-        return translate("padmakara.slides.copyRemoved", {
-          _: "Slides copied. This video has no session, so the session slide was left out.",
+      if (notice.outcome === "flagged") {
+        return translate("padmakara.slides.copyFlagged", {
+          _: "Slides copied. The session slide is marked: check its session number and date before saving.",
         });
       }
       return translate("padmakara.slides.copyUnknown", {
@@ -370,6 +370,8 @@ function noticeText(notice: EditorNotice, translate: Translate): string | null {
       return translate("padmakara.slides.sessionChanged", {
         _: "Session changed. Generate the slides again or check the session slide.",
       });
+    case "saved":
+      return translate("padmakara.slides.saved", { _: "Slides saved" });
   }
 }
 
@@ -391,6 +393,8 @@ export const SlideEditor = ({
   onChangeSession,
   videoUploaded,
   onUploadVideo,
+  videoUpload,
+  onCancelUpload,
   burnStatus,
   burnError,
   burnDisk,
@@ -400,6 +404,7 @@ export const SlideEditor = ({
 }: SlideEditorProps) => {
   const translate = useTranslate();
   const [doc, setDoc] = useState<SlideDocument>(initialDocument);
+  const [baseline, setBaseline] = useState<SlideDocument>(initialDocument);
   const [selection, setSelection] = useState<Selection>({ sequence: "intro", slideId: initialDocument.intro[0]?.id ?? null });
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [marks, setMarks] = useState<Record<CanvasMark, boolean>>({ bold: false, italic: false });
@@ -419,6 +424,7 @@ export const SlideEditor = ({
   useEffect(() => {
     if (!open) return;
     setDoc(initialDocument);
+    setBaseline(initialDocument);
     setSelection({ sequence: "intro", slideId: initialDocument.intro[0]?.id ?? null });
     setSelectedLineId(null);
     setNotice(null);
@@ -467,7 +473,15 @@ export const SlideEditor = ({
   }, []);
   const resolveClipUrl = useCallback((clip: BuiltinClipId): string => `/images/${BUILTIN_CLIPS[clip].filename}`, []);
 
-  const dirty = useMemo(() => JSON.stringify(doc) !== JSON.stringify(initialDocument), [doc, initialDocument]);
+  // What counts as saved: the document the dialog opened with, then whatever was last saved.
+  const dirty = useMemo(() => JSON.stringify(doc) !== JSON.stringify(baseline), [doc, baseline]);
+
+  // The "saved" confirmation fades after a moment; other notices stay until dismissed.
+  useEffect(() => {
+    if (notice?.kind !== "saved") return;
+    const timer = setTimeout(() => setNotice(null), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   // The selection can point at a slide that was deleted or replaced; fall back to the first one.
   const sequenceSlides = doc[selection.sequence];
@@ -590,7 +604,10 @@ export const SlideEditor = ({
     setLocalSaving(true);
     try {
       const result = await onSave(doc);
-      if (result !== false) onClose();
+      if (result !== false) {
+        setBaseline(doc);
+        setNotice({ kind: "saved" });
+      }
     } finally {
       setLocalSaving(false);
     }
@@ -720,7 +737,13 @@ export const SlideEditor = ({
         )}
         {!busy && notice && noticeMessage && (
           <Alert
-            severity={notice.kind === "generation" && nothingToGenerateFrom(notice.missing) ? "warning" : "info"}
+            severity={
+              notice.kind === "saved"
+                ? "success"
+                : notice.kind === "generation" && nothingToGenerateFrom(notice.missing)
+                  ? "warning"
+                  : "info"
+            }
             onClose={() => setNotice(null)}
             sx={{ mx: 2.5, mt: 1.5 }}
           >
@@ -755,6 +778,8 @@ export const SlideEditor = ({
               reburning: !!reburning,
               onReburn: onReburn ?? (() => undefined),
               onUploadVideo,
+              upload: videoUpload ?? null,
+              onCancelUpload,
             }}
           />
 
@@ -846,6 +871,7 @@ export const SlideEditor = ({
             }
             onDuplicate={handleDuplicateSlide}
             onDelete={handleDeleteSlide}
+            onMarkReviewed={() => selectedSlideId && setDoc((d) => markSlideReviewed(d, selection.sequence, selectedSlideId))}
           />
         </Box>
       </Box>

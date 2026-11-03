@@ -17,6 +17,7 @@ vi.mock("./SlideBurnStatus", () => ({
   BurnStatusChip: () => null,
 }));
 
+import { SlideInspector } from "./SlideInspector";
 import { SlideLineToolbar } from "./SlideLineToolbar";
 import { SlideSequenceList } from "./SlideSequenceList";
 
@@ -177,5 +178,135 @@ describe("SlideLineToolbar", () => {
     mount({ line: null });
     expect(button("Delete line").disabled).toBe(true);
     expect(container.textContent).toContain("Select a line on the slide");
+  });
+});
+
+describe("needs-review flag", () => {
+  const REVIEW_TEXT = "Copied from another video: check the session number and date.";
+
+  const mountList = (intro: Slide[]) =>
+    act(() =>
+      root.render(
+        <SlideSequenceList
+          intro={intro}
+          outro={[]}
+          selection={{ sequence: "intro", slideId: null }}
+          resolveImageUrl={(k) => k}
+          onSelect={vi.fn()}
+          onAdd={vi.fn()}
+          video={{
+            state: "notUploaded",
+            burnStatus: "none",
+            burnError: null,
+            burnDisk: null,
+            hasMaster: false,
+            slideCount: intro.length,
+            reburning: false,
+            onReburn: () => undefined,
+          }}
+        />,
+      ),
+    );
+
+  const mountInspector = (slide: Slide, onMarkReviewed = vi.fn()) => {
+    act(() =>
+      root.render(
+        <SlideInspector
+          slide={slide}
+          onTiming={vi.fn()}
+          onSubtitle={vi.fn()}
+          onMove={vi.fn()}
+          canMoveUp={false}
+          canMoveDown={false}
+          onDuplicate={vi.fn()}
+          onDelete={vi.fn()}
+          onMarkReviewed={onMarkReviewed}
+        />,
+      ),
+    );
+    return onMarkReviewed;
+  };
+
+  it("should show a warning icon on a flagged slide's card only", () => {
+    mountList([textSlide("a", "Session 1 of 4", { needsReview: true }), textSlide("b", "Other")]);
+    const cards = Array.from(container.querySelectorAll("li"));
+    expect(cards[0]!.querySelector('[aria-label="Needs review"]')).not.toBeNull();
+    expect(cards[1]!.querySelector('[aria-label="Needs review"]')).toBeNull();
+  });
+
+  it("should show the review notice at the top of the inspector for a flagged slide", () => {
+    mountInspector(textSlide("a", "Session 1 of 4", { needsReview: true }));
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain(REVIEW_TEXT);
+  });
+
+  it("should not show the notice for an ordinary slide", () => {
+    mountInspector(textSlide("a", "Speaker"));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("should ask to clear the flag when Done is pressed", () => {
+    const onMarkReviewed = mountInspector(textSlide("a", "Session 1 of 4", { needsReview: true }));
+    const done = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Done");
+    act(() => done!.click());
+    expect(onMarkReviewed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("video block upload progress", () => {
+  const mountList = (upload: React.ComponentProps<typeof SlideSequenceList>["video"]["upload"], onCancelUpload = vi.fn()) => {
+    act(() =>
+      root.render(
+        <SlideSequenceList
+          intro={[]}
+          outro={[]}
+          selection={{ sequence: "intro", slideId: null }}
+          resolveImageUrl={(k) => k}
+          onSelect={vi.fn()}
+          onAdd={vi.fn()}
+          video={{
+            state: "notUploaded",
+            upload,
+            onCancelUpload,
+            burnStatus: "none",
+            burnError: null,
+            burnDisk: null,
+            hasMaster: false,
+            slideCount: 0,
+            reburning: false,
+            onReburn: () => undefined,
+            onUploadVideo: () => undefined,
+          }}
+        />,
+      ),
+    );
+    return onCancelUpload;
+  };
+
+  it("should show a progress bar, the percentage and Cancel while uploading", () => {
+    const onCancelUpload = mountList({ phase: "uploading", fraction: 0.42 });
+    expect(container.textContent).toContain("Uploading… 42%");
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("42");
+    expect(container.textContent).not.toContain("Not uploaded yet");
+    const cancel = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((b) => b.textContent === "Cancel");
+    act(() => cancel!.click());
+    expect(onCancelUpload).toHaveBeenCalledTimes(1);
+  });
+
+  it("should say the video is uploaded and burning once the upload is done", () => {
+    mountList({ phase: "done", fraction: 1 });
+    expect(container.textContent).toContain("Uploaded, burning…");
+    expect(container.querySelector('[role="progressbar"]')).toBeNull();
+  });
+
+  it("should show the failure and keep the upload button when the upload failed", () => {
+    mountList({ phase: "error", fraction: 0.3, error: "network down" });
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("network down");
+    expect(container.textContent).toContain("Upload video");
+  });
+
+  it("should show the usual not-uploaded state when no upload is running", () => {
+    mountList(null);
+    expect(container.textContent).toContain("Not uploaded yet");
   });
 });

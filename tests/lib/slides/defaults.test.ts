@@ -13,6 +13,8 @@ import {
   type IdFactory,
   type SlideTemplateMetadata,
 } from "../../../src/lib/slides/defaults.ts";
+import { slideDocumentSchema } from "../../../src/lib/schemas.ts";
+import { renderSlideHtml } from "../../../src/lib/slides/render.ts";
 import { SLIDES_VERSION, lineText, type Slide, type TextLine } from "../../../src/lib/slides/types.ts";
 
 /** Deterministic id factory — a plain counter, so assertions on generated
@@ -261,31 +263,26 @@ describe("missingSlideInputs", () => {
 });
 
 describe("buildDefaultOutro", () => {
-  it("falls back to the builtin logo key when no logoS3Key is supplied", () => {
+  it("is a single black slide with no lines", () => {
     const slides = buildDefaultOutro({ teacherNames: [] }, makeIdFactory());
-    expect(slides).toEqual([
-      {
-        id: "id-1",
-        durationMs: 4000,
-        fadeMs: 800,
-        lines: [{ id: "id-0", type: "image", s3Key: BUILTIN_LOGO_KEY, alt: "Padmakara" }],
-      },
-    ]);
+    expect(slides).toEqual([{ id: "id-0", durationMs: 4000, fadeMs: 800, lines: [] }]);
   });
 
-  it("uses an explicitly supplied logo key over the builtin", () => {
+  it("ignores a supplied logo key (the end carries no image by default)", () => {
     const slides = buildDefaultOutro({ teacherNames: [], logoS3Key: "events/123/logo.png" }, makeIdFactory());
-    expect(slides[0]?.lines[0]).toEqual({
-      id: "id-0",
-      type: "image",
-      s3Key: "events/123/logo.png",
-      alt: "Padmakara",
-    });
+    expect(slides[0]?.lines).toEqual([]);
   });
 
-  it("falls back to the builtin when logoS3Key is blank", () => {
-    const slides = buildDefaultOutro({ teacherNames: [], logoS3Key: "   " }, makeIdFactory());
-    expect(slides[0]?.lines[0]).toMatchObject({ s3Key: BUILTIN_LOGO_KEY });
+  it("renders as a black frame with no content", () => {
+    const [outro] = buildDefaultOutro({ teacherNames: [] }, makeIdFactory());
+    const html = renderSlideHtml(outro!, { width: 1920, height: 1080, fontBaseUrl: "/fonts/", resolveImageUrl: (k) => k });
+    expect(html).toContain("background:#000");
+    expect(html).toContain('<div class="stage"></div>');
+  });
+
+  it("is accepted by the slide document schema", () => {
+    const doc = buildDefaultSlideDocument(ANDRE_META, makeIdFactory());
+    expect(slideDocumentSchema.safeParse(doc).success).toBe(true);
   });
 });
 
@@ -314,7 +311,7 @@ describe("buildDefaultSlideDocument", () => {
     expect(doc.version).toBe(SLIDES_VERSION);
     expect(doc.intro).toHaveLength(6);
     expect(doc.outro).toHaveLength(1);
-    expect(doc.outro[0]?.lines[0]).toMatchObject({ type: "image", s3Key: BUILTIN_LOGO_KEY });
+    expect(doc.outro[0]?.lines).toEqual([]);
   });
 
   it("generates in Portuguese when asked", () => {

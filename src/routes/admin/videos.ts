@@ -17,7 +17,7 @@ import {
   slideImageUrlsSchema,
 } from "../../lib/schemas.ts";
 import { isBuiltinKey } from "../../lib/slides/defaults.ts";
-import { copySlidesForSession, detectSessionSlideLanguage } from "../../lib/slides/copy.ts";
+import { copySlidesForSession } from "../../lib/slides/copy.ts";
 import { mergeIntroSubtitleCues } from "../../lib/slides/intro-subtitles.ts";
 import { withIntroSubtitlesForVideo } from "../../services/intro-subtitles.ts";
 import { AppError } from "../../lib/errors.ts";
@@ -599,17 +599,16 @@ videoRoutes.post("/:id/slides/defaults", async (c) => {
 /**
  * POST /admin/videos/:id/slides/copy
  *
- * Take another video's slides of the same event as they were edited, and
- * regenerate only the session slide for THIS video's session. Does NOT
- * save (like /defaults): the editor previews it and saves it. Body:
- * `sourceVideoId`, optional `lang` (default: the language of the source's
- * session slide, else the event's). Response: `{ slides, sessionSlide }`
- * where `sessionSlide` is "replaced" | "removed" | "unknown" (see
- * lib/slides/copy.ts) so the editor can tell the admin to check it.
+ * Take another video's slides of the same event exactly as they were edited.
+ * The session slide is copied too but flagged `needsReview`, so the editor
+ * asks the admin to check its number and date. Does NOT save (like
+ * /defaults): the editor previews it and saves it. Body: `sourceVideoId`.
+ * Response: `{ slides, sessionSlide }` where `sessionSlide` is "flagged" |
+ * "unknown" (see lib/slides/copy.ts).
  */
 videoRoutes.post("/:id/slides/copy", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
-  const { sourceVideoId, lang } = copyVideoSlidesSchema.parse(await c.req.json());
+  const { sourceVideoId } = copyVideoSlidesSchema.parse(await c.req.json());
 
   const video = await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, id) });
   if (!video) throw AppError.notFound("Event video not found");
@@ -617,12 +616,7 @@ videoRoutes.post("/:id/slides/copy", async (c) => {
   if (!source || source.eventId !== video.eventId) throw AppError.notFound("Source video not found in this event");
   if (!source.slides) throw AppError.conflict("The source video has no slides");
 
-  const result = await fetchSlideTemplateMetadata(video.eventId, video.videoDate, video.sessionId);
-  if (!result) throw AppError.notFound("Event not found");
-
-  const language = lang ?? detectSessionSlideLanguage(source.slides) ?? undefined;
-  const generated = generateDefaultSlides(result, language);
-  return c.json(copySlidesForSession(source.slides, generated.slides, () => crypto.randomUUID()));
+  return c.json(copySlidesForSession(source.slides, () => crypto.randomUUID()));
 });
 
 // ── Subtitles ─────────────────────────────────────────────────────────

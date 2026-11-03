@@ -30,8 +30,10 @@ import { hasAnySlides } from "@slides/types.ts";
 import { authFetch } from "../utils/authFetch";
 import { requestDefaultSlides } from "../utils/slideGeneration";
 import { isAwaitingFile, type SessionOption } from "../utils/slideSequence";
+import type { UploadProgress as UploadProgressData } from "../utils/uploadManager";
 import type { EventVideo } from "../utils/trackParser";
 import { AddVideoDialog, type PrepareVideoInput } from "./AddVideoDialog";
+import type { VideoUploadState } from "./SlideSequenceList";
 import { MediaPreviewDialog, type MediaSource } from "./MediaPreviewDialog";
 import { BurnActionButton, BurnStatusChip, SlideEditor, type PendingUploadSlides, useVideoSlides } from "./SlideEditor";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
@@ -46,6 +48,13 @@ function formatDuration(seconds: number | null): string {
   const s = Math.floor(seconds % 60);
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** The upload manager's progress, reduced to what the editor's Video box shows. */
+function toVideoUploadState(progress: UploadProgressData): VideoUploadState {
+  if (progress.phase === "error") return { phase: "error", fraction: progress.fileProgress, error: progress.error };
+  if (progress.phase === "done") return { phase: "done", fraction: 1 };
+  return { phase: "uploading", fraction: progress.fileProgress };
 }
 
 interface PreviewState {
@@ -76,6 +85,10 @@ interface EventVideosSectionProps {
   onImportUrl: (url: string, title: string | undefined, pending: PendingUploadSlides) => Promise<void>;
   /** Uploads a file into a video that has slides and no file yet; queues its burn. */
   onAttachMaster: (videoId: number, file: File) => void;
+  /** The attach upload in flight, if any, and a way to cancel it. The parent
+   *  owns the upload; the slide editor of that video shows its progress. */
+  masterUpload?: { videoId: number; progress: UploadProgressData } | null;
+  onCancelUpload?: () => void;
   /** The event's sessions: the video's session, and the add-video dialog's select. */
   sessions?: SessionOption[];
   /** Numeric event id, needed to prepare slides for a new video. */
@@ -88,6 +101,8 @@ export const EventVideosSection = ({
   onUpload,
   onImportUrl,
   onAttachMaster,
+  masterUpload,
+  onCancelUpload,
   sessions = [],
   eventId,
 }: EventVideosSectionProps) => {
@@ -246,6 +261,8 @@ export const EventVideosSection = ({
             editorOpen={editorVideoId === video.id}
             onEditorOpenChange={(open) => setEditorVideoId(open ? video.id : null)}
             onAttachMaster={onAttachMaster}
+            masterUpload={masterUpload?.videoId === video.id ? masterUpload.progress : null}
+            onCancelUpload={onCancelUpload}
             onUpdate={handleUpdate}
             onReorder={handleReorder}
             onDelete={handleDelete}
@@ -306,6 +323,9 @@ interface VideoRowProps {
   editorOpen: boolean;
   onEditorOpenChange: (open: boolean) => void;
   onAttachMaster: (videoId: number, file: File) => void;
+  /** Progress of this video's attach upload, null when none is running for it. */
+  masterUpload: UploadProgressData | null;
+  onCancelUpload?: () => void;
   onUpdate: (videoId: number, patch: VideoTitlePatch) => Promise<void>;
   onReorder: (videoId: number, direction: -1 | 1) => Promise<void>;
   onDelete: (videoId: number) => Promise<void>;
@@ -321,6 +341,8 @@ const VideoRow = ({
   editorOpen,
   onEditorOpenChange,
   onAttachMaster,
+  masterUpload,
+  onCancelUpload,
   onUpdate,
   onReorder,
   onDelete,
@@ -752,6 +774,8 @@ const VideoRow = ({
         onChangeSession={(sessionId) => onUpdate(video.id, { sessionId })}
         videoUploaded={!!video.bunnyVideoId || slides.hasMaster}
         onUploadVideo={awaitingFile ? () => fileInputRef.current?.click() : undefined}
+        videoUpload={masterUpload ? toVideoUploadState(masterUpload) : null}
+        onCancelUpload={onCancelUpload}
         burnStatus={slides.burnStatus}
         burnError={slides.burnError}
         burnDisk={slides.burnDisk}

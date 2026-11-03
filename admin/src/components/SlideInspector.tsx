@@ -11,6 +11,7 @@ import IconButton from "@mui/material/IconButton";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Alert from "@mui/material/Alert";
 import TextField from "@mui/material/TextField";
 import { useTranslate } from "react-admin";
 import { BUILTIN_CLIPS, isClipSlide, type Slide } from "@slides/types.ts";
@@ -37,6 +38,8 @@ interface SlideInspectorProps {
   canMoveDown: boolean;
   onDuplicate: () => void;
   onDelete: () => void;
+  /** Clears the slide's "needs review" flag. */
+  onMarkReviewed: () => void;
 }
 
 export const SlideInspector = ({
@@ -49,6 +52,7 @@ export const SlideInspector = ({
   canMoveDown,
   onDuplicate,
   onDelete,
+  onMarkReviewed,
 }: SlideInspectorProps) => {
   const translate = useTranslate();
 
@@ -87,6 +91,20 @@ export const SlideInspector = ({
 
   return (
     <Box component="aside" sx={frame} aria-label={translate("padmakara.slides.inspector", { _: "Slide settings" })}>
+      {slide.needsReview && (
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" size="small" onClick={onMarkReviewed}>
+              {translate("padmakara.slides.needsReviewDone", { _: "Done" })}
+            </Button>
+          }
+        >
+          {translate("padmakara.slides.needsReview", {
+            _: "Copied from another video: check the session number and date.",
+          })}
+        </Alert>
+      )}
       <Box component="section">
         <SectionTitle>{translate("padmakara.slides.timing", { _: "Timing" }).toUpperCase()}</SectionTitle>
         <Box sx={{ display: "flex", gap: 1.5 }}>

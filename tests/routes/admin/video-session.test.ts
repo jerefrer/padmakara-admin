@@ -231,7 +231,7 @@ describe("slides defaults use the video's session", () => {
 });
 
 describe("POST /api/admin/videos/:id/slides/copy", () => {
-  it("should keep edits and regenerate only the session slide for this video's session", async () => {
+  it("should keep every edit, including the session slide, and flag the session slide for review", async () => {
     const source: SlideDocument = {
       version: 1,
       intro: [
@@ -249,17 +249,15 @@ describe("POST /api/admin/videos/:id/slides/copy", () => {
     dbx.query.eventVideos.findFirst
       .mockResolvedValueOnce({ id: 41, eventId: 7, videoDate: null, sessionId: 3 })
       .mockResolvedValueOnce({ id: 40, eventId: 7, slides: source });
-    dbx.query.events.findFirst.mockResolvedValueOnce({
-      ...ANDRE_EVENT,
-      sessions: ANDRE_EVENT.sessions.map((s, i) => ({ ...s, id: i + 1 })),
-    });
 
     const { status, body } = await post("/api/admin/videos/41/slides/copy", { sourceVideoId: 40 });
 
     expect(status).toBe(200);
-    expect(body.sessionSlide).toBe("replaced");
+    expect(body.sessionSlide).toBe("flagged");
     expect(slideLines(body.slides.intro[0])).toEqual(["Edited title"]);
-    expect(slideLines(body.slides.intro[1])).toEqual(["Session 3 of 4", "12 October 2026, morning"]);
+    expect(slideLines(body.slides.intro[1])).toEqual(["Session 1 of 4"]);
+    expect(body.slides.intro[1].needsReview).toBe(true);
+    expect(body.slides.intro[0].needsReview).toBeUndefined();
   });
 
   it("should refuse a source video from another event", async () => {
