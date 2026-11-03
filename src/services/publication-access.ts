@@ -8,7 +8,7 @@ import {
 } from "../db/schema/publications.ts";
 import { eventRetreatGroups } from "../db/schema/retreats.ts";
 import { users, userEventAttendance, userGroupMemberships } from "../db/schema/users.ts";
-import { AUDIENCE_SLUGS, checkEventAccess, hasActiveSubscription } from "./access.ts";
+import { AUDIENCE_SLUGS, checkEventAccessAudienceOnly, hasActiveSubscription } from "./access.ts";
 
 /**
  * Who may open a publication.
@@ -30,7 +30,7 @@ import { AUDIENCE_SLUGS, checkEventAccess, hasActiveSubscription } from "./acces
  * open because of a value nobody handled.
  *
  * Legacy: before groups and the access list existed, the linked events decided
- * (`checkEventAccess` per event, same audience). A publication with an
+ * (the audience rule per event, same audience; no per-event grants). A publication with an
  * event-based audience that has no ticked groups (group / participants) or an
  * empty access list (received initiation, on request) keeps that rule until an
  * admin classifies it. `restricted` has no legacy.
@@ -196,8 +196,9 @@ export async function openablePublications(
     let result = decisions.get(key);
     if (!result) {
       // The publication's audience stands in for the event's own; the event's
-      // publish status is not what decides who gets a text.
-      result = checkEventAccess(user, { id: eventId, status: "published", audience: { slug } }).then(
+      // publish status is not what decides who gets a text. Audience only: a per-event
+      // grant (single teaching bought or given) must not open a hidden-audience publication.
+      result = checkEventAccessAudienceOnly(user, { id: eventId, status: "published", audience: { slug } }).then(
         (r) => r.allowed,
       );
       decisions.set(key, result);

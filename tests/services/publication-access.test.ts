@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   user: null as null | Record<string, unknown>,
   links: [] as { publicationId: number; eventId: number }[],
   attendedEventIds: new Set<number>(),
+  grantedEventIds: new Set<number>(),
   eventGroups: new Map<number, number[]>(),
   userGroupIds: new Set<number>(),
   // New model: groups ticked on the publication, the access list, and the
@@ -75,7 +76,12 @@ vi.mock("../../src/db/index.ts", () => {
       query: {
         users: { findFirst: () => Promise.resolve(state.user) },
         eventPublications: { findMany: () => Promise.resolve(state.links) },
-        eventAccessGrants: { findFirst: () => Promise.resolve(undefined) },
+        eventAccessGrants: {
+          findFirst: ({ where }: { where: unknown }) =>
+            Promise.resolve(
+              paramsOf(where).some((v) => state.grantedEventIds.has(v as number)) ? { userId: 7 } : undefined,
+            ),
+        },
         userEventAttendance: {
           findFirst: ({ where }: { where: unknown }) =>
             Promise.resolve(
@@ -123,6 +129,7 @@ describe("openablePublications", () => {
     state.user = memberRow;
     state.links = [];
     state.attendedEventIds = new Set();
+    state.grantedEventIds = new Set();
     state.eventGroups = new Map();
     state.userGroupIds = new Set();
     state.pubGroups = new Map();
@@ -152,6 +159,23 @@ describe("openablePublications", () => {
     it("should open to an admin who is not a member", async () => {
       state.user = { ...nonMemberRow, role: "admin" };
       expect(await opens({ id: 7, role: "admin" }, AUD.members)).toBe(true);
+    });
+  });
+
+  describe("per-event grants (single teachings)", () => {
+    it.each([
+      ["received initiation", AUD.initiation],
+      ["on request", AUD.onRequest],
+      ["event participants", AUD.participants],
+    ])("should not open a legacy %s publication because of a grant on the linked event", async (_n, audience) => {
+      state.grantedEventIds = new Set([100]);
+      expect(await opens(member, audience, [100])).toBe(false);
+    });
+
+    it("should still open a legacy publication to a member who attended the linked event", async () => {
+      state.attendedEventIds = new Set([100]);
+      state.grantedEventIds = new Set([100]);
+      expect(await opens(member, AUD.participants, [100])).toBe(true);
     });
   });
 

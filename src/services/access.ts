@@ -161,6 +161,18 @@ export async function checkEventAccess(
   return checkEventAccessWith(user, event, (u) => hasEventGrant(u.id, event.id));
 }
 
+/**
+ * The audience rule alone: no per-event grant and no membership inclusion. For derived
+ * views that must not widen because someone bought or was included in one event (the
+ * groups card, legacy publication access, which only ever followed the audience).
+ */
+export async function checkEventAccessAudienceOnly(
+  user: UserForAccess | null,
+  event: EventForAccess,
+): Promise<AccessResult> {
+  return checkEventAccessWith(user, { ...event, includedInMembership: false }, async () => false);
+}
+
 async function checkEventAccessWith(
   user: UserForAccess | null,
   event: EventForAccess,
@@ -282,7 +294,15 @@ async function checkEventAccessWith(
 export async function filterAccessibleEvents<T extends EventForAccess>(
   user: UserForAccess | null,
   eventList: T[],
+  opts: { audienceOnly?: boolean } = {},
 ): Promise<T[]> {
+  if (opts.audienceOnly) {
+    const kept = await Promise.all(
+      eventList.map(async (event) => ((await checkEventAccessAudienceOnly(user, event)).allowed ? event : null)),
+    );
+    return kept.filter((e): e is T => e !== null);
+  }
+
   // Load the user's granted event ids once instead of once per event.
   let granted: Set<number> | null = null;
   if (user && user.role !== "admin" && user.role !== "superadmin" && eventList.length > 0) {

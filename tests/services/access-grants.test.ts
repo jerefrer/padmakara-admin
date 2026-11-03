@@ -16,6 +16,7 @@ import {
   checkEventAccess,
   filterAccessibleEvents,
   hasEventGrant,
+  checkEventAccessAudienceOnly,
   AUDIENCE_SLUGS,
 } from "../../src/services/access.ts";
 
@@ -269,5 +270,27 @@ describe("event access grants", () => {
       expect(result.map((e) => e.id)).toEqual([1]);
       expect(mockDb.select).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("checkEventAccessAudienceOnly", () => {
+  it("should ignore a grant that checkEventAccess honours", async () => {
+    grantExists(true);
+    mockDb.query.userEventAttendance.findFirst.mockResolvedValue(undefined);
+    const ev = makeEvent("restricted");
+    expect((await checkEventAccess(noSubscription, ev)).allowed).toBe(true);
+    expect((await checkEventAccessAudienceOnly(noSubscription, ev)).allowed).toBe(false);
+  });
+
+  it("should ignore membership inclusion", async () => {
+    grantExists(false);
+    const member = { ...noSubscription, subscriptionStatus: "active" };
+    const ev = { ...makeEvent("restricted"), includedInMembership: true };
+    expect((await checkEventAccess(member, ev)).allowed).toBe(true);
+    expect((await checkEventAccessAudienceOnly(member, ev)).allowed).toBe(false);
+  });
+
+  it("should still follow the audience rule", async () => {
+    expect((await checkEventAccessAudienceOnly(null, makeEvent("free-anyone"))).allowed).toBe(true);
   });
 });

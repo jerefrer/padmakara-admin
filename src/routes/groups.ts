@@ -53,9 +53,10 @@ groupRoutes.get("/", async (c) => {
     },
   });
 
-  // Filter to events the user can access
+  // Filter to events the audience rules open for the user. Grants and membership inclusion
+  // are left out on purpose: buying one teaching must not add its whole group to the list.
   const fullUser = await getFullUser(user.id);
-  const accessibleEvents = await filterAccessibleEvents(fullUser, allEvents);
+  const accessibleEvents = await filterAccessibleEvents(fullUser, allEvents, { audienceOnly: true });
 
   // Extract unique retreat groups from accessible events
   const groupMap = new Map<number, typeof retreatGroups.$inferSelect>();
