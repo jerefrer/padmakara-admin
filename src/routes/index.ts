@@ -16,6 +16,7 @@ import { webhookRoutes } from "./webhooks.ts";
 import { publicationRoutes } from "./publications.ts";
 import { syncRoutes } from "./sync.ts";
 import { teacherRoutes } from "./teachers.ts";
+import { teacherArtworkRoutes } from "./teacher-artwork.ts";
 import { teachingRoutes } from "./teachings.ts";
 import { testRoutes } from "./test.ts";
 
@@ -48,6 +49,8 @@ api.route("/media", mediaRoutes);
 api.route("/users", userRoutes);
 api.route("/download-requests", downloadsRoutes);
 api.route("/publications", publicationRoutes);
+// Square speaker artwork for the lock screen (public: the OS fetches it, mounted before the authed router)
+api.route("/teachers", teacherArtworkRoutes);
 api.route("/teachers", teacherRoutes);
 // Single teachings: public sale page + checkout; /mine needs auth (set per route)
 api.route("/teachings", teachingRoutes);
