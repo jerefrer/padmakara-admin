@@ -476,6 +476,22 @@ export const updateTrackSchema = z.object({
   speaker: z.string().max(10).nullable(),
 }).partial();
 
+/** Bulk metadata edit of several tracks at once (admin "Edit selected…"). */
+export const bulkUpdateTracksSchema = z.object({
+  ids: z.array(z.number().int()).min(1).max(500),
+  patch: z
+    .object({
+      speaker: z.string().max(10).nullable(),
+      // The first entry becomes originalLanguage, same rule as the inline editor.
+      languages: z.array(z.string().min(2).max(10)).min(1),
+      isTranslation: z.boolean(),
+    })
+    .partial()
+    .refine((p) => Object.values(p).some((v) => v !== undefined), {
+      message: "patch must contain at least one field",
+    }),
+});
+
 // User content
 export const updateProgressSchema = z.object({
   trackId: z.number().int(),

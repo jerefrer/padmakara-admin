@@ -598,6 +598,18 @@ export const pt = {
       logoUrlHelper: "Campo antigo — substituído pelo Avatar acima",
     },
     tracks: {
+      bulk: {
+        editSelected: "Editar selecionadas…",
+        title: "Editar %{smart_count} faixa selecionada |||| Editar %{smart_count} faixas selecionadas",
+        unchanged: "Deixar como está",
+        languages: "Idiomas",
+        yes: "Sim",
+        no: "Não",
+        reset: "Repor",
+        apply: "Aplicar",
+        updated: "Atualizada %{smart_count} faixa |||| Atualizadas %{smart_count} faixas",
+        failed: "Não foi possível atualizar as faixas: %{message}",
+      },
       select: "Selecionar faixa",
       clearSelection: "Limpar seleção",
       moveTo: "Mover para sessão…",

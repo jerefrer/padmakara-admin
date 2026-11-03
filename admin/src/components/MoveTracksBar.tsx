@@ -11,6 +11,8 @@ import Typography from "@mui/material/Typography";
 import { useState } from "react";
 import { useTranslate } from "react-admin";
 import type { InferredSession } from "../utils/trackParser";
+import { EditTracksDialog, type BulkTrackPatch } from "./EditTracksDialog";
+import type { SpeakerOption } from "./SpeakerPicker";
 
 export type MoveTarget =
   | { kind: "existing"; sessionId: number }
@@ -27,6 +29,9 @@ interface MoveTracksBarProps {
   defaultDate: string;
   onMove: (target: MoveTarget) => void | Promise<void>;
   onClear: () => void;
+  /** When given, the bar offers "Edit selected…" (speaker / language / translation). */
+  teachers?: SpeakerOption[];
+  onBulkEdit?: (patch: BulkTrackPatch) => void | Promise<void>;
 }
 
 /** Shown while tracks are ticked on the event edit page: move them to an
@@ -38,9 +43,12 @@ export const MoveTracksBar = ({
   defaultDate,
   onMove,
   onClear,
+  teachers = [],
+  onBulkEdit,
 }: MoveTracksBarProps) => {
   const translate = useTranslate();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [date, setDate] = useState(defaultDate);
   const [timePeriod, setTimePeriod] = useState<string>("morning");
 
@@ -98,10 +106,29 @@ export const MoveTracksBar = ({
           ))}
         <MenuItem value={NEW_SESSION}>{translate("padmakara.tracks.newSession")}</MenuItem>
       </TextField>
+      {onBulkEdit && (
+        <Button size="small" variant="outlined" disabled={busy} onClick={() => setEditOpen(true)}>
+          {translate("padmakara.tracks.bulk.editSelected")}
+        </Button>
+      )}
       <Box sx={{ flex: 1 }} />
       <Button size="small" onClick={onClear} disabled={busy}>
         {translate("padmakara.tracks.clearSelection")}
       </Button>
+
+      {onBulkEdit && editOpen && (
+        <EditTracksDialog
+          open
+          selectedCount={selectedCount}
+          teachers={teachers}
+          busy={busy}
+          onClose={() => setEditOpen(false)}
+          onApply={async (patch) => {
+            await onBulkEdit(patch);
+            setEditOpen(false);
+          }}
+        />
+      )}
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{translate("padmakara.tracks.moveTitle")}</DialogTitle>

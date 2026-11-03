@@ -69,6 +69,7 @@ import { SessionPreview } from "../components/SessionPreview";
 import { findMatchingExistingSession } from "../utils/sessionMatch";
 import { moveTracksToSession, nextSessionNumber } from "../utils/moveTracks";
 import { MoveTracksBar, type MoveTarget } from "../components/MoveTracksBar";
+import type { BulkTrackPatch } from "../components/EditTracksDialog";
 import { EventVideosSection } from "../components/EventVideosSection";
 import type { PendingUploadSlides } from "../components/SlideEditor";
 import { splitDuplicateFiles } from "../utils/duplicateFiles";
@@ -635,6 +636,7 @@ interface EventFormProps {
   selectedTrackIds?: ReadonlySet<number>;
   onSelectedTrackIdsChange?: (ids: Set<number>) => void;
   onMoveTracks?: (target: MoveTarget) => void | Promise<void>;
+  onBulkEditTracks?: (patch: BulkTrackPatch) => void | Promise<void>;
   moveBusy?: boolean;
   /** Event-level videos, ordered by position. Only present in edit mode — a
    *  video needs a real event id to attach to, so the create wizard has none
@@ -753,7 +755,7 @@ export const EventFormFields = ({
   allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onTrackAudioUpload,
-  selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, moveBusy,
+  selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, onBulkEditTracks, moveBusy,
   videos, onVideosChange, onVideoUpload, onVideoAttachMaster, masterUpload, onCancelVideoUpload, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount,
@@ -1578,6 +1580,8 @@ export const EventFormFields = ({
                   busy={!!moveBusy}
                   defaultDate={toIsoDate(sessions.find((x) => x.date)?.date ?? null, form.startDate || null) ?? ""}
                   onMove={onMoveTracks}
+                  teachers={allTeachers}
+                  onBulkEdit={onBulkEditTracks}
                   onClear={() => onSelectedTrackIdsChange(new Set())}
                 />
               )}
@@ -3411,6 +3415,52 @@ export const EventEdit = () => {
     [id, selectedTrackIds, sessions, dataProvider, notify, refresh],
   );
 
+  // Apply the same speaker / language / translation patch to every ticked
+  // track in one request. Mirrors a manual inline edit: originalLanguage
+  // follows languages[0]. The selection is kept so the admin can chain edits.
+  const handleBulkEditTracks = useCallback(
+    async (patch: BulkTrackPatch) => {
+      if (selectedTrackIds.size === 0) return;
+      setMovingTracks(true);
+      try {
+        const ids = [...selectedTrackIds];
+        const res = await authFetch("/api/admin/tracks/bulk", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids, patch }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        setSessions((prev) =>
+          prev.map((session) => ({
+            ...session,
+            tracks: session.tracks.map((t) =>
+              t.id !== undefined && selectedTrackIds.has(t.id)
+                ? {
+                    ...t,
+                    ...(patch.speaker !== undefined ? { speaker: patch.speaker } : {}),
+                    ...(patch.languages
+                      ? { languages: patch.languages, originalLanguage: patch.languages[0]! }
+                      : {}),
+                    ...(patch.isTranslation !== undefined ? { isTranslation: patch.isTranslation } : {}),
+                  }
+                : t,
+            ),
+          })),
+        );
+        notify("padmakara.tracks.bulk.updated", { type: "success", messageArgs: { smart_count: ids.length } });
+        refresh();
+      } catch (err: unknown) {
+        notify("padmakara.tracks.bulk.failed", {
+          type: "error",
+          messageArgs: { message: err instanceof Error ? err.message : String(err) },
+        });
+      } finally {
+        setMovingTracks(false);
+      }
+    },
+    [selectedTrackIds, notify, refresh],
+  );
+
   const handleTrackDelete = useCallback(
     async (trackId: number) => {
       try {
@@ -4090,6 +4140,7 @@ export const EventEdit = () => {
         selectedTrackIds={selectedTrackIds}
         onSelectedTrackIdsChange={setSelectedTrackIds}
         onMoveTracks={handleMoveTracks}
+        onBulkEditTracks={handleBulkEditTracks}
         moveBusy={movingTracks}
         videos={videos}
         onVideosChange={setVideos}
