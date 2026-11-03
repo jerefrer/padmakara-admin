@@ -254,6 +254,10 @@ export const createEventSchema = z.object({
   status: z.enum(["draft", "published", "archived"]).optional().default("draft"),
   imageUrl: z.string().url().optional().nullable(),
   featuredAt: z.string().datetime().optional().nullable(),
+  // Single-teaching sale settings; cross-field rules live in lib/sale-settings.ts.
+  saleMode: z.enum(["none", "free", "paid"]).optional(),
+  priceCents: z.number().int().optional().nullable(),
+  includedInMembership: z.boolean().optional(),
   teacherIds: z.array(z.object({
     id: z.number().int(),
     role: z.enum(["teacher", "guest", "translator"]).optional().default("teacher"),
