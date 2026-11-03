@@ -62,7 +62,7 @@ export interface SlideTemplateMetadata {
   /** Used for "Video production" when the event has no credit lines. */
   copyrightHolder?: string | null;
   session?: SlideSessionInfo | null;
-  /** Storage key of the logo used on the logo slide and the outro. */
+  /** Storage key of the logo used on the logo slide. */
   logoS3Key?: string | null;
 }
 
@@ -335,19 +335,16 @@ function buildKeyedIntro(
 }
 
 /**
- * Build the default outro: the Padmakara logo, centred, alone.
- *
- * Falls back to the bundled logo when the caller supplies no key, so a freshly
- * generated template always has a working outro.
+ * Build the default end section (stored as `outro`): one plain black slide,
+ * no image and no text, so the video closes on black. The admin can add
+ * content in the editor. `meta` is unused today but kept so every default
+ * builder has the same signature.
  */
 export function buildDefaultOutro(
-  meta: SlideTemplateMetadata,
+  _meta: SlideTemplateMetadata,
   newId: IdFactory,
 ): Slide[] {
-  const key = meta.logoS3Key?.trim() || BUILTIN_LOGO_KEY;
-  return [
-    slide(newId, [{ id: newId(), type: "image", s3Key: key, alt: "Padmakara" }]),
-  ];
+  return [slide(newId, [])];
 }
 
 export function buildDefaultSlideDocument(

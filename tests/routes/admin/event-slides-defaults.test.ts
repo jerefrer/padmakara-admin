@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { testJson } from "../../helpers.ts";
-import { BUILTIN_LOGO_KEY } from "../../../src/lib/slides/defaults.ts";
 import { ANDRE_EVENT, EMPTY_EVENT, slideLines } from "./slide-fixtures.ts";
 
 // ─── Mocks (must come before route imports) ──────────────────────────────
@@ -37,7 +36,7 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     vi.clearAllMocks();
   });
 
-  it("generates the English intro + builtin-logo outro from full event metadata", async () => {
+  it("generates the English intro + black end slide from full event metadata", async () => {
     mockFindFirstEvent.mockResolvedValueOnce(ANDRE_EVENT);
 
     const token = await adminToken();
@@ -59,7 +58,7 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
       ["Event organized by", "Fundação Kangyur Rinpoche", "", "Video production", "Padmakara Portugal"],
     ]);
     expect(body.slides.outro).toHaveLength(1);
-    expect(body.slides.outro[0].lines[0]).toMatchObject({ type: "image", s3Key: BUILTIN_LOGO_KEY });
+    expect(body.slides.outro[0].lines).toEqual([]);
   });
 
   it("reports the session as missing when the draft has no recording date to match it with", async () => {
@@ -155,7 +154,7 @@ describe("POST /api/admin/events/:id/slides/defaults", () => {
     expect(status).toBe(200);
     expect(body.missing).toEqual(["teacher", "title", "date", "place", "session", "organizer"]);
     expect(body.slides.intro.map(slideLines)).toEqual([[], ["Video production", "Padmakara Portugal"]]);
-    expect(body.slides.outro[0].lines[0].s3Key).toBe(BUILTIN_LOGO_KEY);
+    expect(body.slides.outro[0].lines).toEqual([]);
   });
 
   it("returns 404 when the event does not exist", async () => {
