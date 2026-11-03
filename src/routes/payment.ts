@@ -26,7 +26,7 @@ import {
 } from "../services/membership.ts";
 import { teachingOrders } from "../db/schema/event-access.ts";
 import {
-    probeSinglePayment,
+  probeSinglePayment,
   paymentBelongsToOrder,
   refreshOrderFromEasypay,
 } from "../services/teaching-orders.ts";
