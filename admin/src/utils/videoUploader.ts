@@ -518,9 +518,15 @@ async function uploadMasterMultipart(opts: MasterUploadOpts): Promise<string> {
     emit(true);
     return s3Key;
   } catch (err) {
-    // Best effort: an orphaned multipart upload keeps its parts in storage.
-    await postJson("/upload/video/multipart/abort", { s3Key, uploadId }, "Abort multipart upload").catch(() => {});
-    clearResumeEntry(storageKey);
+    // Only an explicit cancel throws the parts away. Any other failure (a
+    // long network outage, a frozen background tab) keeps the S3 upload and
+    // the stored session, so choosing the same file again resumes it. Stale
+    // sessions expire client-side after 6 days.
+    if (err instanceof UploadCancelledError) {
+      // Best effort: an orphaned multipart upload keeps its parts in storage.
+      await postJson("/upload/video/multipart/abort", { s3Key, uploadId }, "Abort multipart upload").catch(() => {});
+      clearResumeEntry(storageKey);
+    }
     throw err;
   }
 }
