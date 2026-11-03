@@ -21,6 +21,7 @@ import { publicationRoutes } from "./publications.ts";
 import { libraryRoutes } from "./library.ts";
 import { analyzeRoutes } from "./import/analyze.ts";
 import { translateRoutes } from "./translate.ts";
+import { searchQueryRoutes } from "./search-queries.ts";
 import { TRANSLATION_MODELS, DEFAULT_TRANSLATE_MODEL } from "../../services/translation-models.ts";
 
 const admin = new Hono();
@@ -46,6 +47,7 @@ admin.route("/event-files", eventFileRoutes);
 admin.route("/transcripts", transcriptRoutes);
 admin.route("/tracks", trackRoutes);
 admin.route("/translate", translateRoutes);
+admin.route("/search-queries", searchQueryRoutes);
 admin.route("/users", userRoutes);
 admin.route("/approvals", approvalRoutes);
 admin.route("/upload", uploadRoutes);
