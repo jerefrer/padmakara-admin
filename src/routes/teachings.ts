@@ -156,6 +156,7 @@ teachingRoutes.get("/:eventId", async (c) => {
     published: event.status === "published",
     saleMode: event.saleMode,
     priceCents: event.priceCents ?? null,
+    includedInMembership: event.includedInMembership ?? false,
   });
 });
 

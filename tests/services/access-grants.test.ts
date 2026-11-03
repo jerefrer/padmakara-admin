@@ -28,9 +28,29 @@ const noSubscription = {
   subscriptionExpiresAt: null,
 };
 
-function makeEvent(slug: string | null, id = 1, status = "published") {
-  return { id, status, audience: slug ? { slug } : null, audienceId: slug ? 1 : null };
+function makeEvent(slug: string | null, id = 1, status = "published", included = false) {
+  return {
+    id,
+    status,
+    audience: slug ? { slug } : null,
+    audienceId: slug ? 1 : null,
+    includedInMembership: included,
+  };
 }
+
+const activeMember = {
+  id: 7,
+  role: "user",
+  subscriptionStatus: "active",
+  subscriptionExpiresAt: new Date(Date.now() + 30 * 86_400_000),
+};
+
+const expiredMember = {
+  id: 7,
+  role: "user",
+  subscriptionStatus: "active",
+  subscriptionExpiresAt: new Date(Date.now() - 90 * 86_400_000),
+};
 
 function grantExists(exists: boolean) {
   mockDb.query.eventAccessGrants.findFirst.mockResolvedValue(
@@ -126,6 +146,91 @@ describe("event access grants", () => {
       const result = await checkEventAccess(null, makeEvent(AUDIENCE_SLUGS.SUBSCRIBERS));
       expect(result).toEqual({ allowed: false, reason: "AUTH_REQUIRED" });
       expect(mockDb.query.eventAccessGrants.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("membership inclusion", () => {
+    const nonPublic = [
+      AUDIENCE_SLUGS.SUBSCRIBERS,
+      AUDIENCE_SLUGS.GROUP_MEMBERS,
+      AUDIENCE_SLUGS.EVENT_PARTICIPANTS,
+      AUDIENCE_SLUGS.ON_REQUEST,
+      AUDIENCE_SLUGS.INITIATION,
+      AUDIENCE_SLUGS.RESTRICTED,
+    ];
+
+    it.each(nonPublic)(
+      "should allow an active member with no grant on an included %s event",
+      async (slug) => {
+        grantExists(false);
+        const result = await checkEventAccess(activeMember, makeEvent(slug, 1, "published", true));
+        expect(result).toEqual({ allowed: true });
+      },
+    );
+
+    it("should allow an active member on an included event with no audience", async () => {
+      grantExists(false);
+      const result = await checkEventAccess(activeMember, makeEvent(null, 1, "published", true));
+      expect(result).toEqual({ allowed: true });
+    });
+
+    it.each([
+      ["no subscription", noSubscription],
+      ["an expired subscription", expiredMember],
+    ])("should deny a user with %s on an included event", async (_label, user) => {
+      grantExists(false);
+      const result = await checkEventAccess(
+        user,
+        makeEvent(AUDIENCE_SLUGS.RESTRICTED, 1, "published", true),
+      );
+      expect(result).toEqual({ allowed: false, reason: "ACCESS_DENIED" });
+    });
+
+    it("should deny an active member on a restricted event that is not included", async () => {
+      grantExists(false);
+      const result = await checkEventAccess(
+        activeMember,
+        makeEvent(AUDIENCE_SLUGS.RESTRICTED, 1, "published", false),
+      );
+      expect(result).toEqual({ allowed: false, reason: "ACCESS_DENIED" });
+    });
+
+    it("should hide an included draft event from an active member", async () => {
+      grantExists(false);
+      const result = await checkEventAccess(
+        activeMember,
+        makeEvent(AUDIENCE_SLUGS.RESTRICTED, 1, "draft", true),
+      );
+      expect(result).toEqual({ allowed: false, reason: "STATUS_HIDDEN" });
+    });
+
+    it("should still require authentication on an included event", async () => {
+      const result = await checkEventAccess(
+        null,
+        makeEvent(AUDIENCE_SLUGS.RESTRICTED, 1, "published", true),
+      );
+      expect(result).toEqual({ allowed: false, reason: "AUTH_REQUIRED" });
+    });
+
+    it("should include such events in filterAccessibleEvents without an extra query per event", async () => {
+      grantedEventIds([]);
+      const result = await filterAccessibleEvents(activeMember, [
+        makeEvent(AUDIENCE_SLUGS.RESTRICTED, 1, "published", true),
+        makeEvent(AUDIENCE_SLUGS.RESTRICTED, 2, "published", false),
+        makeEvent(AUDIENCE_SLUGS.EVENT_PARTICIPANTS, 3, "published", true),
+        makeEvent(AUDIENCE_SLUGS.RESTRICTED, 4, "draft", true),
+      ]);
+      expect(result.map((e) => e.id)).toEqual([1, 3]);
+      expect(mockDb.select).toHaveBeenCalledTimes(1);
+      expect(mockDb.query.eventAccessGrants.findFirst).not.toHaveBeenCalled();
+    });
+
+    it("should leave a non-member's filtered list unchanged", async () => {
+      grantedEventIds([]);
+      const result = await filterAccessibleEvents(noSubscription, [
+        makeEvent(AUDIENCE_SLUGS.RESTRICTED, 1, "published", true),
+      ]);
+      expect(result).toEqual([]);
     });
   });
 

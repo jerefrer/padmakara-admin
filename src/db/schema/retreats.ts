@@ -75,6 +75,8 @@ export const events = pgTable("retreats", {
    */
   saleMode: text("sale_mode").notNull().default("none"),
   priceCents: integer("price_cents"),
+  /** Teaching included in the membership: active members get access whatever the audience. */
+  includedInMembership: boolean("included_in_membership").notNull().default(false),
   // Video title-slide defaults (src/lib/slides/defaults.ts, intro slide 4/5).
   // creditLines/copyrightHolder override the global credits block for this
   // event's videos. Organizers are linked through `retreat_organizers`.

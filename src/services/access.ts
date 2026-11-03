@@ -70,6 +70,8 @@ interface EventForAccess {
   status: string;
   audience?: { slug: string } | null;
   audienceId?: number | null;
+  /** Teaching included in the membership: active members get it whatever the audience. */
+  includedInMembership?: boolean | null;
 }
 
 /**
@@ -142,6 +144,8 @@ export async function hasEventGrant(userId: number, eventId: number): Promise<bo
  *
  * Access model:
  * - Admin/superadmin: always allowed
+ * - Included in the membership (per event flag) + active subscription: allowed
+ *   whatever the audience, no grant row (status gate still applies first)
  * - Per-event access grant: allowed whatever the audience and subscription
  *   (only once the status gate has passed, so a granted draft stays hidden)
  * - Public events: always allowed
@@ -182,6 +186,12 @@ async function checkEventAccessWith(
 
   // Admin/superadmin bypass all checks
   if (user.role === "admin" || user.role === "superadmin") {
+    return { allowed: true };
+  }
+
+  // Included in the membership: active members get it whatever the audience.
+  // Pure check on data already loaded, so it costs no query (also in filterAccessibleEvents).
+  if (event.includedInMembership && hasActiveSubscription(user)) {
     return { allowed: true };
   }
 

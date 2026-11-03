@@ -130,7 +130,14 @@ describe("GET /api/teachings/:eventId", () => {
       published: true,
       saleMode: "paid",
       priceCents: 1500,
+      includedInMembership: false,
     });
+  });
+
+  it("should return includedInMembership true when the event is included", async () => {
+    eventFindFirst.mockResolvedValue(event({ includedInMembership: true }));
+    const { body: b } = await testJson("/api/teachings/8");
+    expect(b.includedInMembership).toBe(true);
   });
 
   it("should flag a draft event as not published but still show it", async () => {
@@ -184,6 +191,34 @@ describe("POST /api/teachings/:eventId/checkout", () => {
     expect(status).toBe(409);
     expect(b.code).toBe("ALREADY_HAS_ACCESS");
     expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("should return 409 for an active member when the event is included in the membership", async () => {
+    const actual = await vi.importActual<typeof import("../../src/services/access.ts")>(
+      "../../src/services/access.ts",
+    );
+    checkEventAccess.mockImplementation(actual.checkEventAccess);
+    userFindFirst.mockResolvedValue({
+      id: 3,
+      role: "user",
+      subscriptionStatus: "active",
+      subscriptionExpiresAt: new Date(Date.now() + 30 * 86_400_000),
+    });
+    eventFindFirst.mockResolvedValue(event({ includedInMembership: true }));
+    const { status, body: b } = await post("/api/teachings/8/checkout", body);
+    expect(status).toBe(409);
+    expect(b.code).toBe("ALREADY_HAS_ACCESS");
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("should not return 409 for a non-member when the event is included in the membership", async () => {
+    const actual = await vi.importActual<typeof import("../../src/services/access.ts")>(
+      "../../src/services/access.ts",
+    );
+    checkEventAccess.mockImplementation(actual.checkEventAccess);
+    eventFindFirst.mockResolvedValue(event({ includedInMembership: true }));
+    const { status } = await post("/api/teachings/8/checkout", body);
+    expect(status).not.toBe(409);
   });
 
   it("should return 409 when the user already has access another way (group, admin)", async () => {
