@@ -125,6 +125,9 @@ export const analysisTrackSchema = z.object({
   // Claude never edits it.
   speaker: z.string().nullable().default(null),
   corrections: z.array(trackCorrectionSchema),
+  // True when `title` had its Portuguese accents restored by the model: the
+  // admin stores it as titlePt, flagged unreviewed.
+  titlePtAi: z.boolean().optional(),
 });
 export type AnalysisTrack = z.infer<typeof analysisTrackSchema>;
 

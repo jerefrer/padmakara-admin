@@ -17,6 +17,7 @@ import {
   claudeDeltaSchema,
 } from "./track-conventions.ts";
 import { config } from "../config.ts";
+import { restoreTrackAccents } from "./pt-accents.ts";
 
 // ─── Input shape (shared with the orchestrator) ──────────────────────
 
@@ -654,7 +655,10 @@ async function analyzeFolderImpl(
     }
   }
 
-  return mergeChunkResults(determ, chunkResults);
+  const merged = mergeChunkResults(determ, chunkResults);
+  // One extra batched call restores the accents Portuguese filenames lack.
+  // It never fails the import: on error the titles stay as they are.
+  return restoreTrackAccents(getClient(), merged, signal);
 }
 
 async function runChunkWithRetries(

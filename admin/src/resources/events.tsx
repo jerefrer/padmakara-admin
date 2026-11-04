@@ -1790,8 +1790,10 @@ function analysisToInferredSessions(
       return {
         ...parsed,
         title: finalTitle,
-        titleEn: finalTitleLang === "en" ? finalTitle : "",
-        titlePt: finalTitleLang === "pt" ? finalTitle : "",
+        // Accents restored by the AI: always a Portuguese title, unreviewed.
+        titleEn: t.titlePtAi ? "" : finalTitleLang === "en" ? finalTitle : "",
+        titlePt: t.titlePtAi || finalTitleLang === "pt" ? finalTitle : "",
+        titlePtReviewed: t.titlePtAi ? false : parsed.titlePtReviewed,
         // Languages come from the authoritative backend parser (carried through
         // the analysis result), which handles multi-language files like
         // [TIB+ENG]. Fall back to the client parse only if absent.
