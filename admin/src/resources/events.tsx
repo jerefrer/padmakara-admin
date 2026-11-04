@@ -4391,7 +4391,16 @@ export const EventEdit = () => {
   return (
     <Box sx={{ maxWidth: 900, mx: "auto", pb: 6 }}>
       <Title title={`${translate("ra.action.edit")}: ${event ? localeTitle(event, locale) : ""}`} />
-      <PageHeader title={(event && localeTitle(event, locale)) || translate("ra.action.edit")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
+      <PageHeader
+        title={(event && localeTitle(event, locale)) || translate("ra.action.edit")}
+        backLabel={translate("padmakara.events.back")}
+        onBack={() => redirect("list", "events")}
+        trailing={
+          <Button variant="outlined" size="small" onClick={() => sections.setAll(!sections.allOpen)}>
+            {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
+          </Button>
+        }
+      />
 
       {form.eventCode && id && (
         <AudioRepairPanel
@@ -4533,7 +4542,18 @@ const DeleteConfirmDialog = ({
 
 /* ───────────── Helpers ───────────── */
 
-const PageHeader = ({ title, backLabel, onBack }: { title: string; backLabel: string; onBack: () => void }) => (
+const PageHeader = ({
+  title,
+  backLabel,
+  onBack,
+  trailing,
+}: {
+  title: string;
+  backLabel: string;
+  onBack: () => void;
+  /** Shown after the title (the edit page's expand/collapse-all). */
+  trailing?: React.ReactNode;
+}) => (
   <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 4 }}>
     <Button startIcon={<ArrowBackIcon />} onClick={onBack} sx={{ color: "text.secondary" }}>
       {backLabel}
@@ -4543,6 +4563,7 @@ const PageHeader = ({ title, backLabel, onBack }: { title: string; backLabel: st
     <Typography variant="h5" sx={{ fontWeight: 700 }}>
       {title}
     </Typography>
+    {trailing}
   </Box>
 );
 
