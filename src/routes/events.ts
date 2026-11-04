@@ -62,15 +62,24 @@ async function getSpeakerNameMap(): Promise<Map<string, SpeakerInfo>> {
   return map;
 }
 
+/** Square artwork of the first of the event's teachers (in order) who has a hero image. */
+function firstTeacherArtworkUrl(eventTeachers: Array<{ teacher?: any }> | undefined): string | null {
+  for (const et of eventTeachers ?? []) {
+    const url = teacherArtworkUrl(et.teacher);
+    if (url) return url;
+  }
+  return null;
+}
+
 /**
  * Add speakerName, speakerArtworkUrl and hasReadAlong to each track in-place, strip internal fields.
- * speakerArtworkUrl is the track speaker's square artwork, else the event's first teacher's
- * (when the event's teachers were loaded), else null.
+ * speakerArtworkUrl is the track speaker's square artwork, else the first event teacher's
+ * who has a photo (when the event's teachers were loaded), else null.
  */
 async function enrichTracksWithSpeakerNames(trackList: any[], event?: any): Promise<void> {
   if (!trackList.length) return;
   const nameMap = await getSpeakerNameMap();
-  const fallbackArtworkUrl = teacherArtworkUrl(event?.eventTeachers?.[0]?.teacher);
+  const fallbackArtworkUrl = firstTeacherArtworkUrl(event?.eventTeachers);
   for (const track of trackList) {
     const speaker = track.speaker ? nameMap.get(track.speaker.toUpperCase()) : undefined;
     if (track.speaker) {

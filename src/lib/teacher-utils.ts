@@ -74,6 +74,20 @@ export async function resolveTeacherUrls(
 }
 
 /**
+ * The teacher whose photo stands for an event: the first teacher (in the event's teacher
+ * order) with a hero image, else the first with only an avatar, else null. One server-side
+ * choice shared by the home highlight, the event page and the lock-screen artwork, so the
+ * name shown with a photo is always the name of the teacher it shows.
+ */
+export function pickPhotoTeacherId(
+  eventTeachers: Array<{ teacher?: { id?: number; heroUrl?: string | null; avatarUrl?: string | null } | null }> | null | undefined,
+): number | null {
+  const list = (eventTeachers ?? []).flatMap((et) => (et.teacher?.id != null ? [et.teacher] : []));
+  const picked = list.find((t) => t.heroUrl) ?? list.find((t) => t.avatarUrl);
+  return picked?.id ?? null;
+}
+
+/**
  * Transform eventTeachers in an event object, resolving S3 keys to presigned URLs.
  * Mutates the event in-place for performance.
  */
@@ -86,6 +100,7 @@ export async function resolveEventTeacherUrls(event: any): Promise<void> {
     })),
   );
   event.eventTeachers = resolved;
+  event.photoTeacherId = pickPhotoTeacherId(resolved);
 }
 
 /**
