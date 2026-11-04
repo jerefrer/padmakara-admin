@@ -74,7 +74,9 @@ import { EventVideosSection } from "../components/EventVideosSection";
 import type { PendingUploadSlides } from "../components/SlideEditor";
 import { splitDuplicateFiles } from "../utils/duplicateFiles";
 import { EventPublicationsPanel } from "../components/EventPublicationsPanel";
-import { EventSaleSection } from "../components/EventSaleSection";
+import { EventAccessChooser, accessSummary } from "../components/EventAccessChooser";
+import { CollapsibleSection, useCollapsibleSections } from "../components/CollapsibleSection";
+import { formatDateRange } from "../utils/formatDateRange";
 import { EventAccessSection } from "../components/EventAccessSection";
 import { useEventAccess } from "../components/useEventAccess";
 import { EventFilesPreview } from "../components/EventFilesPreview";
@@ -687,7 +689,23 @@ interface EventFormProps {
   /** When true the event-code field is read-only (the legacy-import screen,
    *  where the code is the job identity and must not change). */
   readOnlyEventCode?: boolean;
+  /** Edit page only: lay the form out as collapsible cards. Without it the
+   *  form stays one flat page (the create wizard). */
+  collapsible?: {
+    open: Record<string, boolean>;
+    onToggle: (id: string) => void;
+  };
+  /** Collapsible layout only: panels the page owns that belong in a card. */
+  audioExtra?: React.ReactNode;
+  transcriptionExtra?: React.ReactNode;
+  publicationsPanel?: React.ReactNode;
+  /** Number of related publications, once loaded (null while unknown). */
+  publicationCount?: number | null;
 }
+
+/** Ids of the collapsible cards on the event edit page, in display order. */
+export const EVENT_SECTION_IDS = ["details", "access", "media", "transcription", "texts"] as const;
+export const EVENT_SECTION_DEFAULTS: Record<string, boolean> = { details: true };
 
 /** [sourceField, targetField] pairs for the 3 event-level translatable fields. */
 const eventPairsFor = (
@@ -771,6 +789,7 @@ export const EventFormFields = ({
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
+  collapsible, audioExtra, transcriptionExtra, publicationsPanel, publicationCount,
 }: EventFormProps) => {
   const translate = useTranslate();
   // How many videos point at each session, for the empty-session delete warning.
@@ -1053,25 +1072,27 @@ export const EventFormFields = ({
     (v: EventTypeOption | null) => {
       setSelectedEventType(v);
       if (isParallelRetreats(v)) {
-        const retreatGroupMembers = allAudiences.find((a) => a.nameEn === "Retreat group members");
+        const retreatGroupMembers = allAudiences.find((a) => a.slug === "retreat-group-members");
         if (retreatGroupMembers) setSelectedAudience(retreatGroupMembers);
-      } else {
-        setSelectedGroups([]);
       }
     },
-    [allAudiences, setSelectedEventType, setSelectedAudience, setSelectedGroups],
+    [allAudiences, setSelectedEventType, setSelectedAudience],
   );
 
   const { access, reload: reloadAccess } = useEventAccess(eventId);
-  const showGroups = isParallelRetreats(selectedEventType);
   const audienceFrozen = isParallelRetreats(selectedEventType);
 
-  return (
+  const tracksInEvent = sessions.reduce((sum, sess) => sum + sess.tracks.length, 0);
+  const videoTotal = (videos ?? []).length;
+
+  const detailsContent = (
     <>
       {/* ── Section 1: Event Details ── */}
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, mt: 1 }}>
         <Box sx={{ flex: 1 }}>
-          <SectionHeader title={translate("padmakara.events.details")} subtitle={translate("padmakara.events.reviewComplete")} />
+          {!collapsible && (
+            <SectionHeader title={translate("padmakara.events.details")} subtitle={translate("padmakara.events.reviewComplete")} />
+          )}
         </Box>
         <ToggleButtonGroup
           value={form.status}
@@ -1225,10 +1246,10 @@ export const EventFormFields = ({
         </Grid>
       </Paper>
 
-      {/* ── Event Type, Audience & Retreat Groups ── */}
+      {/* ── Event type + dates, one row ── */}
       <Paper sx={{ p: 3, mb: 2 }}>
         <Grid container spacing={2.5}>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <Autocomplete
               options={allEventTypes}
               getOptionLabel={(o) => `${localeName(o, locale)} (${o.abbreviation})`}
@@ -1269,71 +1290,7 @@ export const EventFormFields = ({
               )}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <Autocomplete
-              options={allAudiences}
-              getOptionLabel={(o) => localeName(o, locale)}
-              value={selectedAudience}
-              onChange={(_, v) => { if (!audienceFrozen) setSelectedAudience(v); }}
-              disabled={audienceFrozen}
-              isOptionEqualToValue={(o, v) => o.id === v.id}
-              renderOption={(props, option) => {
-                const color = pickColor(option.id, AUDIENCE_COLORS);
-                return (
-                  <li {...props} key={option.id}>
-                    <ColorDot color={color} />
-                    <Box component="span" sx={{ ml: 1 }}>
-                      {localeName(option, locale)}
-                    </Box>
-                  </li>
-                );
-              }}
-              renderInput={(params) => (
-                <MuiTextField
-                  {...params}
-                  label={translate("padmakara.events.audience")}
-                  placeholder={translate("padmakara.events.audiencePlaceholder")}
-                  slotProps={{ inputLabel: { shrink: true } }}
-                  helperText={audienceFrozen ? translate("padmakara.events.audienceFrozenHint") : undefined}
-                  InputProps={{
-                    ...params.InputProps,
-                    startAdornment: (
-                      <>
-                        {selectedAudience && (
-                          <Box sx={{ display: "flex", alignItems: "center", ml: 0.5, mr: -0.5 }}>
-                            <ColorDot color={pickColor(selectedAudience.id, AUDIENCE_COLORS)} />
-                          </Box>
-                        )}
-                        {params.InputProps.startAdornment}
-                      </>
-                    ),
-                  }}
-                />
-              )}
-            />
-          </Grid>
-          {showGroups && (
-            <Grid size={{ xs: 12 }}>
-              <Autocomplete
-                multiple
-                options={allGroups}
-                getOptionLabel={(o) => o.abbreviation ? `${localeName(o, locale)} (${o.abbreviation})` : localeName(o, locale)}
-                value={selectedGroups}
-                onChange={(_, v) => setSelectedGroups(v)}
-                isOptionEqualToValue={(o, v) => o.id === v.id}
-                renderInput={(params) => (
-                  <MuiTextField {...params} label={translate("padmakara.events.retreatGroups")} placeholder={translate("padmakara.events.retreatGroupsPlaceholder")} slotProps={{ inputLabel: { shrink: true } }} />
-                )}
-              />
-            </Grid>
-          )}
-        </Grid>
-      </Paper>
-
-      {/* ── Dates ── */}
-      <Paper sx={{ p: 3, mb: 2 }}>
-        <Grid container spacing={2.5}>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <MuiTextField
               label={translate("padmakara.events.startDate")}
               type="date"
@@ -1343,7 +1300,7 @@ export const EventFormFields = ({
               slotProps={{ inputLabel: { shrink: true } }}
             />
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <MuiTextField
               label={translate("padmakara.events.endDate")}
               type="date"
@@ -1549,16 +1506,33 @@ export const EventFormFields = ({
           sx={{ "& input": { fontFamily: "monospace", fontWeight: 600, letterSpacing: "0.02em" } }}
         />
       </Paper>
+    </>
+  );
 
-      {/* ── Access & sale, then who has access (the list needs an event id) ── */}
-      <EventSaleSection
-        value={{ saleMode: form.saleMode, priceCents: form.priceCents, includedInMembership: form.includedInMembership }}
-        onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
-        eventId={eventId}
-        stats={access?.stats}
-      />
+  const accessContent = (
+    <>
+      <Box sx={{ mb: 2 }}>
+        <EventAccessChooser
+          audiences={allAudiences}
+          selectedAudience={selectedAudience}
+          onAudienceChange={(a) => { if (!audienceFrozen) setSelectedAudience(allAudiences.find((x) => x.id === a?.id) ?? null); }}
+          sale={{ saleMode: form.saleMode, priceCents: form.priceCents, includedInMembership: form.includedInMembership }}
+          onSaleChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+          groups={allGroups}
+          selectedGroups={selectedGroups}
+          onGroupsChange={setSelectedGroups}
+          frozen={audienceFrozen}
+          locale={locale}
+          eventId={eventId}
+          stats={access?.stats}
+        />
+      </Box>
       {eventId !== undefined && <EventAccessSection eventId={eventId} access={access} reload={reloadAccess} />}
+    </>
+  );
 
+  const videosNode = (
+    <>
       {/* ── Event-level videos (edit mode only — needs a real event id) ── */}
       {onVideosChange && onVideoUpload && onVideoImportUrl && onVideoAttachMaster && (
         <EventVideosSection
@@ -1573,6 +1547,156 @@ export const EventFormFields = ({
           eventId={eventId}
         />
       )}
+    </>
+  );
+
+  const sessionsNode = (
+    <>
+      {/* Sessions (with their session-level tracks) */}
+      {sessions.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          {/* Track titles are covered by the auto-translate bar at the
+              top of the form (edit view only — EventCreate's tracks live
+              in SessionTrackTable's own state and keep their own button
+              there). */}
+          {onMoveTracks && selectedTrackIds && onSelectedTrackIdsChange && (
+            <MoveTracksBar
+              sessions={sessions}
+              selectedCount={selectedTrackIds.size}
+              busy={!!moveBusy}
+              defaultDate={toIsoDate(sessions.find((x) => x.date)?.date ?? null, form.startDate || null) ?? ""}
+              onMove={onMoveTracks}
+              teachers={allTeachers}
+              onBulkEdit={onBulkEditTracks}
+              onBulkDelete={onBulkDeleteTracks}
+              onClear={() => onSelectedTrackIdsChange(new Set())}
+            />
+          )}
+          <SessionPreview
+            sessions={sessions}
+            onSessionTitleChange={onSessionTitleChange}
+            onTrackUpdate={onTrackUpdate}
+            onTrackDelete={onTrackDelete}
+            onTrackAudioUpload={onTrackAudioUpload}
+            allTeachers={allTeachers}
+            selectedTrackIds={selectedTrackIds}
+            onSelectedTrackIdsChange={onSelectedTrackIdsChange}
+            onSessionDelete={onSessionDelete}
+            videoCountBySession={videoCountBySession}
+          />
+        </Box>
+      )}
+    </>
+  );
+
+  const filesNode = (
+    <>
+      {/* Event-level files (transcripts, videos, etc.) */}
+      {transcripts.length > 0 && (
+        <EventFilesPreview transcripts={transcripts} onTranscriptDeleted={refresh} />
+      )}
+    </>
+  );
+
+  if (collapsible) {
+    const sectionProps = (id: string) => ({
+      id,
+      open: !!collapsible.open[id],
+      onToggle: () => collapsible.onToggle(id),
+    });
+    const detailsSummary = [
+      selectedEventType ? `${localeName(selectedEventType, locale)} (${selectedEventType.abbreviation})` : "",
+      formatDateRange(form.startDate, form.endDate, locale),
+      selectedTeachers.map((t) => t.name).join(", "),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const mediaParts = [
+      sessions.length > 0 ? translate("padmakara.eventSections.sessionsSummary", { smart_count: sessions.length }) : "",
+      tracksInEvent > 0 ? translate("padmakara.eventSections.tracksSummary", { smart_count: tracksInEvent }) : "",
+      videoTotal > 0 ? translate("padmakara.eventSections.videosSummary", { smart_count: videoTotal }) : "",
+    ].filter(Boolean);
+    return (
+      <>
+        <CollapsibleSection
+          {...sectionProps("details")}
+          title={translate("padmakara.eventSections.details")}
+          summary={detailsSummary}
+          badge={form.titleEn.trim() ? null : translate("padmakara.eventSections.titleMissing")}
+        >
+          {detailsContent}
+        </CollapsibleSection>
+        <CollapsibleSection
+          {...sectionProps("access")}
+          title={translate("padmakara.eventSections.access")}
+          summary={accessSummary({
+            audience: selectedAudience,
+            groups: selectedGroups,
+            sale: { saleMode: form.saleMode, priceCents: form.priceCents, includedInMembership: form.includedInMembership },
+            stats: access?.stats,
+            locale,
+            translate,
+          })}
+        >
+          {accessContent}
+        </CollapsibleSection>
+        <CollapsibleSection
+          {...sectionProps("media")}
+          title={translate("padmakara.eventSections.media")}
+          summary={mediaParts.length > 0 ? mediaParts.join(" · ") : translate("padmakara.eventSections.nothingYet")}
+          badge={sessions.length > 0 && tracksInEvent === 0 ? translate("padmakara.eventSections.noTracks") : null}
+        >
+          {videosNode}
+          {sessionsNode}
+          {audioExtra}
+        </CollapsibleSection>
+        <CollapsibleSection
+          {...sectionProps("transcription")}
+          title={translate("padmakara.eventSections.transcription")}
+          summary={
+            transcriptCount > 0
+              ? translate("padmakara.eventSections.transcriptsSummary", { smart_count: transcriptCount })
+              : translate("padmakara.eventSections.nothingYet")
+          }
+        >
+          {filesNode}
+          {transcriptionExtra}
+        </CollapsibleSection>
+        <CollapsibleSection
+          {...sectionProps("texts")}
+          title={translate("padmakara.eventSections.texts")}
+          summary={
+            publicationCount == null
+              ? ""
+              : publicationCount > 0
+                ? translate("padmakara.eventSections.publicationsSummary", { smart_count: publicationCount })
+                : translate("padmakara.eventSections.nothingYet")
+          }
+        >
+          {publicationsPanel}
+          {publicationCount === 0 && (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {translate("padmakara.eventSections.textsEmpty")}
+            </Typography>
+          )}
+        </CollapsibleSection>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {detailsContent}
+
+      {/* ── Access (the create wizard keeps it flat) ── */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" sx={{ lineHeight: 1.3, mb: 1.5 }}>
+          {translate("padmakara.eventSections.access")}
+        </Typography>
+        {accessContent}
+      </Paper>
+
+{videosNode}
 
       {/* ── Section 2: Content ── */}
       {(sessions.length > 0 || transcripts.length > 0) && (
@@ -1595,45 +1719,8 @@ export const EventFormFields = ({
             }
           />
 
-          {/* Sessions (with their session-level tracks) */}
-          {sessions.length > 0 && (
-            <Box sx={{ mb: 3 }}>
-              {/* Track titles are covered by the auto-translate bar at the
-                  top of the form (edit view only — EventCreate's tracks live
-                  in SessionTrackTable's own state and keep their own button
-                  there). */}
-              {onMoveTracks && selectedTrackIds && onSelectedTrackIdsChange && (
-                <MoveTracksBar
-                  sessions={sessions}
-                  selectedCount={selectedTrackIds.size}
-                  busy={!!moveBusy}
-                  defaultDate={toIsoDate(sessions.find((x) => x.date)?.date ?? null, form.startDate || null) ?? ""}
-                  onMove={onMoveTracks}
-                  teachers={allTeachers}
-                  onBulkEdit={onBulkEditTracks}
-                  onBulkDelete={onBulkDeleteTracks}
-                  onClear={() => onSelectedTrackIdsChange(new Set())}
-                />
-              )}
-              <SessionPreview
-                sessions={sessions}
-                onSessionTitleChange={onSessionTitleChange}
-                onTrackUpdate={onTrackUpdate}
-                onTrackDelete={onTrackDelete}
-                onTrackAudioUpload={onTrackAudioUpload}
-                allTeachers={allTeachers}
-                selectedTrackIds={selectedTrackIds}
-                onSelectedTrackIdsChange={onSelectedTrackIdsChange}
-                onSessionDelete={onSessionDelete}
-                videoCountBySession={videoCountBySession}
-              />
-            </Box>
-          )}
-
-          {/* Event-level files (transcripts, videos, etc.) */}
-          {transcripts.length > 0 && (
-            <EventFilesPreview transcripts={transcripts} onTranscriptDeleted={refresh} />
-          )}
+{sessionsNode}
+{filesNode}
         </>
       )}
     </>
@@ -2379,6 +2466,8 @@ export const EventCreate = () => {
           ...form,
           // The highlight only moves through POST /events/:id/feature.
           featuredAt: undefined,
+          // "Every member" is now an audience choice; the old flag is never set.
+          includedInMembership: false,
           startDate: form.startDate || null,
           endDate: form.endDate || null,
           bibliography: form.bibliography.trim() || null,
@@ -3063,6 +3152,8 @@ export const EventEdit = () => {
   const [selectedGroups, setSelectedGroups] = useState<GroupOption[]>([]);
   const [selectedEventType, setSelectedEventType] = useState<EventTypeOption | null>(null);
   const [selectedAudience, setSelectedAudience] = useState<AudienceOption | null>(null);
+  const sections = useCollapsibleSections("padmakara.eventSections", EVENT_SECTION_IDS, EVENT_SECTION_DEFAULTS);
+  const [publicationCount, setPublicationCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (!event || !lookupsLoaded || initialized) return;
@@ -4144,6 +4235,8 @@ export const EventEdit = () => {
           ...form,
           // The highlight only moves through POST /events/:id/feature.
           featuredAt: undefined,
+          // "Every member" is now an audience choice; the old flag is never set.
+          includedInMembership: false,
           startDate: form.startDate || null,
           endDate: form.endDate || null,
           bibliography: form.bibliography.trim() || null,
@@ -4194,55 +4287,9 @@ export const EventEdit = () => {
   const trackCount = sessions.reduce((sum, s) => sum + s.tracks.length, 0);
   const transcriptCount = event?.transcripts?.length ?? 0;
 
-  return (
-    <Box sx={{ maxWidth: 900, mx: "auto", pb: 6 }}>
-      <Title title={`${translate("ra.action.edit")}: ${event ? localeTitle(event, locale) : ""}`} />
-      <PageHeader title={(event && localeTitle(event, locale)) || translate("ra.action.edit")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
-
-      {form.eventCode && id && (
-        <AudioRepairPanel
-          eventId={Number(id)}
-          eventCode={form.eventCode}
-          sessions={sessions}
-          pendingQueue={pendingQueue}
-          onUploadEnded={reconcileAfterUpload}
-        />
-      )}
-
-      <EventFormFields
-        form={form} setForm={setForm}
-        selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
-        selectedPlaces={selectedPlaces} setSelectedPlaces={setSelectedPlaces}
-        selectedOrganizers={selectedOrganizers} setSelectedOrganizers={setSelectedOrganizers}
-        selectedGroups={selectedGroups} setSelectedGroups={setSelectedGroups}
-        selectedEventType={selectedEventType} setSelectedEventType={setSelectedEventType}
-        selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
-        allTeachers={allTeachers} allPlaces={allPlaces} allOrganizers={allOrganizers} allGroups={allGroups}
-        allEventTypes={allEventTypes} allAudiences={allAudiences}
-        sessions={sessions} transcripts={event?.transcripts || []} onSessionTitleChange={handleSessionTitleChange}
-        onTrackUpdate={handleTrackUpdate}
-        onTrackDelete={handleTrackDelete}
-        onTrackAudioUpload={handleTrackAudioUpload}
-        selectedTrackIds={selectedTrackIds}
-        onSelectedTrackIdsChange={setSelectedTrackIds}
-        onMoveTracks={handleMoveTracks}
-        onBulkEditTracks={handleBulkEditTracks}
-        onBulkDeleteTracks={handleBulkDeleteTracks}
-        onSessionDelete={handleSessionDelete}
-        moveBusy={movingTracks}
-        videos={videos}
-        onVideosChange={setVideos}
-        onVideoUpload={handleVideoUpload}
-        onVideoAttachMaster={handleVideoAttachMaster}
-        masterUpload={uploadProgress && attachingVideoId != null ? { videoId: attachingVideoId, progress: uploadProgress } : null}
-        onCancelVideoUpload={handleCancelVideoUpload}
-        onVideoImportUrl={handleVideoImportUrl}
-        eventId={id ? Number(id) : undefined}
-        onStatusChange={handleStatusChange}
-        trackCount={trackCount}
-        transcriptCount={transcriptCount}
-      />
-
+  // Panels the page owns; the form places them in its collapsible cards.
+  const audioExtra = (
+    <>
       {/* AI-assist: natural-language rename/theme suggestions, applied
           immediately (sessions/tracks) or staged into `form` (event fields,
           saved via the Save button) */}
@@ -4303,7 +4350,11 @@ export const EventEdit = () => {
         />
         {addTracksUploading && <LinearProgress sx={{ mt: 1.5, borderRadius: 1 }} />}
       </Paper>
+    </>
+  );
 
+  const transcriptionExtra = (
+    <>
       {/* 6.1 — Transcript upload for existing event */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: "text.secondary" }}>
@@ -4326,11 +4377,77 @@ export const EventEdit = () => {
         eventId={event?.id ? Number(event.id) : undefined}
         disabled={saving}
       />
+    </>
+  );
 
-      {event?.id && <EventPublicationsPanel eventId={Number(event.id)} />}
+  const publicationsPanel = (
+    event?.id ? (
+      <EventPublicationsPanel eventId={Number(event.id)} onCount={setPublicationCount} />
+    ) : null
+  );
+
+  return (
+    <Box sx={{ maxWidth: 900, mx: "auto", pb: 6 }}>
+      <Title title={`${translate("ra.action.edit")}: ${event ? localeTitle(event, locale) : ""}`} />
+      <PageHeader title={(event && localeTitle(event, locale)) || translate("ra.action.edit")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
+
+      {form.eventCode && id && (
+        <AudioRepairPanel
+          eventId={Number(id)}
+          eventCode={form.eventCode}
+          sessions={sessions}
+          pendingQueue={pendingQueue}
+          onUploadEnded={reconcileAfterUpload}
+        />
+      )}
+
+      <EventFormFields
+        form={form} setForm={setForm}
+        selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
+        selectedPlaces={selectedPlaces} setSelectedPlaces={setSelectedPlaces}
+        selectedOrganizers={selectedOrganizers} setSelectedOrganizers={setSelectedOrganizers}
+        selectedGroups={selectedGroups} setSelectedGroups={setSelectedGroups}
+        selectedEventType={selectedEventType} setSelectedEventType={setSelectedEventType}
+        selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
+        allTeachers={allTeachers} allPlaces={allPlaces} allOrganizers={allOrganizers} allGroups={allGroups}
+        allEventTypes={allEventTypes} allAudiences={allAudiences}
+        sessions={sessions} transcripts={event?.transcripts || []} onSessionTitleChange={handleSessionTitleChange}
+        onTrackUpdate={handleTrackUpdate}
+        onTrackDelete={handleTrackDelete}
+        onTrackAudioUpload={handleTrackAudioUpload}
+        selectedTrackIds={selectedTrackIds}
+        onSelectedTrackIdsChange={setSelectedTrackIds}
+        onMoveTracks={handleMoveTracks}
+        onBulkEditTracks={handleBulkEditTracks}
+        onBulkDeleteTracks={handleBulkDeleteTracks}
+        onSessionDelete={handleSessionDelete}
+        moveBusy={movingTracks}
+        videos={videos}
+        onVideosChange={setVideos}
+        onVideoUpload={handleVideoUpload}
+        onVideoAttachMaster={handleVideoAttachMaster}
+        masterUpload={uploadProgress && attachingVideoId != null ? { videoId: attachingVideoId, progress: uploadProgress } : null}
+        onCancelVideoUpload={handleCancelVideoUpload}
+        onVideoImportUrl={handleVideoImportUrl}
+        eventId={id ? Number(id) : undefined}
+        onStatusChange={handleStatusChange}
+        trackCount={trackCount}
+        transcriptCount={transcriptCount}
+        collapsible={{ open: sections.open, onToggle: sections.toggle }}
+        audioExtra={audioExtra}
+        transcriptionExtra={transcriptionExtra}
+        publicationsPanel={publicationsPanel}
+        publicationCount={publicationCount}
+      />
+
 
       {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
       <EventEditActions
+        leading={
+          <Button variant="text" onClick={() => sections.setAll(!sections.allOpen)}>
+            {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
+          </Button>
+        }
         saving={saving}
         deleting={deleting}
         canSave={!!form.eventCode && !!form.titleEn}

@@ -23,7 +23,7 @@ import Typography from "@mui/material/Typography";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import GroupIcon from "@mui/icons-material/Group";
 import { authFetch } from "../utils/authFetch";
-import { formatEuros } from "./EventSaleSection";
+import { formatEuros } from "./EventAccessChooser";
 import type { AccessGrant, EventAccess } from "./useEventAccess";
 
 interface Props {
