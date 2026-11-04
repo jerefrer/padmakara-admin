@@ -270,7 +270,7 @@ export function EventAccessChooser<A extends AudienceChoice, G extends GroupChoi
             />
           )}
           {GROUP_ORDER.map((group) => (
-            <Box key={group} sx={{ mb: 1.5 }}>
+            <Box key={group} sx={{ mb: 1.5, display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
               <Typography
                 variant="caption"
                 sx={{ display: "block", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "text.secondary", mb: 0.25 }}
