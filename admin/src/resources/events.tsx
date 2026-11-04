@@ -645,6 +645,7 @@ interface EventFormProps {
   onSelectedTrackIdsChange?: (ids: Set<number>) => void;
   onMoveTracks?: (target: MoveTarget) => void | Promise<void>;
   onBulkEditTracks?: (patch: BulkTrackPatch) => void | Promise<void>;
+  onBulkDeleteTracks?: () => void | Promise<void>;
   moveBusy?: boolean;
   /** Event-level videos, ordered by position. Only present in edit mode — a
    *  video needs a real event id to attach to, so the create wizard has none
@@ -763,7 +764,7 @@ export const EventFormFields = ({
   allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onTrackAudioUpload,
-  selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, onBulkEditTracks, moveBusy,
+  selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, onBulkEditTracks, onBulkDeleteTracks, moveBusy,
   videos, onVideosChange, onVideoUpload, onVideoAttachMaster, masterUpload, onCancelVideoUpload, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount,
@@ -1600,6 +1601,7 @@ export const EventFormFields = ({
                   onMove={onMoveTracks}
                   teachers={allTeachers}
                   onBulkEdit={onBulkEditTracks}
+                  onBulkDelete={onBulkDeleteTracks}
                   onClear={() => onSelectedTrackIdsChange(new Set())}
                 />
               )}
@@ -3482,6 +3484,38 @@ export const EventEdit = () => {
     [selectedTrackIds, notify, refresh],
   );
 
+  // Delete every ticked track, one request after another so a long event
+  // does not open dozens of S3 deletes at once. Tracks already deleted stay
+  // deleted when a later one fails; the refresh then shows what is left.
+  const handleBulkDeleteTracks = useCallback(async () => {
+    if (selectedTrackIds.size === 0) return;
+    setMovingTracks(true);
+    const ids = [...selectedTrackIds];
+    const deleted = new Set<number>();
+    try {
+      for (const trackId of ids) {
+        await dataProvider.delete("tracks", { id: trackId, previousData: { id: trackId } });
+        deleted.add(trackId);
+      }
+      notify("padmakara.tracks.bulk.deleted", { type: "success", messageArgs: { smart_count: ids.length } });
+    } catch (err: unknown) {
+      notify("padmakara.tracks.bulk.deleteFailed", {
+        type: "error",
+        messageArgs: { message: err instanceof Error ? err.message : String(err) },
+      });
+    } finally {
+      setSessions((prev) =>
+        prev.map((session) => ({
+          ...session,
+          tracks: session.tracks.filter((t) => t.id === undefined || !deleted.has(t.id)),
+        })),
+      );
+      setSelectedTrackIds((prev) => new Set([...prev].filter((tid) => !deleted.has(tid))));
+      setMovingTracks(false);
+      refresh();
+    }
+  }, [selectedTrackIds, dataProvider, notify, refresh]);
+
   const handleTrackDelete = useCallback(
     async (trackId: number) => {
       try {
@@ -4162,6 +4196,7 @@ export const EventEdit = () => {
         onSelectedTrackIdsChange={setSelectedTrackIds}
         onMoveTracks={handleMoveTracks}
         onBulkEditTracks={handleBulkEditTracks}
+        onBulkDeleteTracks={handleBulkDeleteTracks}
         moveBusy={movingTracks}
         videos={videos}
         onVideosChange={setVideos}

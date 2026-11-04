@@ -27,7 +27,7 @@ afterEach(() => {
   container.remove();
 });
 
-function render(selectedCount: number) {
+function render(selectedCount: number, onBulkDelete?: () => void | Promise<void>) {
   act(() => {
     root.render(
       <MoveTracksBar
@@ -37,6 +37,7 @@ function render(selectedCount: number) {
         defaultDate="2026-04-12"
         onMove={() => {}}
         onClear={() => {}}
+        onBulkDelete={onBulkDelete}
       />,
     );
   });
@@ -57,5 +58,21 @@ describe("MoveTracksBar", () => {
     expect(style.top).not.toBe("");
     expect(Number(style.zIndex)).toBeGreaterThan(0);
     expect(style.backgroundColor).not.toBe("transparent");
+  });
+
+  it("should delete the selected tracks only after the admin confirms", async () => {
+    const onBulkDelete = vi.fn();
+    render(14, onBulkDelete);
+    const button = container.querySelector("[data-testid=delete-selected-tracks]") as HTMLButtonElement;
+    act(() => button.click());
+    expect(onBulkDelete).not.toHaveBeenCalled();
+    const confirm = document.querySelector("[data-testid=confirm-delete-tracks]") as HTMLButtonElement;
+    await act(async () => confirm.click());
+    expect(onBulkDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not offer deletion when no delete handler is given", () => {
+    render(3);
+    expect(container.querySelector("[data-testid=delete-selected-tracks]")).toBeNull();
   });
 });

@@ -3,6 +3,7 @@ import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
@@ -32,6 +33,8 @@ interface MoveTracksBarProps {
   /** When given, the bar offers "Edit selected…" (speaker / language / translation). */
   teachers?: SpeakerOption[];
   onBulkEdit?: (patch: BulkTrackPatch) => void | Promise<void>;
+  /** When given, the bar offers "Delete selected…" behind a confirmation. */
+  onBulkDelete?: () => void | Promise<void>;
 }
 
 /** Shown while tracks are ticked on the event edit page: move them to an
@@ -45,10 +48,12 @@ export const MoveTracksBar = ({
   onClear,
   teachers = [],
   onBulkEdit,
+  onBulkDelete,
 }: MoveTracksBarProps) => {
   const translate = useTranslate();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [date, setDate] = useState(defaultDate);
   const [timePeriod, setTimePeriod] = useState<string>("morning");
 
@@ -111,6 +116,18 @@ export const MoveTracksBar = ({
           {translate("padmakara.tracks.bulk.editSelected")}
         </Button>
       )}
+      {onBulkDelete && (
+        <Button
+          size="small"
+          variant="outlined"
+          color="error"
+          disabled={busy}
+          data-testid="delete-selected-tracks"
+          onClick={() => setDeleteOpen(true)}
+        >
+          {translate("padmakara.tracks.bulk.deleteSelected")}
+        </Button>
+      )}
       <Box sx={{ flex: 1 }} />
       <Button size="small" onClick={onClear} disabled={busy}>
         {translate("padmakara.tracks.clearSelection")}
@@ -128,6 +145,32 @@ export const MoveTracksBar = ({
             setEditOpen(false);
           }}
         />
+      )}
+
+      {onBulkDelete && (
+        <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>
+            {translate("padmakara.tracks.bulk.deleteTitle", { smart_count: selectedCount })}
+          </DialogTitle>
+          <DialogContent>
+            <DialogContentText>{translate("padmakara.tracks.bulk.deleteWarning")}</DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteOpen(false)}>{translate("ra.action.cancel")}</Button>
+            <Button
+              variant="contained"
+              color="error"
+              disabled={busy}
+              data-testid="confirm-delete-tracks"
+              onClick={async () => {
+                setDeleteOpen(false);
+                await onBulkDelete();
+              }}
+            >
+              {translate("padmakara.tracks.bulk.deleteConfirm", { smart_count: selectedCount })}
+            </Button>
+          </DialogActions>
+        </Dialog>
       )}
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
