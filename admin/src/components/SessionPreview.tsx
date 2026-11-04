@@ -1132,11 +1132,11 @@ const TrackRow = ({
           fallback={track.title}
           titleEnReviewed={track.titleEnReviewed ?? true}
           titlePtReviewed={track.titlePtReviewed ?? true}
-          onMarkReviewed={(lang) => {
+          onMarkReviewed={(lang, options) => {
             if (!onTrackUpdate || !track.id) return;
             onTrackUpdate(
               track.id,
-              lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true },
+              lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true, ...(options?.clearEn ? { titleEn: "", titleEnReviewed: true } : {}) },
             ).catch((error) => console.error("Failed to mark title reviewed:", error));
           }}
           primaryProps={{

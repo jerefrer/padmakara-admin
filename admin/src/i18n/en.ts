@@ -164,7 +164,7 @@ export const en = {
       translateToEn: "Translate this Portuguese text into English — fills the English field",
       aiUnreviewed: "AI translation, not reviewed yet",
       markReviewed: "click to mark as reviewed",
-      aiChipLabel: "AI · review ✓",
+      aiChipLabel: "AI edited · approve?",
       noPtTitle: "No Portuguese title",
       translateNothing: "Nothing to translate — target fields already filled",
       translateError: "Translation failed",

@@ -94,4 +94,39 @@ describe("TitlePair", () => {
     expect(container.textContent).toContain("Manhã");
     expect(chips()).toHaveLength(1);
   });
+  describe("when the English field is the unaccented twin of the AI-corrected Portuguese title", () => {
+    const render = (onMark = vi.fn(), reviewed = false) =>
+      act(() =>
+        root.render(
+          <TitlePair
+            titleEn="Breves praticas preliminares"
+            titlePt="Breves práticas preliminares"
+            fallback="x"
+            titlePtReviewed={reviewed}
+            onMarkReviewed={onMark}
+          />,
+        ),
+      );
+
+    it("should show only the accented title, with one approve chip", () => {
+      render();
+      expect(container.textContent).toContain("Breves práticas preliminares");
+      expect(container.textContent).not.toContain("Breves praticas preliminares");
+      expect(ptLine()).toBeNull();
+      expect(chips()).toHaveLength(1);
+    });
+
+    it("should approve the Portuguese title and ask to empty the English twin", () => {
+      const onMark = vi.fn();
+      render(onMark);
+      act(() => chips()[0]!.click());
+      expect(onMark).toHaveBeenCalledExactlyOnceWith("pt", { clearEn: true });
+    });
+
+    it("should show no chip once the Portuguese title is reviewed", () => {
+      render(vi.fn(), true);
+      expect(container.textContent).toContain("Breves práticas preliminares");
+      expect(chips()).toHaveLength(0);
+    });
+  });
 });
