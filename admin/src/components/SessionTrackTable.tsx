@@ -292,10 +292,10 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
           fallback={track.title}
           titleEnReviewed={track.titleEnReviewed}
           titlePtReviewed={track.titlePtReviewed}
-          onMarkReviewed={(lang) =>
+          onMarkReviewed={(lang, options) =>
             onTrackChange(
               track.key,
-              lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true },
+              lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true, ...(options?.clearEn ? { titleEn: "", titleEnReviewed: true } : {}) },
             )
           }
           primaryProps={{

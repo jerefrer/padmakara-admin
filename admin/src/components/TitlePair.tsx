@@ -14,6 +14,20 @@ import { AiReviewChip } from "./TranslatableField";
 
 export type TitleLang = "en" | "pt";
 
+/** Extra info passed with an approval of a collapsed (single-line) title. */
+export interface MarkReviewedOptions {
+  /**
+   * The English field only holds the unaccented twin of the Portuguese title
+   * (the filename-derived value the AI then corrected). Approving must also
+   * empty it, so the base title the app serves becomes the Portuguese one.
+   */
+  clearEn?: boolean;
+}
+
+/** Lower-case and strip diacritics, to compare titles that differ only by accents. */
+export const foldTitle = (s: string): string =>
+  s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
 interface TitlePairProps {
   titleEn: string | null | undefined;
   titlePt: string | null | undefined;
@@ -22,7 +36,7 @@ interface TitlePairProps {
   /** Missing flags count as reviewed (rows that predate the flags). */
   titleEnReviewed?: boolean;
   titlePtReviewed?: boolean;
-  onMarkReviewed: (lang: TitleLang) => void;
+  onMarkReviewed: (lang: TitleLang, options?: MarkReviewedOptions) => void;
   /** Props for the first-line Typography (weight, click-to-edit handlers). */
   primaryProps?: TypographyProps;
 }
@@ -41,15 +55,27 @@ export const TitlePair = ({
   const pt = titlePt?.trim() || "";
   // With no English title (or the same text in both) the Portuguese one is
   // already the first line, so it is not repeated underneath.
-  const ptIsPrimary = !!pt && (!en || en === pt);
-  const primaryText = en || pt || fallback;
-  const primaryChipLang: TitleLang | null =
-    en && !titleEnReviewed ? "en" : ptIsPrimary && !titlePtReviewed ? "pt" : null;
+  // A Portuguese title that differs from the English field only by accents is
+  // the same title twice (the filename's unaccented text plus the AI's
+  // corrected version): show the Portuguese one, which is the AI's.
+  const accentTwin = !!en && !!pt && en !== pt && foldTitle(en) === foldTitle(pt);
+  const ptIsPrimary = !!pt && (!en || en === pt || accentTwin);
+  const primaryText = accentTwin ? pt : en || pt || fallback;
+  const primaryChipLang: TitleLang | null = accentTwin
+    ? !titlePtReviewed
+      ? "pt"
+      : null
+    : en && !titleEnReviewed
+      ? "en"
+      : ptIsPrimary && !titlePtReviewed
+        ? "pt"
+        : null;
 
   const markReviewed = (lang: TitleLang) => (e: React.MouseEvent) => {
     // The chip sits inside a click-to-edit row.
     e.stopPropagation();
-    onMarkReviewed(lang);
+    if (accentTwin && lang === "pt") onMarkReviewed(lang, { clearEn: true });
+    else onMarkReviewed(lang);
   };
 
   return (

@@ -589,10 +589,10 @@ const VideoRow = ({
               fallback={displayTitle}
               titleEnReviewed={video.titleEnReviewed ?? true}
               titlePtReviewed={video.titlePtReviewed ?? true}
-              onMarkReviewed={(lang) =>
+              onMarkReviewed={(lang, options) =>
                 void onUpdate(
                   video.id,
-                  lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true },
+                  lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true, ...(options?.clearEn ? { titleEn: "", titleEnReviewed: true } : {}) },
                 )
               }
               primaryProps={{

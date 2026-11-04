@@ -365,7 +365,7 @@ export const pt = {
       translateToEn: "Traduzir este texto português para inglês — preenche o campo inglês",
       aiUnreviewed: "Tradução por IA, ainda por rever",
       markReviewed: "clicar para marcar como revisto",
-      aiChipLabel: "IA · rever ✓",
+      aiChipLabel: "Editado por IA · aprovar?",
       noPtTitle: "Sem título em português",
       translateNothing: "Nada a traduzir — os campos de destino já estão preenchidos",
       translateError: "Falha na tradução",
