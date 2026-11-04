@@ -41,8 +41,10 @@ vi.mock("../../src/db/index.ts", () => ({
 }));
 
 const findOrCreateUserByEmail = vi.fn();
+const findUserByEmail = vi.fn();
 vi.mock("../../src/services/users-lookup.ts", () => ({
   findOrCreateUserByEmail: (...a: unknown[]) => findOrCreateUserByEmail(...a),
+  findUserByEmail: (...a: unknown[]) => findUserByEmail(...a),
 }));
 const grantEventAccess = vi.fn();
 vi.mock("../../src/services/event-access.ts", () => ({
@@ -101,6 +103,7 @@ beforeEach(() => {
   insertReturns = [{ id: 5, publicId: PUBLIC_ID }];
   eventFindFirst.mockResolvedValue(event());
   userFindFirst.mockResolvedValue({ id: 3, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null });
+  findUserByEmail.mockResolvedValue({ id: 3, email: "buyer@example.com", preferredLanguage: "pt" });
   findOrCreateUserByEmail.mockResolvedValue({ user: { id: 3, email: "buyer@example.com", preferredLanguage: "pt" }, created: true });
   hasEventGrant.mockResolvedValue(false);
   checkEventAccess.mockResolvedValue({ allowed: false, reason: "ACCESS_DENIED" });
@@ -132,7 +135,14 @@ describe("GET /api/teachings/:eventId", () => {
       saleMode: "paid",
       priceCents: 1500,
       includedInMembership: false,
+      membersOnly: false,
     });
+  });
+
+  it("should expose membersOnly when the audience is member-extra-subscription", async () => {
+    eventFindFirst.mockResolvedValue(event({ audience: { slug: "member-extra-subscription" } }));
+    const { body: b } = await testJson("/api/teachings/8");
+    expect(b.membersOnly).toBe(true);
   });
 
   it("should return includedInMembership true when the event is included", async () => {
@@ -220,6 +230,55 @@ describe("POST /api/teachings/:eventId/checkout", () => {
     eventFindFirst.mockResolvedValue(event({ includedInMembership: true }));
     const { status } = await post("/api/teachings/8/checkout", body);
     expect(status).toBe(200);
+  });
+
+  describe("members-only audience", () => {
+    const member = {
+      id: 3,
+      role: "user",
+      subscriptionStatus: "active",
+      subscriptionExpiresAt: new Date(Date.now() + 30 * 86_400_000),
+    };
+    beforeEach(() => eventFindFirst.mockResolvedValue(event({ audience: { slug: "member-extra-subscription" } })));
+
+    it("should return 403 MEMBERS_ONLY and create no user or order for an unknown email", async () => {
+      findUserByEmail.mockResolvedValue(undefined);
+      const { status, body: b } = await post("/api/teachings/8/checkout", body);
+      expect(status).toBe(403);
+      expect(b.code).toBe("MEMBERS_ONLY");
+      expect(findOrCreateUserByEmail).not.toHaveBeenCalled();
+      expect(insertValues).not.toHaveBeenCalled();
+    });
+
+    it("should return 403 MEMBERS_ONLY and create no order for a non-member", async () => {
+      const { status, body: b } = await post("/api/teachings/8/checkout", body);
+      expect(status).toBe(403);
+      expect(b.code).toBe("MEMBERS_ONLY");
+      expect(insertValues).not.toHaveBeenCalled();
+    });
+
+    it("should create the order for an active member", async () => {
+      userFindFirst.mockResolvedValue(member);
+      const { status, body: b } = await post("/api/teachings/8/checkout", body);
+      expect(status).toBe(200);
+      expect(b.status).toBe("checkout");
+      expect(findOrCreateUserByEmail).not.toHaveBeenCalled();
+      expect(insertValues).toHaveBeenCalled();
+    });
+
+    it("should return 409 for a lapsed member who already holds a grant", async () => {
+      hasEventGrant.mockResolvedValue(true);
+      const { status, body: b } = await post("/api/teachings/8/checkout", body);
+      expect(status).toBe(409);
+      expect(b.code).toBe("ALREADY_HAS_ACCESS");
+    });
+
+    it("should keep creating accounts for the everyone-paid audience", async () => {
+      eventFindFirst.mockResolvedValue(event({ audience: { slug: "everyone-paid" } }));
+      const { status } = await post("/api/teachings/8/checkout", body);
+      expect(status).toBe(200);
+      expect(findOrCreateUserByEmail).toHaveBeenCalled();
+    });
   });
 
   it("should return 409 when the user already has access another way (group, admin)", async () => {

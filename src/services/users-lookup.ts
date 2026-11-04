@@ -6,6 +6,11 @@ type FoundUser = { id: number; email: string; preferredLanguage: string };
 
 const columns = { id: users.id, email: users.email, preferredLanguage: users.preferredLanguage };
 
+/** Find a user by email (trimmed, case-insensitive) without creating anything. */
+export async function findUserByEmail(email: string): Promise<FoundUser | undefined> {
+  return findByEmail(email.trim().toLowerCase());
+}
+
 async function findByEmail(email: string): Promise<FoundUser | undefined> {
   const [row] = await db
     .select(columns)

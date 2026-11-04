@@ -6,6 +6,8 @@ const h = vi.hoisted(() => ({
   deleteRows: [] as any[],
   eventFound: true as boolean,
   existingSaleMode: "none",
+  existingAudienceId: null as number | null,
+  existingPriceCents: null as number | null,
   updateSet: undefined as any,
   insertValues: undefined as any,
 }));
@@ -22,7 +24,8 @@ vi.mock("../../../src/db/index.ts", () => {
   const eventRow = () => ({
     id: 5,
     saleMode: h.existingSaleMode,
-    priceCents: null,
+    priceCents: h.existingPriceCents,
+    audienceId: h.existingAudienceId,
     includedInMembership: false,
     eventTeachers: [],
     eventRetreatGroups: [],
@@ -94,6 +97,8 @@ beforeEach(() => {
   h.deleteRows = [];
   h.eventFound = true;
   h.existingSaleMode = "none";
+  h.existingAudienceId = null;
+  h.existingPriceCents = null;
   h.updateSet = undefined;
   h.insertValues = undefined;
   let nextId = 100;
@@ -258,6 +263,55 @@ describe("DELETE /api/admin/events/:id/access/:userId", () => {
     });
     expect(status).toBe(404);
     expect(bumpUserAccessVersion).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin event PUT: paid audiences", () => {
+  const put = async (body: unknown) =>
+    testJson("/api/admin/events/5", { method: "PUT", headers: await adminAuth(), body: json(body) });
+
+  for (const slug of ["everyone-paid", "member-extra-subscription"]) {
+    it(`should reject ${slug} without paid sale (400 VALIDATION_ERROR)`, async () => {
+      h.selectQueue = [[{ slug }]];
+      const { status, body } = await put({ audienceId: 9, saleMode: "free" });
+      expect(status).toBe(400);
+      expect(body.code).toBe("VALIDATION_ERROR");
+    });
+
+    it(`should reject ${slug} when the stored event has no price`, async () => {
+      h.selectQueue = [[{ slug }]];
+      const { status, body } = await put({ audienceId: 9 });
+      expect(status).toBe(400);
+      expect(body.code).toBe("VALIDATION_ERROR");
+    });
+
+    it(`should accept ${slug} with a paid price and force includedInMembership off`, async () => {
+      h.selectQueue = [[{ slug }]];
+      const { status } = await put({ audienceId: 9, saleMode: "paid", priceCents: 1500, includedInMembership: true });
+      expect(status).toBe(200);
+      expect(h.updateSet).toMatchObject({ saleMode: "paid", priceCents: 1500, includedInMembership: false });
+    });
+  }
+
+  it("should reject a price below 100 cents on a paid audience", async () => {
+    h.selectQueue = [[{ slug: "everyone-paid" }]];
+    expect((await put({ audienceId: 9, saleMode: "paid", priceCents: 50 })).status).toBe(400);
+  });
+
+  it("should force includedInMembership off when only that flag changes on a paid-audience event", async () => {
+    h.existingAudienceId = 9;
+    h.existingSaleMode = "paid";
+    h.existingPriceCents = 1500;
+    h.selectQueue = [[{ slug: "everyone-paid" }]];
+    await put({ includedInMembership: true });
+    expect(h.updateSet).toMatchObject({ includedInMembership: false });
+  });
+
+  it("should leave other audiences alone", async () => {
+    h.selectQueue = [[{ slug: "restricted" }]];
+    const { status } = await put({ audienceId: 3, saleMode: "none", includedInMembership: true });
+    expect(status).toBe(200);
+    expect(h.updateSet).toMatchObject({ includedInMembership: true });
   });
 });
 
