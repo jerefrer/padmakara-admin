@@ -6,7 +6,7 @@ vi.mock("../../src/services/s3.ts", () => ({
   ),
 }));
 
-import { resolveTeacherUrls } from "../../src/lib/teacher-utils.ts";
+import { resolveTeacherUrls, pickPhotoTeacherId } from "../../src/lib/teacher-utils.ts";
 
 describe("resolveTeacherUrls", () => {
   it("resolves S3 keys to presigned URLs (avatar + desktop hero + mobile hero)", async () => {
@@ -142,5 +142,27 @@ describe("resolveTeacherUrls", () => {
       heroUpdatedAt: null,
     });
     expect(result.heroFrameOverrides).toEqual(overrides);
+  });
+});
+
+describe("pickPhotoTeacherId", () => {
+  it("should pick the first teacher with a hero image in the event's order", () => {
+    const list = [{ teacher: { id: 1 } }, { teacher: { id: 2, heroUrl: "h2" } }, { teacher: { id: 3, heroUrl: "h3" } }];
+    expect(pickPhotoTeacherId(list)).toBe(2);
+  });
+
+  it("should prefer a later hero over an earlier avatar-only teacher", () => {
+    const list = [{ teacher: { id: 1, avatarUrl: "a1" } }, { teacher: { id: 2, heroUrl: "h2" } }];
+    expect(pickPhotoTeacherId(list)).toBe(2);
+  });
+
+  it("should fall back to the first avatar-only teacher when nobody has a hero", () => {
+    const list = [{ teacher: { id: 1 } }, { teacher: { id: 2, avatarUrl: "a2" } }];
+    expect(pickPhotoTeacherId(list)).toBe(2);
+  });
+
+  it("should be null when no teacher has a photo or the list is empty", () => {
+    expect(pickPhotoTeacherId([{ teacher: { id: 1 } }])).toBeNull();
+    expect(pickPhotoTeacherId(undefined)).toBeNull();
   });
 });
