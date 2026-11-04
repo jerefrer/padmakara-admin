@@ -610,6 +610,12 @@ export const en = {
       afternoon: "Afternoon",
       evening: "Evening",
       noPeriod: "No time",
+      delete: "Delete empty session",
+      deleted: "Session deleted",
+      deleteFailed: "Could not delete the session: %{message}",
+      deleteTitle: "Delete session %{number}?",
+      deleteBody: "The session has no tracks left. The other sessions are renumbered.",
+      deleteVideoWarning: "One video is linked to this session. It stays, but loses its session, so its \"Session N of M\" slide needs a new session. |||| %{smart_count} videos are linked to this session. They stay, but lose their session, so their \"Session N of M\" slides need a new session.",
     },
     videos: {
       title: "Videos",

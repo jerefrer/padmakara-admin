@@ -646,6 +646,8 @@ interface EventFormProps {
   onMoveTracks?: (target: MoveTarget) => void | Promise<void>;
   onBulkEditTracks?: (patch: BulkTrackPatch) => void | Promise<void>;
   onBulkDeleteTracks?: () => void | Promise<void>;
+  /** Edit-mode only: deletes a session left without tracks. */
+  onSessionDelete?: (sessionId: number) => Promise<void>;
   moveBusy?: boolean;
   /** Event-level videos, ordered by position. Only present in edit mode — a
    *  video needs a real event id to attach to, so the create wizard has none
@@ -764,13 +766,21 @@ export const EventFormFields = ({
   allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences,
   sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
   onTrackAudioUpload,
-  selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, onBulkEditTracks, onBulkDeleteTracks, moveBusy,
+  selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, onBulkEditTracks, onBulkDeleteTracks, onSessionDelete, moveBusy,
   videos, onVideosChange, onVideoUpload, onVideoAttachMaster, masterUpload, onCancelVideoUpload, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
 }: EventFormProps) => {
   const translate = useTranslate();
+  // How many videos point at each session, for the empty-session delete warning.
+  const videoCountBySession = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const v of videos ?? []) {
+      if (v.sessionId != null) counts.set(v.sessionId, (counts.get(v.sessionId) ?? 0) + 1);
+    }
+    return counts;
+  }, [videos]);
   // The saved sessions a video can belong to (those without an id are previews).
   const videoSessions = useMemo<SessionOption[]>(
     () =>
@@ -1614,6 +1624,8 @@ export const EventFormFields = ({
                 allTeachers={allTeachers}
                 selectedTrackIds={selectedTrackIds}
                 onSelectedTrackIdsChange={onSelectedTrackIdsChange}
+                onSessionDelete={onSessionDelete}
+                videoCountBySession={videoCountBySession}
               />
             </Box>
           )}
@@ -3516,6 +3528,25 @@ export const EventEdit = () => {
     }
   }, [selectedTrackIds, dataProvider, notify, refresh]);
 
+  // Remove a session the admin emptied. The server renumbers the remaining
+  // sessions, so the refresh brings back the new numbers.
+  const handleSessionDelete = useCallback(
+    async (sessionId: number) => {
+      try {
+        await dataProvider.delete("sessions", { id: sessionId, previousData: { id: sessionId } });
+        setSessions((prev) => prev.filter((session) => session.id !== sessionId));
+        notify("padmakara.session.deleted", { type: "success" });
+        refresh();
+      } catch (err: unknown) {
+        notify("padmakara.session.deleteFailed", {
+          type: "error",
+          messageArgs: { message: err instanceof Error ? err.message : String(err) },
+        });
+      }
+    },
+    [dataProvider, notify, refresh],
+  );
+
   const handleTrackDelete = useCallback(
     async (trackId: number) => {
       try {
@@ -4197,6 +4228,7 @@ export const EventEdit = () => {
         onMoveTracks={handleMoveTracks}
         onBulkEditTracks={handleBulkEditTracks}
         onBulkDeleteTracks={handleBulkDeleteTracks}
+        onSessionDelete={handleSessionDelete}
         moveBusy={movingTracks}
         videos={videos}
         onVideosChange={setVideos}

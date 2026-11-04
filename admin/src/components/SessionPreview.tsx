@@ -15,9 +15,15 @@ import TranslateIcon from "@mui/icons-material/Translate";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import VideoFileIcon from "@mui/icons-material/VideoFile";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Checkbox from "@mui/material/Checkbox";
 import Chip from "@mui/material/Chip";
 import Collapse from "@mui/material/Collapse";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogContentText from "@mui/material/DialogContentText";
+import DialogTitle from "@mui/material/DialogTitle";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
@@ -112,6 +118,12 @@ interface SessionPreviewProps {
    *  ids are track database ids. */
   selectedTrackIds?: ReadonlySet<number>;
   onSelectedTrackIdsChange?: (ids: Set<number>) => void;
+  /** Edit-mode only: when provided, a session without tracks gets a trash
+   *  button (behind a confirmation) that deletes it. */
+  onSessionDelete?: (sessionId: number) => Promise<void>;
+  /** Videos linked to each session id, so the confirmation can warn that
+   *  they lose their "Session N of M" link. */
+  videoCountBySession?: ReadonlyMap<number, number>;
 }
 
 export const SessionPreview = ({
@@ -124,6 +136,8 @@ export const SessionPreview = ({
   trackCorrections,
   selectedTrackIds,
   onSelectedTrackIdsChange,
+  onSessionDelete,
+  videoCountBySession,
 }: SessionPreviewProps) => {
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
@@ -161,6 +175,12 @@ export const SessionPreview = ({
               onPreview={setPreview}
               selectedTrackIds={selectedTrackIds}
               onSelectedTrackIdsChange={onSelectedTrackIdsChange}
+              onDelete={
+                onSessionDelete && session.id !== undefined && session.tracks.length === 0
+                  ? () => onSessionDelete(session.id!)
+                  : undefined
+              }
+              linkedVideoCount={session.id !== undefined ? videoCountBySession?.get(session.id) ?? 0 : 0}
             />
           ))}
         </Box>
@@ -190,6 +210,9 @@ interface SessionCardProps {
   onPreview: (state: PreviewState) => void;
   selectedTrackIds?: ReadonlySet<number>;
   onSelectedTrackIdsChange?: (ids: Set<number>) => void;
+  /** Present only for a saved session with no tracks. */
+  onDelete?: () => Promise<void>;
+  linkedVideoCount?: number;
 }
 
 const SessionCard = ({
@@ -204,8 +227,12 @@ const SessionCard = ({
   onPreview,
   selectedTrackIds,
   onSelectedTrackIdsChange,
+  onDelete,
+  linkedVideoCount = 0,
 }: SessionCardProps) => {
   const [expanded, setExpanded] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   // Which track row is currently open in its inline editor. Lives here (not
   // in the row) so ↑/↓ can move the editor from one track to the next.
@@ -575,6 +602,24 @@ const SessionCard = ({
             }}
           />
 
+          {onDelete && (
+            <Tooltip title={translate("padmakara.session.delete")}>
+              <IconButton
+                size="small"
+                data-testid="delete-session"
+                aria-label={translate("padmakara.session.delete")}
+                disabled={deleting}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirmDelete(true);
+                }}
+                sx={{ color: "text.secondary", "&:hover": { color: "error.main" } }}
+              >
+                <DeleteOutlineIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+
           <IconButton
             size="small"
             onClick={() => setExpanded(!expanded)}
@@ -588,6 +633,40 @@ const SessionCard = ({
           </IconButton>
         </Box>
       </Box>
+
+      {onDelete && (
+        <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>
+            {translate("padmakara.session.deleteTitle", { number: session.sessionNumber })}
+          </DialogTitle>
+          <DialogContent>
+            <DialogContentText>
+              {linkedVideoCount > 0
+                ? translate("padmakara.session.deleteVideoWarning", { smart_count: linkedVideoCount })
+                : translate("padmakara.session.deleteBody")}
+            </DialogContentText>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmDelete(false)}>{translate("ra.action.cancel")}</Button>
+            <Button
+              variant="contained"
+              color="error"
+              data-testid="confirm-delete-session"
+              onClick={async () => {
+                setConfirmDelete(false);
+                setDeleting(true);
+                try {
+                  await onDelete();
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+            >
+              {translate("ra.action.delete")}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       {/* Track list */}
       <Collapse in={expanded}>

@@ -808,6 +808,12 @@ export const pt = {
       afternoon: "Tarde",
       evening: "Noite",
       noPeriod: "Sem hora",
+      delete: "Eliminar sessão vazia",
+      deleted: "Sessão eliminada",
+      deleteFailed: "Não foi possível eliminar a sessão: %{message}",
+      deleteTitle: "Eliminar a sessão %{number}?",
+      deleteBody: "A sessão já não tem faixas. As outras sessões são renumeradas.",
+      deleteVideoWarning: "Um vídeo está ligado a esta sessão. Fica, mas perde a sessão, por isso o diapositivo \"Sessão N de M\" precisa de uma nova sessão. |||| %{smart_count} vídeos estão ligados a esta sessão. Ficam, mas perdem a sessão, por isso os diapositivos \"Sessão N de M\" precisam de uma nova sessão.",
     },
     videos: {
       title: "Vídeos",
