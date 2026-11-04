@@ -27,6 +27,8 @@ interface EventPublications {
 
 interface Props {
   eventId: number;
+  /** Reports how many publications the event shows once they are loaded. */
+  onCount?: (count: number) => void;
 }
 
 const PublicationList = ({ items }: { items: PublicationSummary[] }) => {
@@ -50,7 +52,7 @@ const PublicationList = ({ items }: { items: PublicationSummary[] }) => {
   );
 };
 
-export const EventPublicationsPanel = ({ eventId }: Props) => {
+export const EventPublicationsPanel = ({ eventId, onCount }: Props) => {
   const translate = useTranslate();
   const [data, setData] = useState<EventPublications | null>(null);
 
@@ -61,7 +63,10 @@ export const EventPublicationsPanel = ({ eventId }: Props) => {
         const res = await authFetch(`/api/admin/events/${eventId}/publications`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = (await res.json()) as EventPublications;
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+          onCount?.(json.viaGroups.length + json.direct.length);
+        }
       } catch (err) {
         // Informational panel: a failed load just hides it.
         console.error("Event publications load failed:", err);
@@ -70,6 +75,7 @@ export const EventPublicationsPanel = ({ eventId }: Props) => {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onCount is a report-back, not an input
   }, [eventId]);
 
   if (!data || (data.viaGroups.length === 0 && data.direct.length === 0)) return null;

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -14,6 +15,8 @@ interface EventEditActionsProps {
   onSave: () => void;
   /** Save, then leave for the events list. */
   onSaveAndClose: () => void;
+  /** Extra control shown just before Cancel (the page's expand/collapse-all). */
+  leading?: ReactNode;
 }
 
 /** Bottom action row of the event edit page: Delete on the left; Cancel,
@@ -26,6 +29,7 @@ export const EventEditActions = ({
   onCancel,
   onSave,
   onSaveAndClose,
+  leading,
 }: EventEditActionsProps) => {
   const translate = useTranslate();
   return (
@@ -39,7 +43,8 @@ export const EventEditActions = ({
       >
         {translate("padmakara.events.delete")}
       </Button>
-      <Box sx={{ display: "flex", gap: 2 }}>
+      <Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
+        {leading}
         <Button variant="outlined" onClick={onCancel} disabled={saving}>
           {translate("padmakara.events.cancel")}
         </Button>
