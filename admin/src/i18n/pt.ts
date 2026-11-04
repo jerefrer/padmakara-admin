@@ -216,6 +216,9 @@ export const pt = {
     publications: { name: "Publicação |||| Publicações" },
   },
   padmakara: {
+    audiences: {
+      slugLocked: "Usado pelas regras de acesso, por isso não pode mudar. Os nomes podem.",
+    },
     menu: {
       content: "Conteúdo",
       reference: "Referência",

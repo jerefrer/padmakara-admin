@@ -15,6 +15,9 @@ export const en = {
     publications: { name: "Publication |||| Publications" },
   },
   padmakara: {
+    audiences: {
+      slugLocked: "Used by the access rules, so it cannot change. The names can.",
+    },
     menu: {
       content: "Content",
       reference: "Reference",

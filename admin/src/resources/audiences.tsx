@@ -8,8 +8,36 @@ import {
   useTranslate,
   SaveButton,
   Toolbar,
+  useRecordContext,
 } from "react-admin";
 import { SortableList } from "../components/SortableList";
+
+// Mirrors AUDIENCE_SLUGS in src/services/access.ts: the access rules match on
+// these slugs, so the API refuses to change them (409) and the form locks them.
+const BUILT_IN_SLUGS = new Set([
+  "free-anyone",
+  "free-subscribers",
+  "retreat-group-members",
+  "event-participants",
+  "available-on-request-only",
+  "received-initiation",
+  "restricted",
+]);
+
+const SlugInput = () => {
+  const translate = useTranslate();
+  const record = useRecordContext<{ slug?: string }>();
+  const locked = !!record?.slug && BUILT_IN_SLUGS.has(record.slug);
+  return (
+    <TextInput
+      source="slug"
+      label={translate("padmakara.fields.slug")}
+      validate={required()}
+      disabled={locked}
+      helperText={locked ? translate("padmakara.audiences.slugLocked") : undefined}
+    />
+  );
+};
 
 const NoDeleteToolbar = () => (
   <Toolbar>
@@ -40,7 +68,7 @@ export const AudienceEdit = () => {
       <SimpleForm toolbar={<NoDeleteToolbar />}>
         <TextInput source="nameEn" label={translate("padmakara.fields.nameEn")} validate={required()} />
         <TextInput source="namePt" label={translate("padmakara.fields.namePt")} />
-        <TextInput source="slug" label={translate("padmakara.fields.slug")} validate={required()} />
+        <SlugInput />
       </SimpleForm>
     </Edit>
   );

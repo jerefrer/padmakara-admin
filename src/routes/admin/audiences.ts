@@ -4,9 +4,19 @@ import { db } from "../../db/index.ts";
 import { audiences } from "../../db/schema/audiences.ts";
 import { createAudienceSchema, updateAudienceSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
+import { AUDIENCE_SLUGS } from "../../services/access.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 
 const audienceRoutes = new Hono();
+
+// Access rules match on these slugs, so renaming or deleting one silently
+// changes who can open every event that uses it.
+async function builtInSlugOf(id: number): Promise<string | null> {
+  const row = await db.query.audiences.findFirst({ where: eq(audiences.id, id) });
+  if (!row) throw AppError.notFound("Audience not found");
+  const builtIn: readonly string[] = Object.values(AUDIENCE_SLUGS);
+  return builtIn.includes(row.slug) ? row.slug : null;
+}
 
 const columns: Record<string, any> = {
   id: audiences.id,
@@ -68,6 +78,10 @@ audienceRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
   const data = updateAudienceSchema.parse(body);
+  const builtIn = await builtInSlugOf(id);
+  if (builtIn && data.slug !== undefined && data.slug !== builtIn) {
+    throw AppError.conflict("This audience's slug is used by the access rules and cannot change");
+  }
   const [row] = await db
     .update(audiences)
     .set({ ...data, updatedAt: new Date() })
@@ -79,6 +93,9 @@ audienceRoutes.put("/:id", async (c) => {
 
 audienceRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
+  if (await builtInSlugOf(id)) {
+    throw AppError.conflict("This audience is used by the access rules and cannot be deleted");
+  }
   const [row] = await db
     .delete(audiences)
     .where(eq(audiences.id, id))
