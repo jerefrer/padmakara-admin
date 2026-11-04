@@ -9,8 +9,8 @@ import { authIpLimiter } from "../middleware/rate-limit.ts";
 import { AppError } from "../lib/errors.ts";
 import { teachingCheckoutSchema } from "../lib/schemas.ts";
 import { config } from "../config.ts";
-import { checkEventAccess, hasActiveSubscription, hasEventGrant } from "../services/access.ts";
-import { findOrCreateUserByEmail } from "../services/users-lookup.ts";
+import { AUDIENCE_SLUGS, checkEventAccess, hasActiveSubscription, hasEventGrant } from "../services/access.ts";
+import { findOrCreateUserByEmail, findUserByEmail } from "../services/users-lookup.ts";
 import { grantEventAccess } from "../services/event-access.ts";
 import {
   finalizeOrder,
@@ -157,6 +157,7 @@ teachingRoutes.get("/:eventId", async (c) => {
     saleMode: event.saleMode,
     priceCents: event.priceCents ?? null,
     includedInMembership: event.includedInMembership ?? false,
+    membersOnly: event.audience?.slug === AUDIENCE_SLUGS.PAID_MEMBERS,
   });
 });
 
@@ -183,12 +184,23 @@ teachingRoutes.post("/:eventId/checkout", authIpLimiter(), async (c) => {
     throw new AppError(503, "Payments are temporarily unavailable", "PAYMENTS_UNAVAILABLE");
   }
 
-  const { user } = await findOrCreateUserByEmail({
-    email: input.email,
-    firstName: input.firstName,
-    lastName: input.lastName,
-    language: input.language,
-  });
+  // Members-only: the buyer must already be a member, so never create an account for them.
+  const membersOnly = event.audience?.slug === AUDIENCE_SLUGS.PAID_MEMBERS;
+  const membersOnlyError = () =>
+    new AppError(403, "This teaching is for benefactor members", "MEMBERS_ONLY");
+  let user;
+  if (membersOnly) {
+    const found = await findUserByEmail(input.email);
+    if (!found) throw membersOnlyError();
+    user = found;
+  } else {
+    ({ user } = await findOrCreateUserByEmail({
+      email: input.email,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      language: input.language,
+    }));
+  }
 
   // A grant counts even on a draft (the status gate would hide it from checkEventAccess).
   const fullUser = await db.query.users.findFirst({ where: eq(users.id, user.id) });
@@ -201,6 +213,7 @@ teachingRoutes.post("/:eventId/checkout", authIpLimiter(), async (c) => {
   if (alreadyHasAccess) {
     throw new AppError(409, "You already have access to these recordings", "ALREADY_HAS_ACCESS");
   }
+  if (membersOnly && !(fullUser && hasActiveSubscription(fullUser))) throw membersOnlyError();
 
   const buyer = {
     email: user.email,

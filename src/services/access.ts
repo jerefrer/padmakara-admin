@@ -17,7 +17,16 @@ export const AUDIENCE_SLUGS = {
   // Hidden in the app unless an admin grants access; added for publications,
   // and handled for events exactly like ON_REQUEST.
   RESTRICTED: "restricted",
+  // Sold per teaching to anyone / to members only (members pay too). Opened by a
+  // per-event grant or the admin role alone, never by the audience itself.
+  PAID_ALL: "everyone-paid",
+  PAID_MEMBERS: "member-extra-subscription",
 } as const;
+
+/** Whether the audience slug is one of the paid-per-teaching audiences. */
+export function isPaidAudience(slug: string | null | undefined): boolean {
+  return slug === AUDIENCE_SLUGS.PAID_ALL || slug === AUDIENCE_SLUGS.PAID_MEMBERS;
+}
 
 export type AccessDeniedReason =
   | "STATUS_HIDDEN"
@@ -148,6 +157,8 @@ export async function hasEventGrant(userId: number, eventId: number): Promise<bo
  *   whatever the audience, no grant row (status gate still applies first)
  * - Per-event access grant: allowed whatever the audience and subscription
  *   (only once the status gate has passed, so a granted draft stays hidden)
+ * - Paid audiences (everyone-paid, member-extra-subscription): grant or admin only;
+ *   membership inclusion does not apply
  * - Public events: always allowed
  * - Subscriber events: active subscription
  * - Group member events: active subscription + user in event's group
@@ -203,13 +214,19 @@ async function checkEventAccessWith(
 
   // Included in the membership: active members get it whatever the audience.
   // Pure check on data already loaded, so it costs no query (also in filterAccessibleEvents).
-  if (event.includedInMembership && hasActiveSubscription(user)) {
+  // Paid audiences are the exception: members pay for those too.
+  if (event.includedInMembership && !isPaidAudience(audienceSlug) && hasActiveSubscription(user)) {
     return { allowed: true };
   }
 
   // Per-event grant: wins over audience rules and subscription state
   if (await hasGrant(user)) {
     return { allowed: true };
+  }
+
+  // Paid audiences: only a grant (checked above) or the admin role opens them.
+  if (isPaidAudience(audienceSlug)) {
+    return { allowed: false, reason: "ACCESS_DENIED" };
   }
 
   // Admin-granted access (on_request, initiation): check userEventAttendance

@@ -129,6 +129,8 @@ describe("Access Control Service", () => {
       expect(AUDIENCE_SLUGS.ON_REQUEST).toBe("available-on-request-only");
       expect(AUDIENCE_SLUGS.INITIATION).toBe("received-initiation");
       expect(AUDIENCE_SLUGS.RESTRICTED).toBe("restricted");
+      expect(AUDIENCE_SLUGS.PAID_ALL).toBe("everyone-paid");
+      expect(AUDIENCE_SLUGS.PAID_MEMBERS).toBe("member-extra-subscription");
     });
   });
 
@@ -467,6 +469,64 @@ describe("checkEventAccess — status gate", () => {
   it("still allows a regular user to access a published public event", async () => {
     const r = await checkEventAccess(regular, publicEvent("published"));
     expect(r.allowed).toBe(true);
+  });
+});
+
+describe("checkEventAccess — paid audiences", () => {
+  const paidSlugs = [AUDIENCE_SLUGS.PAID_ALL, AUDIENCE_SLUGS.PAID_MEMBERS];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.query.eventAccessGrants.findFirst.mockResolvedValue(undefined);
+  });
+
+  for (const slug of paidSlugs) {
+    describe(slug, () => {
+      it("should deny a user without a grant, even an active member", async () => {
+        const result = await checkEventAccess(makeUser(), makeEvent(slug));
+        expect(result).toEqual({ allowed: false, reason: "ACCESS_DENIED" });
+      });
+
+      it("should allow a user holding a per-event grant", async () => {
+        mockDb.query.eventAccessGrants.findFirst.mockResolvedValueOnce({ id: 1 });
+        const result = await checkEventAccess(makeUser({ subscriptionStatus: "none" }), makeEvent(slug));
+        expect(result).toEqual({ allowed: true });
+      });
+
+      it("should allow an admin without a grant", async () => {
+        const result = await checkEventAccess(makeUser({ role: "admin" }), makeEvent(slug));
+        expect(result).toEqual({ allowed: true });
+      });
+
+      it("should require authentication", async () => {
+        const result = await checkEventAccess(null, makeEvent(slug));
+        expect(result).toEqual({ allowed: false, reason: "AUTH_REQUIRED" });
+      });
+
+      it("should not open for an active member when includedInMembership is set", async () => {
+        const result = await checkEventAccess(makeUser(), { ...makeEvent(slug), includedInMembership: true });
+        expect(result).toEqual({ allowed: false, reason: "ACCESS_DENIED" });
+      });
+
+      it("should keep a granted draft hidden from non-admins", async () => {
+        mockDb.query.eventAccessGrants.findFirst.mockResolvedValue({ id: 1 });
+        const result = await checkEventAccess(makeUser(), makeEvent(slug, 1, "draft"));
+        expect(result).toEqual({ allowed: false, reason: "STATUS_HIDDEN" });
+      });
+    });
+  }
+
+  it("should list a paid event only for users holding a grant", async () => {
+    const events = [makeEvent(AUDIENCE_SLUGS.PAID_ALL, 1), makeEvent(AUDIENCE_SLUGS.PAID_MEMBERS, 2)];
+    mockSelectChain([{ eventId: 2 }]);
+    const result = await filterAccessibleEvents(makeUser(), events);
+    expect(result.map((e) => e.id)).toEqual([2]);
+  });
+
+  it("should hide paid events from the audience-only view even with a grant", async () => {
+    const events = [makeEvent(AUDIENCE_SLUGS.PAID_ALL, 1)];
+    const result = await filterAccessibleEvents(makeUser(), events, { audienceOnly: true });
+    expect(result).toEqual([]);
   });
 });
 

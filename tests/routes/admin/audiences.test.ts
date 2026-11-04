@@ -48,8 +48,8 @@ describe("admin audiences", () => {
   });
 
   it("should let an admin change the slug of an audience they created", async () => {
-    mockDb.query.audiences.findFirst.mockResolvedValueOnce({ id: 14, slug: "everyone-paid" });
-    const { status } = await put({ nameEn: "Paid", slug: "paid" });
+    mockDb.query.audiences.findFirst.mockResolvedValueOnce({ id: 14, slug: "custom-tier" });
+    const { status } = await put({ nameEn: "Custom", slug: "custom" });
     expect(status).toBe(200);
   });
 

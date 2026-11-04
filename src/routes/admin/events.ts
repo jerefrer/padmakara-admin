@@ -18,7 +18,9 @@ import { transcripts } from "../../db/schema/transcripts.ts";
 import { eventFiles } from "../../db/schema/event-files.ts";
 import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
-import { resolveSaleSettings } from "../../lib/sale-settings.ts";
+import { resolveSaleSettings, MIN_PRICE_CENTS } from "../../lib/sale-settings.ts";
+import { isPaidAudience } from "../../services/access.ts";
+import { audiences } from "../../db/schema/audiences.ts";
 import { eventAccessRoutes } from "./event-access.ts";
 import { eventSortColumns } from "./events-sort.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
@@ -378,6 +380,27 @@ eventRoutes.post("/:id/feature", async (c) => {
   return c.json(full!);
 });
 
+/**
+ * Paid audiences (everyone-paid, member-extra-subscription) only open through a purchase,
+ * so the event must be on paid sale with a valid price, and membership inclusion is off.
+ * Returns whether the audience is a paid one.
+ */
+async function enforcePaidAudienceRules(
+  audienceId: number | null | undefined,
+  sale: { saleMode?: string | null; priceCents?: number | null },
+): Promise<boolean> {
+  if (audienceId == null) return false;
+  const [row] = await db.select({ slug: audiences.slug }).from(audiences).where(eq(audiences.id, audienceId));
+  if (!isPaidAudience(row?.slug)) return false;
+  if (sale.saleMode !== "paid" || sale.priceCents == null || sale.priceCents < MIN_PRICE_CENTS) {
+    throw AppError.badRequest(
+      `This audience needs paid sale with a price of at least ${MIN_PRICE_CENTS} cents`,
+      "VALIDATION_ERROR",
+    );
+  }
+  return true;
+}
+
 eventRoutes.post("/", async (c) => {
   const body = await c.req.json();
   // featuredAt is dropped: a new event is never highlighted (see POST /:id/feature).
@@ -386,7 +409,11 @@ eventRoutes.post("/", async (c) => {
 
   const { saleMode, priceCents, ...rest } = eventData;
   const sale = resolveSaleSettings({ saleMode, priceCents }, null);
-  const [event] = await db.insert(events).values({ ...rest, ...sale }).returning();
+  const paidAudience = await enforcePaidAudienceRules(rest.audienceId, sale);
+  const [event] = await db
+    .insert(events)
+    .values({ ...rest, ...sale, ...(paidAudience ? { includedInMembership: false } : {}) })
+    .returning();
 
   // Insert junction records
   await syncJunctions(event!.id, teacherIds, groupIds, placeIds, organizerIds);
@@ -450,6 +477,23 @@ eventRoutes.put("/:id", async (c) => {
     delete filteredEventData.saleMode;
     delete filteredEventData.priceCents;
     Object.assign(filteredEventData, resolveSaleSettings({ saleMode, priceCents }, current ?? null));
+  }
+
+  // Paid audiences need paid sale and never ride on the membership.
+  if (["audienceId", "saleMode", "priceCents", "includedInMembership"].some((k) => bodyKeys.has(k))) {
+    const current = await db.query.events.findFirst({
+      where: eq(events.id, id),
+      columns: { audienceId: true, saleMode: true, priceCents: true },
+    });
+    if (!current) throw AppError.notFound("Event not found");
+    const paidAudience = await enforcePaidAudienceRules(
+      "audienceId" in filteredEventData ? filteredEventData.audienceId : current.audienceId,
+      {
+        saleMode: filteredEventData.saleMode ?? current.saleMode,
+        priceCents: "priceCents" in filteredEventData ? filteredEventData.priceCents : current.priceCents,
+      },
+    );
+    if (paidAudience) filteredEventData.includedInMembership = false;
   }
 
   // The highlighted event must stay published: the highlight has to be moved first.
