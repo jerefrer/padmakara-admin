@@ -431,6 +431,12 @@ export function parseTrackFile(file: File): ParsedTrack {
     }
   }
 
+  // An ISO date may sit between the number and the speaker
+  // ("005 - 2026-10-11 - JKR - Title"). The speaker and title patterns are
+  // anchored right after the number, so they read the name without it.
+  // Mirrors the backend parser.
+  const undatedName = baseName.replace(/^(\d+)[_\s-]+\d{4}-\d{2}-\d{2}[_\s-]+/, "$1 - ");
+
   // Detect speaker abbreviation. The abbreviation may be followed by " - ", a
   // language bracket (with or without a leading space), or a bare hyphen
   // ("01-KNP-[TIB+PT]..."). Mirrors the backend parser's separator set.
@@ -438,7 +444,7 @@ export function parseTrackFile(file: File): ParsedTrack {
   // ("003 [TIB] KPS - Motivation"); without the optional bracket group here the
   // speaker is never found for tagged files. Mirrors SPEAKER_NUM_PREFIX in the
   // backend parser.
-  const speakerMatch = baseName.match(
+  const speakerMatch = undatedName.match(
     /^\d+[_\s-]+(?:\[[^\]]*\][\s_-]*)?([A-Z]{2,5})(?:\s+-|\s*\[|-)/i,
   );
   if (speakerMatch && speakerMatch[1]!.toUpperCase() !== "TRAD") {
@@ -450,7 +456,7 @@ export function parseTrackFile(file: File): ParsedTrack {
   // Case-sensitive so lowercase title words are never captured. Mirrors the
   // backend parser's direct fallback.
   if (!speaker) {
-    const directMatch = baseName.match(/^\d+[_\s-]+(?:\[[^\]]*\][\s_-]*)?([A-Z]{2,5})[\s_]+/);
+    const directMatch = undatedName.match(/^\d+[_\s-]+(?:\[[^\]]*\][\s_-]*)?([A-Z]{2,5})[\s_]+/);
     if (directMatch && directMatch[1] !== "TRAD") {
       speaker = directMatch[1]!;
     }
@@ -460,7 +466,7 @@ export function parseTrackFile(file: File): ParsedTrack {
   // tag must go first: the speaker strip below is ^-anchored, so leaving
   // "[TIB] " in front of "KPS - Motivation" makes it miss and the abbreviation
   // stays in the title.
-  title = baseName
+  title = undatedName
     .replace(/^\d+[_\s-]+/, "")
     .replace(/\[[^\]]+\]\s*/i, "");
 
@@ -493,7 +499,8 @@ export function parseTrackFile(file: File): ParsedTrack {
   title = title
     // Remove trailing dashes/whitespace left behind by the marker.
     .replace(/[\s-]+$/, "")
-    .trim();
+    .trim()
+    .replace(/_/g, " ");
 
   if (!title) title = baseName;
 

@@ -161,9 +161,14 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     }
   }
 
+  // An ISO date may sit between the number and the speaker
+  // ("005 - 2026-10-11 - JKR - Title"). The speaker and title patterns are
+  // anchored right after the number, so they read the name without it.
+  const undatedName = baseName.replace(/^(\d+)[_\s-]+\d{4}-\d{2}-\d{2}[_\s-]+/, "$1 - ");
+
   // Extract speaker abbreviation(s) — handle combos like KPS+JKR, JKR+TRAD, PWR&TRAD
   // Pattern: "001 KPS+JKR title" or "001 JKR+TRAD - title" or "001 PWR&TRAD - title"
-  const comboMatch = baseName.match(
+  const comboMatch = undatedName.match(
     new RegExp(`${SPEAKER_NUM_PREFIX}([A-Z]{2,5})[+&]([A-Z]{2,5})(?:\\s+-|\\s+\\[|\\s+[A-Z]|\\s+[a-z]|-)`, "i"),
   );
   if (comboMatch) {
@@ -199,7 +204,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     }
   } else {
     // Single speaker pattern — with separator (hyphen or bracket)
-    const speakerMatch = baseName.match(
+    const speakerMatch = undatedName.match(
       new RegExp(`${SPEAKER_NUM_PREFIX}([A-Z]{2,5})(?:\\s+-|\\s+\\[|-)`, "i"),
     );
     if (speakerMatch) {
@@ -214,7 +219,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     // e.g., "001 JKR How to relate to our mind" or "001_YMR_Conference"
     // Case-sensitive: only matches UPPERCASE tokens to avoid capturing title words
     if (!speaker) {
-      const directMatch = baseName.match(new RegExp(`${SPEAKER_NUM_PREFIX}([A-Z]{2,5})[\\s_]+`));
+      const directMatch = undatedName.match(new RegExp(`${SPEAKER_NUM_PREFIX}([A-Z]{2,5})[\\s_]+`));
       if (directMatch) {
         const sp = directMatch[1]!;
         if (!NON_TEACHER_TOKENS.has(sp)) {
@@ -313,7 +318,7 @@ export function parseTrackFilename(filename: string): ParsedTrack {
     : speaker;
 
   // Extract clean title
-  title = baseName
+  title = undatedName
     // Remove leading ISO date prefix (e.g. "2025-10-27-")
     .replace(/^\d{4}-\d{2}-\d{2}[_\s-]+/, "")
     // Remove a leading track range (e.g. "001-037-")

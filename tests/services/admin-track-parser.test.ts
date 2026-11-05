@@ -11,6 +11,25 @@ function fileFor(name: string): File {
 }
 
 describe("admin parseTrackFile", () => {
+  describe("ISO date between the number and the speaker", () => {
+    it("should find the speaker and leave a clean title", () => {
+      const result = parseTrackFile(fileFor("005 - 2026-10-11 - JKR - Learning to Let Go - Morning.mp3"));
+      expect(result.trackNumber).toBe(5);
+      expect(result.speaker).toBe("JKR");
+      expect(result.title).toBe("Learning to Let Go - Morning");
+      expect(result.date).toBe("2026-10-11");
+    });
+
+    it("should leave a clean title on a translation track", () => {
+      const result = parseTrackFile(fileFor("002 - 2026-10-10 - TRAD - A Importancia do Desapego - Manha_Parte_2.mp3"));
+      expect(result.isTranslation).toBe(true);
+      expect(result.languages).toEqual(["pt"]);
+      expect(result.speaker).toBeNull();
+      expect(result.title).toBe("A Importancia do Desapego - Manha Parte 2");
+      expect(result.titlePt).toBe("A Importancia do Desapego - Manha Parte 2");
+    });
+  });
+
   describe("track number extraction", () => {
     it("reads a hyphen-separated track number (regression: was 0)", () => {
       const result = parseTrackFile(fileFor("07-KNP-[TIB+PT] Oracoes Iniciais (11 June PM).mp3"));
