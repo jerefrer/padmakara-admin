@@ -9,7 +9,7 @@ import { authIpLimiter } from "../middleware/rate-limit.ts";
 import { AppError } from "../lib/errors.ts";
 import { teachingCheckoutSchema } from "../lib/schemas.ts";
 import { config } from "../config.ts";
-import { AUDIENCE_SLUGS, checkEventAccess, hasActiveSubscription, hasEventGrant } from "../services/access.ts";
+import { AUDIENCE_SLUGS, checkEventAccess, filterAccessibleEvents, hasActiveSubscription, hasEventGrant } from "../services/access.ts";
 import { findOrCreateUserByEmail, findUserByEmail } from "../services/users-lookup.ts";
 import { grantEventAccess } from "../services/event-access.ts";
 import {
@@ -75,22 +75,47 @@ async function findSaleEvent(id: number) {
 
 // ─── Authenticated ───
 
-/** GET /api/teachings/mine: published events the user holds a grant for, newest grant first. */
+/**
+ * GET /api/teachings/mine: the published events of the user's library that no group
+ * lists. Bought events come first, newest grant first. Then the events their audience
+ * opens to this user with no group linked (Every Member, event participants), which
+ * would otherwise appear nowhere. Public events stay in Teachings & Talks.
+ */
 teachingRoutes.get("/mine", authMiddleware, async (c) => {
   const user = getUser(c);
   const grants = await db.query.eventAccessGrants.findMany({
     where: eq(eventAccessGrants.userId, user.id),
   });
-  if (grants.length === 0) return c.json([]);
-
   const rank = new Map(grants.map((g) => [g.eventId, g.createdAt.getTime()]));
+
+  const published = await db.query.events.findMany({
+    where: eq(events.status, "published"),
+    with: { audience: true, eventRetreatGroups: true },
+  });
+  const fullUser = await db.query.users.findFirst({ where: eq(users.id, user.id) });
+  const open = fullUser
+    ? await filterAccessibleEvents(
+        fullUser,
+        published.filter(
+          (e) => !rank.has(e.id) && e.audience?.slug !== AUDIENCE_SLUGS.PUBLIC && e.eventRetreatGroups.length === 0,
+        ),
+      )
+    : [];
+
+  const ids = [...rank.keys(), ...open.map((e) => e.id)];
+  if (ids.length === 0) return c.json([]);
+
   const rows = await db.query.events.findMany({
-    where: inArray(events.id, [...rank.keys()]),
+    where: inArray(events.id, ids),
     with: eventListWith,
   });
+  const openIds = new Set(open.map((e) => e.id));
   const data = rows
-    .filter((e) => e.status === "published")
-    .sort((a, b) => (rank.get(b.id) ?? 0) - (rank.get(a.id) ?? 0));
+    .filter((e) => e.status === "published" && (rank.has(e.id) || openIds.has(e.id)))
+    .sort((a, b) => {
+      const byGrant = (rank.get(b.id) ?? 0) - (rank.get(a.id) ?? 0);
+      return byGrant || String(b.startDate ?? "").localeCompare(String(a.startDate ?? ""));
+    });
 
   await resolveEventsTeacherUrls(data);
   await resolveEventsGroupUrls(data);

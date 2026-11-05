@@ -11,6 +11,7 @@ const eventFindFirst = vi.fn();
 const userFindFirst = vi.fn();
 const orderFindFirst = vi.fn();
 const grantFindMany = vi.fn();
+const attendanceFindFirst = vi.fn(async (..._a: unknown[]): Promise<unknown> => undefined);
 const eventFindMany = vi.fn();
 const insertValues = vi.fn();
 const updateSet = vi.fn();
@@ -23,8 +24,9 @@ vi.mock("../../src/db/index.ts", () => ({
       users: { findFirst: (...a: unknown[]) => userFindFirst(...a) },
       teachingOrders: { findFirst: (...a: unknown[]) => orderFindFirst(...a) },
       eventAccessGrants: { findMany: (...a: unknown[]) => grantFindMany(...a), findFirst: async () => undefined },
-      userEventAttendance: { findFirst: async () => undefined },
+      userEventAttendance: { findFirst: (...a: unknown[]) => attendanceFindFirst(...a) },
     },
+    select: vi.fn(() => ({ from: () => ({ where: () => Promise.resolve([]) }) })),
     insert: vi.fn(() => ({
       values: (v: unknown) => {
         insertValues(v);
@@ -466,11 +468,69 @@ describe("GET /api/teachings/mine", () => {
     expect(b.map((e: { id: number }) => e.id)).toEqual([2, 1]);
   });
 
-  it("should return an empty list when the user has no grants", async () => {
+  it("should return an empty list when the user has no grants and nothing else opens", async () => {
     const token = await createAccessToken({ sub: 3, email: "buyer@example.com", role: "user" });
     grantFindMany.mockResolvedValue([]);
+    eventFindMany.mockResolvedValue([]);
+    userFindFirst.mockResolvedValue({ id: 3, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null });
     const { body: b } = await testJson("/api/teachings/mine", { headers: { Authorization: `Bearer ${token}` } });
     expect(b).toEqual([]);
-    expect(eventFindMany).not.toHaveBeenCalled();
+  });
+
+  describe("events the audience opens outside any group", () => {
+    const row = (id: number, slug: string, groups: unknown[] = [], startDate = "2026-01-01") => ({
+      id, status: "published", startDate, audience: { slug }, includedInMembership: false,
+      sessions: [], eventTeachers: [], eventRetreatGroups: groups, eventPlaces: [], eventOrganizers: [], videos: [],
+    });
+    const activeMember = { id: 3, role: "user", subscriptionStatus: "active", subscriptionExpiresAt: null };
+    const mine = async () => {
+      const token = await createAccessToken({ sub: 3, email: "member@example.com", role: "user" });
+      const { body } = await testJson("/api/teachings/mine", { headers: { Authorization: `Bearer ${token}` } });
+      return (body as { id: number }[]).map((e) => e.id);
+    };
+
+    beforeEach(() => {
+      grantFindMany.mockResolvedValue([]);
+      attendanceFindFirst.mockReset();
+      attendanceFindFirst.mockResolvedValue(undefined);
+      userFindFirst.mockResolvedValue(activeMember);
+    });
+
+    it("should list an Every Member event for an active member", async () => {
+      eventFindMany.mockResolvedValue([row(1, "free-subscribers")]);
+      expect(await mine()).toEqual([1]);
+    });
+
+    it("should not list it for someone without an active membership", async () => {
+      eventFindMany.mockResolvedValue([row(1, "free-subscribers")]);
+      userFindFirst.mockResolvedValue({ ...activeMember, subscriptionStatus: "none" });
+      expect(await mine()).toEqual([]);
+    });
+
+    it("should list an event for a member marked as its participant", async () => {
+      eventFindMany.mockResolvedValue([row(1, "event-participants")]);
+      attendanceFindFirst.mockResolvedValue({ eventId: 1 });
+      expect(await mine()).toEqual([1]);
+    });
+
+    it("should not list a participants event for someone else", async () => {
+      eventFindMany.mockResolvedValue([row(1, "event-participants")]);
+      expect(await mine()).toEqual([]);
+    });
+
+    it("should leave out public events and events reached through a group", async () => {
+      eventFindMany.mockResolvedValue([row(1, "free-anyone"), row(2, "free-subscribers", [{ retreatGroupId: 5 }])]);
+      expect(await mine()).toEqual([]);
+    });
+
+    it("should put bought events first, then the others from newest to oldest", async () => {
+      grantFindMany.mockResolvedValue([{ eventId: 3, createdAt: new Date("2026-01-01") }]);
+      eventFindMany.mockResolvedValue([
+        row(1, "free-subscribers", [], "2020-01-01"),
+        row(2, "free-subscribers", [], "2024-01-01"),
+        row(3, "everyone-paid", [], "2010-01-01"),
+      ]);
+      expect(await mine()).toEqual([3, 2, 1]);
+    });
   });
 });
