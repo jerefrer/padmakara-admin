@@ -22,6 +22,7 @@ const { mockDb } = vi.hoisted(() => {
       },
       userGroupMemberships: {
         findFirst: vi.fn(),
+        findMany: vi.fn((): Promise<unknown[]> => Promise.resolve([])),
       },
     },
     select: vi.fn(() => ({
@@ -240,5 +241,43 @@ describe("GET /api/groups — grants and membership inclusion do not create grou
     mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
     const { body } = await testJson("/api/groups", { headers: await bearerToken("user") });
     expect((body as Array<{ id: number }>).map((g) => g.id)).toEqual([GROUP_ID]);
+  });
+});
+
+describe("GET /api/groups — a shared event only lists the user's own groups", () => {
+  const otherGroup = { ...mockGroup, id: 6, name: "Other Group", displayOrder: 2 };
+  const sharedEvent = {
+    id: 1,
+    status: "published",
+    audience: { slug: "retreat-group-members" },
+    includedInMembership: false,
+    eventRetreatGroups: [{ retreatGroup: mockGroup }, { retreatGroup: otherGroup }],
+  };
+  const activeMember = { ...makeUserRow("user"), subscriptionStatus: "active" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.query.events.findMany.mockResolvedValueOnce([sharedEvent]);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(activeMember);
+    mockDb.select.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn(() => Promise.resolve([{ retreatGroupId: GROUP_ID }, { retreatGroupId: 6 }])),
+      })),
+    } as any);
+  });
+
+  it("should leave out the event's other group when the user is not its member", async () => {
+    mockDb.query.userEventAttendance.findFirst.mockResolvedValue(null);
+    mockDb.query.userGroupMemberships.findFirst.mockResolvedValue({ retreatGroupId: GROUP_ID });
+    mockDb.query.userGroupMemberships.findMany.mockResolvedValue([{ retreatGroupId: GROUP_ID }]);
+    const { body } = await testJson("/api/groups", { headers: await bearerToken("user") });
+    expect((body as Array<{ id: number }>).map((g) => g.id)).toEqual([GROUP_ID]);
+  });
+
+  it("should keep the event's groups for an attendee who belongs to none of them", async () => {
+    mockDb.query.userEventAttendance.findFirst.mockResolvedValue({ eventId: 1 });
+    mockDb.query.userGroupMemberships.findMany.mockResolvedValue([]);
+    const { body } = await testJson("/api/groups", { headers: await bearerToken("user") });
+    expect((body as Array<{ id: number }>).map((g) => g.id)).toEqual([GROUP_ID, 6]);
   });
 });

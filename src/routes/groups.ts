@@ -3,10 +3,10 @@ import { eq, and, inArray, or, sql } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { retreatGroups } from "../db/schema/retreat-groups.ts";
 import { eventRetreatGroups, events } from "../db/schema/retreats.ts";
-import { users } from "../db/schema/users.ts";
+import { users, userGroupMemberships } from "../db/schema/users.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
-import { filterAccessibleEvents, eventStatusVisibleTo } from "../services/access.ts";
+import { AUDIENCE_SLUGS, filterAccessibleEvents, eventStatusVisibleTo } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
@@ -58,11 +58,23 @@ groupRoutes.get("/", async (c) => {
   const fullUser = await getFullUser(user.id);
   const accessibleEvents = await filterAccessibleEvents(fullUser, allEvents, { audienceOnly: true });
 
+  const memberships = await db.query.userGroupMemberships.findMany({
+    where: eq(userGroupMemberships.userId, user.id),
+  });
+  const memberOf = new Set(memberships.map((m) => m.retreatGroupId));
+
   // Extract unique retreat groups from accessible events
   const groupMap = new Map<number, typeof retreatGroups.$inferSelect>();
   for (const event of accessibleEvents) {
-    for (const erg of (event as any).eventRetreatGroups || []) {
+    const linked: any[] = (event as any).eventRetreatGroups || [];
+    // An event shared by several groups must not list the ones the user is not in.
+    // A member of none of them got in as an attendee, and keeps seeing them all.
+    const restrictToMemberships =
+      (event as any).audience?.slug === AUDIENCE_SLUGS.GROUP_MEMBERS &&
+      linked.some((erg) => memberOf.has(erg.retreatGroup?.id));
+    for (const erg of linked) {
       const rg = erg.retreatGroup;
+      if (restrictToMemberships && !memberOf.has(rg?.id)) continue;
       if (rg && !groupMap.has(rg.id)) {
         groupMap.set(rg.id, rg);
       }
