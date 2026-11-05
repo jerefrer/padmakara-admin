@@ -142,3 +142,14 @@ describe("DocumentsSection duplicate drops", () => {
     expect(notify).toHaveBeenCalledWith("padmakara.documents.alreadyAdded", { type: "warning" });
   });
 });
+
+describe("DocumentsSection count", () => {
+  it("should report how many documents the event has once they are loaded", async () => {
+    const onCount = vi.fn();
+    act(() => {
+      root.render(<DocumentsSection key="counted" eventCode="E" eventId={5} onCount={onCount} />);
+    });
+    await flush();
+    expect(onCount).toHaveBeenLastCalledWith(1);
+  });
+});

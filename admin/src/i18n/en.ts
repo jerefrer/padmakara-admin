@@ -571,6 +571,7 @@ export const en = {
       media: "Video & audio",
       transcription: "Transcription & read-along",
       texts: "Related texts",
+      documentsSummary: "%{smart_count} document |||| %{smart_count} documents",
       sessionsSummary: "%{smart_count} session |||| %{smart_count} sessions",
       tracksSummary: "%{smart_count} track |||| %{smart_count} tracks",
       videosSummary: "%{smart_count} video |||| %{smart_count} videos",
@@ -579,7 +580,6 @@ export const en = {
       nothingYet: "Nothing yet",
       noTracks: "No tracks",
       titleMissing: "Title missing",
-      textsEmpty: "No related texts for this event.",
     },
     eventAccess: {
       title: "People with access",

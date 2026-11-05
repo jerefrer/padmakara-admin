@@ -2,7 +2,8 @@
  * Event-level "Documents" section — images, PDFs, and Office files that
  * accompany an event but aren't a track (audio/video) or a transcript.
  *
- * Rendered beside the Transcript section in both the create and edit forms.
+ * On the edit page it lives in "Related texts"; on the create form, beside the
+ * Transcript section.
  * Uploading only needs `eventCode` (the S3 key prefix), so the drop-zone is
  * available before the event has a real database id. Persisting an
  * `event_files` row, however, needs a real `eventId` — so:
@@ -114,6 +115,8 @@ interface DocumentsSectionProps {
   /** Create-flow only: called after each successful upload while `eventId`
    *  is still undefined, so the parent can persist the row once it has one. */
   onPendingUpload?: (doc: PendingDocument) => void;
+  /** Reports how many documents the event has, once they are loaded. */
+  onCount?: (count: number) => void;
 }
 
 export const DocumentsSection = ({
@@ -121,6 +124,7 @@ export const DocumentsSection = ({
   eventId,
   disabled = false,
   onPendingUpload,
+  onCount,
 }: DocumentsSectionProps) => {
   const dataProvider = useDataProvider();
   const notify = useNotify();
@@ -168,6 +172,11 @@ export const DocumentsSection = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
+
+  useEffect(() => {
+    if (eventId && !loadingFiles) onCount?.(files.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventId, loadingFiles, files.length]);
 
   // Files already uploaded in this session; covers create mode, where `files`
   // stays empty until the event is saved.

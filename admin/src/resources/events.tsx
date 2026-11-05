@@ -701,6 +701,9 @@ interface EventFormProps {
   publicationsPanel?: React.ReactNode;
   /** Number of related publications, once loaded (null while unknown). */
   publicationCount?: number | null;
+  documentsPanel?: React.ReactNode;
+  /** Number of event documents, once loaded (null while unknown). */
+  documentCount?: number | null;
 }
 
 /** Ids of the collapsible cards on the event edit page, in display order. */
@@ -789,7 +792,7 @@ export const EventFormFields = ({
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount,
   readOnlyEventCode,
-  collapsible, audioExtra, transcriptionExtra, publicationsPanel, publicationCount,
+  collapsible, audioExtra, transcriptionExtra, publicationsPanel, publicationCount, documentsPanel, documentCount,
 }: EventFormProps) => {
   const translate = useTranslate();
   // How many videos point at each session, for the empty-session delete warning.
@@ -1671,19 +1674,16 @@ export const EventFormFields = ({
           {...sectionProps("texts")}
           title={translate("padmakara.eventSections.texts")}
           summary={
-            publicationCount == null
+            publicationCount == null || documentCount == null
               ? ""
-              : publicationCount > 0
-                ? translate("padmakara.eventSections.publicationsSummary", { smart_count: publicationCount })
-                : translate("padmakara.eventSections.nothingYet")
+              : [
+                  publicationCount > 0 ? translate("padmakara.eventSections.publicationsSummary", { smart_count: publicationCount }) : "",
+                  documentCount > 0 ? translate("padmakara.eventSections.documentsSummary", { smart_count: documentCount }) : "",
+                ].filter(Boolean).join(" · ") || translate("padmakara.eventSections.nothingYet")
           }
         >
           {publicationsPanel}
-          {publicationCount === 0 && (
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              {translate("padmakara.eventSections.textsEmpty")}
-            </Typography>
-          )}
+          {documentsPanel}
         </CollapsibleSection>
       </>
     );
@@ -3177,6 +3177,7 @@ export const EventEdit = () => {
       endDate: event.endDate || "",
       bibliography: event.bibliography || "",
       bibliographyPt: event.bibliographyPt || "",
+  const [documentCount, setDocumentCount] = useState<number | null>(null);
       bibliographyEnReviewed: event.bibliographyEnReviewed ?? true,
       bibliographyPtReviewed: event.bibliographyPtReviewed ?? true,
       wixId: event.wixId ?? null,
@@ -4377,13 +4378,6 @@ export const EventEdit = () => {
       {trackCount > 0 && transcriptCount > 0 && event?.id && (
         <ReadAlongPanel eventId={Number(event.id)} />
       )}
-
-      {/* Documents (images, PDFs, Office files) */}
-      <DocumentsSection
-        eventCode={form.eventCode}
-        eventId={event?.id ? Number(event.id) : undefined}
-        disabled={saving}
-      />
     </>
   );
 
@@ -4403,6 +4397,15 @@ export const EventEdit = () => {
         trailing={
           <Button variant="outlined" size="small" onClick={() => sections.setAll(!sections.allOpen)}>
             {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
+  const documentsPanel = (
+    <DocumentsSection
+      eventCode={form.eventCode}
+      eventId={event?.id ? Number(event.id) : undefined}
+      disabled={saving}
+      onCount={setDocumentCount}
+    />
+  );
+
           </Button>
         }
       />
@@ -4470,6 +4473,8 @@ export const EventEdit = () => {
         onDelete={() => setDeleteOpen(true)}
         onCancel={() => redirect("list", "events")}
         onSave={() => handleSave(false)}
+        documentsPanel={documentsPanel}
+        documentCount={documentCount}
         onSaveAndClose={() => handleSave(true)}
       />
 

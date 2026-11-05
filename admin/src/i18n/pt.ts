@@ -769,6 +769,7 @@ export const pt = {
       media: "Vídeo e áudio",
       transcription: "Transcrição e leitura acompanhada",
       texts: "Textos relacionados",
+      documentsSummary: "%{smart_count} documento |||| %{smart_count} documentos",
       sessionsSummary: "%{smart_count} sessão |||| %{smart_count} sessões",
       tracksSummary: "%{smart_count} faixa |||| %{smart_count} faixas",
       videosSummary: "%{smart_count} vídeo |||| %{smart_count} vídeos",
@@ -777,7 +778,6 @@ export const pt = {
       nothingYet: "Ainda nada",
       noTracks: "Sem faixas",
       titleMissing: "Falta o título",
-      textsEmpty: "Sem textos relacionados com este evento.",
     },
     eventAccess: {
       title: "Pessoas com acesso",
