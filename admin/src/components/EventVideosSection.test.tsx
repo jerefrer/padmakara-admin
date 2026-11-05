@@ -18,6 +18,7 @@ vi.mock("../utils/authFetch", () => ({ authFetch: (...a: unknown[]) => (authFetc
 vi.mock("./AddVideoDialog", () => ({ AddVideoDialog: () => null }));
 vi.mock("./MediaPreviewDialog", () => ({ MediaPreviewDialog: () => null }));
 const editorProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }));
+const slidesState = vi.hoisted(() => ({ burnStatus: "none" }));
 vi.mock("./SlideEditor", () => ({
   SlideEditor: (props: Record<string, unknown>) => {
     editorProps.last = props;
@@ -25,7 +26,7 @@ vi.mock("./SlideEditor", () => ({
   },
   BurnStatusChip: () => null,
   BurnActionButton: () => null,
-  useVideoSlides: () => ({ doc: { intro: [], outro: [] }, burnStatus: "none", burnError: null }),
+  useVideoSlides: () => ({ doc: { intro: [], outro: [] }, burnStatus: slidesState.burnStatus, burnError: null }),
 }));
 vi.mock("./VideoSubtitles", () => ({
   SubtitleChips: () => null,
@@ -43,6 +44,7 @@ let root: Root;
 
 beforeEach(() => {
   authFetch.mockClear();
+  slidesState.burnStatus = "none";
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -95,6 +97,19 @@ const progress = (over: Record<string, unknown> = {}) => ({
   speed: 0,
   files: [],
   ...over,
+});
+
+describe("EventVideosSection transcoding label", () => {
+  it("should say transcoding while a video has no duration yet", () => {
+    mount(video({ durationSeconds: null }));
+    expect(container.textContent).toContain("padmakara.videos.transcoding");
+  });
+
+  it("should not say transcoding when the burn failed", () => {
+    slidesState.burnStatus = "failed";
+    mount(video({ durationSeconds: null }));
+    expect(container.textContent).not.toContain("padmakara.videos.transcoding");
+  });
 });
 
 describe("EventVideosSection upload progress in the slide editor", () => {

@@ -653,16 +653,18 @@ const VideoRow = ({
           </>
         ) : (
           <>
-            <Chip
-              label={
-                video.durationSeconds
-                  ? formatDuration(video.durationSeconds)
-                  : translate("padmakara.videos.transcoding") || "Transcoding…"
-              }
-              size="small"
-              variant="outlined"
-              sx={{ height: 22, flexShrink: 0, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
-            />
+            {(video.durationSeconds || slides.burnStatus !== "failed") && (
+              <Chip
+                label={
+                  video.durationSeconds
+                    ? formatDuration(video.durationSeconds)
+                    : translate("padmakara.videos.transcoding") || "Transcoding…"
+                }
+                size="small"
+                variant="outlined"
+                sx={{ height: 22, flexShrink: 0, "& .MuiChip-label": { fontSize: "0.68rem", px: 0.8 } }}
+              />
+            )}
 
             <SubtitleChips
               state={subtitles}
