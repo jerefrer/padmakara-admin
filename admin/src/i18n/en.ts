@@ -422,6 +422,7 @@ export const en = {
         deleteFailed: "Could not delete tracks: %{message}",
       },
       select: "Select track",
+      selectAll: "Select all",
       clearSelection: "Clear selection",
       moveTo: "Move to session…",
       newSession: "New session",

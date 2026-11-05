@@ -27,7 +27,11 @@ afterEach(() => {
   container.remove();
 });
 
-function render(selectedCount: number, onBulkDelete?: () => void | Promise<void>) {
+function render(
+  selectedCount: number,
+  onBulkDelete?: () => void | Promise<void>,
+  selectAll?: { totalCount: number; onSelectAll: () => void },
+) {
   act(() => {
     root.render(
       <MoveTracksBar
@@ -38,6 +42,8 @@ function render(selectedCount: number, onBulkDelete?: () => void | Promise<void>
         onMove={() => {}}
         onClear={() => {}}
         onBulkDelete={onBulkDelete}
+        totalCount={selectAll?.totalCount}
+        onSelectAll={selectAll?.onSelectAll}
       />,
     );
   });
@@ -74,5 +80,30 @@ describe("MoveTracksBar", () => {
   it("should not offer deletion when no delete handler is given", () => {
     render(3);
     expect(container.querySelector("[data-testid=delete-selected-tracks]")).toBeNull();
+  });
+
+  const selectAllButton = () => container.querySelector("[data-testid=select-all-tracks]") as HTMLButtonElement | null;
+
+  it("should offer Select all before any track is ticked, without the sticky bar", () => {
+    const onSelectAll = vi.fn();
+    render(0, undefined, { totalCount: 8, onSelectAll });
+    expect(container.querySelector("[data-testid=move-tracks-bar]")).toBeNull();
+    act(() => selectAllButton()!.click());
+    expect(onSelectAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("should offer Select all while only some tracks are ticked", () => {
+    render(3, undefined, { totalCount: 8, onSelectAll: vi.fn() });
+    expect(selectAllButton()).not.toBeNull();
+  });
+
+  it("should not offer Select all once every track is ticked", () => {
+    render(8, undefined, { totalCount: 8, onSelectAll: vi.fn() });
+    expect(selectAllButton()).toBeNull();
+  });
+
+  it("should not offer Select all when the event has no track", () => {
+    render(0, undefined, { totalCount: 0, onSelectAll: vi.fn() });
+    expect(selectAllButton()).toBeNull();
   });
 });

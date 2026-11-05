@@ -620,6 +620,7 @@ export const pt = {
         deleteFailed: "Não foi possível eliminar as faixas: %{message}",
       },
       select: "Selecionar faixa",
+      selectAll: "Selecionar tudo",
       clearSelection: "Limpar seleção",
       moveTo: "Mover para sessão…",
       newSession: "Nova sessão",

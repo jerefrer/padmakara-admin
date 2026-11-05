@@ -35,6 +35,9 @@ interface MoveTracksBarProps {
   onBulkEdit?: (patch: BulkTrackPatch) => void | Promise<void>;
   /** When given, the bar offers "Delete selected…" behind a confirmation. */
   onBulkDelete?: () => void | Promise<void>;
+  /** How many tracks the event has; with onSelectAll, offers "Select all". */
+  totalCount?: number;
+  onSelectAll?: () => void;
 }
 
 /** Shown while tracks are ticked on the event edit page: move them to an
@@ -49,6 +52,8 @@ export const MoveTracksBar = ({
   teachers = [],
   onBulkEdit,
   onBulkDelete,
+  totalCount = 0,
+  onSelectAll,
 }: MoveTracksBarProps) => {
   const translate = useTranslate();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -57,7 +62,15 @@ export const MoveTracksBar = ({
   const [date, setDate] = useState(defaultDate);
   const [timePeriod, setTimePeriod] = useState<string>("morning");
 
-  if (selectedCount === 0) return null;
+  const selectAllButton = onSelectAll && selectedCount < totalCount && (
+    <Button size="small" disabled={busy} data-testid="select-all-tracks" onClick={onSelectAll}>
+      {translate("padmakara.tracks.selectAll")}
+    </Button>
+  );
+
+  if (selectedCount === 0) {
+    return selectAllButton ? <Box sx={{ mb: 1 }}>{selectAllButton}</Box> : null;
+  }
 
   const handleSelect = (value: string) => {
     if (value === NEW_SESSION) {
@@ -129,6 +142,7 @@ export const MoveTracksBar = ({
         </Button>
       )}
       <Box sx={{ flex: 1 }} />
+      {selectAllButton}
       <Button size="small" onClick={onClear} disabled={busy}>
         {translate("padmakara.tracks.clearSelection")}
       </Button>

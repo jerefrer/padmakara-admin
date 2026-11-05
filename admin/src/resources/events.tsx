@@ -1090,6 +1090,9 @@ export const EventFormFields = ({
       {/* ── Section 1: Event Details ── */}
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, mt: 1 }}>
         <Box sx={{ flex: 1 }}>
+  const selectableTrackIds = sessions.flatMap((sess) =>
+    sess.tracks.flatMap((track) => (track.id !== undefined ? [track.id] : [])),
+  );
           {!collapsible && (
             <SectionHeader title={translate("padmakara.events.details")} subtitle={translate("padmakara.events.reviewComplete")} />
           )}
@@ -1585,6 +1588,8 @@ export const EventFormFields = ({
             videoCountBySession={videoCountBySession}
           />
         </Box>
+              totalCount={selectableTrackIds.length}
+              onSelectAll={() => onSelectedTrackIdsChange(new Set(selectableTrackIds))}
       )}
     </>
   );
