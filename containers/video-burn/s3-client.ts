@@ -5,11 +5,16 @@
  * in src/services/s3.ts hands every other Batch pipeline container.
  */
 
-import { S3Client, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
+
+// A single PUT stops at 5 GB, and merged videos are often larger. 64 MiB parts
+// reach 640 GB within the 10,000-part limit, well above the 200 GiB scratch disk.
+export const UPLOAD_PART_BYTES = 64 * 1024 * 1024;
 
 export interface StorageConfig {
   endpoint: string;
@@ -53,14 +58,17 @@ export async function uploadFile(
   srcPath: string,
   contentType: string,
 ): Promise<void> {
-  await client.send(
-    new PutObjectCommand({
+  await new Upload({
+    client,
+    params: {
       Bucket: bucket,
       Key: key,
       Body: createReadStream(srcPath),
       ContentType: contentType,
-    }),
-  );
+    },
+    partSize: UPLOAD_PART_BYTES,
+    leavePartsOnError: false,
+  }).done();
 }
 
 export async function presignGet(
