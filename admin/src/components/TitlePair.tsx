@@ -47,6 +47,8 @@ export const englishTitleIsCopy = (
 interface TitlePairProps {
   titleEn: string | null | undefined;
   titlePt: string | null | undefined;
+  /** A Portuguese-only track: its one title is not missing a Portuguese version. */
+  portugueseOnly?: boolean;
   /** Shown as the first line when both titles are empty. */
   fallback: string;
   /** Missing flags count as reviewed (rows that predate the flags). */
@@ -60,6 +62,7 @@ interface TitlePairProps {
 export const TitlePair = ({
   titleEn,
   titlePt,
+  portugueseOnly = false,
   fallback,
   titleEnReviewed = true,
   titlePtReviewed = true,
@@ -106,7 +109,7 @@ export const TitlePair = ({
           </Box>
         )}
       </Box>
-      {!ptIsPrimary && (
+      {!ptIsPrimary && !(portugueseOnly && !pt) && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
           <Typography
             variant="caption"

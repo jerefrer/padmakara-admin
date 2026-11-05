@@ -1153,6 +1153,7 @@ const TrackRow = ({
         <TitlePair
           titleEn={cleanTitle(track)}
           titlePt={track.titlePt}
+          portugueseOnly={(track.languages ?? []).includes("pt") && !(track.languages ?? []).includes("en")}
           fallback={track.title}
           titleEnReviewed={track.titleEnReviewed ?? true}
           titlePtReviewed={track.titlePtReviewed ?? true}

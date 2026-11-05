@@ -289,6 +289,7 @@ const ReadonlyTrackRow = memo(function ReadonlyTrackRow({
         <TitlePair
           titleEn={track.titleEn}
           titlePt={track.titlePt}
+          portugueseOnly={track.languages.includes("pt") && !track.languages.includes("en")}
           fallback={track.title}
           titleEnReviewed={track.titleEnReviewed}
           titlePtReviewed={track.titlePtReviewed}

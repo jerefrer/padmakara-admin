@@ -130,3 +130,20 @@ describe("TitlePair", () => {
     });
   });
 });
+
+describe("TitlePair on a Portuguese-only track", () => {
+  it("should not call its one title missing a Portuguese version", () => {
+    act(() =>
+      root.render(
+        <TitlePair titleEn="Usar o mestre como caminho" titlePt="" portugueseOnly fallback="" onMarkReviewed={vi.fn()} />,
+      ),
+    );
+    expect(container.textContent).toContain("Usar o mestre como caminho");
+    expect(container.textContent).not.toContain("padmakara.events.noPtTitle");
+  });
+
+  it("should still flag an English track that has no Portuguese title", () => {
+    act(() => root.render(<TitlePair titleEn="Using the teacher" titlePt="" fallback="" onMarkReviewed={vi.fn()} />));
+    expect(container.textContent).toContain("padmakara.events.noPtTitle");
+  });
+});
