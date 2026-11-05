@@ -1,10 +1,12 @@
 /**
  * "Who can access this event" chooser: one audience, picked from a grouped list
  * of radio rows (free for…, paid, given by hand only), and on the right only the
- * controls that choice needs (retreat groups, "others can buy it", price, the
- * shareable link and the sale stats).
+ * controls that choice needs ("others can buy it", price, the shareable link and
+ * the sale stats). The retreat groups themselves are set in Event details.
  *
- * Each option is matched to an audience row by slug, never by id. What is saved:
+ * The rows are the Audiences list, with its names and order. The rule each row
+ * follows is matched by slug, never by id: an audience created in the admin has
+ * no rule of its own, so it is given by hand. What is saved:
  *  - free / by-hand options on their own: saleMode "none", no price;
  *  - "others can buy it" or a paid option: saleMode "paid" with the price;
  *  - includedInMembership is no longer set here (the "Every member" option says it).
@@ -13,7 +15,6 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useNotify, useTranslate } from "react-admin";
-import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import FormControlLabel from "@mui/material/FormControlLabel";
@@ -67,14 +68,14 @@ type OptionGroup = "free" | "paid" | "hand";
 
 interface AccessOption {
   slug: string;
-  /** i18n key under padmakara.eventAccessChooser.options. */
+  /** i18n key under padmakara.eventAccessChooser.options (description and panel text). */
   key: string;
   group: OptionGroup;
   /** The paid options are always sold; the others can be sold on the side. */
   paid?: boolean;
   /** "Others can buy it" is offered. */
   canSell?: boolean;
-  /** The retreat-group picker is offered. */
+  /** Opened by the event's retreat groups. */
   groups?: boolean;
 }
 
@@ -100,6 +101,13 @@ const GROUP_LABEL_KEY: Record<OptionGroup, string> = {
 export const optionForSlug = (slug: string | null | undefined): AccessOption | undefined =>
   ACCESS_OPTIONS.find((o) => o.slug === slug);
 
+/** The rule an audience follows; one created in the admin is given by hand. */
+export const optionForAudience = (audience: Pick<AudienceChoice, "slug">): AccessOption =>
+  optionForSlug(audience.slug) ?? { slug: audience.slug, key: "custom", group: "hand" };
+
+const localised = (o: { nameEn: string; namePt: string | null }, locale: string): string =>
+  locale === "pt" && o.namePt ? o.namePt : o.nameEn;
+
 /** Sale fields to save when the admin picks `next` while `previous` was chosen. */
 export function saleForChoice(next: AccessOption, previous: AccessOption | undefined, sale: SaleValue): SaleValue {
   if (next.paid) {
@@ -123,14 +131,9 @@ interface SummaryInput {
 export function accessSummary({ audience, groups, sale, stats, locale, translate }: SummaryInput): string {
   if (!audience) return translate("padmakara.eventAccessChooser.notSet");
   const option = optionForSlug(audience.slug);
-  const title = option
-    ? translate(`padmakara.eventAccessChooser.options.${option.key}.title`)
-    : locale === "pt" && audience.namePt
-      ? audience.namePt
-      : audience.nameEn;
-  const parts = [title];
+  const parts = [localised(audience, locale)];
   if (option?.groups && groups.length > 0) {
-    parts.push(groups.map((g) => (locale === "pt" && g.namePt ? g.namePt : g.nameEn)).join(", "));
+    parts.push(groups.map((g) => localised(g, locale)).join(", "));
   }
   if (sale.saleMode === "paid" && sale.priceCents != null) {
     parts.push(formatEuros(sale.priceCents));
@@ -141,15 +144,12 @@ export function accessSummary({ audience, groups, sale, stats, locale, translate
   return parts.join(" · ");
 }
 
-interface Props<A extends AudienceChoice, G extends GroupChoice> {
+interface Props<A extends AudienceChoice> {
   audiences: A[];
   selectedAudience: A | null;
   onAudienceChange: (audience: A | null) => void;
   sale: SaleValue;
   onSaleChange: (patch: Partial<SaleValue>) => void;
-  groups: G[];
-  selectedGroups: G[];
-  onGroupsChange: (groups: G[]) => void;
   /** Parallel retreats are always for the members of their retreat groups. */
   frozen?: boolean;
   locale: string;
@@ -158,23 +158,17 @@ interface Props<A extends AudienceChoice, G extends GroupChoice> {
   stats?: SaleStats | null;
 }
 
-const localised = (o: { nameEn: string; namePt: string | null }, locale: string): string =>
-  locale === "pt" && o.namePt ? o.namePt : o.nameEn;
-
-export function EventAccessChooser<A extends AudienceChoice, G extends GroupChoice>({
+export function EventAccessChooser<A extends AudienceChoice>({
   audiences,
   selectedAudience,
   onAudienceChange,
   sale,
   onSaleChange,
-  groups,
-  selectedGroups,
-  onGroupsChange,
   frozen,
   locale,
   eventId,
   stats,
-}: Props<A, G>) {
+}: Props<A>) {
   const translate = useTranslate();
   const notify = useNotify();
   const t = (key: string, options?: Record<string, unknown>) =>
@@ -187,12 +181,10 @@ export function EventAccessChooser<A extends AudienceChoice, G extends GroupChoi
     setPriceText((text) => (eurosToCents(text) === sale.priceCents ? text : centsToText(sale.priceCents)));
   }, [sale.priceCents]);
 
-  const current = optionForSlug(selectedAudience?.slug);
-  const audienceBySlug = (slug: string) => audiences.find((a) => a.slug === slug);
+  const current = selectedAudience ? optionForAudience(selectedAudience) : undefined;
 
-  const handleChoose = (option: AccessOption) => {
-    const audience = audienceBySlug(option.slug);
-    if (!audience) return;
+  const handleChoose = (audience: A) => {
+    const option = optionForAudience(audience);
     onAudienceChange(audience);
     const next = saleForChoice(option, current, sale);
     if (next.saleMode !== sale.saleMode || next.priceCents !== sale.priceCents || next.includedInMembership !== sale.includedInMembership) {
@@ -229,21 +221,20 @@ export function EventAccessChooser<A extends AudienceChoice, G extends GroupChoi
   const sold = sale.saleMode !== "none";
   const showStats = !!stats && (sold || stats.paidCount > 0 || stats.pendingCount > 0);
 
-  const renderRow = (option: AccessOption): ReactNode => {
-    const audience = audienceBySlug(option.slug);
-    const disabled = !audience || (!!frozen && option.slug !== "retreat-group-members");
+  const renderRow = (audience: A): ReactNode => {
+    const option = optionForAudience(audience);
     return (
       <FormControlLabel
-        key={option.slug}
-        value={option.slug}
-        disabled={disabled}
+        key={audience.slug}
+        value={audience.slug}
+        disabled={!!frozen && audience.slug !== "retreat-group-members"}
         control={<Radio size="small" />}
-        onChange={() => handleChoose(option)}
+        onChange={() => handleChoose(audience)}
         sx={{ alignItems: "flex-start", m: 0, py: 0.5, "& .MuiRadio-root": { pt: 0.5 } }}
         label={
           <Box>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {t(`options.${option.key}.title`)}
+              {localised(audience, locale)}
             </Typography>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               {t(`options.${option.key}.desc`)}
@@ -254,21 +245,10 @@ export function EventAccessChooser<A extends AudienceChoice, G extends GroupChoi
     );
   };
 
-  // An audience with no matching option (an old or custom one) stays visible.
-  const unknownAudience = selectedAudience && !current ? selectedAudience : null;
-
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 2.5 }}>
       <Box>
         <RadioGroup aria-label={t("title")} value={selectedAudience?.slug ?? ""}>
-          {unknownAudience && (
-            <FormControlLabel
-              value={unknownAudience.slug}
-              control={<Radio size="small" />}
-              label={localised(unknownAudience, locale)}
-              sx={{ m: 0 }}
-            />
-          )}
           {GROUP_ORDER.map((group) => (
             <Box key={group} sx={{ mb: 1.5, display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
               <Typography
@@ -277,7 +257,7 @@ export function EventAccessChooser<A extends AudienceChoice, G extends GroupChoi
               >
                 {t(GROUP_LABEL_KEY[group])}
               </Typography>
-              {ACCESS_OPTIONS.filter((o) => o.group === group).map(renderRow)}
+              {audiences.filter((a) => optionForAudience(a).group === group).map(renderRow)}
             </Box>
           ))}
         </RadioGroup>
@@ -291,31 +271,15 @@ export function EventAccessChooser<A extends AudienceChoice, G extends GroupChoi
       <Box sx={{ backgroundColor: "#FAFAF7", borderRadius: 2, p: 2.5, alignSelf: "start" }}>
         {current ? (
           <>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              {t(`options.${current.key}.title`)}
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
-              {t(`options.${current.key}.panel`)}
-            </Typography>
-
-            {current.groups && (
-              <Autocomplete
-                multiple
-                options={groups}
-                getOptionLabel={(o) => (o.abbreviation ? `${localised(o, locale)} (${o.abbreviation})` : localised(o, locale))}
-                value={selectedGroups}
-                onChange={(_, v) => onGroupsChange(v)}
-                isOptionEqualToValue={(o, v) => o.id === v.id}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label={translate("padmakara.events.retreatGroups")}
-                    placeholder={translate("padmakara.events.retreatGroupsPlaceholder")}
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
-                )}
-                sx={{ mb: 2 }}
-              />
+            {!current.groups && selectedAudience && (
+              <>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                  {localised(selectedAudience, locale)}
+                </Typography>
+                <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+                  {t(`options.${current.key}.panel`)}
+                </Typography>
+              </>
             )}
 
             {current.canSell && (

@@ -84,6 +84,15 @@ describe("event access grants", () => {
     });
   });
 
+  describe("an audience created in the admin", () => {
+    it("should open the event only for people who were given access", async () => {
+      grantExists(false);
+      expect(await checkEventAccess(activeMember, makeEvent("viet-group"))).toEqual({ allowed: false, reason: "ACCESS_DENIED" });
+      grantExists(true);
+      expect(await checkEventAccess(noSubscription, makeEvent("viet-group"))).toEqual({ allowed: true });
+    });
+  });
+
   describe("checkEventAccess", () => {
     const audiences = [
       AUDIENCE_SLUGS.SUBSCRIBERS,

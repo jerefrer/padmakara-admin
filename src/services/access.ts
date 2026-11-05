@@ -164,6 +164,7 @@ export async function hasEventGrant(userId: number, eventId: number): Promise<bo
  * - Group member events: active subscription + user in event's group
  * - Event participant events: active subscription + user attended event
  * - On request / initiation / restricted: admin-granted via userEventAttendance (subscription optional)
+ * - Audience created in the admin (no rule of its own): per-event grant only
  */
 export async function checkEventAccess(
   user: UserForAccess | null,

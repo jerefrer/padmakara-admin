@@ -1084,8 +1084,15 @@ export const EventFormFields = ({
 
   const { access, reload: reloadAccess } = useEventAccess(eventId);
   const audienceFrozen = isParallelRetreats(selectedEventType);
+  // Parallel retreats belong to retreat groups; any other event only needs the
+  // picker when its audience goes by them, or to keep existing links editable.
+  const showGroupsPicker =
+    audienceFrozen || selectedAudience?.slug === "retreat-group-members" || selectedGroups.length > 0;
 
   const tracksInEvent = sessions.reduce((sum, sess) => sum + sess.tracks.length, 0);
+  const selectableTrackIds = sessions.flatMap((sess) =>
+    sess.tracks.flatMap((track) => (track.id !== undefined ? [track.id] : [])),
+  );
   const videoTotal = (videos ?? []).length;
 
   const detailsContent = (
@@ -1093,9 +1100,6 @@ export const EventFormFields = ({
       {/* ── Section 1: Event Details ── */}
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, mt: 1 }}>
         <Box sx={{ flex: 1 }}>
-  const selectableTrackIds = sessions.flatMap((sess) =>
-    sess.tracks.flatMap((track) => (track.id !== undefined ? [track.id] : [])),
-  );
           {!collapsible && (
             <SectionHeader title={translate("padmakara.events.details")} subtitle={translate("padmakara.events.reviewComplete")} />
           )}
@@ -1316,6 +1320,21 @@ export const EventFormFields = ({
               slotProps={{ inputLabel: { shrink: true } }}
             />
           </Grid>
+          {showGroupsPicker && (
+            <Grid size={{ xs: 12 }}>
+              <Autocomplete
+                multiple
+                options={allGroups}
+                getOptionLabel={(o) => (o.abbreviation ? `${localeName(o, locale)} (${o.abbreviation})` : localeName(o, locale))}
+                value={selectedGroups}
+                onChange={(_, v) => setSelectedGroups(v)}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                renderInput={(params) => (
+                  <MuiTextField {...params} label={translate("padmakara.events.retreatGroups")} placeholder={translate("padmakara.events.retreatGroupsPlaceholder")} slotProps={{ inputLabel: { shrink: true } }} />
+                )}
+              />
+            </Grid>
+          )}
         </Grid>
       </Paper>
 
@@ -1524,9 +1543,6 @@ export const EventFormFields = ({
           onAudienceChange={(a) => { if (!audienceFrozen) setSelectedAudience(allAudiences.find((x) => x.id === a?.id) ?? null); }}
           sale={{ saleMode: form.saleMode, priceCents: form.priceCents, includedInMembership: form.includedInMembership }}
           onSaleChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
-          groups={allGroups}
-          selectedGroups={selectedGroups}
-          onGroupsChange={setSelectedGroups}
           frozen={audienceFrozen}
           locale={locale}
           eventId={eventId}
@@ -1572,6 +1588,8 @@ export const EventFormFields = ({
               busy={!!moveBusy}
               defaultDate={toIsoDate(sessions.find((x) => x.date)?.date ?? null, form.startDate || null) ?? ""}
               onMove={onMoveTracks}
+              totalCount={selectableTrackIds.length}
+              onSelectAll={() => onSelectedTrackIdsChange(new Set(selectableTrackIds))}
               teachers={allTeachers}
               onBulkEdit={onBulkEditTracks}
               onBulkDelete={onBulkDeleteTracks}
@@ -1591,8 +1609,6 @@ export const EventFormFields = ({
             videoCountBySession={videoCountBySession}
           />
         </Box>
-              totalCount={selectableTrackIds.length}
-              onSelectAll={() => onSelectedTrackIdsChange(new Set(selectableTrackIds))}
       )}
     </>
   );
@@ -3161,6 +3177,7 @@ export const EventEdit = () => {
   const [selectedAudience, setSelectedAudience] = useState<AudienceOption | null>(null);
   const sections = useCollapsibleSections("padmakara.eventSections", EVENT_SECTION_IDS, EVENT_SECTION_DEFAULTS);
   const [publicationCount, setPublicationCount] = useState<number | null>(null);
+  const [documentCount, setDocumentCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (!event || !lookupsLoaded || initialized) return;
@@ -3177,7 +3194,6 @@ export const EventEdit = () => {
       endDate: event.endDate || "",
       bibliography: event.bibliography || "",
       bibliographyPt: event.bibliographyPt || "",
-  const [documentCount, setDocumentCount] = useState<number | null>(null);
       bibliographyEnReviewed: event.bibliographyEnReviewed ?? true,
       bibliographyPtReviewed: event.bibliographyPtReviewed ?? true,
       wixId: event.wixId ?? null,
@@ -4381,6 +4397,15 @@ export const EventEdit = () => {
     </>
   );
 
+  const documentsPanel = (
+    <DocumentsSection
+      eventCode={form.eventCode}
+      eventId={event?.id ? Number(event.id) : undefined}
+      disabled={saving}
+      onCount={setDocumentCount}
+    />
+  );
+
   const publicationsPanel = (
     event?.id ? (
       <EventPublicationsPanel eventId={Number(event.id)} onCount={setPublicationCount} />
@@ -4397,15 +4422,6 @@ export const EventEdit = () => {
         trailing={
           <Button variant="outlined" size="small" onClick={() => sections.setAll(!sections.allOpen)}>
             {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
-  const documentsPanel = (
-    <DocumentsSection
-      eventCode={form.eventCode}
-      eventId={event?.id ? Number(event.id) : undefined}
-      disabled={saving}
-      onCount={setDocumentCount}
-    />
-  );
-
           </Button>
         }
       />
@@ -4457,6 +4473,8 @@ export const EventEdit = () => {
         transcriptionExtra={transcriptionExtra}
         publicationsPanel={publicationsPanel}
         publicationCount={publicationCount}
+        documentsPanel={documentsPanel}
+        documentCount={documentCount}
       />
 
 
@@ -4473,8 +4491,6 @@ export const EventEdit = () => {
         onDelete={() => setDeleteOpen(true)}
         onCancel={() => redirect("list", "events")}
         onSave={() => handleSave(false)}
-        documentsPanel={documentsPanel}
-        documentCount={documentCount}
         onSaveAndClose={() => handleSave(true)}
       />
 
