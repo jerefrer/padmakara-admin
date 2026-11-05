@@ -46,7 +46,7 @@ import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
 import { SpeakerChipPicker } from "./SpeakerPicker";
 import { AiReviewChip, TranslateDirChip, useFieldTranslate } from "./TranslatableField";
-import { TitlePair } from "./TitlePair";
+import { TitlePair, englishTitleIsCopy } from "./TitlePair";
 import {
   DEFAULT_LANG_CHIP,
   LANG_CHIP_COLORS,
@@ -773,20 +773,25 @@ const TrackRow = ({
   // editor opens, so a track whose titleEn/titlePt changed underneath us
   // (e.g. an AI-assist apply) shows the fresh values instead of the stale
   // mount-time snapshot.
-  const seedFromTrack = () => ({
-    title: track.title || "",
-    titleEn: track.titleEn ?? "",
-    titlePt: track.titlePt ?? "",
-    titleEnReviewed: track.titleEnReviewed ?? true,
-    titlePtReviewed: track.titlePtReviewed ?? true,
-    originalFilename: track.originalFilename || "",
-    languages: track.languages && track.languages.length > 0
+  const seedFromTrack = () => {
+    const languages = track.languages && track.languages.length > 0
       ? [...track.languages]
-      : [track.originalLanguage || track.language || "en"],
-    isPractice: track.isPractice || false,
-    isTranslation: track.isTranslation || false,
-    speaker: track.speaker || "",
-  });
+      : [track.originalLanguage || track.language || "en"];
+    return {
+      title: track.title || "",
+      titleEn: track.titleEn ?? "",
+      // A Portuguese track edits one title, so a title sitting only in the
+      // English field moves to the line that stays on screen.
+      titlePt: track.titlePt || (englishTitleIsCopy(languages, track.titleEn, track.titlePt) ? track.titleEn ?? "" : ""),
+      titleEnReviewed: track.titleEnReviewed ?? true,
+      titlePtReviewed: track.titlePtReviewed ?? true,
+      originalFilename: track.originalFilename || "",
+      languages,
+      isPractice: track.isPractice || false,
+      isTranslation: track.isTranslation || false,
+      speaker: track.speaker || "",
+    };
+  };
   const [editValues, setEditValues] = useState(seedFromTrack);
   const [speakerPickerOpen, setSpeakerPickerOpen] = useState(false);
   // Set once the editor's outcome is decided (save, cancel or navigate) so a
@@ -794,6 +799,9 @@ const TrackRow = ({
   const doneRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const ft = useFieldTranslate();
+  // Read from the saved titles, not the ones being typed: the line must not
+  // pop back as soon as the Portuguese text starts to differ.
+  const hideEnglishTitle = englishTitleIsCopy(editValues.languages, track.titleEn, track.titlePt);
 
   useEffect(() => {
     if (editing) {
@@ -813,6 +821,24 @@ const TrackRow = ({
       ? getFileType(track.originalFilename)
       : "audio";
   const icon = getFileIcon(fileType);
+
+  const portugueseTitleField = (autoFocus: boolean) => (
+    <>
+      <LangTag code="pt" />
+      <InputBase
+        autoFocus={autoFocus}
+        fullWidth
+        value={editValues.titlePt}
+        placeholder={translate("padmakara.events.titlePt")}
+        onChange={(e) => setEditValues((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
+        onKeyDown={handleEditKeyDown}
+        sx={quietInputSx}
+      />
+      {!editValues.titlePtReviewed && (
+        <AiReviewChip onClick={() => setEditValues((p) => ({ ...p, titlePtReviewed: true }))} />
+      )}
+    </>
+  );
 
   const isDirty = () => {
     const seed = seedFromTrack();
@@ -834,6 +860,8 @@ const TrackRow = ({
     if (onTrackUpdate && track.id && isDirty()) {
       onTrackUpdate(track.id, {
         ...editValues,
+        // Emptied so the app serves the Portuguese title just edited.
+        ...(hideEnglishTitle ? { titleEn: "", titleEnReviewed: true } : {}),
         originalLanguage: editValues.languages[0] || "en",
       }).catch((error) => console.error("Failed to update track:", error));
     }
@@ -948,58 +976,54 @@ const TrackRow = ({
           >
             {String(track.trackNumber).padStart(2, "0")}
           </Typography>
-          <LangTag code="en" />
-          <InputBase
-            autoFocus
-            fullWidth
-            value={editValues.titleEn}
-            placeholder={translate("padmakara.events.titleEn")}
-            onChange={(e) => setEditValues((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
-            onKeyDown={handleEditKeyDown}
-            sx={quietInputSx}
-          />
-          {!editValues.titleEnReviewed && (
-            <AiReviewChip onClick={() => setEditValues((p) => ({ ...p, titleEnReviewed: true }))} />
+          {!hideEnglishTitle && (
+            <>
+              <LangTag code="en" />
+              <InputBase
+                autoFocus
+                fullWidth
+                value={editValues.titleEn}
+                placeholder={translate("padmakara.events.titleEn")}
+                onChange={(e) => setEditValues((p) => ({ ...p, titleEn: e.target.value, titleEnReviewed: true }))}
+                onKeyDown={handleEditKeyDown}
+                sx={quietInputSx}
+              />
+              {!editValues.titleEnReviewed && (
+                <AiReviewChip onClick={() => setEditValues((p) => ({ ...p, titleEnReviewed: true }))} />
+              )}
+              {/* Chip lives on the SOURCE field: this EN text fills the PT sibling. */}
+              <TranslateDirChip
+                direction="en-to-pt"
+                disabled={!editValues.titleEn.trim()}
+                pending={ft.translating}
+                tooltip={translate("padmakara.events.translateToPt")}
+                onClick={async () => {
+                  const out = await ft.translate(editValues.titleEn, "en-to-pt");
+                  if (out != null) setEditValues((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
+                }}
+              />
+            </>
           )}
-          {/* Chip lives on the SOURCE field: this EN text fills the PT sibling. */}
-          <TranslateDirChip
-            direction="en-to-pt"
-            disabled={!editValues.titleEn.trim()}
-            pending={ft.translating}
-            tooltip={translate("padmakara.events.translateToPt")}
-            onClick={async () => {
-              const out = await ft.translate(editValues.titleEn, "en-to-pt");
-              if (out != null) setEditValues((p) => ({ ...p, titlePt: out, titlePtReviewed: false }));
-            }}
-          />
+          {hideEnglishTitle && portugueseTitleField(true)}
         </Box>
 
         {/* PT title line */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Box sx={{ width: 24, flexShrink: 0 }} />
-          <LangTag code="pt" />
-          <InputBase
-            fullWidth
-            value={editValues.titlePt}
-            placeholder={translate("padmakara.events.titlePt")}
-            onChange={(e) => setEditValues((p) => ({ ...p, titlePt: e.target.value, titlePtReviewed: true }))}
-            onKeyDown={handleEditKeyDown}
-            sx={quietInputSx}
-          />
-          {!editValues.titlePtReviewed && (
-            <AiReviewChip onClick={() => setEditValues((p) => ({ ...p, titlePtReviewed: true }))} />
-          )}
-          <TranslateDirChip
-            direction="pt-to-en"
-            disabled={!editValues.titlePt.trim()}
-            pending={ft.translating}
-            tooltip={translate("padmakara.events.translateToEn")}
-            onClick={async () => {
-              const out = await ft.translate(editValues.titlePt, "pt-to-en");
-              if (out != null) setEditValues((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
-            }}
-          />
-        </Box>
+        {!hideEnglishTitle && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Box sx={{ width: 24, flexShrink: 0 }} />
+            {portugueseTitleField(false)}
+            <TranslateDirChip
+              direction="pt-to-en"
+              disabled={!editValues.titlePt.trim()}
+              pending={ft.translating}
+              tooltip={translate("padmakara.events.translateToEn")}
+              onClick={async () => {
+                const out = await ft.translate(editValues.titlePt, "pt-to-en");
+                if (out != null) setEditValues((p) => ({ ...p, titleEn: out, titleEnReviewed: false }));
+              }}
+            />
+          </Box>
+        )}
 
         {/* Metadata line — the same chips as view mode, made toggleable */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", pl: "34px" }}>

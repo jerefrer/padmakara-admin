@@ -28,6 +28,22 @@ export interface MarkReviewedOptions {
 export const foldTitle = (s: string): string =>
   s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
+/**
+ * Whether a track's English field holds nothing of its own: the track is in
+ * Portuguese only and the field is empty, the sole title, or the same text as
+ * the Portuguese one (filenames fill both). A real translation does not qualify.
+ */
+export const englishTitleIsCopy = (
+  languages: readonly string[],
+  titleEn: string | null | undefined,
+  titlePt: string | null | undefined,
+): boolean => {
+  if (!languages.includes("pt") || languages.includes("en")) return false;
+  const en = titleEn?.trim() || "";
+  const pt = titlePt?.trim() || "";
+  return !en || !pt || foldTitle(en) === foldTitle(pt);
+};
+
 interface TitlePairProps {
   titleEn: string | null | undefined;
   titlePt: string | null | undefined;
