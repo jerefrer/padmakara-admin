@@ -87,7 +87,7 @@ export const EventPublicationsPanel = ({ eventId, onCount }: Props) => {
       </Typography>
       <Typography variant="body2" sx={{ mb: 1.5, color: "text.secondary" }}>
         {translate("padmakara.eventPublications.hint") ||
-          "These texts appear on this event automatically through its retreat groups. To add a text to all events of a group, set its retreat groups in Publications."}
+          "These texts appear on this event automatically through its user groups. To add a text to all events of a group, set its user groups in Publications."}
       </Typography>
       {data.viaGroups.length > 0 && <PublicationList items={data.viaGroups} />}
       {data.direct.length > 0 && (

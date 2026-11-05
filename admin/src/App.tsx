@@ -37,7 +37,7 @@ const App = () => (
     />
     <Resource
       name="groups"
-      options={{ label: "Retreat Groups" }}
+      options={{ label: "User Groups" }}
       list={GroupList}
       edit={GroupEdit}
       create={GroupCreate}
@@ -51,7 +51,7 @@ const App = () => (
     />
     <Resource
       name="audiences"
-      options={{ label: "Audiences" }}
+      options={{ label: "Access Tiers" }}
       list={AudienceList}
       edit={AudienceEdit}
       create={AudienceCreate}
