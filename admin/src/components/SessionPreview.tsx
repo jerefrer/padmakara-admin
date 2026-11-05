@@ -782,7 +782,7 @@ const TrackRow = ({
       titleEn: track.titleEn ?? "",
       // A Portuguese track edits one title, so a title sitting only in the
       // English field moves to the line that stays on screen.
-      titlePt: track.titlePt || (englishTitleIsCopy(languages, track.titleEn, track.titlePt) ? track.titleEn ?? "" : ""),
+      titlePt: track.titlePt || (englishTitleIsCopy(languages, track.titleEn, track.titlePt, track.isTranslation) ? track.titleEn ?? "" : ""),
       titleEnReviewed: track.titleEnReviewed ?? true,
       titlePtReviewed: track.titlePtReviewed ?? true,
       originalFilename: track.originalFilename || "",
@@ -801,7 +801,7 @@ const TrackRow = ({
   const ft = useFieldTranslate();
   // Read from the saved titles, not the ones being typed: the line must not
   // pop back as soon as the Portuguese text starts to differ.
-  const hideEnglishTitle = englishTitleIsCopy(editValues.languages, track.titleEn, track.titlePt);
+  const hideEnglishTitle = englishTitleIsCopy(editValues.languages, track.titleEn, track.titlePt, track.isTranslation);
 
   useEffect(() => {
     if (editing) {
@@ -1154,6 +1154,7 @@ const TrackRow = ({
           titleEn={cleanTitle(track)}
           titlePt={track.titlePt}
           portugueseOnly={(track.languages ?? []).includes("pt") && !(track.languages ?? []).includes("en")}
+          portugueseTranslation={track.isTranslation && (track.languages ?? []).includes("pt") && !(track.languages ?? []).includes("en")}
           fallback={track.title}
           titleEnReviewed={track.titleEnReviewed ?? true}
           titlePtReviewed={track.titlePtReviewed ?? true}

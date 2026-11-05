@@ -142,6 +142,16 @@ describe("TitlePair on a Portuguese-only track", () => {
     expect(container.textContent).not.toContain("padmakara.events.noPtTitle");
   });
 
+  it("should show only the Portuguese title of a translation track", () => {
+    act(() =>
+      root.render(
+        <TitlePair titleEn="The role" titlePt="O papel" portugueseOnly portugueseTranslation fallback="" onMarkReviewed={vi.fn()} />,
+      ),
+    );
+    expect(container.textContent).toContain("O papel");
+    expect(container.textContent).not.toContain("The role");
+  });
+
   it("should still flag an English track that has no Portuguese title", () => {
     act(() => root.render(<TitlePair titleEn="Using the teacher" titlePt="" fallback="" onMarkReviewed={vi.fn()} />));
     expect(container.textContent).toContain("padmakara.events.noPtTitle");

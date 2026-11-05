@@ -115,8 +115,29 @@ describe("track title editor", () => {
   });
 
   it("should keep the English line when it holds a real translation", () => {
-    openEditor({ languages: ["pt"], originalLanguage: "pt", titleEn: "Learning to Let Go", titlePt: "Aprender" }, "Learning to Let Go");
+    openEditor({ languages: ["pt"], originalLanguage: "pt", isTranslation: false, titleEn: "Learning to Let Go", titlePt: "Aprender" }, "Learning to Let Go");
     expect(input("En")!.value).toBe("Learning to Let Go");
+  });
+
+  it("should show one Portuguese line on a translation track, even with an English title saved", () => {
+    openEditor(
+      { languages: ["pt"], originalLanguage: "pt", isTranslation: true, titleEn: "The role", titlePt: "O papel" },
+      "O papel",
+    );
+    expect(input("En")).toBeNull();
+    expect(input("Pt")!.value).toBe("O papel");
+  });
+
+  it("should empty the English title when a translation track is saved", () => {
+    openEditor(
+      { languages: ["pt"], originalLanguage: "pt", isTranslation: true, titleEn: "The role", titlePt: "O papel" },
+      "O papel",
+    );
+    typeAndSave(input("Pt")!, "O papel do mestre");
+    expect(onTrackUpdate).toHaveBeenCalledWith(
+      TRACK_ID,
+      expect.objectContaining({ titlePt: "O papel do mestre", titleEn: "", titleEnReviewed: true }),
+    );
   });
 
   it("should keep both lines for an English track", () => {

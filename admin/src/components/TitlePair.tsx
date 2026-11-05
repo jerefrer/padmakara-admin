@@ -31,14 +31,17 @@ export const foldTitle = (s: string): string =>
 /**
  * Whether a track's English field holds nothing of its own: the track is in
  * Portuguese only and the field is empty, the sole title, or the same text as
- * the Portuguese one (filenames fill both). A real translation does not qualify.
+ * the Portuguese one (filenames fill both). A real translation does not qualify,
+ * except on a translation track: its English title belongs to the original track.
  */
 export const englishTitleIsCopy = (
   languages: readonly string[],
   titleEn: string | null | undefined,
   titlePt: string | null | undefined,
+  isTranslation = false,
 ): boolean => {
   if (!languages.includes("pt") || languages.includes("en")) return false;
+  if (isTranslation) return true;
   const en = titleEn?.trim() || "";
   const pt = titlePt?.trim() || "";
   return !en || !pt || foldTitle(en) === foldTitle(pt);
@@ -49,6 +52,8 @@ interface TitlePairProps {
   titlePt: string | null | undefined;
   /** A Portuguese-only track: its one title is not missing a Portuguese version. */
   portugueseOnly?: boolean;
+  /** A Portuguese translation track: only its Portuguese title is shown. */
+  portugueseTranslation?: boolean;
   /** Shown as the first line when both titles are empty. */
   fallback: string;
   /** Missing flags count as reviewed (rows that predate the flags). */
@@ -63,6 +68,7 @@ export const TitlePair = ({
   titleEn,
   titlePt,
   portugueseOnly = false,
+  portugueseTranslation = false,
   fallback,
   titleEnReviewed = true,
   titlePtReviewed = true,
@@ -77,7 +83,7 @@ export const TitlePair = ({
   // A Portuguese title that differs from the English field only by accents is
   // the same title twice (the filename's unaccented text plus the AI's
   // corrected version): show the Portuguese one, which is the AI's.
-  const accentTwin = !!en && !!pt && en !== pt && foldTitle(en) === foldTitle(pt);
+  const accentTwin = !!en && !!pt && en !== pt && (portugueseTranslation || foldTitle(en) === foldTitle(pt));
   const ptIsPrimary = !!pt && (!en || en === pt || accentTwin);
   const primaryText = accentTwin ? pt : en || pt || fallback;
   const primaryChipLang: TitleLang | null = accentTwin
