@@ -21,6 +21,8 @@ vi.mock("../../../src/db/index.ts", () => {
       insert: mockInsert,
       delete: mockDelete,
       update: mockUpdate,
+      // The transaction runs on the same mock, which each test configures.
+      transaction: vi.fn((fn: (tx: unknown) => unknown) => fn({ update: mockUpdate })),
       query: {
         users: {
           findFirst: vi.fn(() => Promise.resolve(null)),
@@ -37,6 +39,13 @@ vi.mock("../../../src/db/index.ts", () => {
   };
 });
 
+vi.mock("../../../src/services/user-access.ts", () => ({
+  listUserEventGrants: vi.fn(() => Promise.resolve([])),
+  listUserPublications: vi.fn(() => Promise.resolve([])),
+  replaceUserGroups: vi.fn(() => Promise.resolve()),
+  replaceUserAttendance: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock("../../../src/services/sync-versions.ts", () => ({
   bumpUserAccessVersion: vi.fn(() => Promise.resolve()),
   getAllVersions: vi.fn(() => Promise.resolve({})),
@@ -46,6 +55,7 @@ vi.mock("../../../src/services/sync-versions.ts", () => ({
 }));
 
 import { bumpUserAccessVersion } from "../../../src/services/sync-versions.ts";
+import { replaceUserAttendance, replaceUserGroups } from "../../../src/services/user-access.ts";
 import { db } from "../../../src/db/index.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
 import { Hono } from "hono";
@@ -103,125 +113,16 @@ describe("isReviewAccount flag", () => {
   });
 
   it("should flag the review account on the detail endpoint", async () => {
-    (db.query.users.findFirst as any).mockResolvedValueOnce({ id: 1, email: "Review@padmakara.pt" });
+    (db.query.users.findFirst as any).mockResolvedValueOnce({
+      id: 1,
+      email: "Review@padmakara.pt",
+      groupMemberships: [],
+      eventAttendance: [],
+    });
 
     const res = await buildApp().request("/admin/users/1", { headers: await headers() });
 
     expect(((await res.json()) as any).isReviewAccount).toBe(true);
-  });
-});
-
-describe("POST /admin/users/:id/events — bumpUserAccessVersion", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // Re-setup insert mock to succeed
-    (db.insert as any).mockReturnValue({
-      values: vi.fn(() => Promise.resolve([])),
-    });
-  });
-
-  it("calls bumpUserAccessVersion with the correct userId after adding an event", async () => {
-    const app = buildApp();
-    const token = await adminToken();
-
-    const res = await app.request(
-      "/admin/users/42/events",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ eventId: 99 }),
-      },
-    );
-
-    expect(res.status).toBe(201);
-    // Give the fire-and-forget microtask a tick to resolve
-    await Promise.resolve();
-    expect(bumpUserAccessVersion).toHaveBeenCalledWith(42);
-  });
-});
-
-describe("DELETE /admin/users/:id/events/:eventId — bumpUserAccessVersion", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    (db.delete as any).mockReturnValue({
-      where: vi.fn(() => Promise.resolve([])),
-    });
-  });
-
-  it("calls bumpUserAccessVersion with the correct userId after removing an event", async () => {
-    const app = buildApp();
-    const token = await adminToken();
-
-    const res = await app.request(
-      "/admin/users/42/events/99",
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
-
-    expect(res.status).toBe(200);
-    await Promise.resolve();
-    expect(bumpUserAccessVersion).toHaveBeenCalledWith(42);
-  });
-});
-
-describe("POST /admin/users/:id/groups — bumpUserAccessVersion", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    (db.insert as any).mockReturnValue({
-      values: vi.fn(() => Promise.resolve([])),
-    });
-  });
-
-  it("calls bumpUserAccessVersion with the correct userId after adding a group", async () => {
-    const app = buildApp();
-    const token = await adminToken();
-
-    const res = await app.request(
-      "/admin/users/7/groups",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ retreatGroupId: 3 }),
-      },
-    );
-
-    expect(res.status).toBe(201);
-    await Promise.resolve();
-    expect(bumpUserAccessVersion).toHaveBeenCalledWith(7);
-  });
-});
-
-describe("DELETE /admin/users/:id/groups/:groupId — bumpUserAccessVersion", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    (db.delete as any).mockReturnValue({
-      where: vi.fn(() => Promise.resolve([])),
-    });
-  });
-
-  it("calls bumpUserAccessVersion with the correct userId after removing a group", async () => {
-    const app = buildApp();
-    const token = await adminToken();
-
-    const res = await app.request(
-      "/admin/users/7/groups/3",
-      {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    );
-
-    expect(res.status).toBe(200);
-    await Promise.resolve();
-    expect(bumpUserAccessVersion).toHaveBeenCalledWith(7);
   });
 });
 
@@ -275,5 +176,46 @@ describe("PUT /admin/users/:id — bumpUserAccessVersion", () => {
     expect(res.status).toBe(200);
     await Promise.resolve();
     expect(bumpUserAccessVersion).toHaveBeenCalledWith(5);
+  });
+
+  const saveUser = async (body: unknown, returned: unknown[] = [{ id: 5, email: "user@test.com" }]) => {
+    const mockWhere = vi.fn(() => ({ returning: vi.fn(() => Promise.resolve(returned)) }));
+    (db.update as any).mockReturnValue({ set: vi.fn(() => ({ where: mockWhere })) });
+    return buildApp().request("/admin/users/5", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await adminToken()}` },
+      body: JSON.stringify(body),
+    });
+  };
+
+  it("should replace groups and attended events when they are sent", async () => {
+    const res = await saveUser({ retreatGroupIds: [1, 2], attendedEventIds: [] });
+
+    expect(res.status).toBe(200);
+    expect(replaceUserGroups).toHaveBeenCalledWith(expect.anything(), 5, [1, 2]);
+    expect(replaceUserAttendance).toHaveBeenCalledWith(expect.anything(), 5, []);
+    expect(await res.json()).toMatchObject({ retreatGroupIds: [1, 2], attendedEventIds: [] });
+  });
+
+  it("should leave groups and attended events alone when they are not sent", async () => {
+    await saveUser({ firstName: "Ana" });
+
+    expect(replaceUserGroups).not.toHaveBeenCalled();
+    expect(replaceUserAttendance).not.toHaveBeenCalled();
+  });
+
+  it("should change nothing when the user does not exist", async () => {
+    const res = await saveUser({ retreatGroupIds: [1] }, []);
+
+    expect(res.status).not.toBe(200);
+    expect(replaceUserGroups).not.toHaveBeenCalled();
+    expect(bumpUserAccessVersion).not.toHaveBeenCalled();
+  });
+
+  it("should reject a list that is not made of ids", async () => {
+    const res = await saveUser({ retreatGroupIds: ["all"] });
+
+    expect(res.status).not.toBe(200);
+    expect(replaceUserGroups).not.toHaveBeenCalled();
   });
 });

@@ -1,12 +1,18 @@
 import { Hono } from "hono";
-import { eq, and, or, ilike } from "drizzle-orm";
+import { eq, or, ilike } from "drizzle-orm";
 import { db } from "../../db/index.ts";
-import { users, userGroupMemberships, userEventAttendance } from "../../db/schema/users.ts";
+import { users } from "../../db/schema/users.ts";
 import { updateUserSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { isReviewAccountEmail } from "../../services/review-account.ts";
 import { bumpUserAccessVersion } from "../../services/sync-versions.ts";
+import {
+  listUserEventGrants,
+  listUserPublications,
+  replaceUserAttendance,
+  replaceUserGroups,
+} from "../../services/user-access.ts";
 
 const userRoutes = new Hono();
 
@@ -76,13 +82,24 @@ userRoutes.get("/:id", async (c) => {
     },
   });
   if (!user) throw AppError.notFound("User not found");
-  return c.json({ ...user, isReviewAccount: isReviewAccountEmail(user.email) });
+  const [eventGrants, grantedPublications] = await Promise.all([
+    listUserEventGrants(id),
+    listUserPublications(id),
+  ]);
+  return c.json({
+    ...user,
+    isReviewAccount: isReviewAccountEmail(user.email),
+    retreatGroupIds: user.groupMemberships.map((m) => m.retreatGroupId),
+    attendedEventIds: user.eventAttendance.map((a) => a.eventId),
+    eventGrants,
+    grantedPublications,
+  });
 });
 
 userRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
-  const data = updateUserSchema.parse(body);
+  const { retreatGroupIds, attendedEventIds, ...data } = updateUserSchema.parse(body);
 
   // Handle subscriptionExpiresAt string → Date conversion
   const setData: Record<string, any> = { ...data, updatedAt: new Date() };
@@ -92,34 +109,45 @@ userRoutes.put("/:id", async (c) => {
       : null;
   }
 
-  const [user] = await db
-    .update(users)
-    .set(setData)
-    .where(eq(users.id, id))
-    .returning({
-      id: users.id,
-      email: users.email,
-      firstName: users.firstName,
-      lastName: users.lastName,
-      dharmaName: users.dharmaName,
-      preferredLanguage: users.preferredLanguage,
-      role: users.role,
-      isActive: users.isActive,
-      isVerified: users.isVerified,
-      subscriptionStatus: users.subscriptionStatus,
-      subscriptionSource: users.subscriptionSource,
-      subscriptionExpiresAt: users.subscriptionExpiresAt,
-      subscriptionNotes: users.subscriptionNotes,
-      lastActivity: users.lastActivity,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt,
-    });
+  const user = await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(users)
+      .set(setData)
+      .where(eq(users.id, id))
+      .returning({
+        id: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        dharmaName: users.dharmaName,
+        preferredLanguage: users.preferredLanguage,
+        role: users.role,
+        isActive: users.isActive,
+        isVerified: users.isVerified,
+        subscriptionStatus: users.subscriptionStatus,
+        subscriptionSource: users.subscriptionSource,
+        subscriptionExpiresAt: users.subscriptionExpiresAt,
+        subscriptionNotes: users.subscriptionNotes,
+        lastActivity: users.lastActivity,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+      });
+    if (!updated) return null;
+    if (retreatGroupIds) await replaceUserGroups(tx, id, retreatGroupIds);
+    if (attendedEventIds) await replaceUserAttendance(tx, id, attendedEventIds);
+    return updated;
+  });
   if (!user) throw AppError.notFound("User not found");
-  // A role or subscription change can affect what content the user can access.
+  // Any of these changes can affect what content the user can access.
   bumpUserAccessVersion(id).catch((err) =>
     console.error("[sync] failed to bump user access version:", err),
   );
-  return c.json({ ...user, isReviewAccount: isReviewAccountEmail(user.email) });
+  return c.json({
+    ...user,
+    isReviewAccount: isReviewAccountEmail(user.email),
+    ...(retreatGroupIds && { retreatGroupIds }),
+    ...(attendedEventIds && { attendedEventIds }),
+  });
 });
 
 userRoutes.delete("/:id", async (c) => {
@@ -130,64 +158,6 @@ userRoutes.delete("/:id", async (c) => {
   });
   if (!user) throw AppError.notFound("User not found");
   return c.json(user);
-});
-
-// ─── Group memberships ──────────────────────────────────────────────────────
-
-userRoutes.post("/:id/groups", async (c) => {
-  const userId = parseInt(c.req.param("id"), 10);
-  const { retreatGroupId } = (await c.req.json()) as { retreatGroupId: number };
-  await db.insert(userGroupMemberships).values({ userId, retreatGroupId });
-  bumpUserAccessVersion(userId).catch((err) =>
-    console.error("[sync] failed to bump user access version:", err),
-  );
-  return c.json({ message: "Added to group" }, 201);
-});
-
-userRoutes.delete("/:id/groups/:groupId", async (c) => {
-  const userId = parseInt(c.req.param("id"), 10);
-  const retreatGroupId = parseInt(c.req.param("groupId"), 10);
-  await db
-    .delete(userGroupMemberships)
-    .where(
-      and(
-        eq(userGroupMemberships.userId, userId),
-        eq(userGroupMemberships.retreatGroupId, retreatGroupId),
-      ),
-    );
-  bumpUserAccessVersion(userId).catch((err) =>
-    console.error("[sync] failed to bump user access version:", err),
-  );
-  return c.json({ message: "Removed from group" });
-});
-
-// ─── Event attendance ───────────────────────────────────────────────────────
-
-userRoutes.post("/:id/events", async (c) => {
-  const userId = parseInt(c.req.param("id"), 10);
-  const { eventId } = (await c.req.json()) as { eventId: number };
-  await db.insert(userEventAttendance).values({ userId, eventId });
-  bumpUserAccessVersion(userId).catch((err) =>
-    console.error("[sync] failed to bump user access version:", err),
-  );
-  return c.json({ message: "Added to event" }, 201);
-});
-
-userRoutes.delete("/:id/events/:eventId", async (c) => {
-  const userId = parseInt(c.req.param("id"), 10);
-  const eventId = parseInt(c.req.param("eventId"), 10);
-  await db
-    .delete(userEventAttendance)
-    .where(
-      and(
-        eq(userEventAttendance.userId, userId),
-        eq(userEventAttendance.eventId, eventId),
-      ),
-    );
-  bumpUserAccessVersion(userId).catch((err) =>
-    console.error("[sync] failed to bump user access version:", err),
-  );
-  return c.json({ message: "Removed from event" });
 });
 
 export { userRoutes };

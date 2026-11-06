@@ -790,4 +790,8 @@ export const updateUserSchema = z.object({
     .nullable(),
   subscriptionExpiresAt: z.string().optional().nullable(),
   subscriptionNotes: z.string().max(500).optional().nullable(),
+  /** The full list: groups missing from it are removed. */
+  retreatGroupIds: z.array(z.number().int().positive()).optional(),
+  /** The full list: attended events missing from it are removed. */
+  attendedEventIds: z.array(z.number().int().positive()).optional(),
 });
