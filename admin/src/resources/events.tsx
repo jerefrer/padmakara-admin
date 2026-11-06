@@ -82,6 +82,7 @@ import { useEventAccess } from "../components/useEventAccess";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
+import { detailsSummary, readAlongTrackCount, transcriptionSummary } from "../utils/eventSectionSummaries";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
 import { DocumentsSection, type PendingDocument } from "../components/DocumentsSection";
 import { AiAssistPanel, type AiAssistResult } from "../components/AiAssistPanel";
@@ -686,6 +687,8 @@ interface EventFormProps {
   ) => void;
   trackCount: number;
   transcriptCount: number;
+  /** Tracks whose read-along is done, for the Transcription section's summary. */
+  readAlongTracks?: number;
   /** When true the event-code field is read-only (the legacy-import screen,
    *  where the code is the job identity and must not change). */
   readOnlyEventCode?: boolean;
@@ -790,7 +793,7 @@ export const EventFormFields = ({
   selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, onBulkEditTracks, onBulkDeleteTracks, onSessionDelete, moveBusy,
   videos, onVideosChange, onVideoUpload, onVideoAttachMaster, masterUpload, onCancelVideoUpload, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
-  onStatusChange, trackCount, transcriptCount,
+  onStatusChange, trackCount, transcriptCount, readAlongTracks,
   readOnlyEventCode,
   collapsible, audioExtra, transcriptionExtra, publicationsPanel, publicationCount, documentsPanel, documentCount,
 }: EventFormProps) => {
@@ -1628,13 +1631,6 @@ export const EventFormFields = ({
       open: !!collapsible.open[id],
       onToggle: () => collapsible.onToggle(id),
     });
-    const detailsSummary = [
-      selectedEventType ? `${localeName(selectedEventType, locale)} (${selectedEventType.abbreviation})` : "",
-      formatDateRange(form.startDate, form.endDate, locale),
-      selectedTeachers.map((t) => t.name).join(", "),
-    ]
-      .filter(Boolean)
-      .join(" · ");
     const mediaParts = [
       sessions.length > 0 ? translate("padmakara.eventSections.sessionsSummary", { smart_count: sessions.length }) : "",
       tracksInEvent > 0 ? translate("padmakara.eventSections.tracksSummary", { smart_count: tracksInEvent }) : "",
@@ -1645,7 +1641,13 @@ export const EventFormFields = ({
         <CollapsibleSection
           {...sectionProps("details")}
           title={translate("padmakara.eventSections.details")}
-          summary={detailsSummary}
+          summary={detailsSummary({
+            eventType: selectedEventType,
+            groups: selectedGroups,
+            dateRange: formatDateRange(form.startDate, form.endDate, locale),
+            teachers: selectedTeachers,
+            locale,
+          })}
           badge={form.titleEn.trim() ? null : translate("padmakara.eventSections.titleMissing")}
         >
           {detailsContent}
@@ -1677,11 +1679,7 @@ export const EventFormFields = ({
         <CollapsibleSection
           {...sectionProps("transcription")}
           title={translate("padmakara.eventSections.transcription")}
-          summary={
-            transcriptCount > 0
-              ? translate("padmakara.eventSections.transcriptsSummary", { smart_count: transcriptCount })
-              : translate("padmakara.eventSections.nothingYet")
-          }
+          summary={transcriptionSummary({ transcriptCount, readAlongTracks: readAlongTracks ?? 0, translate })}
         >
           {filesNode}
           {transcriptionExtra}
@@ -4310,6 +4308,7 @@ export const EventEdit = () => {
 
   const trackCount = sessions.reduce((sum, s) => sum + s.tracks.length, 0);
   const transcriptCount = event?.transcripts?.length ?? 0;
+  const readAlongTracks = readAlongTrackCount(event?.sessions);
 
   // Panels the page owns; the form places them in its collapsible cards.
   const audioExtra = (
@@ -4468,6 +4467,7 @@ export const EventEdit = () => {
         onStatusChange={handleStatusChange}
         trackCount={trackCount}
         transcriptCount={transcriptCount}
+        readAlongTracks={readAlongTracks}
         collapsible={{ open: sections.open, onToggle: sections.toggle }}
         audioExtra={audioExtra}
         transcriptionExtra={transcriptionExtra}
@@ -4584,11 +4584,11 @@ const PageHeader = ({
     <Button startIcon={<ArrowBackIcon />} onClick={onBack} sx={{ color: "text.secondary" }}>
       {backLabel}
     </Button>
-    <Box sx={{ flex: 1 }} />
     <SpaIcon sx={{ color: "primary.main", fontSize: 28 }} />
     <Typography variant="h5" sx={{ fontWeight: 700 }}>
       {title}
     </Typography>
+    <Box sx={{ flex: 1 }} />
     {trailing}
   </Box>
 );

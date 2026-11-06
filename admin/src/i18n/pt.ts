@@ -769,6 +769,7 @@ export const pt = {
       tracksSummary: "%{smart_count} faixa |||| %{smart_count} faixas",
       videosSummary: "%{smart_count} vídeo |||| %{smart_count} vídeos",
       transcriptsSummary: "%{smart_count} transcrição |||| %{smart_count} transcrições",
+      readAlongSummary: "read-along em %{smart_count} faixa |||| read-along em %{smart_count} faixas",
       publicationsSummary: "%{smart_count} publicação |||| %{smart_count} publicações",
       documentsSummary: "%{smart_count} documento |||| %{smart_count} documentos",
       nothingYet: "Ainda nada",

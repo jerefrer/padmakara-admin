@@ -571,6 +571,7 @@ export const en = {
       tracksSummary: "%{smart_count} track |||| %{smart_count} tracks",
       videosSummary: "%{smart_count} video |||| %{smart_count} videos",
       transcriptsSummary: "%{smart_count} transcript |||| %{smart_count} transcripts",
+      readAlongSummary: "read-along on %{smart_count} track |||| read-along on %{smart_count} tracks",
       publicationsSummary: "%{smart_count} publication |||| %{smart_count} publications",
       documentsSummary: "%{smart_count} document |||| %{smart_count} documents",
       nothingYet: "Nothing yet",
