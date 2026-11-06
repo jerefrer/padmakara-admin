@@ -220,9 +220,10 @@ export const pt = {
       slugLocked: "Usado pelas regras de acesso, por isso não pode mudar. Os nomes podem.",
     },
     menu: {
-      content: "Conteúdo",
-      reference: "Referência",
-      administration: "Administração",
+      content: "Gestão de conteúdos",
+      users: "Gestão de utilizadores",
+      app: "Gestão da aplicação",
+      other: "Outros",
     },
     namingConventions: {
       title: "Convenções de nomenclatura",

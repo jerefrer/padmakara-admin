@@ -19,9 +19,10 @@ export const en = {
       slugLocked: "Used by the access rules, so it cannot change. The names can.",
     },
     menu: {
-      content: "Content",
-      reference: "Reference",
-      administration: "Administration",
+      content: "Content management",
+      users: "User management",
+      app: "App management",
+      other: "Other",
     },
     namingConventions: {
       title: "Naming conventions",

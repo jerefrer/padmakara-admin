@@ -57,30 +57,31 @@ export const Menu = () => {
 
       <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", mb: 1 }} />
 
-      {/* Content section */}
       <SectionLabel>{translate("padmakara.menu.content")}</SectionLabel>
       <RaMenu.Item to="/events" primaryText={translate("resources.events.name", { smart_count: 2 })} leftIcon={<SpaIcon />} />
       <RaMenu.Item to="/publications" primaryText={translate("resources.publications.name", { smart_count: 2 })} leftIcon={<MenuBookIcon />} />
 
       <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", my: 1.5, mx: 2 }} />
 
-      {/* Reference data */}
-      <SectionLabel>{translate("padmakara.menu.reference")}</SectionLabel>
+      <SectionLabel>{translate("padmakara.menu.users")}</SectionLabel>
+      <RaMenu.Item to="/users" primaryText={translate("resources.users.name", { smart_count: 2 })} leftIcon={<PeopleIcon />} />
+      <RaMenu.Item to="/approvals" primaryText={translate("resources.approvals.name", { smart_count: 2 })} leftIcon={<HowToRegIcon />} />
+
+      <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", my: 1.5, mx: 2 }} />
+
+      <SectionLabel>{translate("padmakara.menu.app")}</SectionLabel>
       <RaMenu.Item to="/teachers" primaryText={translate("resources.teachers.name", { smart_count: 2 })} leftIcon={<PersonIcon />} />
       <RaMenu.Item to="/places" primaryText={translate("resources.places.name", { smart_count: 2 })} leftIcon={<PlaceIcon />} />
       <RaMenu.Item to="/organizers" primaryText={translate("resources.organizers.name", { smart_count: 2 })} leftIcon={<BusinessIcon />} />
-      <RaMenu.Item to="/groups" primaryText={translate("resources.groups.name", { smart_count: 2 })} leftIcon={<GroupsIcon />} />
       <RaMenu.Item to="/event-types" primaryText={translate("resources.event-types.name", { smart_count: 2 })} leftIcon={<CategoryIcon />} />
+      <RaMenu.Item to="/groups" primaryText={translate("resources.groups.name", { smart_count: 2 })} leftIcon={<GroupsIcon />} />
       <RaMenu.Item to="/audiences" primaryText={translate("resources.audiences.name", { smart_count: 2 })} leftIcon={<PeopleOutlineIcon />} />
 
       <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", my: 1.5, mx: 2 }} />
 
-      {/* Admin */}
-      <SectionLabel>{translate("padmakara.menu.administration")}</SectionLabel>
-      <RaMenu.Item to="/users" primaryText={translate("resources.users.name", { smart_count: 2 })} leftIcon={<PeopleIcon />} />
+      <SectionLabel>{translate("padmakara.menu.other")}</SectionLabel>
       <RaMenu.Item to="/library" primaryText={translate("padmakara.library.menu")} leftIcon={<LibraryBooksIcon />} />
       <RaMenu.Item to="/searches" primaryText={translate("padmakara.searches.menu")} leftIcon={<SearchIcon />} />
-      <RaMenu.Item to="/approvals" primaryText={translate("resources.approvals.name", { smart_count: 2 })} leftIcon={<HowToRegIcon />} />
     </Box>
   );
 };
