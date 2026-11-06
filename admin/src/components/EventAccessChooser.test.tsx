@@ -275,22 +275,20 @@ describe("accessSummary", () => {
     key.replace(/^padmakara\.eventAccessChooser\./, "") + (o?.count !== undefined ? `:${o.count}` : "");
   const audience = (slug: string) => AUDIENCES.find((a) => a.slug === slug)!;
 
-  it("should list the option, its groups, the price and the sold count", () => {
+  it("should list the option, the price and the sold count, leaving the groups to Event details", () => {
     const text = accessSummary({
       audience: audience("retreat-group-members"),
-      groups: [GROUPS[0]!, { id: 2, nameEn: "Grupo B", namePt: null, abbreviation: null }],
       sale: { saleMode: "paid", priceCents: 1500, includedInMembership: false },
       stats: { paidCount: 4, collectedCents: 0, pendingCount: 0 },
       locale: "en",
       translate,
     });
-    expect(text).toBe("DB name retreat-group-members · Grupo A, Grupo B · €15.00 · soldCount:4");
+    expect(text).toBe("DB name retreat-group-members · €15.00 · soldCount:4");
   });
 
   it("should use the name of an audience created in the admin", () => {
     const text = accessSummary({
       audience: { id: 9, nameEn: "Old audience", namePt: null, slug: "legacy" },
-      groups: [],
       sale: NONE,
       locale: "en",
       translate,

@@ -120,21 +120,16 @@ export function saleForChoice(next: AccessOption, previous: AccessOption | undef
 
 interface SummaryInput {
   audience: AudienceChoice | null;
-  groups: GroupChoice[];
   sale: SaleValue;
   stats?: SaleStats | null;
   locale: string;
   translate: (key: string, options?: Record<string, unknown>) => string;
 }
 
-/** One line for the card header: the option, its groups, the price and sales. */
-export function accessSummary({ audience, groups, sale, stats, locale, translate }: SummaryInput): string {
+/** One line for the card header: the option, the price and sales. Event details names the groups. */
+export function accessSummary({ audience, sale, stats, locale, translate }: SummaryInput): string {
   if (!audience) return translate("padmakara.eventAccessChooser.notSet");
-  const option = optionForSlug(audience.slug);
   const parts = [localised(audience, locale)];
-  if (option?.groups && groups.length > 0) {
-    parts.push(groups.map((g) => localised(g, locale)).join(", "));
-  }
   if (sale.saleMode === "paid" && sale.priceCents != null) {
     parts.push(formatEuros(sale.priceCents));
     if (stats && stats.paidCount > 0) {

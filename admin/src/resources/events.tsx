@@ -1657,7 +1657,6 @@ export const EventFormFields = ({
           title={translate("padmakara.eventSections.access")}
           summary={accessSummary({
             audience: selectedAudience,
-            groups: selectedGroups,
             sale: { saleMode: form.saleMode, priceCents: form.priceCents, includedInMembership: form.includedInMembership },
             stats: access?.stats,
             locale,
