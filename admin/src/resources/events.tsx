@@ -37,8 +37,6 @@ import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
 import Autocomplete from "@mui/material/Autocomplete";
 import Grid from "@mui/material/Grid";
-import ToggleButton from "@mui/material/ToggleButton";
-import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import LinearProgress from "@mui/material/LinearProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -56,6 +54,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
 import { FeatureStarButton } from "../components/FeatureStarButton";
+import { EventStatusControls } from "../components/EventStatusControls";
 import { apiErrorMessageKey, isMappedApiError } from "../utils/apiErrors";
 import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
@@ -1101,54 +1100,17 @@ export const EventFormFields = ({
   const detailsContent = (
     <>
       {/* ── Section 1: Event Details ── */}
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, mt: 1 }}>
-        <Box sx={{ flex: 1 }}>
-          {!collapsible && (
+      {!collapsible && (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, mt: 1 }}>
+          <Box sx={{ flex: 1 }}>
             <SectionHeader title={translate("padmakara.events.details")} subtitle={translate("padmakara.events.reviewComplete")} />
-          )}
-        </Box>
-        <ToggleButtonGroup
-          value={form.status}
-          exclusive
-          onChange={(_, val) => { if (val) { setForm((prev) => ({ ...prev, status: val })); onStatusChange?.(val); } }}
-          size="small"
-          sx={{ flexShrink: 0 }}
-        >
-          <ToggleButton
-            value="draft"
-            sx={{
-              px: 2, fontWeight: 600, textTransform: "capitalize",
-              "&.Mui-selected": { bgcolor: "warning.light", color: "warning.contrastText", "&:hover": { bgcolor: "warning.main" } },
-            }}
-          >
-            {translate("padmakara.events.draft")}
-          </ToggleButton>
-          <ToggleButton
-            value="published"
-            sx={{
-              px: 2, fontWeight: 600, textTransform: "capitalize",
-              "&.Mui-selected": { bgcolor: "success.light", color: "success.contrastText", "&:hover": { bgcolor: "success.main" } },
-            }}
-          >
-            {translate("padmakara.events.published")}
-          </ToggleButton>
-        </ToggleButtonGroup>
-        {eventId !== undefined && (
-          <Box sx={{ ml: 1 }}>
-            <FeatureStarButton
-              eventId={eventId}
-              status={form.status}
-              featured={!!form.featuredAt}
-              title={localeTitle(form, locale)}
-              titleOf={(r) => localeTitle(r, locale)}
-              size="medium"
-              onFeatured={(updated) =>
-                setForm((prev) => ({ ...prev, featuredAt: updated.featuredAt ?? new Date().toISOString() }))
-              }
-            />
           </Box>
-        )}
-      </Box>
+          <EventStatusControls
+            status={form.status}
+            onStatusChange={(val) => { setForm((prev) => ({ ...prev, status: val })); onStatusChange?.(val); }}
+          />
+        </Box>
+      )}
 
       {/* ── Library metadata — fill the form from the association's CSV ── */}
       <LibraryMetadataButton
@@ -4418,9 +4380,23 @@ export const EventEdit = () => {
         backLabel={translate("padmakara.events.back")}
         onBack={() => redirect("list", "events")}
         trailing={
-          <Button variant="outlined" size="small" onClick={() => sections.setAll(!sections.allOpen)}>
-            {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
-          </Button>
+          <>
+            <EventStatusControls
+              status={form.status}
+              onStatusChange={(val) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val); }}
+              star={{
+                eventId: Number(id),
+                featured: !!form.featuredAt,
+                title: localeTitle(form, locale),
+                titleOf: (r) => localeTitle(r, locale),
+                onFeatured: (updated) =>
+                  setForm((prev) => ({ ...prev, featuredAt: updated.featuredAt ?? new Date().toISOString() })),
+              }}
+            />
+            <Button variant="outlined" size="small" sx={{ flexShrink: 0 }} onClick={() => sections.setAll(!sections.allOpen)}>
+              {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
+            </Button>
+          </>
         }
       />
 
@@ -4463,7 +4439,6 @@ export const EventEdit = () => {
         onCancelVideoUpload={handleCancelVideoUpload}
         onVideoImportUrl={handleVideoImportUrl}
         eventId={id ? Number(id) : undefined}
-        onStatusChange={handleStatusChange}
         trackCount={trackCount}
         transcriptCount={transcriptCount}
         readAlongTracks={readAlongTracks}
@@ -4576,7 +4551,7 @@ const PageHeader = ({
   title: string;
   backLabel: string;
   onBack: () => void;
-  /** Shown after the title (the edit page's expand/collapse-all). */
+  /** Shown after the title (the edit page's status, highlight and expand/collapse-all). */
   trailing?: React.ReactNode;
 }) => (
   <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 4 }}>
