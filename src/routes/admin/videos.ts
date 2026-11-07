@@ -24,7 +24,8 @@ import { AppError } from "../../lib/errors.ts";
 import { submitVideoBurnJob } from "../../services/video-burn.ts";
 import { fetchSlideTemplateMetadata, generateDefaultSlides } from "../../services/slide-metadata.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
-import { deleteVideo, fetchVideo } from "../../services/bunny.ts";
+import { deleteVideo, fetchVideo, getVideoMeta } from "../../services/bunny.ts";
+import { originalNameFromMasterKey } from "../../lib/file-info.ts";
 import {
   parseOwnS3Key,
   resolveVideoSourceUrl,
@@ -87,6 +88,40 @@ videoRoutes.get("/:id", async (c) => {
   const video = await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, id) });
   if (!video) throw AppError.notFound("Event video not found");
   return c.json(video);
+});
+
+/**
+ * GET /:id/file-info — what an admin wants to know about the uploaded file:
+ * its original name (from the retained master), size, duration and the
+ * resolution/frame rate Bunny reports. Anything unknown is null.
+ */
+videoRoutes.get("/:id/file-info", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const video = await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, id) });
+  if (!video) throw AppError.notFound("Event video not found");
+
+  let width: number | null = null;
+  let height: number | null = null;
+  let framerate: number | null = null;
+  if (video.bunnyVideoId) {
+    try {
+      const meta = await getVideoMeta(video.bunnyVideoId);
+      width = meta.width > 0 ? meta.width : null;
+      height = meta.height > 0 ? meta.height : null;
+      framerate = meta.framerate > 0 ? meta.framerate : null;
+    } catch (err) {
+      console.error(`[videos] file-info: Bunny metadata unavailable for video ${id}:`, err);
+    }
+  }
+
+  return c.json({
+    originalFilename: video.masterS3Key ? originalNameFromMasterKey(video.masterS3Key) : null,
+    sizeBytes: video.burnMasterBytes ?? null,
+    durationSeconds: video.durationSeconds ?? null,
+    width,
+    height,
+    framerate,
+  });
 });
 
 videoRoutes.post("/", async (c) => {

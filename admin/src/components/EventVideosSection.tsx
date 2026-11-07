@@ -6,6 +6,7 @@
  * is saved).
  */
 
+import { FileInfoButton } from "./FileInfoButton";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
@@ -713,6 +714,8 @@ const VideoRow = ({
             </IconButton>
           </span>
         </Tooltip>
+
+        <FileInfoButton kind="video" id={video.id} />
 
         <IconButton
           size="small"

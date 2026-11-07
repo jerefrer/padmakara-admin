@@ -10,6 +10,7 @@ import { parsePagination, buildOrderBy, listResponse, countRows } from "./helper
 import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
 import { buildConventionFilename } from "../../services/track-filename.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
+import { recordTrackAudioDetails } from "../../services/audio-details.ts";
 
 const trackRoutes = new Hono();
 
@@ -79,6 +80,17 @@ function freeNumberNear(n: number, taken: ReadonlySet<number>, below: boolean): 
   return candidate;
 }
 
+/**
+ * Reads bit rate, sample rate and channels from the attached audio in the
+ * background. Fire-and-forget: the save must never wait for, or fail on, it.
+ */
+function scheduleAudioDetails(trackId: number, s3Key: string | null | undefined): void {
+  if (!s3Key) return;
+  Promise.resolve(recordTrackAudioDetails(trackId, s3Key)).catch((err) =>
+    console.error("[audio-details] failed to schedule:", err),
+  );
+}
+
 const columns: Record<string, any> = {
   id: tracks.id,
   sessionId: tracks.sessionId,
@@ -106,6 +118,22 @@ trackRoutes.get("/", async (c) => {
   return listResponse(c, data, total, offset, offset + limit, "tracks");
 });
 
+trackRoutes.get("/:id/file-info", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const track = await db.query.tracks.findFirst({ where: eq(tracks.id, id) });
+  if (!track) throw AppError.notFound("Track not found");
+  const extension = track.s3Key?.match(/\.([A-Za-z0-9]+)$/)?.[1]?.toLowerCase() ?? null;
+  return c.json({
+    originalFilename: track.originalFilename ?? null,
+    sizeBytes: track.fileSizeBytes ?? null,
+    format: track.fileFormat ?? extension,
+    durationSeconds: track.durationSeconds > 0 ? track.durationSeconds : null,
+    bitrateKbps: track.bitrateKbps ?? null,
+    sampleRateHz: track.sampleRateHz ?? null,
+    channels: track.channels ?? null,
+  });
+});
+
 trackRoutes.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const track = await db.query.tracks.findFirst({
@@ -119,6 +147,7 @@ trackRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const data = createTrackSchema.parse(body);
   const [track] = await db.insert(tracks).values(data).returning();
+  scheduleAudioDetails(track!.id, track!.s3Key);
   const session = await db.query.sessions.findFirst({
     where: eq(sessions.id, track!.sessionId),
   });
@@ -195,6 +224,20 @@ trackRoutes.put("/:id", async (c) => {
   for (const [key, val] of Object.entries(parsed)) {
     if (val !== undefined) data[key] = val;
   }
+  // A new audio file invalidates the old details; they are re-read below.
+  let fileChanged = false;
+  if (typeof parsed.s3Key === "string") {
+    const previous = await db.query.tracks.findFirst({
+      columns: { s3Key: true },
+      where: eq(tracks.id, id),
+    });
+    fileChanged = previous?.s3Key !== parsed.s3Key;
+    if (fileChanged) {
+      data.bitrateKbps = null;
+      data.sampleRateHz = null;
+      data.channels = null;
+    }
+  }
   let track: typeof tracks.$inferSelect | undefined;
   try {
     [track] = await db.update(tracks).set(data).where(eq(tracks.id, id)).returning();
@@ -202,6 +245,7 @@ trackRoutes.put("/:id", async (c) => {
     throw (await describeTrackNumberConflict(err, id, data)) ?? err;
   }
   if (!track) throw AppError.notFound("Track not found");
+  if (fileChanged) scheduleAudioDetails(track.id, track.s3Key);
   const trackSession = await db.query.sessions.findFirst({
     where: eq(sessions.id, track.sessionId),
   });

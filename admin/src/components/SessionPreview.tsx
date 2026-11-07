@@ -1,3 +1,4 @@
+import { FileInfoButton } from "./FileInfoButton";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
@@ -1334,6 +1335,9 @@ const TrackRow = ({
           <MusicOffIcon sx={{ fontSize: 18 }} />
         </IconButton>
       )}
+
+      {/* File details ("i") — saved tracks that have an audio file */}
+      {track.id && track.hasAudio !== false && <FileInfoButton kind="track" id={track.id} />}
 
       {/* Play button — only for saved (DB-backed) tracks that have audio */}
       {track.id && track.hasAudio !== false && (

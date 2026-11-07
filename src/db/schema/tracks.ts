@@ -37,6 +37,10 @@ export const tracks = pgTable(
     durationSeconds: integer("duration_seconds").notNull().default(0),
     fileSizeBytes: bigint("file_size_bytes", { mode: "number" }),
     originalFilename: text("original_filename"),
+    // Read from the audio headers when the file is attached (best effort).
+    bitrateKbps: integer("bitrate_kbps"),
+    sampleRateHz: integer("sample_rate_hz"),
+    channels: integer("channels"),
     readAlongS3Key: text("read_along_s3_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
