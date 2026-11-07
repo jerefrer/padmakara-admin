@@ -20,6 +20,12 @@ import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teache
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { applyEventVideoThumbnails, applyEventsVideoThumbnails } from "../lib/video-utils.ts";
+import {
+  applyMediaVisibility,
+  applyMediaVisibilityToAll,
+  assertAudioVisible,
+  mediaVisibleTo,
+} from "../services/media-visibility.ts";
 
 const eventRoutes = new Hono();
 
@@ -171,6 +177,7 @@ eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
     with: eventWithSessions,
   });
 
+  applyMediaVisibilityToAll(data, user?.role);
   await resolveEventsTeacherUrls(data);
   await resolveEventsGroupUrls(data);
   applyEventsVideoThumbnails(data);
@@ -200,6 +207,8 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
   if (event.audience?.slug !== AUDIENCE_SLUGS.PUBLIC) {
     throw AppError.forbidden("This event requires authentication");
   }
+
+  applyMediaVisibility(event, user?.role);
 
   // Enrich all tracks with speaker names + hasReadAlong (strips readAlongS3Key)
   for (const session of (event as any).sessions ?? []) {
@@ -234,6 +243,8 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
     return c.json(null);
   }
 
+  applyMediaVisibility(event, user?.role);
+
   // Enrich all tracks with speaker names + hasReadAlong (strips readAlongS3Key)
   for (const session of (event as any).sessions ?? []) {
     await enrichTracksWithSpeakerNames(session.tracks ?? [], event);
@@ -266,6 +277,9 @@ eventRoutes.post("/public/:id/request-download", async (c) => {
   if (event.audience?.slug !== AUDIENCE_SLUGS.PUBLIC) {
     throw AppError.unauthorized("Authentication required");
   }
+
+  // The ZIP holds audio only: with the audio hidden there is nothing to build.
+  assertAudioVisible(event, undefined, "Event not found");
 
   // Check for an existing anonymous (userId IS NULL) request for this event.
   // Must exclude user-owned requests: reusing one would hand a guest a request
@@ -344,7 +358,8 @@ eventRoutes.get("/:id/preview", async (c) => {
     teachers: (event.eventTeachers ?? []).flatMap((et) =>
       et.teacher ? [{ name: et.teacher.name }] : [],
     ),
-    sessionCount: event.sessions?.length ?? 0,
+    // Sessions only carry audio: none to announce while the audio is hidden
+    sessionCount: mediaVisibleTo(event, undefined).audio ? (event.sessions?.length ?? 0) : 0,
     audience: AUDIENCE_SLUGS.SUBSCRIBERS,
   });
 });
@@ -406,6 +421,7 @@ eventRoutes.get("/sessions/:sessionId", async (c) => {
   }
 
   await requireEventAccess(user.id, session.event);
+  assertAudioVisible(session.event, user.role, "Session not found");
   await enrichTracksWithSpeakerNames(session.tracks);
 
   return c.json(session);
@@ -442,6 +458,7 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
   }
 
   await requireEventAccess(user.id, event);
+  assertAudioVisible(event, user.role, "Track not found");
   await enrichTracksWithSpeakerNames([track]);
 
   return c.json(track);
@@ -461,6 +478,7 @@ eventRoutes.get("/", async (c) => {
       orderBy: (r, { desc }) => [desc(r.startDate)],
       with: eventListWith,
     });
+    applyMediaVisibilityToAll(data, user.role);
     await resolveEventsTeacherUrls(data);
     await resolveEventsGroupUrls(data);
   applyEventsVideoThumbnails(data);
@@ -495,6 +513,7 @@ eventRoutes.get("/", async (c) => {
     allEvents,
   );
 
+  applyMediaVisibilityToAll(accessibleEvents, user.role);
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
   applyEventsVideoThumbnails(accessibleEvents);
@@ -520,6 +539,9 @@ eventRoutes.get("/:id", async (c) => {
   }
 
   await requireEventAccess(user.id, event);
+
+  // Hidden audio/video never leaves the server for a regular user
+  applyMediaVisibility(event, user.role);
 
   // Enrich all tracks with speaker names
   for (const session of (event as any).sessions ?? []) {
@@ -611,6 +633,9 @@ eventRoutes.post("/:id/request-download", async (c) => {
     }
     throw AppError.forbidden("Access denied to this event");
   }
+
+  // The ZIP holds audio only: with the audio hidden there is nothing to build.
+  assertAudioVisible(event, user.role, "Event not found");
 
   // Check for existing pending/processing request
   const existingRequest = await db.query.downloadRequests.findFirst({

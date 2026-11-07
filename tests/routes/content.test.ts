@@ -260,7 +260,7 @@ describe("Content progress routes", () => {
     });
 
     it("BE5 — returns null when user has no progress rows", async () => {
-      mockProgressFindFirst.mockResolvedValueOnce(null);
+      mockProgressFindMany.mockResolvedValueOnce([]);
 
       const { status, body } = await testJson("/api/content/last-played", {
         headers: await authHeader(),
@@ -271,7 +271,7 @@ describe("Content progress routes", () => {
     });
 
     it("BE6 — returns most recent row joined with track/session/event", async () => {
-      mockProgressFindFirst.mockResolvedValueOnce({
+      mockProgressFindMany.mockResolvedValueOnce([{
         id: 1,
         userId: 1,
         trackId: 42,
@@ -287,7 +287,7 @@ describe("Content progress routes", () => {
             event: { id: 99, titleEn: "Spring Retreat" },
           },
         },
-      });
+      }]);
 
       const { status, body } = await testJson("/api/content/last-played", {
         headers: await authHeader(),

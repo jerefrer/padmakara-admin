@@ -62,6 +62,14 @@ export const events = pgTable("retreats", {
    */
   originalLanguage: text("original_language").notNull().default("en"),
   status: text("status").notNull().default("draft"),
+  /**
+   * Per-media visibility of a published event: lets the audio go live while the
+   * videos are still being edited, or the reverse. Only read while `status` is
+   * published (a draft is hidden whole). Admins always see everything. Both
+   * default true so every event published before these columns keeps showing all.
+   */
+  audioPublished: boolean("audio_published").notNull().default(true),
+  videoPublished: boolean("video_published").notNull().default(true),
   imageUrl: text("image_url"),
   s3Prefix: text("s3_prefix"),
   /** Wix ID of the library record this event was filled from (library_records.wix_id). */

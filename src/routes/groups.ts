@@ -10,6 +10,7 @@ import { AUDIENCE_SLUGS, filterAccessibleEvents, eventStatusVisibleTo } from "..
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
+import { applyMediaVisibilityToAll } from "../services/media-visibility.ts";
 
 const groupRoutes = new Hono();
 
@@ -154,6 +155,7 @@ groupRoutes.get("/:id/events", async (c) => {
   const fullUser = await getFullUser(user.id);
   const accessibleEvents = await filterAccessibleEvents(fullUser, data);
 
+  applyMediaVisibilityToAll(accessibleEvents, user.role);
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
   applyEventsOrganizers(accessibleEvents);

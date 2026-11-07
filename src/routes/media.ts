@@ -25,6 +25,7 @@ import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
 import { checkEventAccess, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
+import { assertAudioVisible, assertVideoVisible } from "../services/media-visibility.ts";
 
 const mediaRoutes = new Hono();
 
@@ -168,6 +169,7 @@ mediaRoutes.get("/audio/:trackId", async (c) => {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
+    assertAudioVisible(result.event, authUser?.role, "Track not found");
   }
 
   const url = await generatePresignedDownloadUrl(result.track.s3Key);
@@ -196,6 +198,7 @@ mediaRoutes.get("/video/:videoId", async (c) => {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
+    assertVideoVisible(result.event, authUser?.role, "Video not found");
   }
 
   // A video still in the slide burn-in pipeline has no Bunny video yet —
@@ -563,6 +566,7 @@ mediaRoutes.get("/video/:videoId/download", async (c) => {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
+    assertVideoVisible(result.event, authUser?.role, "Video not found");
   }
 
   const downloadGuid = result.video.bunnyVideoId;
@@ -603,6 +607,7 @@ mediaRoutes.get("/readalong/:trackId", async (c) => {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
+    assertAudioVisible(result.event, authUser?.role, "Track not found");
   }
 
   const jsonContent = await getObjectText(result.track.readAlongS3Key);

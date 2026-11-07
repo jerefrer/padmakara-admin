@@ -249,6 +249,9 @@ export const createEventSchema = z.object({
   saleMode: z.enum(["none", "free", "paid"]).optional(),
   priceCents: z.number().int().optional().nullable(),
   includedInMembership: z.boolean().optional(),
+  // Per-media visibility of a published event (see services/media-visibility.ts).
+  audioPublished: z.boolean().optional(),
+  videoPublished: z.boolean().optional(),
   teacherIds: z.array(z.object({
     id: z.number().int(),
     role: z.enum(["teacher", "guest", "translator"]).optional().default("teacher"),

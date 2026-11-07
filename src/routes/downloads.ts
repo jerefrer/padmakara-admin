@@ -7,6 +7,7 @@ import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser } from "../middleware/auth.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { AUDIENCE_SLUGS } from "../services/access.ts";
+import { assertAudioVisible } from "../services/media-visibility.ts";
 
 const downloadsRoutes = new Hono();
 
@@ -30,6 +31,18 @@ async function verifyEventStillPublic(eventId: number): Promise<void> {
   if (!isPublic) {
     throw AppError.forbidden("This content is no longer publicly available");
   }
+
+  // The ZIP holds audio only: a ZIP built before the audio was hidden is not served.
+  assertAudioVisible(event, undefined, "Download request not found");
+}
+
+/** An owner's ready ZIP stops being served to them once the event's audio is hidden. */
+async function verifyAudioStillVisible(eventId: number, role: string | undefined): Promise<void> {
+  const event = await db.query.events.findFirst({
+    where: eq(events.id, eventId),
+    columns: { audioPublished: true, videoPublished: true },
+  });
+  assertAudioVisible(event, role, "Download request not found");
 }
 
 /**
@@ -41,13 +54,17 @@ async function verifyEventStillPublic(eventId: number): Promise<void> {
 async function verifyDownloadAccess(
   request: { userId: number | null; eventId: number },
   callerId: number | undefined,
+  callerRole?: string,
 ): Promise<void> {
   if (request.userId === null) {
     // Anonymous request: re-verify the event is still public
     await verifyEventStillPublic(request.eventId);
     return;
   }
-  if (callerId && request.userId === callerId) return; // owner match
+  if (callerId && request.userId === callerId) {
+    await verifyAudioStillVisible(request.eventId, callerRole);
+    return; // owner match
+  }
   throw AppError.forbidden("Access denied");
 }
 
@@ -67,7 +84,7 @@ downloadsRoutes.get("/:id/status", async (c) => {
     throw AppError.notFound("Download request not found");
   }
 
-  await verifyDownloadAccess(request, user?.id);
+  await verifyDownloadAccess(request, user?.id, user?.role);
 
   // Check if expired (status is ready but past expiration time)
   if (
@@ -114,7 +131,7 @@ downloadsRoutes.get("/:id/download", async (c) => {
     throw AppError.notFound("Download request not found");
   }
 
-  await verifyDownloadAccess(request, user?.id);
+  await verifyDownloadAccess(request, user?.id, user?.role);
 
   // Check status
   if (request.status !== "ready") {

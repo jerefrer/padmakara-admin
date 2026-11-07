@@ -193,6 +193,13 @@ export const en = {
       published: "Published",
       archived: "Archived",
       statusChanged: "Status changed to %{status}",
+      mediaAudio: "Audio",
+      mediaVideo: "Video",
+      mediaVisible: "Visible in the app",
+      mediaHidden: "Hidden in the app until you turn it on",
+      mediaHiddenInList: "Hidden in the app",
+      mediaNowVisible: "%{media} is now visible in the app",
+      mediaNowHidden: "%{media} is now hidden in the app",
       // Original language — the language the event was taught in. The app
       // always shows it, so a Tibetan teaching is never hidden behind its
       // translation.

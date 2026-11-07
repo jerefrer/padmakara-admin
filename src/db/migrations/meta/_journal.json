@@ -428,6 +428,13 @@
       "when": 1813542400000,
       "tag": "0060_event_code_reviewed",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1813628800000,
+      "tag": "0061_media_visibility",
+      "breakpoints": true
     }
   ]
 }

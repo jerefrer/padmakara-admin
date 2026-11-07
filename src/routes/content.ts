@@ -17,6 +17,7 @@ import {
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { checkEventAccess, eventStatusVisibleTo } from "../services/access.ts";
+import { assertAudioVisible, assertVideoVisible, mediaVisibleTo } from "../services/media-visibility.ts";
 import { users } from "../db/schema/users.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
@@ -78,6 +79,8 @@ contentRoutes.post("/progress", async (c) => {
   if (!eventStatus || !eventStatusVisibleTo(user.role).includes(eventStatus)) {
     throw AppError.notFound("Track not found");
   }
+  // Same for a track whose audio is hidden (a regular user must not know it exists)
+  assertAudioVisible(trackExists.session?.event, user.role, "Track not found");
 
   const completionPct = data.durationSeconds
     ? Math.min(100, Math.round((data.positionSeconds / data.durationSeconds) * 100))
@@ -156,9 +159,12 @@ contentRoutes.get("/progress/:trackId", async (c) => {
 contentRoutes.get("/last-played", async (c) => {
   const user = getUser(c);
 
-  const row = await db.query.userProgress.findFirst({
+  // A few of the latest rows, so a track whose audio is hidden is skipped
+  // rather than hiding every older one behind it.
+  const recent = await db.query.userProgress.findMany({
     where: eq(userProgress.userId, user.id),
     orderBy: (up, { desc }) => [desc(up.lastPlayed)],
+    limit: 25,
     with: {
       track: {
         with: {
@@ -170,6 +176,10 @@ contentRoutes.get("/last-played", async (c) => {
         },
       },
     },
+  });
+  const row = recent.find((r) => {
+    const event = r.track?.session?.event;
+    return !event || mediaVisibleTo(event, user.role).audio;
   });
 
   if (!row) {
@@ -227,6 +237,7 @@ async function authorizeVideoAccess(c: any, videoId: number) {
     if (access.reason === "AUTH_REQUIRED") throw AppError.unauthorized();
     throw AppError.forbidden("Access denied");
   }
+  assertVideoVisible(video.event, authUser.role, "Video not found");
   return { user: authUser, video };
 }
 
@@ -314,11 +325,20 @@ contentRoutes.post("/video-progress/:videoId", async (c) => {
 
 contentRoutes.get("/bookmarks", async (c) => {
   const user = getUser(c);
-  const data = await db.query.bookmarks.findMany({
+  const rows = await db.query.bookmarks.findMany({
     where: eq(bookmarks.userId, user.id),
     orderBy: (b, { desc }) => [desc(b.createdAt)],
-    with: { track: true },
+    with: { track: { with: { session: { with: { event: true } } } } },
   });
+  // Keep the payload shape (the bare track): the event is loaded only to apply the
+  // audio visibility rule, and bookmarks on a track whose audio is hidden are not listed.
+  const data = rows
+    .filter((r) => mediaVisibleTo(r.track?.session?.event ?? {}, user.role).audio)
+    .map(({ track, ...bookmark }) => {
+      if (!track) return { ...bookmark, track };
+      const { session: _session, ...bareTrack } = track;
+      return { ...bookmark, track: bareTrack };
+    });
   return c.json(data);
 });
 
@@ -472,11 +492,16 @@ const trackBookmarkWith = {
 
 contentRoutes.get("/track-bookmarks", async (c) => {
   const user = getUser(c);
-  const rows = await db.query.trackBookmarks.findMany({
+  const allRows = await db.query.trackBookmarks.findMany({
     where: eq(trackBookmarks.userId, user.id),
     orderBy: (b, { desc }) => [desc(b.createdAt)],
     with: trackBookmarkWith,
   });
+
+  // Bookmarks on a track whose audio is hidden stay saved but are not listed.
+  const rows = allRows.filter((r) =>
+    mediaVisibleTo((r.track as any)?.session?.event ?? {}, user.role).audio,
+  );
 
   // Enrich teacher avatars on the embedded events so cards in the bookmarks
   // list look the same as elsewhere.
@@ -508,6 +533,7 @@ contentRoutes.post("/track-bookmarks", async (c) => {
   if (!guardStatus || !eventStatusVisibleTo(user.role).includes(guardStatus)) {
     throw AppError.notFound("Track not found");
   }
+  assertAudioVisible(trackForGuard?.session?.event, user.role, "Track not found");
 
   const [row] = await db
     .insert(trackBookmarks)
@@ -586,11 +612,15 @@ async function enrichVideoBookmarkEvents(rows: Array<{ video?: unknown }>) {
 
 contentRoutes.get("/video-bookmarks", async (c) => {
   const user = getUser(c);
-  const rows = await db.query.videoBookmarks.findMany({
+  const allRows = await db.query.videoBookmarks.findMany({
     where: eq(videoBookmarks.userId, user.id),
     orderBy: (b, { desc }) => [desc(b.createdAt)],
     with: videoBookmarkWith,
   });
+  // Bookmarks on a video that is hidden stay saved but are not listed.
+  const rows = allRows.filter((r) =>
+    mediaVisibleTo((r.video as any)?.event ?? {}, user.role).video,
+  );
   await enrichVideoBookmarkEvents(rows);
   return c.json(rows);
 });

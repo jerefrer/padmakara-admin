@@ -66,6 +66,8 @@ import { AnalysisReport } from "../components/AnalysisReport";
 import { SessionPreview } from "../components/SessionPreview";
 import { findMatchingExistingSession } from "../utils/sessionMatch";
 import { moveTracksToSession, nextSessionNumber } from "../utils/moveTracks";
+import { isMediaHiddenInApp, saveMediaVisibility } from "../utils/mediaVisibility";
+import type { MediaVisibilityKey } from "../components/EventStatusControls";
 import { MoveTracksBar, type MoveTarget } from "../components/MoveTracksBar";
 import {
   TrackNumberConflictDialog,
@@ -517,11 +519,21 @@ export const EventList = () => {
           render={(record: any) => (
             <Box sx={{ display: "flex", gap: 0.5, color: "text.secondary" }}>
               {record.hasVideo && (
-                <Tooltip title={translate("padmakara.events.hasVideo")}>
-                  <Videocam fontSize="small" />
-                </Tooltip>
+                isMediaHiddenInApp(record, "video") ? (
+                  <Tooltip title={translate("padmakara.events.mediaHiddenInList")}>
+                    <Videocam fontSize="small" sx={{ opacity: 0.35 }} />
+                  </Tooltip>
+                ) : (
+                  <Tooltip title={translate("padmakara.events.hasVideo")}>
+                    <Videocam fontSize="small" />
+                  </Tooltip>
+                )
               )}
-              {record.audioTotal > 0 && record.audioKeyed < record.audioTotal ? (
+              {isMediaHiddenInApp(record, "audio") && (record.hasAudio || record.audioTotal > 0) ? (
+                <Tooltip title={translate("padmakara.events.mediaHiddenInList")}>
+                  <Audiotrack fontSize="small" sx={{ opacity: 0.35 }} />
+                </Tooltip>
+              ) : record.audioTotal > 0 && record.audioKeyed < record.audioTotal ? (
                 <Tooltip
                   title={translate("padmakara.events.audioPartial", {
                     keyed: record.audioKeyed,
@@ -600,6 +612,9 @@ export interface EventFormData {
   /** Teachers (ids from the selected list) saved with the 'guest' role. */
   guestTeacherIds: number[];
   status: string;
+  /** Per-media visibility of a published event; both on unless an admin switches one off. */
+  audioPublished: boolean;
+  videoPublished: boolean;
   featuredAt: string | null;
   /** How the event is offered on its own: none | free | paid (price in cents). */
   saleMode: "none" | "free" | "paid";
@@ -627,6 +642,8 @@ export const EMPTY_FORM: EventFormData = {
   bibliographyEnReviewed: true, bibliographyPtReviewed: true,
   wixId: null, librarySnapshot: null, guestTeacherIds: [],
   status: "draft",
+  audioPublished: true,
+  videoPublished: true,
   featuredAt: null,
   saleMode: "none", priceCents: null, includedInMembership: false,
   internalNotes: "",
@@ -3213,6 +3230,8 @@ export const EventEdit = () => {
         .filter((rt: any) => rt.role === "guest")
         .map((rt: any) => rt.teacherId),
       status: event.status || "draft",
+      audioPublished: event.audioPublished ?? true,
+      videoPublished: event.videoPublished ?? true,
       featuredAt: event.featuredAt || null,
       saleMode: event.saleMode ?? "none",
       priceCents: event.priceCents ?? null,
@@ -4291,6 +4310,24 @@ export const EventEdit = () => {
     }
   }, [id, dataProvider, event, notify, translate]);
 
+  // Like the Draft / Published toggle, the Audio / Video toggles save as soon as they are clicked.
+  const handleMediaVisibilityChange = useCallback(async (key: MediaVisibilityKey, value: boolean) => {
+    if (!id) return;
+    setForm((prev) => ({ ...prev, [key]: value }));
+    try {
+      await saveMediaVisibility(dataProvider, id, event, key, value);
+      const media = translate(key === "audioPublished" ? "padmakara.events.mediaAudio" : "padmakara.events.mediaVideo");
+      notify(value ? "padmakara.events.mediaNowVisible" : "padmakara.events.mediaNowHidden", {
+        type: "success",
+        messageArgs: { media },
+      });
+    } catch (error: any) {
+      // The toggle already moved; put it back since the server did not take the change.
+      setForm((prev) => ({ ...prev, [key]: !value }));
+      notify(apiErrorMessageKey(error), { type: "error", messageArgs: { message: error.message } });
+    }
+  }, [id, dataProvider, event, notify, translate]);
+
   /** Save the event; `close` leaves for the list afterwards, otherwise the page
    *  and its form state stay as they are. */
   const handleSave = async (close: boolean) => {
@@ -4472,6 +4509,11 @@ export const EventEdit = () => {
             <EventStatusControls
               status={form.status}
               onStatusChange={(val) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val); }}
+              media={{
+                audioPublished: form.audioPublished,
+                videoPublished: form.videoPublished,
+                onChange: handleMediaVisibilityChange,
+              }}
               star={{
                 eventId: Number(id),
                 featured: !!form.featuredAt,
