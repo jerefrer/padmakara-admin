@@ -411,6 +411,14 @@ export const en = {
       logoUrlHelper: "Legacy field — replaced by Avatar above",
     },
     tracks: {
+      conflictTitle: "Track number already used",
+      conflictText: "Session %{session} already has a %{language} track %{number}: “%{title}”. Give one of the two another number, then the move goes on.",
+      conflictRenumber: "“%{title}” becomes number",
+      conflictNumber: "New number",
+      conflictConfirm: "Renumber and move",
+      lang_en: "English",
+      lang_pt: "Portuguese",
+      lang_tib: "Tibetan",
       bulk: {
         editSelected: "Edit selected…",
         title: "Edit %{smart_count} selected track |||| Edit %{smart_count} selected tracks",

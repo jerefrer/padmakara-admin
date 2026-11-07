@@ -609,6 +609,14 @@ export const pt = {
       logoUrlHelper: "Campo antigo — substituído pelo Avatar acima",
     },
     tracks: {
+      conflictTitle: "Número de faixa já usado",
+      conflictText: "A sessão %{session} já tem uma faixa %{number} em %{language}: “%{title}”. Dê outro número a uma das duas e a mudança continua.",
+      conflictRenumber: "“%{title}” passa a ser o número",
+      conflictNumber: "Novo número",
+      conflictConfirm: "Renumerar e mover",
+      lang_en: "inglês",
+      lang_pt: "português",
+      lang_tib: "tibetano",
       bulk: {
         editSelected: "Editar selecionadas…",
         title: "Editar %{smart_count} faixa selecionada |||| Editar %{smart_count} faixas selecionadas",

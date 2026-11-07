@@ -67,6 +67,12 @@ import { SessionPreview } from "../components/SessionPreview";
 import { findMatchingExistingSession } from "../utils/sessionMatch";
 import { moveTracksToSession, nextSessionNumber } from "../utils/moveTracks";
 import { MoveTracksBar, type MoveTarget } from "../components/MoveTracksBar";
+import {
+  TrackNumberConflictDialog,
+  trackNumberConflictOf,
+  type ConflictChoice,
+  type TrackNumberConflict,
+} from "../components/TrackNumberConflictDialog";
 import type { BulkTrackPatch } from "../components/EditTracksDialog";
 import { EventVideosSection } from "../components/EventVideosSection";
 import type { PendingUploadSlides } from "../components/SlideEditor";
@@ -3140,6 +3146,17 @@ export const EventEdit = () => {
   // assistant's scope.
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<number>>(() => new Set());
   const [movingTracks, setMovingTracks] = useState(false);
+  // The open "track number already used" question of a move, with how to answer it.
+  const [conflictPrompt, setConflictPrompt] = useState<{
+    conflict: TrackNumberConflict;
+    movedTitle: string;
+    resolve: (choice: ConflictChoice | null) => void;
+  } | null>(null);
+  const askTrackNumberConflict = useCallback(
+    (conflict: TrackNumberConflict, movedTitle: string) =>
+      new Promise<ConflictChoice | null>((resolve) => setConflictPrompt({ conflict, movedTitle, resolve })),
+    [],
+  );
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -3537,12 +3554,47 @@ export const EventEdit = () => {
           ];
         }
         const ids = [...selectedTrackIds];
+        const titleOf = (trackId: number) => {
+          for (const s of working) {
+            const t = s.tracks.find((tr) => tr.id === trackId);
+            if (t) return t.titlePt || t.titleEn || t.title || `#${trackId}`;
+          }
+          return `#${trackId}`;
+        };
+        const moved: number[] = [];
         for (const trackId of ids) {
-          await dataProvider.update("tracks", {
-            id: trackId,
-            data: { sessionId: targetId },
-            previousData: {},
-          });
+          let data: Record<string, number> = { sessionId: targetId };
+          // A number already used in the target session is not a dead end:
+          // ask which of the two tracks gets another number, then try again.
+          for (;;) {
+            try {
+              await dataProvider.update("tracks", { id: trackId, data, previousData: {} });
+              break;
+            } catch (err) {
+              const conflict = trackNumberConflictOf(err);
+              if (!conflict) throw err;
+              const choice = await askTrackNumberConflict(conflict, titleOf(trackId));
+              if (!choice) {
+                // Cancelled: keep what already moved, stop here.
+                setSelectedTrackIds(new Set());
+                if (moved.length > 0) {
+                  notify("padmakara.tracks.moved", { type: "success", messageArgs: { smart_count: moved.length } });
+                }
+                refresh();
+                return;
+              }
+              if (choice.renumber === "blocking" && conflict.blocking) {
+                await dataProvider.update("tracks", {
+                  id: conflict.blocking.id,
+                  data: { trackNumber: choice.number },
+                  previousData: {},
+                });
+              } else {
+                data = { sessionId: targetId, trackNumber: choice.number };
+              }
+            }
+          }
+          moved.push(trackId);
         }
         setSessions(moveTracksToSession(working, selectedTrackIds, targetId));
         setSelectedTrackIds(new Set());
@@ -3557,7 +3609,7 @@ export const EventEdit = () => {
         setMovingTracks(false);
       }
     },
-    [id, selectedTrackIds, sessions, dataProvider, notify, refresh],
+    [id, selectedTrackIds, sessions, dataProvider, notify, refresh, askTrackNumberConflict],
   );
 
   // Apply the same speaker / language / translation patch to every ticked
@@ -4510,6 +4562,19 @@ export const EventEdit = () => {
         onConfirm={handleDelete}
         eventTitle={event?.titleEn || "this event"}
         deleting={deleting}
+      />
+
+      <TrackNumberConflictDialog
+        conflict={conflictPrompt?.conflict ?? null}
+        movedTitle={conflictPrompt?.movedTitle ?? ""}
+        onResolve={(choice) => {
+          conflictPrompt?.resolve(choice);
+          setConflictPrompt(null);
+        }}
+        onCancel={() => {
+          conflictPrompt?.resolve(null);
+          setConflictPrompt(null);
+        }}
       />
 
       {/* Video upload overlay — only present while a single-video upload is in flight. */}
