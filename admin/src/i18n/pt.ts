@@ -488,6 +488,7 @@ export const pt = {
       applying: "A aplicar…",
       reviewTitle: "Alterações propostas",
       noChanges: "A AI não propôs alterações.",
+      noChangesInSelection: "A AI não encontrou nada para alterar na faixa selecionada. Desmarque-a para aplicar a instrução a todas as faixas. |||| A AI não encontrou nada para alterar nas %{smart_count} faixas selecionadas. Desmarque-as para aplicar a instrução a todas as faixas.",
       moveToSessionHint: "Para mover as faixas selecionadas para outra sessão ou uma nova, use “Mover para sessão…” no topo.",
       apply: "Aplicar alterações",
       discard: "Descartar",

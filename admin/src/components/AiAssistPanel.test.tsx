@@ -296,4 +296,17 @@ describe("AiAssistPanel request", () => {
       { type: "error" },
     );
   });
+
+  it("should point at the selection when the AI changes nothing in the selected tracks", async () => {
+    await ask(TWO_SESSIONS, { sessions: [], videos: [], tracks: [] }, 'in all titles, replace "versos" with "estrofes"', ["t1"]);
+
+    expect(container.textContent).toContain("aiAssist.noChangesInSelection");
+  });
+
+  it("should keep the plain message when nothing is selected", async () => {
+    await ask(TWO_SESSIONS, { sessions: [], videos: [], tracks: [] }, 'replace "versos" with "estrofes"');
+
+    expect(container.textContent).toContain("aiAssist.noChanges");
+    expect(container.textContent).not.toContain("noChangesInSelection");
+  });
 });

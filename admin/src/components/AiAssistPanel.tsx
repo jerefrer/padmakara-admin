@@ -447,7 +447,12 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
             <Typography variant="body2" color="text.secondary">
               {/* The assistant cannot create or move sessions; point at the
                   tool that can instead of a bare "no changes". */}
-              {/sess(ion|ão|ao|ões|oes)/i.test(askedText) ? t("moveToSessionHint") : t("noChanges")}
+              {/sess(ion|ão|ao|ões|oes)/i.test(askedText)
+                ? t("moveToSessionHint")
+                : selectedTrackKeys.length > 0
+                  ? // The instruction only saw the ticked tracks; a leftover selection is the usual reason for "nothing to do".
+                    t("noChangesInSelection", { smart_count: selectedTrackKeys.length })
+                  : t("noChanges")}
             </Typography>
           ) : (
             <>

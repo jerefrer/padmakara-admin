@@ -290,6 +290,7 @@ export const en = {
       applying: "Applying…",
       reviewTitle: "Proposed changes",
       noChanges: "The AI proposed no changes.",
+      noChangesInSelection: "The AI found nothing to change in the selected track. Untick it to apply the instruction to every track. |||| The AI found nothing to change in the %{smart_count} selected tracks. Untick them to apply the instruction to every track.",
       moveToSessionHint: "To move the selected tracks to another or a new session, use “Move to session…” at the top.",
       apply: "Apply changes",
       discard: "Discard",
