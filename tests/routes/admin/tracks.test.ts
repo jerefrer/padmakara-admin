@@ -10,19 +10,21 @@ vi.mock("../../../src/db/index.ts", () => {
   const mockDelete = vi.fn(() => ({ where: mockWhere }));
   const mockUpdate = vi.fn(() => ({ set: mockSet }));
   const mockFindFirst = vi.fn(() => Promise.resolve(null));
+  const mockFindMany = vi.fn(() => Promise.resolve([]));
   return {
     db: {
       delete: mockDelete,
       update: mockUpdate,
       query: {
         sessions: { findFirst: mockFindFirst },
-        tracks: { findFirst: mockFindFirst },
+        tracks: { findFirst: mockFindFirst, findMany: mockFindMany },
       },
       _delete: mockDelete,
       _update: mockUpdate,
       _where: mockWhere,
       _returning: mockReturning,
       _findFirst: mockFindFirst,
+      _findMany: mockFindMany,
     },
   };
 });
@@ -174,5 +176,40 @@ describe("PUT /api/admin/tracks/:id", () => {
     expect((body as any).error).toBe(
       'Session 4 already has a Portuguese track 93 ("7 de Outubro - sessão da tarde - tradução integral"). Give one of the two another number first.',
     );
+  });
+
+  it("should send what the admin needs to offer a fix: the track in the way and free numbers", async () => {
+    mockReturning.mockRejectedValueOnce(
+      Object.assign(new Error("duplicate key"), {
+        code: "23505",
+        constraint_name: "tracks_session_id_track_number_original_language_unique",
+      }),
+    );
+    mockFindFirst
+      .mockResolvedValueOnce({ id: 54953, sessionId: 1261, trackNumber: 93, originalLanguage: "pt" })
+      .mockResolvedValueOnce({ id: 54951, title: "7 de Outubro - sessão da tarde - tradução integral" })
+      .mockResolvedValueOnce({ id: 1260, sessionNumber: 4 });
+    // Portuguese numbers already used in the target session.
+    ((db as any)._findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { trackNumber: 91 }, { trackNumber: 93 }, { trackNumber: 94 },
+    ]);
+
+    const { status, body } = await testJson("/api/admin/tracks/54953", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${await adminToken()}` },
+      body: JSON.stringify({ sessionId: 1260 }),
+    });
+
+    expect(status).toBe(409);
+    expect((body as any).code).toBe("TRACK_NUMBER_TAKEN");
+    expect((body as any).details).toEqual({
+      sessionNumber: 4,
+      trackNumber: 93,
+      language: "pt",
+      blocking: { id: 54951, title: "7 de Outubro - sessão da tarde - tradução integral" },
+      // 92 is free just below; above 93, 94 is taken, so 95.
+      suggestedForBlocking: 92,
+      suggestedForMoved: 95,
+    });
   });
 });

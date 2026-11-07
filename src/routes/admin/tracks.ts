@@ -45,11 +45,38 @@ async function describeTrackNumberConflict(
     ),
   });
   const session = await db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
+  const used = await db.query.tracks.findMany({
+    columns: { trackNumber: true },
+    where: and(eq(tracks.sessionId, sessionId), eq(tracks.originalLanguage, language)),
+  });
+  const taken = new Set(used.map((t) => t.trackNumber));
   const where = session ? `Session ${session.sessionNumber}` : "That session";
   const named = other?.title ? ` ("${other.title}")` : "";
-  return AppError.conflict(
+  return new AppError(
+    409,
     `${where} already has a ${LANGUAGE_NAMES[language] ?? language} track ${trackNumber}${named}. Give one of the two another number first.`,
+    "TRACK_NUMBER_TAKEN",
+    {
+      sessionNumber: session?.sessionNumber ?? null,
+      trackNumber,
+      language,
+      blocking: other ? { id: other.id, title: other.title } : null,
+      suggestedForBlocking: freeNumberNear(trackNumber, taken, true),
+      suggestedForMoved: freeNumberNear(trackNumber, taken, false),
+    },
   );
+}
+
+/**
+ * A free track number next to `n` in a session: just below it when `below`
+ * and that number is free (the track in the way usually belongs right before),
+ * otherwise the first free one above.
+ */
+function freeNumberNear(n: number, taken: ReadonlySet<number>, below: boolean): number {
+  if (below && n > 1 && !taken.has(n - 1)) return n - 1;
+  let candidate = n + 1;
+  while (taken.has(candidate)) candidate++;
+  return candidate;
 }
 
 const columns: Record<string, any> = {

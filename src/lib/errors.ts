@@ -6,6 +6,8 @@ export class AppError extends Error {
     public statusCode: number,
     message: string,
     public code?: string,
+    /** Structured context a client can act on (sent as `details`). */
+    public details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "AppError";
@@ -42,6 +44,7 @@ export function errorHandler(err: Error, c: Context) {
       {
         error: err.message,
         code: err.code,
+        ...(err.details ? { details: err.details } : {}),
       },
       err.statusCode as any,
     );
