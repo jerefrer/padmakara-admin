@@ -147,6 +147,17 @@ export const eventOrganizers = pgTable(
     index("retreat_organizers_organizer_id_idx").on(t.organizerId),
   ],
 );
+/**
+ * Back-office-only notes on an event. Kept out of `retreats` on purpose: the
+ * public routes return whole event rows, so a column there would leak to the app.
+ */
+export const eventInternalNotes = pgTable("event_internal_notes", {
+  eventId: integer("event_id")
+    .primaryKey()
+    .references(() => events.id, { onDelete: "cascade" }),
+  notes: text("notes").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 // Relations
 export const eventsRelations = relations(events, ({ one, many }) => ({

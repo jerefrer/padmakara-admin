@@ -9,6 +9,8 @@ const { mockDb, insertCalls, deleteCalls } = vi.hoisted(() => {
       events: { findFirst: vi.fn() },
       organizers: { findFirst: vi.fn() },
     },
+    // Internal notes lookup: no row.
+    select: vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([])) })) })),
     insert: vi.fn(() => ({
       values: vi.fn((data: unknown) => {
         insertCalls.push(data);

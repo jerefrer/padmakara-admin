@@ -385,6 +385,8 @@ export const pt = {
       translatedSummary: "%{smart_count} campo traduzido |||| %{smart_count} campos traduzidos",
       eventCode: "Código do Evento",
       eventCodeHelper: "Gerado automaticamente a partir da data, professores, tipo de evento e local",
+      internalNotes: "Notas internas",
+      internalNotesHelper: "Só visível aqui no backoffice, nunca na aplicação.",
       // Status
       draft: "Rascunho",
       published: "Publicado",

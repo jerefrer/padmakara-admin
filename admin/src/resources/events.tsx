@@ -596,6 +596,8 @@ export interface EventFormData {
   saleMode: "none" | "free" | "paid";
   priceCents: number | null;
   includedInMembership: boolean;
+  /** Back-office-only notes (event_internal_notes); never shown in the app. */
+  internalNotes: string;
 }
 
 export interface TeacherOption { id: number; name: string; abbreviation: string }
@@ -618,6 +620,7 @@ export const EMPTY_FORM: EventFormData = {
   status: "draft",
   featuredAt: null,
   saleMode: "none", priceCents: null, includedInMembership: false,
+  internalNotes: "",
 };
 
 /* ───────────── Shared form fields ───────────── */
@@ -1129,6 +1132,21 @@ export const EventFormFields = ({
             onStatusChange={(val) => { setForm((prev) => ({ ...prev, status: val })); onStatusChange?.(val); }}
           />
         </Box>
+      )}
+
+      {/* ── Internal notes — back office only, stored apart from the event row ── */}
+      {eventId !== undefined && (
+        <MuiTextField
+          label={translate("padmakara.events.internalNotes")}
+          value={form.internalNotes}
+          onChange={updateField("internalNotes")}
+          multiline
+          minRows={2}
+          fullWidth
+          helperText={translate("padmakara.events.internalNotesHelper")}
+          slotProps={{ inputLabel: { shrink: true } }}
+          sx={{ mb: 2 }}
+        />
       )}
 
       {/* ── Library metadata — fill the form from the association's CSV ── */}
@@ -3184,6 +3202,7 @@ export const EventEdit = () => {
       saleMode: event.saleMode ?? "none",
       priceCents: event.priceCents ?? null,
       includedInMembership: event.includedInMembership ?? false,
+      internalNotes: event.internalNotes ?? "",
       titleEnReviewed: event.titleEnReviewed ?? true,
       titlePtReviewed: event.titlePtReviewed ?? true,
       mainThemesEnReviewed: event.mainThemesEnReviewed ?? true,

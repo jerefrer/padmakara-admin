@@ -258,7 +258,10 @@ export const createEventSchema = z.object({
   publicationIds: z.array(z.number().int()).optional().default([]),
 });
 
-export const updateEventSchema = createEventSchema.partial();
+export const updateEventSchema = createEventSchema.partial().extend({
+  // Back-office-only notes, stored apart from the event row (event_internal_notes).
+  internalNotes: z.string().max(20000).optional(),
+});
 
 // Sessions
 export const createSessionSchema = z.object({

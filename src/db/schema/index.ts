@@ -11,6 +11,7 @@ export {
   eventRetreatGroups,
   eventPlaces,
   eventOrganizers,
+  eventInternalNotes,
   eventsRelations,
   eventTeachersRelations,
   eventRetreatGroupsRelations,

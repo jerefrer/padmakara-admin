@@ -354,6 +354,22 @@ describe("GET /api/events/:id — draft visibility", () => {
     expect(status).toBe(200);
     expect(body.id).toBe(42);
   });
+
+  it("never returns the back-office internal notes, even to an admin", async () => {
+    // Arrange
+    mockDb.query.events.findFirst.mockResolvedValueOnce(draftPublicEvent);
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("admin"));
+
+    // Act
+    const { body } = await testJson("/api/events/42", {
+      headers: await bearerToken("admin"),
+    });
+
+    // Assert: neither the response nor the query reaches the notes table
+    expect(body).not.toHaveProperty("internalNotes");
+    const query = mockDb.query.events.findFirst.mock.calls[0]![0] as { with?: Record<string, unknown> };
+    expect(Object.keys(query.with ?? {})).not.toContain("internalNotes");
+  });
 });
 
 describe("GET /api/events/:id — related publications", () => {

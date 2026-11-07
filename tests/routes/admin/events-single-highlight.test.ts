@@ -15,6 +15,8 @@ const { mockDb, mockTx, txSets, dbSets, bumpVersion } = vi.hoisted(() => {
   };
   const mockDb = {
     query: { events: { findFirst: vi.fn() } },
+    // Internal notes lookup: no row.
+    select: vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([])) })) })),
     transaction: vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx)),
     update: vi.fn(() => ({
       set: vi.fn((data: Record<string, unknown>) => {

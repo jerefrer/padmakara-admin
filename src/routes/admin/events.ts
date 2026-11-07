@@ -7,6 +7,7 @@ import {
   eventRetreatGroups,
   eventPlaces,
   eventOrganizers,
+  eventInternalNotes,
 } from "../../db/schema/retreats.ts";
 import { eventPublications, publications } from "../../db/schema/publications.ts";
 import { publicationsViaGroups } from "../../services/event-publications.ts";
@@ -289,6 +290,15 @@ eventRoutes.get("/:id/publications", async (c) => {
   });
 });
 
+/** Back-office notes of an event; "" when there are none. Never part of the public event shape. */
+async function readInternalNotes(eventId: number): Promise<string> {
+  const [row] = await db
+    .select({ notes: eventInternalNotes.notes })
+    .from(eventInternalNotes)
+    .where(eq(eventInternalNotes.eventId, eventId));
+  return row?.notes ?? "";
+}
+
 eventRoutes.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const event = await db.query.events.findFirst({
@@ -317,6 +327,7 @@ eventRoutes.get("/:id", async (c) => {
   applyEventOrganizers(event);
   return c.json({
     ...event,
+    internalNotes: await readInternalNotes(id),
     publicationIds: event.eventPublications?.map((ep: any) => ep.publicationId) || [],
   });
 });
@@ -453,7 +464,7 @@ eventRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
   // featuredAt is dropped: the highlight only moves through POST /:id/feature.
-  const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, featuredAt: _ignored, ...eventData } =
+  const { teacherIds, groupIds, placeIds, organizerIds, publicationIds, internalNotes, featuredAt: _ignored, ...eventData } =
     updateEventSchema.parse(body);
 
   // Only include fields that were actually sent in the request body,
@@ -541,6 +552,21 @@ eventRoutes.put("/:id", async (c) => {
     }
   }
 
+  // Internal notes live in their own table: blank removes the row, absent leaves it alone.
+  if (bodyKeys.has("internalNotes") && internalNotes !== undefined) {
+    if (internalNotes.trim() === "") {
+      await db.delete(eventInternalNotes).where(eq(eventInternalNotes.eventId, id));
+    } else {
+      await db
+        .insert(eventInternalNotes)
+        .values({ eventId: id, notes: internalNotes })
+        .onConflictDoUpdate({
+          target: eventInternalNotes.eventId,
+          set: { notes: internalNotes, updatedAt: new Date() },
+        });
+    }
+  }
+
   const full = await db.query.events.findFirst({
     where: eq(events.id, id),
     with: {
@@ -558,7 +584,7 @@ eventRoutes.put("/:id", async (c) => {
     console.error("[sync] failed to bump events version:", err),
   );
   applyEventOrganizers(full);
-  return c.json(full!);
+  return c.json({ ...full!, internalNotes: await readInternalNotes(id) });
 });
 
 eventRoutes.delete("/:id", async (c) => {
