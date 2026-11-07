@@ -74,6 +74,7 @@ export const en = {
       dialogTitle: "Library metadata",
       linked: "Linked to library record %{code}",
       unlink: "Unlink",
+      eventCode: "Event code",
       bibliography: "Bibliography",
       bibliographyPlaceholder: "Books and texts used in the teachings...",
       guest: "guest",

@@ -107,7 +107,7 @@ const PRESELECT_SCORE = 50;
 type FieldKey =
   | "titlePt" | "startDate" | "endDate" | "mainThemesPt" | "mainThemesEn"
   | "sessionThemesPt" | "sessionThemesEn"
-  | "bibliography" | "organizers" | "eventType" | "audience" | "groups"
+  | "bibliography" | "eventCode" | "organizers" | "eventType" | "audience" | "groups"
   | "teachers" | "places";
 
 interface Row {
@@ -327,6 +327,8 @@ const LibraryMetadataDialog = ({
     text("sessionThemesPt", ev("sessionThemesPt"), form.sessionThemesPt, f.sessionThemesPt);
     text("sessionThemesEn", ev("sessionThemesEn"), form.sessionThemesEn, f.sessionThemesEn);
     text("bibliography", translate("padmakara.library.bibliography"), form.bibliography, f.bibliography);
+    // Keeps the connection to the older data: the library's own code for this event.
+    text("eventCode", translate("padmakara.library.eventCode"), form.eventCode, selected?.eventCode ?? null);
     if (mapping.resolved.eventType) {
       text("eventType", ev("eventType"), named(selectedEventType), named(mapping.resolved.eventType));
     }
@@ -419,6 +421,7 @@ const LibraryMetadataDialog = ({
         if (on("sessionThemesPt")) { next.sessionThemesPt = f.sessionThemesPt ?? ""; next.sessionThemesPtReviewed = true; }
         if (on("sessionThemesEn")) { next.sessionThemesEn = f.sessionThemesEn ?? ""; next.sessionThemesEnReviewed = true; }
         if (on("bibliography")) next.bibliography = f.bibliography ?? "";
+        if (on("eventCode")) next.eventCode = selected?.eventCode ?? "";
         if (on("teachers")) {
           const guests = [
             ...mapping.resolved.teachers.filter((t) => t.role === "guest").map((t) => t.id),

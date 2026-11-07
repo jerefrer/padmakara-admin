@@ -275,6 +275,7 @@ export const pt = {
       dialogTitle: "Metadados da biblioteca",
       linked: "Ligado ao registo da biblioteca %{code}",
       unlink: "Desligar",
+      eventCode: "Código do evento",
       bibliography: "Bibliografia",
       bibliographyPlaceholder: "Livros e textos usados nos ensinamentos...",
       guest: "convidado",
