@@ -137,6 +137,7 @@ import {
   detectTitleLanguage,
 } from "../utils/trackParser";
 import type { AnalysisResult, ScannedFile, TrackCorrection } from "../utils/analyzeFolder";
+import { needsTitle } from "../utils/trackTitles";
 
 /** Convert a human-readable date ("April 17") or ISO date to YYYY-MM-DD using event year */
 const MONTH_MAP: Record<string, string> = {
@@ -861,7 +862,7 @@ export const EventFormFields = ({
     if (onTrackUpdate) {
       for (const s of sessions) {
         for (const t of s.tracks) {
-          if (!t.id) continue;
+          if (!t.id || !needsTitle(t, tgtField)) continue;
           if (String(t[srcField] ?? "").trim() && !String(t[tgtField] ?? "").trim()) trackTitles++;
         }
       }
@@ -872,6 +873,7 @@ export const EventFormFields = ({
     for (const s of previewSessions ?? []) {
       if (String(s[srcField] ?? "").trim() && !String(s[tgtField] ?? "").trim()) sessionTitles++;
       for (const t of s.tracks) {
+        if (!needsTitle(t, tgtField)) continue;
         if (String(t[srcField] ?? "").trim() && !String(t[tgtField] ?? "").trim()) trackTitles++;
       }
     }
@@ -912,7 +914,7 @@ export const EventFormFields = ({
     if (onTrackUpdate) {
       for (const s of sessions) {
         for (const t of s.tracks) {
-          if (!t.id) continue;
+          if (!t.id || !needsTitle(t, tgtField)) continue;
           const source = String(t[srcField] ?? "").trim();
           const target = String(t[tgtField] ?? "").trim();
           if (source && !target) trackTargets.push({ trackId: t.id, source });
@@ -931,7 +933,7 @@ export const EventFormFields = ({
       s.tracks.forEach((t, ti) => {
         const tSource = String(t[srcField] ?? "").trim();
         const tTarget = String(t[tgtField] ?? "").trim();
-        if (tSource && !tTarget) items[`ptrack:${si}:${ti}`] = tSource;
+        if (tSource && !tTarget && needsTitle(t, tgtField)) items[`ptrack:${si}:${ti}`] = tSource;
       });
     });
 

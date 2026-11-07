@@ -58,6 +58,7 @@ import {
 } from "./inlineEditKit";
 import { languageLabel } from "../utils/trackParser";
 import type { TrackCorrection } from "../utils/analyzeFolder";
+import { needsTitle } from "../utils/trackTitles";
 
 /** Map keyed by a track's stable key → list of corrections applied to it. */
 export type TrackCorrectionsMap = Map<string, TrackCorrection[]>;
@@ -1149,7 +1150,7 @@ export function SessionTrackTable({
         }
         for (const track of session.tracks) {
           const source = track[srcField].trim();
-          if (source && !track[tgtField].trim()) items[`track:${track.key}`] = source;
+          if (source && !track[tgtField].trim() && needsTitle(track, tgtField)) items[`track:${track.key}`] = source;
         }
       });
       if (Object.keys(items).length === 0) {
@@ -1200,7 +1201,7 @@ export function SessionTrackTable({
     for (const s of value.sessions) {
       if (s[srcField].trim() && !s[tgtField].trim()) sessionTitles++;
       for (const t of s.tracks) {
-        if (t[srcField].trim() && !t[tgtField].trim()) trackTitles++;
+        if (t[srcField].trim() && !t[tgtField].trim() && needsTitle(t, tgtField)) trackTitles++;
       }
     }
     return { sessionTitles, trackTitles, total: sessionTitles + trackTitles };
