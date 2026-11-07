@@ -715,6 +715,7 @@ export const en = {
       },
     },
     slides: {
+      noMaster: "Slides can't be added to this video: it was uploaded before originals were kept. Upload it again to add slides.",
       addSlideShort: "Add slide",
       sequence: "Slide sequence",
       videoBlock: {

@@ -370,6 +370,10 @@ const VideoRow = ({
   const doneRef = useRef(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const slideCount = slides.doc.intro.length + slides.doc.outro.length;
+  // Slides only reach viewers burned into the video, and burning starts from the
+  // kept original. A video already on the player without one (uploaded before
+  // originals were kept) can never get them, so its slides stay closed.
+  const slidesLocked = !!video.bunnyVideoId && !video.masterS3Key;
   const awaitingFile = isAwaitingFile(video);
   const copySources = otherVideos
     .filter((v) => v.slides && hasAnySlides(v.slides))
@@ -686,18 +690,28 @@ const VideoRow = ({
 
         <Tooltip
           title={
-            slideCount > 0
-              ? translate("padmakara.slides.editButtonCount", { count: slideCount }) || `Slides (${slideCount})`
-              : translate("padmakara.slides.editButton") || "Slides"
+            slidesLocked
+              ? translate("padmakara.slides.noMaster", {
+                  _: "Slides can't be added to this video: it was uploaded before originals were kept. Upload it again to add slides.",
+                })
+              : slideCount > 0
+                ? translate("padmakara.slides.editButtonCount", { count: slideCount }) || `Slides (${slideCount})`
+                : translate("padmakara.slides.editButton") || "Slides"
           }
         >
-          <IconButton
-            size="small"
-            onClick={() => onEditorOpenChange(true)}
-            aria-label={translate("padmakara.slides.editButton", { _: "Slides" })}
-          >
-            <SlideshowIcon sx={{ fontSize: 17, color: slideCount > 0 ? "#b91c1c" : "text.secondary" }} />
-          </IconButton>
+          {/* A disabled button fires no events, so the tooltip needs a wrapper to show. */}
+          <span>
+            <IconButton
+              size="small"
+              disabled={slidesLocked}
+              onClick={() => onEditorOpenChange(true)}
+              aria-label={translate("padmakara.slides.editButton", { _: "Slides" })}
+            >
+              <SlideshowIcon
+                sx={{ fontSize: 17, color: slidesLocked ? "action.disabled" : slideCount > 0 ? "#b91c1c" : "text.secondary" }}
+              />
+            </IconButton>
+          </span>
         </Tooltip>
 
         <IconButton

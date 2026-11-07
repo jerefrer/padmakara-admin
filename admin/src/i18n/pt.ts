@@ -913,6 +913,7 @@ export const pt = {
       },
     },
     slides: {
+      noMaster: "Não é possível adicionar diapositivos a este vídeo: foi carregado antes de guardarmos os originais. Carregue-o de novo para adicionar diapositivos.",
       addSlideShort: "Adicionar slide",
       sequence: "Sequência de slides",
       videoBlock: {

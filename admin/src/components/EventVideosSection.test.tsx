@@ -163,3 +163,26 @@ describe("EventVideosSection collapsed row", () => {
     expect(container.querySelector("input")?.getAttribute("placeholder") ?? "").not.toContain("titleEn");
   });
 });
+
+describe("EventVideosSection slides button", () => {
+  const slidesButton = () =>
+    container.querySelector('button[aria-label="padmakara.slides.editButton"]') as HTMLButtonElement | null;
+
+  it("should disable the slides on a video uploaded before originals were kept", () => {
+    mount(video({ bunnyVideoId: "g", masterS3Key: null }));
+
+    expect(slidesButton()?.disabled).toBe(true);
+  });
+
+  it("should keep the slides open on a video whose original is kept", () => {
+    mount(video({ bunnyVideoId: "g", masterS3Key: "events/x/masters/a.mp4" }));
+
+    expect(slidesButton()?.disabled).toBe(false);
+  });
+
+  it("should keep the slides open on a video not uploaded yet", () => {
+    mount(video({ bunnyVideoId: null, masterS3Key: null }));
+
+    expect(slidesButton()?.disabled).toBe(false);
+  });
+});
