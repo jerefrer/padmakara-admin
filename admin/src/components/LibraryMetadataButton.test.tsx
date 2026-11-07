@@ -37,7 +37,7 @@ const mapping = {
 };
 
 const EMPTY_FORM = {
-  eventCode: "", titleEn: "", titlePt: "", mainThemesPt: "", mainThemesEn: "",
+  eventCode: "", eventCodeReviewed: true, titleEn: "", titlePt: "", mainThemesPt: "", mainThemesEn: "",
   sessionThemesEn: "", sessionThemesPt: "", titleEnReviewed: true, titlePtReviewed: true,
   mainThemesEnReviewed: true, mainThemesPtReviewed: true,
   sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
@@ -134,6 +134,22 @@ describe("LibraryMetadataButton event code row", () => {
     await act(async () => applyButton().click());
 
     expect(form.eventCode).toBe("2024.04.12-LIB");
+  });
+
+  it("should mark the code reviewed when the library code is applied", async () => {
+    form = { ...EMPTY_FORM, eventCodeReviewed: false };
+    await openDialog();
+    await act(async () => applyButton().click());
+
+    expect(form.eventCodeReviewed).toBe(true);
+  });
+
+  it("should leave the reviewed flag alone when the row is unchecked", async () => {
+    form = { ...EMPTY_FORM, eventCode: "OLD-CODE", eventCodeReviewed: false };
+    await openDialog();
+    await act(async () => applyButton().click());
+
+    expect(form.eventCodeReviewed).toBe(false);
   });
 
   it("should keep the form code when the row is unchecked", async () => {

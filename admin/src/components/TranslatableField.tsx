@@ -54,13 +54,23 @@ export function useFieldTranslate() {
  * translation. Clicking it marks the field reviewed. Replaces the old 9px
  * amber dot, which read as decoration rather than a control.
  */
-export const AiReviewChip = ({ onClick }: { onClick: () => void }) => {
+export const AiReviewChip = ({
+  onClick,
+  labelKey = "padmakara.events.aiChipLabel",
+  reasonKey = "padmakara.events.aiUnreviewed",
+}: {
+  onClick: () => void;
+  /** i18n key of the chip text; defaults to the AI-translation wording. */
+  labelKey?: string;
+  /** i18n key of the tooltip's first half (why the value needs approval). */
+  reasonKey?: string;
+}) => {
   const translate = useTranslate();
-  const tooltip = `${translate("padmakara.events.aiUnreviewed")} — ${translate("padmakara.events.markReviewed")}`;
+  const tooltip = `${translate(reasonKey)} — ${translate("padmakara.events.markReviewed")}`;
   return (
     <Tooltip title={tooltip}>
       <Chip
-        label={translate("padmakara.events.aiChipLabel")}
+        label={translate(labelKey)}
         size="small"
         onClick={onClick}
         sx={{

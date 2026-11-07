@@ -421,7 +421,7 @@ const LibraryMetadataDialog = ({
         if (on("sessionThemesPt")) { next.sessionThemesPt = f.sessionThemesPt ?? ""; next.sessionThemesPtReviewed = true; }
         if (on("sessionThemesEn")) { next.sessionThemesEn = f.sessionThemesEn ?? ""; next.sessionThemesEnReviewed = true; }
         if (on("bibliography")) next.bibliography = f.bibliography ?? "";
-        if (on("eventCode")) next.eventCode = selected?.eventCode ?? "";
+        if (on("eventCode")) { next.eventCode = selected?.eventCode ?? ""; next.eventCodeReviewed = true; }
         if (on("teachers")) {
           const guests = [
             ...mapping.resolved.teachers.filter((t) => t.role === "guest").map((t) => t.id),

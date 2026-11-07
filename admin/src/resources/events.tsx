@@ -123,6 +123,7 @@ import { authFetch } from "../utils/authFetch";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "../components/TranslatableField";
 import { LibraryMetadataButton } from "../components/LibraryMetadataButton";
+import { EventCodeField, withAutoEventCode } from "../components/EventCodeField";
 import {
   type ParsedTrack,
   type InferredSession,
@@ -565,6 +566,8 @@ export const EventList = () => {
 
 export interface EventFormData {
   eventCode: string;
+  /** False while the code was filled in automatically and nobody has approved it. */
+  eventCodeReviewed: boolean;
   titleEn: string;
   titlePt: string;
   mainThemesPt: string;
@@ -608,7 +611,7 @@ export interface EventTypeOption { id: number; nameEn: string; namePt: string | 
 export interface AudienceOption { id: number; nameEn: string; namePt: string | null; slug: string }
 
 export const EMPTY_FORM: EventFormData = {
-  eventCode: "", titleEn: "", titlePt: "",
+  eventCode: "", eventCodeReviewed: true, titleEn: "", titlePt: "",
   mainThemesPt: "", mainThemesEn: "",
   sessionThemesEn: "", sessionThemesPt: "",
   titleEnReviewed: true, titlePtReviewed: true,
@@ -1519,18 +1522,12 @@ export const EventFormFields = ({
 
       {/* ── Event Code ── */}
       <Paper sx={{ p: 3, mb: 3 }}>
-        <MuiTextField
-          label={translate("padmakara.events.eventCode")}
+        <EventCodeField
           value={form.eventCode}
-          onChange={updateField("eventCode")}
-          required
-          fullWidth
-          helperText={translate("padmakara.events.eventCodeHelper")}
-          slotProps={{
-            inputLabel: { shrink: true },
-            htmlInput: { readOnly: readOnlyEventCode },
-          }}
-          sx={{ "& input": { fontFamily: "monospace", fontWeight: 600, letterSpacing: "0.02em" } }}
+          reviewed={form.eventCodeReviewed}
+          readOnly={readOnlyEventCode}
+          onChange={(v) => setForm((p) => ({ ...p, eventCode: v, eventCodeReviewed: true }))}
+          onMarkReviewed={() => setForm((p) => ({ ...p, eventCodeReviewed: true }))}
         />
       </Paper>
     </>
@@ -2183,7 +2180,7 @@ export const EventCreate = () => {
     }
     const placeAbbrevs = selectedPlaces.map((p) => p.abbreviation).filter(Boolean);
     if (placeAbbrevs.length > 0) parts.push(placeAbbrevs.join("-"));
-    setForm((prev) => ({ ...prev, eventCode: parts.join("-") }));
+    setForm((prev) => withAutoEventCode(prev, parts.join("-")));
   }, [form.startDate, form.endDate, selectedEventType, selectedTeachers, selectedPlaces, selectedGroups]);
 
   const handleAnalyzed = useCallback(
@@ -3180,6 +3177,7 @@ export const EventEdit = () => {
 
     setForm({
       eventCode: event.eventCode || "",
+      eventCodeReviewed: event.eventCodeReviewed ?? true,
       titleEn: event.titleEn || "",
       titlePt: event.titlePt || "",
       mainThemesPt: event.mainThemesPt || "",

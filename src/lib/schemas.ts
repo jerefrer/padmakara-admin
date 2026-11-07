@@ -212,6 +212,8 @@ export const updatePublicationSchema = createPublicationSchema.partial();
 // Events (formerly Retreats)
 export const createEventSchema = z.object({
   eventCode: z.string().min(1).max(100),
+  /** False while the code was filled in automatically and nobody has confirmed it. */
+  eventCodeReviewed: z.boolean().optional(),
   titleEn: z.string().min(1).max(200),
   titlePt: z.string().max(200).optional().nullable(),
   mainThemesPt: z.string().optional().nullable(),

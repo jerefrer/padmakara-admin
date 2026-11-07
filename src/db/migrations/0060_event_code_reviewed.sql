@@ -1,0 +1,1 @@
+ALTER TABLE "retreats" ADD COLUMN IF NOT EXISTS "event_code_reviewed" boolean DEFAULT true NOT NULL;

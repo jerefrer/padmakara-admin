@@ -421,6 +421,13 @@
       "when": 1813456000000,
       "tag": "0059_event_internal_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1813542400000,
+      "tag": "0060_event_code_reviewed",
+      "breakpoints": true
     }
   ]
 }

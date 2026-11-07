@@ -184,6 +184,8 @@ export const en = {
       translatedSummary: "Translated %{smart_count} field |||| Translated %{smart_count} fields",
       eventCode: "Event Code",
       eventCodeHelper: "Auto-generated from date, teachers, event type and place",
+      eventCodeChipLabel: "Auto-generated · approve?",
+      eventCodeUnreviewed: "Event code filled in automatically, not approved yet",
       internalNotes: "Internal notes",
       internalNotesHelper: "Only visible here in the back office, never in the app.",
       // Status

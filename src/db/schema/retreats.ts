@@ -26,6 +26,7 @@ import { eventVideos } from "./event-videos.ts";
 export const events = pgTable("retreats", {
   id: serial("id").primaryKey(),
   eventCode: text("event_code").notNull().unique(),
+  eventCodeReviewed: boolean("event_code_reviewed").notNull().default(true),
   titleEn: text("title_en").notNull(),
   titlePt: text("title_pt"),
   mainThemesPt: text("main_themes_pt"),
