@@ -267,6 +267,24 @@ describe("POST /api/admin/events/:id/rename-tracks", () => {
     expect((body as any).tracks).toEqual(trackSuggestions);
   });
 
+  it("should accept an event whose session themes run past 5,000 characters", async () => {
+    // Event 920 has 11,214 characters of session themes; the old cap refused every request on it.
+    mockMessagesCreate.mockResolvedValueOnce(makeAnthropicResponse(JSON.stringify({ tracks: [] })));
+
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/events/920/rename-tracks", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        instruction: "Change verso to estrofe",
+        event: { sessionThemesEn: "x".repeat(11214), sessionThemesPt: "y".repeat(11418) },
+        tracks: VALID_TRACKS,
+      }),
+    });
+
+    expect(status).toBe(200);
+  });
+
   it("returns 400 VALIDATION_ERROR when instruction is missing", async () => {
     const token = await adminToken();
     const { status, body } = await testJson(

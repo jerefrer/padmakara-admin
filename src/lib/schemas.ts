@@ -670,13 +670,17 @@ export const updateTranscriptSchema = z.object({
 });
 
 // AI assist (event + sessions + tracks)
+// Themes are free text pasted from the library: one event's session themes run
+// past 11,000 characters, so these caps only bound a runaway payload.
+const AI_THEMES_MAX = 50_000;
+
 const aiEventFieldsSchema = z.object({
   titleEn: z.string().max(500).optional(),
   titlePt: z.string().max(500).optional(),
-  mainThemesEn: z.string().max(5000).optional(),
-  mainThemesPt: z.string().max(5000).optional(),
-  sessionThemesEn: z.string().max(5000).optional(),
-  sessionThemesPt: z.string().max(5000).optional(),
+  mainThemesEn: z.string().max(AI_THEMES_MAX).optional(),
+  mainThemesPt: z.string().max(AI_THEMES_MAX).optional(),
+  sessionThemesEn: z.string().max(AI_THEMES_MAX).optional(),
+  sessionThemesPt: z.string().max(AI_THEMES_MAX).optional(),
   startDate: z.string().max(20).optional(),
   endDate: z.string().max(20).optional(),
 });

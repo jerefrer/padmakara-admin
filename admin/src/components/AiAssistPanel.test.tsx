@@ -17,13 +17,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // react-admin pulls a whole provider tree we don't need here; the panel only
 // takes a translate function and a notifier from it.
+const mockNotify = vi.hoisted(() => vi.fn());
 vi.mock("react-admin", () => ({
   useTranslate: () => (key: string, options?: Record<string, unknown>) => {
     const short = key.replace(/^padmakara\./, "");
     if (options && "number" in options) return `${short}:${String(options.number)}`;
     return short;
   },
-  useNotify: () => () => {},
+  useNotify: () => mockNotify,
 }));
 
 import { AiAssistPanel, type AiAssistResult, type AiAssistTrack } from "./AiAssistPanel";
@@ -70,13 +71,14 @@ const TWO_SESSIONS_RESULT: AiAssistResult = {
  */
 async function ask(
   tracks: AiAssistTrack[],
-  result: AiAssistResult,
+  result: AiAssistResult | Record<string, unknown>,
   instruction = "translate the titles to Portuguese",
   selectedTrackKeys?: string[],
+  status = 200,
 ): Promise<void> {
   vi.stubGlobal("fetch", vi.fn(() =>
     Promise.resolve(new Response(JSON.stringify(result), {
-      status: 200, headers: { "Content-Type": "application/json" },
+      status, headers: { "Content-Type": "application/json" },
     })),
   ));
   localStorage.setItem("accessToken", "test-token");
@@ -279,5 +281,19 @@ describe("AiAssistPanel request", () => {
       { rowKey: "t1", sessionNumber: 1, trackNumber: 2 },
       { rowKey: "t2", sessionNumber: 2, trackNumber: 7 },
     ]);
+  });
+
+  it("should name the refused field when the request fails validation", async () => {
+    mockNotify.mockClear();
+    await ask(TWO_SESSIONS, {
+      error: "Validation error",
+      code: "VALIDATION_ERROR",
+      issues: [{ path: ["event", "sessionThemesEn"], message: "Too big" }],
+    }, "change verso to estrofe", undefined, 400);
+
+    expect(mockNotify).toHaveBeenCalledWith(
+      "aiAssist.failed: Validation error (event.sessionThemesEn: Too big)",
+      { type: "error" },
+    );
   });
 });

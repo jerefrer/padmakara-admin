@@ -173,8 +173,14 @@ export function AiAssistPanel({ event, sessions, videos = [], tracks, endpoint, 
         const body = await res.text();
         let message = body || `${res.status}`;
         try {
-          const parsed = JSON.parse(body) as { error?: unknown };
+          const parsed = JSON.parse(body) as { error?: unknown; issues?: { path?: unknown[]; message?: unknown }[] };
           if (typeof parsed.error === "string" && parsed.error) message = parsed.error;
+          // A validation error names the refused field, so it can be told apart from the next one.
+          const issue = parsed.issues?.[0];
+          if (issue && typeof issue.message === "string") {
+            const where = Array.isArray(issue.path) && issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+            message = `${message} (${where}${issue.message})`;
+          }
         } catch {
           /* non-JSON body — show it as-is */
         }
