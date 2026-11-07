@@ -27,7 +27,7 @@ import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { applyEventsOrganizers } from "../lib/organizer-utils.ts";
 import { applyEventsVideoThumbnails } from "../lib/video-utils.ts";
-import { applyMediaVisibilityToAll, mediaVisibleTo } from "../services/media-visibility.ts";
+import { applyContentVisibilityToAll, mediaVisibleTo } from "../services/media-visibility.ts";
 
 const teachingRoutes = new Hono();
 
@@ -118,7 +118,7 @@ teachingRoutes.get("/mine", authMiddleware, async (c) => {
       return byGrant || String(b.startDate ?? "").localeCompare(String(a.startDate ?? ""));
     });
 
-  applyMediaVisibilityToAll(data, user.role);
+  applyContentVisibilityToAll(data, user.role);
   await resolveEventsTeacherUrls(data);
   await resolveEventsGroupUrls(data);
   applyEventsVideoThumbnails(data);

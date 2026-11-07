@@ -70,6 +70,14 @@ export const events = pgTable("retreats", {
    */
   audioPublished: boolean("audio_published").notNull().default(true),
   videoPublished: boolean("video_published").notNull().default(true),
+  /**
+   * Same switch for the other sections of a published event: transcripts (and
+   * read-along), texts (files and related publications) and topics (main and
+   * session themes). Same semantics: default true, only read while published.
+   */
+  transcriptsPublished: boolean("transcripts_published").notNull().default(true),
+  textsPublished: boolean("texts_published").notNull().default(true),
+  topicsPublished: boolean("topics_published").notNull().default(true),
   imageUrl: text("image_url"),
   s3Prefix: text("s3_prefix"),
   /** Wix ID of the library record this event was filled from (library_records.wix_id). */

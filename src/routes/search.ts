@@ -10,7 +10,7 @@ import { authIpLimiter } from "../middleware/rate-limit.ts";
 import { recordSearch, purgeIfDue } from "../services/search-log.ts";
 import { filterAccessibleEvents, AUDIENCE_SLUGS, eventStatusVisibleTo } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
-import { applyMediaVisibilityToAll } from "../services/media-visibility.ts";
+import { applyContentVisibilityToAll } from "../services/media-visibility.ts";
 
 const searchRoutes = new Hono();
 
@@ -223,7 +223,7 @@ searchRoutes.get("/", async (c) => {
   }
 
   // Hidden audio: no sessions or tracks to match on or to list in the results
-  applyMediaVisibilityToAll(accessibleEvents, authUser?.role);
+  applyContentVisibilityToAll(accessibleEvents, authUser?.role);
 
   await resolveEventsTeacherUrls(accessibleEvents);
 

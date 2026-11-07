@@ -60,74 +60,9 @@ describe("EventStatusControls", () => {
     expect(host.querySelector('[data-testid="star"]')).not.toBeNull();
   });
 
-  describe("media visibility toggles", () => {
-    const media = (over: Partial<{ audioPublished: boolean; videoPublished: boolean }> = {}) => ({
-      audioPublished: true,
-      videoPublished: true,
-      onChange: vi.fn(),
-      ...over,
-    });
-    const toggle = (kind: "audio" | "video") =>
-      host.querySelector(`button[data-media="${kind}"]`) as HTMLButtonElement | null;
+  it("should not show Audio or Video toggles, which moved to the Video & audio section", () => {
+    act(() => root.render(<EventStatusControls status="published" onStatusChange={() => {}} />));
 
-    it("should show the audio and video toggles when the event is published", () => {
-      act(() => root.render(<EventStatusControls status="published" onStatusChange={() => {}} media={media()} />));
-
-      expect(toggle("audio")).not.toBeNull();
-      expect(toggle("video")).not.toBeNull();
-    });
-
-    it("should not show the toggles when the event is a draft", () => {
-      act(() => root.render(<EventStatusControls status="draft" onStatusChange={() => {}} media={media()} />));
-
-      expect(toggle("audio")).toBeNull();
-      expect(toggle("video")).toBeNull();
-    });
-
-    it("should not show the toggles when no media settings are given", () => {
-      act(() => root.render(<EventStatusControls status="published" onStatusChange={() => {}} />));
-
-      expect(toggle("audio")).toBeNull();
-    });
-
-    it("should report the audio switched off when the visible audio toggle is clicked", () => {
-      const m = media();
-      act(() => root.render(<EventStatusControls status="published" onStatusChange={() => {}} media={m} />));
-
-      act(() => toggle("audio")!.click());
-
-      expect(m.onChange).toHaveBeenCalledWith("audioPublished", false);
-    });
-
-    it("should report the video switched on when the hidden video toggle is clicked", () => {
-      const m = media({ videoPublished: false });
-      act(() => root.render(<EventStatusControls status="published" onStatusChange={() => {}} media={m} />));
-
-      act(() => toggle("video")!.click());
-
-      expect(m.onChange).toHaveBeenCalledWith("videoPublished", true);
-    });
-
-    it("should describe a visible toggle as visible and a hidden one as hidden", () => {
-      act(() =>
-        root.render(
-          <EventStatusControls status="published" onStatusChange={() => {}} media={media({ videoPublished: false })} />,
-        ),
-      );
-
-      expect(toggle("audio")!.getAttribute("aria-label")).toBe("padmakara.events.mediaVisible");
-      expect(toggle("video")!.getAttribute("aria-label")).toBe("padmakara.events.mediaHidden");
-    });
-
-    it("should mark a visible toggle as pressed and a hidden one as not pressed", () => {
-      act(() =>
-        root.render(
-          <EventStatusControls status="published" onStatusChange={() => {}} media={media({ videoPublished: false })} />,
-        ),
-      );
-
-      expect(toggle("audio")!.getAttribute("aria-pressed")).toBe("true");
-      expect(toggle("video")!.getAttribute("aria-pressed")).toBe("false");
-    });
+    expect(host.querySelector("button[data-media]")).toBeNull();
   });
 });

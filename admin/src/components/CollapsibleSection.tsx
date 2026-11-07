@@ -4,6 +4,10 @@
  * `aria-expanded`. The body stays mounted when closed, so uploads, polling and
  * unsaved form state in the sections survive a fold.
  *
+ * An optional `action` (a tick box, say) sits at the right of the header, beside
+ * the clickable area rather than inside it: no button inside a button, and using
+ * the action never folds or unfolds the section.
+ *
  * `useCollapsibleSections` keeps the open/closed state of a set of sections
  * and remembers it per browser in localStorage.
  */
@@ -24,13 +28,16 @@ interface CollapsibleSectionProps {
   summary?: ReactNode;
   /** Small amber flag for something missing; omitted when there is nothing to flag. */
   badge?: string | null;
+  /** Control shown at the right of the header, still visible when the section is closed. */
+  action?: ReactNode;
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
 }
 
-export const CollapsibleSection = ({ id, title, summary, badge, open, onToggle, children }: CollapsibleSectionProps) => (
+export const CollapsibleSection = ({ id, title, summary, badge, action, open, onToggle, children }: CollapsibleSectionProps) => (
   <Card sx={{ mb: 2 }} data-section={id}>
+    <Box sx={{ display: "flex", alignItems: "center" }}>
     <ButtonBase
       component="button"
       type="button"
@@ -42,7 +49,8 @@ export const CollapsibleSection = ({ id, title, summary, badge, open, onToggle, 
         display: "flex",
         alignItems: "center",
         gap: 1.5,
-        width: "100%",
+        flex: 1,
+        minWidth: 0,
         textAlign: "left",
         px: 2.5,
         py: 1.75,
@@ -89,6 +97,12 @@ export const CollapsibleSection = ({ id, title, summary, badge, open, onToggle, 
         </Box>
       ) : null}
     </ButtonBase>
+    {action ? (
+      <Box data-section-action={id} sx={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 1, pr: 2 }}>
+        {action}
+      </Box>
+    ) : null}
+    </Box>
     <Collapse in={open} timeout="auto">
       <Box
         id={`${id}-body`}

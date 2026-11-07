@@ -24,7 +24,28 @@ describe("isMediaHiddenInApp", () => {
   });
 });
 
+describe("isMediaHiddenInApp for the other sections", () => {
+  it.each([
+    ["transcripts", "transcriptsPublished"],
+    ["texts", "textsPublished"],
+    ["topics", "topicsPublished"],
+  ] as const)("should be true for a published event whose %s are switched off", (kind, flag) => {
+    expect(isMediaHiddenInApp({ status: "published", [flag]: false }, kind)).toBe(true);
+    expect(isMediaHiddenInApp({ status: "published", [flag]: false }, "audio")).toBe(false);
+    expect(isMediaHiddenInApp({ status: "draft", [flag]: false }, kind)).toBe(false);
+  });
+});
+
 describe("saveMediaVisibility", () => {
+  it.each(["transcriptsPublished", "textsPublished", "topicsPublished"] as const)(
+    "should send only the %s flag",
+    async (flag) => {
+      const update = vi.fn().mockResolvedValue({ data: {} });
+      await saveMediaVisibility({ update }, 7, undefined, flag, false);
+      expect(update.mock.calls[0]![1].data).toEqual({ [flag]: false });
+    },
+  );
+
   const previousData = { id: 7, status: "published", audioPublished: true, videoPublished: true };
 
   it("should send only the toggled flag to the event update", async () => {

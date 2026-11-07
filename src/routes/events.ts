@@ -21,9 +21,11 @@ import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-util
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { applyEventVideoThumbnails, applyEventsVideoThumbnails } from "../lib/video-utils.ts";
 import {
-  applyMediaVisibility,
-  applyMediaVisibilityToAll,
+  applyContentVisibility,
+  applyContentVisibilityToAll,
+  applyTrackReadAlongVisibility,
   assertAudioVisible,
+  contentVisibleTo,
   mediaVisibleTo,
 } from "../services/media-visibility.ts";
 
@@ -177,7 +179,7 @@ eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
     with: eventWithSessions,
   });
 
-  applyMediaVisibilityToAll(data, user?.role);
+  applyContentVisibilityToAll(data, user?.role);
   await resolveEventsTeacherUrls(data);
   await resolveEventsGroupUrls(data);
   applyEventsVideoThumbnails(data);
@@ -208,7 +210,7 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
     throw AppError.forbidden("This event requires authentication");
   }
 
-  applyMediaVisibility(event, user?.role);
+  applyContentVisibility(event, user?.role);
 
   // Enrich all tracks with speaker names + hasReadAlong (strips readAlongS3Key)
   for (const session of (event as any).sessions ?? []) {
@@ -243,7 +245,7 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
     return c.json(null);
   }
 
-  applyMediaVisibility(event, user?.role);
+  applyContentVisibility(event, user?.role);
 
   // Enrich all tracks with speaker names + hasReadAlong (strips readAlongS3Key)
   for (const session of (event as any).sessions ?? []) {
@@ -422,6 +424,11 @@ eventRoutes.get("/sessions/:sessionId", async (c) => {
 
   await requireEventAccess(user.id, session.event);
   assertAudioVisible(session.event, user.role, "Session not found");
+  // The embedded event carries the themes; the tracks carry the read-along
+  applyContentVisibility(session.event, user.role);
+  for (const track of session.tracks ?? []) {
+    applyTrackReadAlongVisibility(track, session.event, user.role);
+  }
   await enrichTracksWithSpeakerNames(session.tracks);
 
   return c.json(session);
@@ -459,6 +466,8 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
 
   await requireEventAccess(user.id, event);
   assertAudioVisible(event, user.role, "Track not found");
+  applyTrackReadAlongVisibility(track, event, user.role);
+  applyContentVisibility(event, user.role);
   await enrichTracksWithSpeakerNames([track]);
 
   return c.json(track);
@@ -478,7 +487,7 @@ eventRoutes.get("/", async (c) => {
       orderBy: (r, { desc }) => [desc(r.startDate)],
       with: eventListWith,
     });
-    applyMediaVisibilityToAll(data, user.role);
+    applyContentVisibilityToAll(data, user.role);
     await resolveEventsTeacherUrls(data);
     await resolveEventsGroupUrls(data);
   applyEventsVideoThumbnails(data);
@@ -513,7 +522,7 @@ eventRoutes.get("/", async (c) => {
     allEvents,
   );
 
-  applyMediaVisibilityToAll(accessibleEvents, user.role);
+  applyContentVisibilityToAll(accessibleEvents, user.role);
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
   applyEventsVideoThumbnails(accessibleEvents);
@@ -541,7 +550,7 @@ eventRoutes.get("/:id", async (c) => {
   await requireEventAccess(user.id, event);
 
   // Hidden audio/video never leaves the server for a regular user
-  applyMediaVisibility(event, user.role);
+  applyContentVisibility(event, user.role);
 
   // Enrich all tracks with speaker names
   for (const session of (event as any).sessions ?? []) {
@@ -553,6 +562,7 @@ eventRoutes.get("/:id", async (c) => {
   // publication has its own audience: passing this event's check is not enough.
   // Texts reach an event two ways: direct links, and the retreat groups ticked
   // on the publication (so a text set once for a group shows on all its events).
+  const textsVisible = contentVisibleTo(event, user.role).texts;
   const directPublications = ((event as any).eventPublications || [])
     .filter((ep: any) => ep.publication)
     .map((ep: any) => ep.publication);
@@ -561,7 +571,7 @@ eventRoutes.get("/:id", async (c) => {
   ).filter((gid: unknown): gid is number => typeof gid === "number");
   const linkedPublications = mergePublications(
     directPublications,
-    await publicationsViaGroups(eventGroupIds),
+    textsVisible ? await publicationsViaGroups(eventGroupIds) : [],
   );
   const openedPublications = await openablePublications(user, linkedPublications);
   const relatedPublications = linkedPublications.filter((pub: any) =>

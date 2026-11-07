@@ -25,7 +25,12 @@ import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
 import { checkEventAccess, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
-import { assertAudioVisible, assertVideoVisible } from "../services/media-visibility.ts";
+import {
+  assertAudioVisible,
+  assertTextsVisible,
+  assertTranscriptsVisible,
+  assertVideoVisible,
+} from "../services/media-visibility.ts";
 
 const mediaRoutes = new Hono();
 
@@ -608,6 +613,8 @@ mediaRoutes.get("/readalong/:trackId", async (c) => {
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
     assertAudioVisible(result.event, authUser?.role, "Track not found");
+    // Read-along is part of the transcripts section
+    assertTranscriptsVisible(result.event, authUser?.role, "Track not found");
   }
 
   const jsonContent = await getObjectText(result.track.readAlongS3Key);
@@ -644,6 +651,7 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
+    assertTranscriptsVisible(result.event, authUser?.role, "Transcript not found");
   } else if (!authUser) {
     // Orphaned transcript: no event means no audience to gate on, so fall
     // back to requiring a session rather than serving it to anyone.
@@ -727,6 +735,7 @@ mediaRoutes.get("/file/:id", async (c) => {
     const userForAccess = await getUserForAccess(authUser);
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
+    assertTextsVisible(result.event, authUser.role, "File not found");
   }
 
   const ext = (result.file.extension || "").replace(/^\./, "").toLowerCase();

@@ -67,7 +67,8 @@ import { SessionPreview } from "../components/SessionPreview";
 import { findMatchingExistingSession } from "../utils/sessionMatch";
 import { moveTracksToSession, nextSessionNumber } from "../utils/moveTracks";
 import { isMediaHiddenInApp, saveMediaVisibility } from "../utils/mediaVisibility";
-import type { MediaVisibilityKey } from "../components/EventStatusControls";
+import type { SectionVisibilityKey } from "../utils/mediaVisibility";
+import { SectionVisibilityCheckbox } from "../components/SectionVisibilityCheckbox";
 import { MoveTracksBar, type MoveTarget } from "../components/MoveTracksBar";
 import {
   TrackNumberConflictDialog,
@@ -88,7 +89,7 @@ import { useEventAccess } from "../components/useEventAccess";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
-import { detailsSummary, readAlongTrackCount, transcriptionSummary } from "../utils/eventSectionSummaries";
+import { detailsSummary, readAlongTrackCount, topicsSummary, transcriptionSummary } from "../utils/eventSectionSummaries";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
 import { DocumentsSection, type PendingDocument } from "../components/DocumentsSection";
 import { AiAssistPanel, type AiAssistResult } from "../components/AiAssistPanel";
@@ -548,9 +549,15 @@ export const EventList = () => {
                 </Tooltip>
               ) : null}
               {record.hasDocuments && (
-                <Tooltip title={translate("padmakara.events.hasDocuments")}>
-                  <Description fontSize="small" />
-                </Tooltip>
+                isMediaHiddenInApp(record, "texts") ? (
+                  <Tooltip title={translate("padmakara.events.mediaHiddenInList")}>
+                    <Description fontSize="small" sx={{ opacity: 0.35 }} />
+                  </Tooltip>
+                ) : (
+                  <Tooltip title={translate("padmakara.events.hasDocuments")}>
+                    <Description fontSize="small" />
+                  </Tooltip>
+                )
               )}
             </Box>
           )}
@@ -612,9 +619,12 @@ export interface EventFormData {
   /** Teachers (ids from the selected list) saved with the 'guest' role. */
   guestTeacherIds: number[];
   status: string;
-  /** Per-media visibility of a published event; both on unless an admin switches one off. */
+  /** Per-section visibility of a published event; all on unless an admin switches one off. */
   audioPublished: boolean;
   videoPublished: boolean;
+  transcriptsPublished: boolean;
+  textsPublished: boolean;
+  topicsPublished: boolean;
   featuredAt: string | null;
   /** How the event is offered on its own: none | free | paid (price in cents). */
   saleMode: "none" | "free" | "paid";
@@ -644,6 +654,9 @@ export const EMPTY_FORM: EventFormData = {
   status: "draft",
   audioPublished: true,
   videoPublished: true,
+  transcriptsPublished: true,
+  textsPublished: true,
+  topicsPublished: true,
   featuredAt: null,
   saleMode: "none", priceCents: null, includedInMembership: false,
   internalNotes: "",
@@ -744,6 +757,12 @@ interface EventFormProps {
     open: Record<string, boolean>;
     onToggle: (id: string) => void;
   };
+  /** Collapsible layout only: the "show in app" tick boxes in the section corners.
+   *  Given only while the event is published (a draft is hidden whole). */
+  visibility?: {
+    flags: Record<SectionVisibilityKey, boolean>;
+    onChange: (key: SectionVisibilityKey, value: boolean) => void;
+  };
   /** Collapsible layout only: panels the page owns that belong in a card. */
   audioExtra?: React.ReactNode;
   transcriptionExtra?: React.ReactNode;
@@ -755,8 +774,17 @@ interface EventFormProps {
   documentCount?: number | null;
 }
 
+/** The name of each "show in app" flag's section, for the notice after ticking it. */
+const SECTION_LABEL_KEYS: Record<SectionVisibilityKey, string> = {
+  audioPublished: "padmakara.events.mediaAudio",
+  videoPublished: "padmakara.events.mediaVideo",
+  transcriptsPublished: "padmakara.eventSections.transcription",
+  textsPublished: "padmakara.eventSections.texts",
+  topicsPublished: "padmakara.eventSections.topics",
+};
+
 /** Ids of the collapsible cards on the event edit page, in display order. */
-export const EVENT_SECTION_IDS = ["details", "access", "media", "transcription", "texts"] as const;
+export const EVENT_SECTION_IDS = ["details", "access", "media", "transcription", "topics", "texts"] as const;
 export const EVENT_SECTION_DEFAULTS: Record<string, boolean> = { details: true };
 
 /** [sourceField, targetField] pairs for the 3 event-level translatable fields. */
@@ -841,7 +869,7 @@ export const EventFormFields = ({
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount, readAlongTracks,
   readOnlyEventCode,
-  collapsible, audioExtra, transcriptionExtra, publicationsPanel, publicationCount, documentsPanel, documentCount,
+  collapsible, visibility, audioExtra, transcriptionExtra, publicationsPanel, publicationCount, documentsPanel, documentCount,
 }: EventFormProps) => {
   const translate = useTranslate();
   // How many videos point at each session, for the empty-session delete warning.
@@ -1145,6 +1173,100 @@ export const EventFormFields = ({
   );
   const videoTotal = (videos ?? []).length;
 
+  // Main and session themes: in the Topics card on the edit page, in the details flat in the wizard.
+  const themeFields = (
+    <>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TranslatableField
+              label={translate("padmakara.events.mainThemesEn")}
+              value={form.mainThemesEn}
+              onChange={(v) => setForm((p) => ({ ...p, mainThemesEn: v, mainThemesEnReviewed: true }))}
+              reviewed={form.mainThemesEnReviewed}
+              onMarkReviewed={() => setForm((p) => ({ ...p, mainThemesEnReviewed: true }))}
+              canTranslate={!!String(form.mainThemesEn ?? "").trim()}
+              translatePending={busy}
+              direction="en-to-pt"
+              translateTooltip={translate("padmakara.events.translateToPt")}
+              onTranslate={async () => {
+                const out = await ft.translate(String(form.mainThemesEn ?? ""), "en-to-pt");
+                if (out != null) setForm((p) => ({ ...p, mainThemesPt: out, mainThemesPtReviewed: false }));
+              }}
+              multiline
+              minRows={syncedRows(form.mainThemesEn, form.mainThemesPt)}
+              placeholder={translate("padmakara.events.mainThemesPlaceholderEn")}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TranslatableField
+              label={translate("padmakara.events.mainThemesPt")}
+              value={form.mainThemesPt}
+              onChange={(v) => setForm((p) => ({ ...p, mainThemesPt: v, mainThemesPtReviewed: true }))}
+              reviewed={form.mainThemesPtReviewed}
+              onMarkReviewed={() => setForm((p) => ({ ...p, mainThemesPtReviewed: true }))}
+              canTranslate={!!String(form.mainThemesPt ?? "").trim()}
+              translatePending={busy}
+              direction="pt-to-en"
+              translateTooltip={translate("padmakara.events.translateToEn")}
+              onTranslate={async () => {
+                const out = await ft.translate(String(form.mainThemesPt ?? ""), "pt-to-en");
+                if (out != null) setForm((p) => ({ ...p, mainThemesEn: out, mainThemesEnReviewed: false }));
+              }}
+              multiline
+              minRows={syncedRows(form.mainThemesEn, form.mainThemesPt)}
+              placeholder={translate("padmakara.events.mainThemesPlaceholderPt")}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TranslatableField
+              label={translate("padmakara.events.sessionThemesEn")}
+              value={form.sessionThemesEn}
+              onChange={(v) => setForm((p) => ({ ...p, sessionThemesEn: v, sessionThemesEnReviewed: true }))}
+              reviewed={form.sessionThemesEnReviewed}
+              onMarkReviewed={() => setForm((p) => ({ ...p, sessionThemesEnReviewed: true }))}
+              canTranslate={!!String(form.sessionThemesEn ?? "").trim()}
+              translatePending={busy}
+              direction="en-to-pt"
+              translateTooltip={translate("padmakara.events.translateToPt")}
+              onTranslate={async () => {
+                const out = await ft.translate(String(form.sessionThemesEn ?? ""), "en-to-pt");
+                if (out != null) setForm((p) => ({ ...p, sessionThemesPt: out, sessionThemesPtReviewed: false }));
+              }}
+              multiline
+              minRows={syncedRows(form.sessionThemesEn, form.sessionThemesPt)}
+              placeholder={translate("padmakara.events.sessionThemesPlaceholderEn")}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TranslatableField
+              label={translate("padmakara.events.sessionThemesPt")}
+              value={form.sessionThemesPt}
+              onChange={(v) => setForm((p) => ({ ...p, sessionThemesPt: v, sessionThemesPtReviewed: true }))}
+              reviewed={form.sessionThemesPtReviewed}
+              onMarkReviewed={() => setForm((p) => ({ ...p, sessionThemesPtReviewed: true }))}
+              canTranslate={!!String(form.sessionThemesPt ?? "").trim()}
+              translatePending={busy}
+              direction="pt-to-en"
+              translateTooltip={translate("padmakara.events.translateToEn")}
+              onTranslate={async () => {
+                const out = await ft.translate(String(form.sessionThemesPt ?? ""), "pt-to-en");
+                if (out != null) setForm((p) => ({ ...p, sessionThemesEn: out, sessionThemesEnReviewed: false }));
+              }}
+              multiline
+              minRows={syncedRows(form.sessionThemesEn, form.sessionThemesPt)}
+              placeholder={translate("padmakara.events.sessionThemesPlaceholderPt")}
+            />
+          </Grid>
+    </>
+  );
+
+  const topicsContent = (
+    <Paper sx={{ p: 3, mb: 2 }}>
+      <Grid container spacing={2.5}>
+        {themeFields}
+      </Grid>
+    </Paper>
+  );
+
   const detailsContent = (
     <>
       {/* ── Section 1: Event Details ── */}
@@ -1417,89 +1539,10 @@ export const EventFormFields = ({
         </Grid>
       </Paper>
 
-      {/* ── Themes ── */}
+      {/* ── Bibliography (the themes sit here in the create wizard) ── */}
       <Paper sx={{ p: 3, mb: 2 }}>
         <Grid container spacing={2.5}>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TranslatableField
-              label={translate("padmakara.events.mainThemesEn")}
-              value={form.mainThemesEn}
-              onChange={(v) => setForm((p) => ({ ...p, mainThemesEn: v, mainThemesEnReviewed: true }))}
-              reviewed={form.mainThemesEnReviewed}
-              onMarkReviewed={() => setForm((p) => ({ ...p, mainThemesEnReviewed: true }))}
-              canTranslate={!!String(form.mainThemesEn ?? "").trim()}
-              translatePending={busy}
-              direction="en-to-pt"
-              translateTooltip={translate("padmakara.events.translateToPt")}
-              onTranslate={async () => {
-                const out = await ft.translate(String(form.mainThemesEn ?? ""), "en-to-pt");
-                if (out != null) setForm((p) => ({ ...p, mainThemesPt: out, mainThemesPtReviewed: false }));
-              }}
-              multiline
-              minRows={syncedRows(form.mainThemesEn, form.mainThemesPt)}
-              placeholder={translate("padmakara.events.mainThemesPlaceholderEn")}
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TranslatableField
-              label={translate("padmakara.events.mainThemesPt")}
-              value={form.mainThemesPt}
-              onChange={(v) => setForm((p) => ({ ...p, mainThemesPt: v, mainThemesPtReviewed: true }))}
-              reviewed={form.mainThemesPtReviewed}
-              onMarkReviewed={() => setForm((p) => ({ ...p, mainThemesPtReviewed: true }))}
-              canTranslate={!!String(form.mainThemesPt ?? "").trim()}
-              translatePending={busy}
-              direction="pt-to-en"
-              translateTooltip={translate("padmakara.events.translateToEn")}
-              onTranslate={async () => {
-                const out = await ft.translate(String(form.mainThemesPt ?? ""), "pt-to-en");
-                if (out != null) setForm((p) => ({ ...p, mainThemesEn: out, mainThemesEnReviewed: false }));
-              }}
-              multiline
-              minRows={syncedRows(form.mainThemesEn, form.mainThemesPt)}
-              placeholder={translate("padmakara.events.mainThemesPlaceholderPt")}
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TranslatableField
-              label={translate("padmakara.events.sessionThemesEn")}
-              value={form.sessionThemesEn}
-              onChange={(v) => setForm((p) => ({ ...p, sessionThemesEn: v, sessionThemesEnReviewed: true }))}
-              reviewed={form.sessionThemesEnReviewed}
-              onMarkReviewed={() => setForm((p) => ({ ...p, sessionThemesEnReviewed: true }))}
-              canTranslate={!!String(form.sessionThemesEn ?? "").trim()}
-              translatePending={busy}
-              direction="en-to-pt"
-              translateTooltip={translate("padmakara.events.translateToPt")}
-              onTranslate={async () => {
-                const out = await ft.translate(String(form.sessionThemesEn ?? ""), "en-to-pt");
-                if (out != null) setForm((p) => ({ ...p, sessionThemesPt: out, sessionThemesPtReviewed: false }));
-              }}
-              multiline
-              minRows={syncedRows(form.sessionThemesEn, form.sessionThemesPt)}
-              placeholder={translate("padmakara.events.sessionThemesPlaceholderEn")}
-            />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TranslatableField
-              label={translate("padmakara.events.sessionThemesPt")}
-              value={form.sessionThemesPt}
-              onChange={(v) => setForm((p) => ({ ...p, sessionThemesPt: v, sessionThemesPtReviewed: true }))}
-              reviewed={form.sessionThemesPtReviewed}
-              onMarkReviewed={() => setForm((p) => ({ ...p, sessionThemesPtReviewed: true }))}
-              canTranslate={!!String(form.sessionThemesPt ?? "").trim()}
-              translatePending={busy}
-              direction="pt-to-en"
-              translateTooltip={translate("padmakara.events.translateToEn")}
-              onTranslate={async () => {
-                const out = await ft.translate(String(form.sessionThemesPt ?? ""), "pt-to-en");
-                if (out != null) setForm((p) => ({ ...p, sessionThemesEn: out, sessionThemesEnReviewed: false }));
-              }}
-              multiline
-              minRows={syncedRows(form.sessionThemesEn, form.sessionThemesPt)}
-              placeholder={translate("padmakara.events.sessionThemesPlaceholderPt")}
-            />
-          </Grid>
+          {!collapsible && themeFields}
           <Grid size={{ xs: 12, sm: 6 }}>
             <TranslatableField
               label={translate("padmakara.events.bibliographyEn")}
@@ -1650,6 +1693,16 @@ export const EventFormFields = ({
       open: !!collapsible.open[id],
       onToggle: () => collapsible.onToggle(id),
     });
+    const tickBox = (flag: SectionVisibilityKey, label: string) =>
+      visibility ? (
+        <SectionVisibilityCheckbox
+          flag={flag}
+          label={label}
+          visible={visibility.flags[flag]}
+          onChange={visibility.onChange}
+        />
+      ) : null;
+    const showInApp = translate("padmakara.events.showInApp");
     const mediaParts = [
       sessions.length > 0 ? translate("padmakara.eventSections.sessionsSummary", { smart_count: sessions.length }) : "",
       tracksInEvent > 0 ? translate("padmakara.eventSections.tracksSummary", { smart_count: tracksInEvent }) : "",
@@ -1689,6 +1742,14 @@ export const EventFormFields = ({
           title={translate("padmakara.eventSections.media")}
           summary={mediaParts.length > 0 ? mediaParts.join(" · ") : translate("padmakara.eventSections.nothingYet")}
           badge={sessions.length > 0 && tracksInEvent === 0 ? translate("padmakara.eventSections.noTracks") : null}
+          action={
+            visibility ? (
+              <>
+                {tickBox("audioPublished", translate("padmakara.events.mediaAudio"))}
+                {tickBox("videoPublished", translate("padmakara.events.mediaVideo"))}
+              </>
+            ) : null
+          }
         >
           {videosNode}
           {sessionsNode}
@@ -1698,9 +1759,24 @@ export const EventFormFields = ({
           {...sectionProps("transcription")}
           title={translate("padmakara.eventSections.transcription")}
           summary={transcriptionSummary({ transcriptCount, readAlongTracks: readAlongTracks ?? 0, translate })}
+          action={tickBox("transcriptsPublished", showInApp)}
         >
           {filesNode}
           {transcriptionExtra}
+        </CollapsibleSection>
+        <CollapsibleSection
+          {...sectionProps("topics")}
+          title={translate("padmakara.eventSections.topics")}
+          summary={topicsSummary({
+            mainThemesEn: form.mainThemesEn,
+            mainThemesPt: form.mainThemesPt,
+            sessionThemesEn: form.sessionThemesEn,
+            sessionThemesPt: form.sessionThemesPt,
+            translate,
+          })}
+          action={tickBox("topicsPublished", showInApp)}
+        >
+          {topicsContent}
         </CollapsibleSection>
         <CollapsibleSection
           {...sectionProps("texts")}
@@ -1713,6 +1789,7 @@ export const EventFormFields = ({
                   documentCount > 0 ? translate("padmakara.eventSections.documentsSummary", { smart_count: documentCount }) : "",
                 ].filter(Boolean).join(" · ") || translate("padmakara.eventSections.nothingYet")
           }
+          action={tickBox("textsPublished", showInApp)}
         >
           {publicationsPanel}
           {documentsPanel}
@@ -3232,6 +3309,9 @@ export const EventEdit = () => {
       status: event.status || "draft",
       audioPublished: event.audioPublished ?? true,
       videoPublished: event.videoPublished ?? true,
+      transcriptsPublished: event.transcriptsPublished ?? true,
+      textsPublished: event.textsPublished ?? true,
+      topicsPublished: event.topicsPublished ?? true,
       featuredAt: event.featuredAt || null,
       saleMode: event.saleMode ?? "none",
       priceCents: event.priceCents ?? null,
@@ -4310,13 +4390,13 @@ export const EventEdit = () => {
     }
   }, [id, dataProvider, event, notify, translate]);
 
-  // Like the Draft / Published toggle, the Audio / Video toggles save as soon as they are clicked.
-  const handleMediaVisibilityChange = useCallback(async (key: MediaVisibilityKey, value: boolean) => {
+  // Like the Draft / Published toggle, the "show in app" tick boxes save as soon as they are clicked.
+  const handleMediaVisibilityChange = useCallback(async (key: SectionVisibilityKey, value: boolean) => {
     if (!id) return;
     setForm((prev) => ({ ...prev, [key]: value }));
     try {
       await saveMediaVisibility(dataProvider, id, event, key, value);
-      const media = translate(key === "audioPublished" ? "padmakara.events.mediaAudio" : "padmakara.events.mediaVideo");
+      const media = translate(SECTION_LABEL_KEYS[key]);
       notify(value ? "padmakara.events.mediaNowVisible" : "padmakara.events.mediaNowHidden", {
         type: "success",
         messageArgs: { media },
@@ -4509,11 +4589,6 @@ export const EventEdit = () => {
             <EventStatusControls
               status={form.status}
               onStatusChange={(val) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val); }}
-              media={{
-                audioPublished: form.audioPublished,
-                videoPublished: form.videoPublished,
-                onChange: handleMediaVisibilityChange,
-              }}
               star={{
                 eventId: Number(id),
                 featured: !!form.featuredAt,
@@ -4573,6 +4648,20 @@ export const EventEdit = () => {
         transcriptCount={transcriptCount}
         readAlongTracks={readAlongTracks}
         collapsible={{ open: sections.open, onToggle: sections.toggle }}
+        visibility={
+          form.status === "published"
+            ? {
+                flags: {
+                  audioPublished: form.audioPublished,
+                  videoPublished: form.videoPublished,
+                  transcriptsPublished: form.transcriptsPublished,
+                  textsPublished: form.textsPublished,
+                  topicsPublished: form.topicsPublished,
+                },
+                onChange: handleMediaVisibilityChange,
+              }
+            : undefined
+        }
         audioExtra={audioExtra}
         transcriptionExtra={transcriptionExtra}
         publicationsPanel={publicationsPanel}

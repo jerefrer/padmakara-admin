@@ -17,7 +17,13 @@ import {
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { checkEventAccess, eventStatusVisibleTo } from "../services/access.ts";
-import { assertAudioVisible, assertVideoVisible, mediaVisibleTo } from "../services/media-visibility.ts";
+import {
+  applyContentVisibility,
+  applyTrackReadAlongVisibility,
+  assertAudioVisible,
+  assertVideoVisible,
+  mediaVisibleTo,
+} from "../services/media-visibility.ts";
 import { users } from "../db/schema/users.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
@@ -186,6 +192,10 @@ contentRoutes.get("/last-played", async (c) => {
     return c.json(null);
   }
 
+  // The embedded event carries the themes; the track carries the read-along
+  applyTrackReadAlongVisibility(row.track, row.track?.session?.event, user.role);
+  applyContentVisibility(row.track?.session?.event, user.role);
+
   return c.json({
     trackId: row.trackId,
     positionSeconds: row.positionSeconds,
@@ -337,6 +347,7 @@ contentRoutes.get("/bookmarks", async (c) => {
     .map(({ track, ...bookmark }) => {
       if (!track) return { ...bookmark, track };
       const { session: _session, ...bareTrack } = track;
+      applyTrackReadAlongVisibility(bareTrack, _session?.event, user.role);
       return { ...bookmark, track: bareTrack };
     });
   return c.json(data);
@@ -398,6 +409,7 @@ contentRoutes.get("/event-bookmarks", async (c) => {
   // Enrich teacher/group avatars with presigned URLs so the bookmarks tab
   // can render the same event card the events list uses.
   const events = rows.map((r) => r.event).filter(Boolean) as any[];
+  for (const event of events) applyContentVisibility(event, user.role);
   await resolveEventsTeacherUrls(events);
   await resolveEventsGroupUrls(events);
   applyEventsOrganizers(events);
@@ -443,6 +455,7 @@ contentRoutes.post("/event-bookmarks", async (c) => {
   if (!existing) throw AppError.notFound("Event not found");
 
   if (existing.event) {
+    applyContentVisibility(existing.event, user.role);
     await resolveEventTeacherUrls(existing.event as any);
     await resolveEventGroupUrls(existing.event as any);
     applyEventOrganizers(existing.event);
@@ -508,6 +521,11 @@ contentRoutes.get("/track-bookmarks", async (c) => {
   const events = rows
     .map((r) => (r.track as any)?.session?.event)
     .filter(Boolean);
+  for (const row of rows) {
+    const event = (row.track as any)?.session?.event;
+    applyTrackReadAlongVisibility(row.track, event, user.role);
+  }
+  for (const event of events) applyContentVisibility(event, user.role);
   await resolveEventsTeacherUrls(events);
   await resolveEventsGroupUrls(events);
   applyEventsOrganizers(events);
@@ -601,10 +619,14 @@ const videoBookmarkWith = {
   },
 } as const;
 
-async function enrichVideoBookmarkEvents(rows: Array<{ video?: unknown }>) {
+async function enrichVideoBookmarkEvents(
+  rows: Array<{ video?: unknown }>,
+  role: string | null | undefined,
+) {
   const evts = rows
     .map((r) => (r.video as any)?.event)
     .filter(Boolean);
+  for (const event of evts) applyContentVisibility(event, role);
   await resolveEventsTeacherUrls(evts);
   await resolveEventsGroupUrls(evts);
   applyEventsOrganizers(evts);
@@ -621,7 +643,7 @@ contentRoutes.get("/video-bookmarks", async (c) => {
   const rows = allRows.filter((r) =>
     mediaVisibleTo((r.video as any)?.event ?? {}, user.role).video,
   );
-  await enrichVideoBookmarkEvents(rows);
+  await enrichVideoBookmarkEvents(rows, user.role);
   return c.json(rows);
 });
 
@@ -655,7 +677,7 @@ contentRoutes.post("/video-bookmarks", async (c) => {
     with: videoBookmarkWith,
   });
   if (!created) throw AppError.notFound("Bookmark not found");
-  await enrichVideoBookmarkEvents([created]);
+  await enrichVideoBookmarkEvents([created], user.role);
 
   return c.json(created, 201);
 });

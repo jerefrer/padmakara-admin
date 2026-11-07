@@ -1,77 +1,174 @@
 import { AppError } from "../lib/errors.ts";
 
 /**
- * Per-media visibility of a published event.
+ * Per-section visibility of a published event.
  *
- * An event can go live with only its audio or only its video showing (the other is
- * still being edited). The flags live on the event (`audioPublished`, `videoPublished`)
- * and are enforced here, server-side, for every app-facing route: a hidden track or
- * video is never returned and is a 404 when requested directly, so nothing reveals it
- * exists. Admins and superadmins always see everything, like they see drafts.
+ * An event can go live with only some of its sections showing (the others are still
+ * being edited): audio, video, transcripts (and read-along), texts (the event's files
+ * and its related publications) and topics (the main and session themes). The flags
+ * live on the event and are enforced here, server-side, for every app-facing route: a
+ * hidden section is never returned and its items are a 404 when requested directly, so
+ * nothing reveals they exist. Admins and superadmins always see everything, like they
+ * see drafts.
  *
  * Keep the rule in this file: routes call these helpers rather than testing the flags.
  */
 
-export interface MediaFlags {
+export interface ContentFlags {
   audioPublished?: boolean | null;
   videoPublished?: boolean | null;
+  transcriptsPublished?: boolean | null;
+  textsPublished?: boolean | null;
+  topicsPublished?: boolean | null;
 }
+
+/** Kept for the callers that only care about the media flags. */
+export type MediaFlags = ContentFlags;
 
 export interface MediaVisibility {
   audio: boolean;
   video: boolean;
 }
 
+export interface ContentVisibility extends MediaVisibility {
+  transcripts: boolean;
+  texts: boolean;
+  topics: boolean;
+}
+
 function isAdminRole(role: string | null | undefined): boolean {
   return role === "admin" || role === "superadmin";
 }
 
-/** What the caller may see of an event's media. A missing flag counts as visible. */
-export function mediaVisibleTo(
-  event: MediaFlags,
+/** What the caller may see of an event's sections. A missing flag counts as visible. */
+export function contentVisibleTo(
+  event: ContentFlags,
   role: string | null | undefined,
-): MediaVisibility {
-  if (isAdminRole(role)) return { audio: true, video: true };
+): ContentVisibility {
+  if (isAdminRole(role)) {
+    return { audio: true, video: true, transcripts: true, texts: true, topics: true };
+  }
   return {
     audio: event.audioPublished !== false,
     video: event.videoPublished !== false,
+    transcripts: event.transcriptsPublished !== false,
+    texts: event.textsPublished !== false,
+    topics: event.topicsPublished !== false,
   };
 }
 
+/** What the caller may see of an event's media (audio and video only). */
+export function mediaVisibleTo(
+  event: ContentFlags,
+  role: string | null | undefined,
+): MediaVisibility {
+  const { audio, video } = contentVisibleTo(event, role);
+  return { audio, video };
+}
+
+type Track = { readAlongS3Key?: unknown; hasReadAlong?: unknown };
+
+/** Read-along is part of the transcripts section: a track no longer offers it when hidden. */
+function clearReadAlong(track: unknown): void {
+  if (!track || typeof track !== "object") return;
+  const t = track as Track;
+  delete t.readAlongS3Key;
+  if ("hasReadAlong" in t) t.hasReadAlong = false;
+}
+
+const THEME_FIELDS = ["mainThemesEn", "mainThemesPt", "sessionThemesEn", "sessionThemesPt"] as const;
+
 /**
- * Strip hidden media from an event payload, in place (like the other `apply…`
+ * Strip hidden sections from an event payload, in place (like the other `apply…`
  * payload helpers). Audio hidden: the sessions go entirely, since a session only
- * carries tracks (transcripts and files stay, they are texts). Video hidden: no videos.
+ * carries tracks. Video hidden: no videos. Transcripts hidden: no transcripts and no
+ * read-along on the tracks. Texts hidden: no files and no linked publications (the
+ * publications stay in their own catalogue). Topics hidden: the themes are nulled.
+ * Call it before the tracks are enriched with `hasReadAlong`.
  */
-export function applyMediaVisibility(event: unknown, role: string | null | undefined): void {
+export function applyContentVisibility(event: unknown, role: string | null | undefined): void {
   if (!event || typeof event !== "object") return;
-  const ev = event as MediaFlags & { sessions?: unknown[]; videos?: unknown[] };
-  const visible = mediaVisibleTo(ev, role);
+  const ev = event as ContentFlags & Record<string, unknown> & {
+    sessions?: Array<{ tracks?: unknown[] }>;
+  };
+  const visible = contentVisibleTo(ev, role);
+  if (!visible.transcripts) {
+    if (ev.transcripts) ev.transcripts = [];
+    for (const session of ev.sessions ?? []) for (const track of session.tracks ?? []) clearReadAlong(track);
+  }
+  if (!visible.texts) {
+    if (ev.eventFiles) ev.eventFiles = [];
+    if (ev.eventPublications) ev.eventPublications = [];
+    if (ev.relatedPublications) ev.relatedPublications = [];
+  }
+  if (!visible.topics) {
+    for (const field of THEME_FIELDS) if (field in ev) ev[field] = null;
+  }
   if (!visible.audio && ev.sessions) ev.sessions = [];
   if (!visible.video && ev.videos) ev.videos = [];
 }
 
-export function applyMediaVisibilityToAll(
+export function applyContentVisibilityToAll(
   events: unknown[],
   role: string | null | undefined,
 ): void {
-  for (const event of events ?? []) applyMediaVisibility(event, role);
+  for (const event of events ?? []) applyContentVisibility(event, role);
+}
+
+/** The older names, kept so existing callers keep working. */
+export const applyMediaVisibility = applyContentVisibility;
+export const applyMediaVisibilityToAll = applyContentVisibilityToAll;
+
+/** Clear the read-along of one track served on its own (track and session lookups, bookmarks). */
+export function applyTrackReadAlongVisibility(
+  track: unknown,
+  event: ContentFlags | null | undefined,
+  role: string | null | undefined,
+): void {
+  if (event && !contentVisibleTo(event, role).transcripts) clearReadAlong(track);
+}
+
+function assertVisible(
+  section: keyof ContentVisibility,
+  event: ContentFlags | null | undefined,
+  role: string | null | undefined,
+  notFoundMessage: string,
+): void {
+  if (event && !contentVisibleTo(event, role)[section]) throw AppError.notFound(notFoundMessage);
 }
 
 /** 404 (as if the item did not exist) when the event's audio is hidden from the caller. */
 export function assertAudioVisible(
-  event: MediaFlags | null | undefined,
+  event: ContentFlags | null | undefined,
   role: string | null | undefined,
   notFoundMessage: string,
 ): void {
-  if (event && !mediaVisibleTo(event, role).audio) throw AppError.notFound(notFoundMessage);
+  assertVisible("audio", event, role, notFoundMessage);
 }
 
 /** 404 (as if the item did not exist) when the event's video is hidden from the caller. */
 export function assertVideoVisible(
-  event: MediaFlags | null | undefined,
+  event: ContentFlags | null | undefined,
   role: string | null | undefined,
   notFoundMessage: string,
 ): void {
-  if (event && !mediaVisibleTo(event, role).video) throw AppError.notFound(notFoundMessage);
+  assertVisible("video", event, role, notFoundMessage);
+}
+
+/** 404 when the event's transcripts (and read-along) are hidden from the caller. */
+export function assertTranscriptsVisible(
+  event: ContentFlags | null | undefined,
+  role: string | null | undefined,
+  notFoundMessage: string,
+): void {
+  assertVisible("transcripts", event, role, notFoundMessage);
+}
+
+/** 404 when the event's texts (files and related publications) are hidden from the caller. */
+export function assertTextsVisible(
+  event: ContentFlags | null | undefined,
+  role: string | null | undefined,
+  notFoundMessage: string,
+): void {
+  assertVisible("texts", event, role, notFoundMessage);
 }

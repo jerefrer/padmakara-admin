@@ -57,3 +57,30 @@ export function transcriptionSummary({
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(" · ") : translate("padmakara.eventSections.nothingYet");
 }
+
+const filledLines = (en: string | null | undefined, pt: string | null | undefined): number =>
+  Math.max(
+    ...[en, pt].map((text) => (text ?? "").split("\n").filter((line) => line.trim() !== "").length),
+  );
+
+export function topicsSummary({
+  mainThemesEn,
+  mainThemesPt,
+  sessionThemesEn,
+  sessionThemesPt,
+  translate,
+}: {
+  mainThemesEn?: string | null;
+  mainThemesPt?: string | null;
+  sessionThemesEn?: string | null;
+  sessionThemesPt?: string | null;
+  translate: Translate;
+}): string {
+  const main = filledLines(mainThemesEn, mainThemesPt);
+  const session = filledLines(sessionThemesEn, sessionThemesPt);
+  const parts = [
+    main > 0 ? translate("padmakara.eventSections.mainTopicsSummary", { smart_count: main }) : "",
+    session > 0 ? translate("padmakara.eventSections.sessionTopicsSummary", { smart_count: session }) : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : translate("padmakara.eventSections.noTopics");
+}

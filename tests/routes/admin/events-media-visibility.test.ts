@@ -98,4 +98,41 @@ describe("admin events: audioPublished / videoPublished", () => {
     });
     expect(status).toBe(400);
   });
+
+  it("should store the section flags on create and update", async () => {
+    const created = await testJson("/api/admin/events", {
+      method: "POST",
+      headers: await auth(),
+      body: JSON.stringify({
+        ...base,
+        transcriptsPublished: false,
+        textsPublished: false,
+        topicsPublished: true,
+      }),
+    });
+    expect(created.status).toBe(201);
+    expect(insertedValues[0]).toMatchObject({
+      transcriptsPublished: false,
+      textsPublished: false,
+      topicsPublished: true,
+    });
+
+    const updated = await testJson("/api/admin/events/5", {
+      method: "PUT",
+      headers: await auth(),
+      body: JSON.stringify({ topicsPublished: false }),
+    });
+    expect(updated.status).toBe(200);
+    expect(updatedSets[0]).toMatchObject({ topicsPublished: false });
+    expect(updatedSets[0]).not.toHaveProperty("textsPublished");
+  });
+
+  it("should reject a non-boolean section flag", async () => {
+    const { status } = await testJson("/api/admin/events/5", {
+      method: "PUT",
+      headers: await auth(),
+      body: JSON.stringify({ textsPublished: "no" }),
+    });
+    expect(status).toBe(400);
+  });
 });

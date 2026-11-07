@@ -24,6 +24,7 @@ function Harness() {
           title={`Title ${id}`}
           summary={`Summary ${id}`}
           badge={id === "b" ? "No tracks" : null}
+          action={id === "b" ? <input type="checkbox" aria-label="Show in app" data-testid="action" /> : undefined}
           open={s.open[id]!}
           onToggle={() => s.toggle(id)}
         >
@@ -108,5 +109,36 @@ describe("CollapsibleSection", () => {
     window.localStorage.setItem(KEY, "{not json");
     mount();
     expect(header("a").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  describe("header action", () => {
+    const action = () => container.querySelector('[data-testid="action"]') as HTMLInputElement;
+
+    it("should show the action in the header while the section is closed", () => {
+      mount();
+      expect(header("b").getAttribute("aria-expanded")).toBe("false");
+      expect(action()).not.toBeNull();
+      expect(container.querySelector('[data-section="b"]')!.contains(action())).toBe(true);
+    });
+
+    it("should not fold or unfold the section when the action is used", () => {
+      mount();
+      act(() => action().click());
+      expect(header("b").getAttribute("aria-expanded")).toBe("false");
+      act(() => header("b").click());
+      act(() => action().click());
+      expect(header("b").getAttribute("aria-expanded")).toBe("true");
+    });
+
+    it("should keep the action outside the header button", () => {
+      mount();
+      expect(header("b").contains(action())).toBe(false);
+      expect(action().closest("button")).toBeNull();
+    });
+
+    it("should render nothing extra when there is no action", () => {
+      mount();
+      expect(container.querySelector('[data-section-action="a"]')).toBeNull();
+    });
   });
 });

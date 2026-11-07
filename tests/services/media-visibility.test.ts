@@ -130,3 +130,140 @@ describe("assertAudioVisible / assertVideoVisible", () => {
     expect(() => assertVideoVisible(undefined, "user", "x")).not.toThrow();
   });
 });
+
+// ─── Section visibility: transcripts, texts, topics ──────────────────────
+
+import {
+  contentVisibleTo,
+  applyContentVisibility,
+  applyTrackReadAlongVisibility,
+  assertTranscriptsVisible,
+  assertTextsVisible,
+} from "../../src/services/media-visibility.ts";
+
+function makeFullEvent(flags: Record<string, boolean> = {}) {
+  return {
+    id: 1,
+    ...flags,
+    mainThemesEn: "Main EN",
+    mainThemesPt: "Main PT",
+    sessionThemesEn: "Session EN",
+    sessionThemesPt: "Session PT",
+    sessions: [{ id: 10, tracks: [{ id: 100, readAlongS3Key: "k.json", hasReadAlong: true }] }],
+    videos: [{ id: 5 }],
+    transcripts: [{ id: 9 }],
+    eventFiles: [{ id: 7 }],
+    eventPublications: [{ publication: { id: 3 } }],
+    relatedPublications: [{ id: 3 }],
+  };
+}
+
+describe("contentVisibleTo", () => {
+  it("should show every section when no flag is false", () => {
+    expect(contentVisibleTo({}, "user")).toEqual({
+      audio: true, video: true, transcripts: true, texts: true, topics: true,
+    });
+  });
+
+  it("should hide only the sections whose flag is false for a regular user", () => {
+    expect(
+      contentVisibleTo({ transcriptsPublished: false, topicsPublished: false }, undefined),
+    ).toEqual({ audio: true, video: true, transcripts: false, texts: true, topics: false });
+  });
+
+  it("should show everything to admins whatever the flags", () => {
+    const hidden = {
+      audioPublished: false, videoPublished: false, transcriptsPublished: false,
+      textsPublished: false, topicsPublished: false,
+    };
+    expect(Object.values(contentVisibleTo(hidden, "admin")).every(Boolean)).toBe(true);
+    expect(Object.values(contentVisibleTo(hidden, "superadmin")).every(Boolean)).toBe(true);
+  });
+});
+
+describe("applyContentVisibility", () => {
+  it("should leave transcripts and read-along out when transcripts are hidden", () => {
+    const event = makeFullEvent({ transcriptsPublished: false });
+    applyContentVisibility(event, "user");
+    expect(event.transcripts).toEqual([]);
+    expect(event.sessions[0]!.tracks[0]!.readAlongS3Key).toBeUndefined();
+    expect(event.sessions[0]!.tracks[0]!.hasReadAlong).toBe(false);
+    expect(event.eventFiles).toHaveLength(1);
+    expect(event.mainThemesEn).toBe("Main EN");
+  });
+
+  it("should leave files and linked publications out when texts are hidden", () => {
+    const event = makeFullEvent({ textsPublished: false });
+    applyContentVisibility(event, "user");
+    expect(event.eventFiles).toEqual([]);
+    expect(event.eventPublications).toEqual([]);
+    expect(event.relatedPublications).toEqual([]);
+    expect(event.transcripts).toHaveLength(1);
+  });
+
+  it("should null the four theme fields when topics are hidden", () => {
+    const event = makeFullEvent({ topicsPublished: false });
+    applyContentVisibility(event, "user");
+    expect(event.mainThemesEn).toBeNull();
+    expect(event.mainThemesPt).toBeNull();
+    expect(event.sessionThemesEn).toBeNull();
+    expect(event.sessionThemesPt).toBeNull();
+    expect(event.sessions).toHaveLength(1);
+  });
+
+  it("should still strip audio and video like before", () => {
+    const event = makeFullEvent({ audioPublished: false, videoPublished: false });
+    applyContentVisibility(event, "user");
+    expect(event.sessions).toEqual([]);
+    expect(event.videos).toEqual([]);
+  });
+
+  it("should not touch anything for an admin", () => {
+    const event = makeFullEvent({
+      transcriptsPublished: false, textsPublished: false, topicsPublished: false,
+    });
+    applyContentVisibility(event, "admin");
+    expect(event.transcripts).toHaveLength(1);
+    expect(event.eventFiles).toHaveLength(1);
+    expect(event.mainThemesEn).toBe("Main EN");
+    expect(event.sessions[0]!.tracks[0]!.readAlongS3Key).toBe("k.json");
+  });
+
+  it("should not fail on a payload without the sections", () => {
+    expect(() =>
+      applyContentVisibility({ transcriptsPublished: false, textsPublished: false }, "user"),
+    ).not.toThrow();
+  });
+});
+
+describe("applyTrackReadAlongVisibility", () => {
+  it("should clear the read-along of a track when the event's transcripts are hidden", () => {
+    const track = { id: 1, readAlongS3Key: "k.json", hasReadAlong: true };
+    applyTrackReadAlongVisibility(track, { transcriptsPublished: false }, "user");
+    expect(track.readAlongS3Key).toBeUndefined();
+    expect(track.hasReadAlong).toBe(false);
+  });
+
+  it("should keep the read-along for an admin", () => {
+    const track = { id: 1, readAlongS3Key: "k.json" };
+    applyTrackReadAlongVisibility(track, { transcriptsPublished: false }, "admin");
+    expect(track.readAlongS3Key).toBe("k.json");
+  });
+});
+
+describe("assertTranscriptsVisible / assertTextsVisible", () => {
+  it("should throw a 404 for hidden transcripts and a regular user", () => {
+    expect(() =>
+      assertTranscriptsVisible({ transcriptsPublished: false }, "user", "Transcript not found"),
+    ).toThrow(AppError);
+    expect(() =>
+      assertTranscriptsVisible({ transcriptsPublished: false }, "admin", "x"),
+    ).not.toThrow();
+  });
+
+  it("should throw a 404 for hidden texts and a regular user", () => {
+    expect(() => assertTextsVisible({ textsPublished: false }, "user", "File not found")).toThrow(AppError);
+    expect(() => assertTextsVisible({ textsPublished: false }, "superadmin", "x")).not.toThrow();
+    expect(() => assertTextsVisible(null, "user", "x")).not.toThrow();
+  });
+});

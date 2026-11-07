@@ -442,6 +442,13 @@
       "when": 1813715200000,
       "tag": "0062_track_audio_details",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1813801600000,
+      "tag": "0063_section_visibility",
+      "breakpoints": true
     }
   ]
 }
