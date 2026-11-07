@@ -99,7 +99,8 @@ export const CollapsibleSection = ({ id, title, summary, badge, open, onToggle, 
           pb: 2.5,
           pt: 0.5,
           // Panels written as standalone cards sit flat inside the section card.
-          "& > .MuiPaper-root": { boxShadow: "none", px: 0, pt: 1 },
+          // A bordered (outlined) panel, like the AI assistant, keeps its padding.
+          "& > .MuiPaper-root:not(.MuiPaper-outlined)": { boxShadow: "none", px: 0, pt: 1 },
         }}
       >
         {children}
