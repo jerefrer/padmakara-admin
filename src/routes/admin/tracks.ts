@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { tracks } from "../../db/schema/tracks.ts";
 import { sessions } from "../../db/schema/sessions.ts";
@@ -12,6 +12,45 @@ import { buildConventionFilename } from "../../services/track-filename.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 
 const trackRoutes = new Hono();
+
+const TRACK_NUMBER_CONSTRAINT = "tracks_session_id_track_number_original_language_unique";
+const LANGUAGE_NAMES: Record<string, string> = { en: "English", pt: "Portuguese", tib: "Tibetan" };
+
+/**
+ * Turns the session/number/language unique violation into a message naming the
+ * track in the way, e.g. when a move lands on a session that already has that
+ * number in that language. Null for any other error.
+ */
+async function describeTrackNumberConflict(
+  err: unknown,
+  id: number,
+  data: Record<string, unknown>,
+): Promise<AppError | null> {
+  const pgError = (err as { cause?: unknown })?.cause ?? err;
+  // postgres.js names the constraint `constraint_name`.
+  const { code, constraint_name } = (pgError ?? {}) as { code?: string; constraint_name?: string };
+  if (code !== "23505" || constraint_name !== TRACK_NUMBER_CONSTRAINT) return null;
+
+  const current = await db.query.tracks.findFirst({ where: eq(tracks.id, id) });
+  if (!current) return null;
+  const sessionId = (data.sessionId as number | undefined) ?? current.sessionId;
+  const trackNumber = (data.trackNumber as number | undefined) ?? current.trackNumber;
+  const language = (data.originalLanguage as string | undefined) ?? current.originalLanguage;
+  const other = await db.query.tracks.findFirst({
+    where: and(
+      eq(tracks.sessionId, sessionId),
+      eq(tracks.trackNumber, trackNumber),
+      eq(tracks.originalLanguage, language),
+      ne(tracks.id, id),
+    ),
+  });
+  const session = await db.query.sessions.findFirst({ where: eq(sessions.id, sessionId) });
+  const where = session ? `Session ${session.sessionNumber}` : "That session";
+  const named = other?.title ? ` ("${other.title}")` : "";
+  return AppError.conflict(
+    `${where} already has a ${LANGUAGE_NAMES[language] ?? language} track ${trackNumber}${named}. Give one of the two another number first.`,
+  );
+}
 
 const columns: Record<string, any> = {
   id: tracks.id,
@@ -129,11 +168,12 @@ trackRoutes.put("/:id", async (c) => {
   for (const [key, val] of Object.entries(parsed)) {
     if (val !== undefined) data[key] = val;
   }
-  const [track] = await db
-    .update(tracks)
-    .set(data)
-    .where(eq(tracks.id, id))
-    .returning();
+  let track: typeof tracks.$inferSelect | undefined;
+  try {
+    [track] = await db.update(tracks).set(data).where(eq(tracks.id, id)).returning();
+  } catch (err) {
+    throw (await describeTrackNumberConflict(err, id, data)) ?? err;
+  }
   if (!track) throw AppError.notFound("Track not found");
   const trackSession = await db.query.sessions.findFirst({
     where: eq(sessions.id, track.sessionId),

@@ -144,3 +144,35 @@ describe("DELETE /api/admin/tracks/:id", () => {
     expect(status).toBe(403);
   });
 });
+
+describe("PUT /api/admin/tracks/:id", () => {
+  const mockFindFirst = (db as any)._findFirst as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should say which track is in the way when the target session already uses its number", async () => {
+    mockReturning.mockRejectedValueOnce(
+      Object.assign(new Error("duplicate key"), {
+        code: "23505",
+        constraint_name: "tracks_session_id_track_number_original_language_unique",
+      }),
+    );
+    mockFindFirst
+      .mockResolvedValueOnce({ id: 54953, sessionId: 1261, trackNumber: 93, originalLanguage: "pt" })
+      .mockResolvedValueOnce({ id: 54951, title: "7 de Outubro - sessão da tarde - tradução integral" })
+      .mockResolvedValueOnce({ id: 1260, sessionNumber: 4 });
+
+    const { status, body } = await testJson("/api/admin/tracks/54953", {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${await adminToken()}` },
+      body: JSON.stringify({ sessionId: 1260 }),
+    });
+
+    expect(status).toBe(409);
+    expect((body as any).error).toBe(
+      'Session 4 already has a Portuguese track 93 ("7 de Outubro - sessão da tarde - tradução integral"). Give one of the two another number first.',
+    );
+  });
+});
