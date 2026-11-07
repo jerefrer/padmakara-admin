@@ -63,7 +63,7 @@ describe("eventSortColumns", () => {
   it("should expose a sort key for every visible column of the events list", () => {
     for (const key of [
       "titleEn", "titlePt", "eventTypeName", "eventTypeNamePt", "groups", "teachers",
-      "audienceName", "audienceNamePt", "startDate", "content", "status", "featuredAt",
+      "audienceName", "audienceNamePt", "startDate", "content", "status", "featuredAt", "updatedAt",
     ]) {
       expect(eventSortColumns).toHaveProperty(key);
     }

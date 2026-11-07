@@ -4,7 +4,6 @@ import {
   Datagrid,
   TextField,
   DateField,
-  EditButton,
   useDataProvider,
   useNotify,
   useRedirect,
@@ -538,7 +537,25 @@ export const EventList = () => {
           )}
         />
         <FunctionField label={translate("padmakara.events.status")} sortBy="status" render={(record: any) => <StatusChip status={record.status} />} />
-        <EditButton />
+        {/* The whole row opens the event, so this column shows when it was last edited instead of an Edit button. */}
+        <FunctionField
+          label={translate("padmakara.events.lastEdited")}
+          sortBy="updatedAt"
+          sortByOrder="DESC"
+          sx={{ whiteSpace: "nowrap" }}
+          render={(record: any) => {
+            if (!record.updatedAt) return "—";
+            const edited = new Date(record.updatedAt);
+            const dateLocale = locale === "pt" ? "pt-PT" : "en-GB";
+            return (
+              <Box component="span" sx={{ fontSize: "0.8125rem", color: "text.secondary" }}>
+                {edited.toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" })}
+                {" · "}
+                {edited.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })}
+              </Box>
+            );
+          }}
+        />
       </Datagrid>
     </List>
   );

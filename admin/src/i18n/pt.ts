@@ -401,6 +401,7 @@ export const pt = {
       from: "De",
       to: "Até",
       dateTo: "a",
+      lastEdited: "Última edição",
       status: "Estado",
       created: "Criado",
       audiences: "Níveis de acesso",

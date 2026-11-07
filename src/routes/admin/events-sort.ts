@@ -71,4 +71,6 @@ export const eventSortColumns: Record<string, SortTarget> = {
   content: contentRank,
   featuredAt: events.featuredAt,
   createdAt: events.createdAt,
+  // Bumped by edits to the event and to its tracks and videos.
+  updatedAt: events.updatedAt,
 };

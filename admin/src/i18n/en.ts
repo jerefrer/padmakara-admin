@@ -204,6 +204,7 @@ export const en = {
       to: "To",
       dateTo: "to",
       status: "Status",
+      lastEdited: "Last edited",
       created: "Created",
       audiences: "Access Tiers",
       // Content presence column
