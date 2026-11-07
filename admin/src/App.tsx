@@ -14,7 +14,6 @@ import { EventList, EventEdit, EventCreate } from "./resources/events";
 import { EventTypeList, EventTypeEdit, EventTypeCreate } from "./resources/event-types";
 import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audiences";
 import { UserList, UserEdit } from "./resources/users";
-import { ApprovalList } from "./resources/approvals";
 import { LibraryPage } from "./pages/LibraryPage";
 import { SearchesPage } from "./pages/SearchesPage";
 import { PublicationList, PublicationEdit, PublicationCreate } from "./resources/publications";
@@ -82,11 +81,6 @@ const App = () => (
       options={{ label: "Users" }}
       list={UserList}
       edit={UserEdit}
-    />
-    <Resource
-      name="approvals"
-      options={{ label: "Approvals" }}
-      list={ApprovalList}
     />
     <Resource
       name="publications"

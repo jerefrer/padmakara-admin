@@ -7,7 +7,6 @@ import BusinessIcon from "@mui/icons-material/Business";
 import PeopleIcon from "@mui/icons-material/People";
 import CategoryIcon from "@mui/icons-material/Category";
 import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
-import HowToRegIcon from "@mui/icons-material/HowToReg";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import SearchIcon from "@mui/icons-material/Search";
@@ -65,7 +64,6 @@ export const Menu = () => {
 
       <SectionLabel>{translate("padmakara.menu.users")}</SectionLabel>
       <RaMenu.Item to="/users" primaryText={translate("resources.users.name", { smart_count: 2 })} leftIcon={<PeopleIcon />} />
-      <RaMenu.Item to="/approvals" primaryText={translate("resources.approvals.name", { smart_count: 2 })} leftIcon={<HowToRegIcon />} />
 
       <Divider sx={{ borderColor: "rgba(255,255,255,0.08)", my: 1.5, mx: 2 }} />
 
