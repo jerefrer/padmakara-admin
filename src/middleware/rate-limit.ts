@@ -33,7 +33,7 @@ const passThrough: MiddlewareHandler = (_c: Context, next: Next) => next();
 // ── exported factory functions ────────────────────────────────────────────────
 
 /**
- * Per-IP rate limiter for sensitive auth endpoints (magic-link, approval, login).
+ * Per-IP rate limiter for sensitive auth endpoints (magic-link, sign-in code, login).
  *
  * Production: 5 requests per 15 minutes per IP.
  */
@@ -52,7 +52,7 @@ export function authIpLimiter(opts?: {
 }
 
 /**
- * Per-email rate limiter for magic-link and approval endpoints.
+ * Per-email rate limiter for magic-link and sign-in endpoints.
  *
  * Keys on the `email` field in the JSON body so that a single IP cannot
  * send magic links to many different addresses.  Falls back to IP when the

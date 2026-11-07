@@ -7,7 +7,6 @@ import {
   magicLinkTokens,
   accountDeletionTokens,
   deviceActivations,
-  userApprovalRequests,
 } from "../db/schema/auth.ts";
 import {
   hashPassword,
@@ -31,7 +30,6 @@ import {
   verifyCodeSchema,
   refreshTokenSchema,
   discoverDeviceSchema,
-  requestApprovalSchema,
   autoActivateSchema,
   deactivateDeviceSchema,
   requestAccountDeletionSchema,
@@ -40,6 +38,7 @@ import {
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 import { config } from "../config.ts";
 import { activateDeviceForUser } from "../services/device-activation.ts";
+import { accountForEmailSignIn } from "../services/sign-in-account.ts";
 import { isReviewLoginFor, verifyReviewCode } from "../services/review-account.ts";
 import {
   generateSignInCode,
@@ -207,7 +206,9 @@ auth.post("/login", authIpLimiter(), authEmailLimiter(), async (c) => {
  * Step 1 of mobile auth. The app sends email + device info.
  * - If user exists & device already activated → return tokens immediately
  * - If user exists but device not activated → send magic link email
- * - If user doesn't exist → return "approval_required"
+ * - If user doesn't exist → send magic link email too; the account is created
+ *   when the link or code is used (see accountForEmailSignIn)
+ * - If the account is deactivated → no email, same response as a sent one
  */
 auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) => {
   const body = await c.req.json();
@@ -220,29 +221,28 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
     where: eq(users.email, email),
   });
 
-  if (!user || !user.isActive) {
-    // Return the same generic response whether the email is unregistered OR
-    // the account is deactivated.  This closes the enumeration oracle: an
-    // attacker cannot distinguish "email not registered" (200) from "email
-    // registered but deactivated" (401).  A deactivated user simply cannot
-    // progress past this point; the response must not reveal account existence.
+  if (user && !user.isActive) {
+    // Same body as a sent link, so the response does not reveal that this
+    // address has a deactivated account.
     return c.json({
       status: "magic_link_sent",
-      message: "If your email is registered, check your inbox for a login link.",
+      message: "Please check your email",
       expires_in: 3600,
     });
   }
 
   // Check if this device is already activated for this user
-  const existingDevice = await db.query.deviceActivations.findFirst({
-    where: and(
-      eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
-      eq(deviceActivations.userId, user.id),
-      eq(deviceActivations.isActive, true),
-    ),
-  });
+  const existingDevice = user
+    ? await db.query.deviceActivations.findFirst({
+        where: and(
+          eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
+          eq(deviceActivations.userId, user.id),
+          eq(deviceActivations.isActive, true),
+        ),
+      })
+    : undefined;
 
-  if (existingDevice) {
+  if (user && existingDevice) {
     // Device already activated — return tokens directly
     const tokens = await generateTokensForUser(user);
 
@@ -266,16 +266,15 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
   }
 
   // Store-review demo account: no email, the app asks for the review code and
-  // calls /review-login. Only reached for an existing, active review user, so
-  // every other address keeps the generic anti-enumeration behaviour above.
-  if (isReviewLoginFor(email)) {
+  // calls /review-login. Only for an existing, active review user.
+  if (user && isReviewLoginFor(email)) {
     return c.json({
       status: "code_required",
       message: "Enter the review code to sign in",
     });
   }
 
-  // Device not activated — create magic link and send email
+  // Device not activated, or no account yet — create magic link and send email
   const token = generateMagicLinkToken();
   const tokenHash = await hashToken(token);
   // Same row as the link: whichever is used first consumes the other.
@@ -357,12 +356,10 @@ auth.get("/activate/:token", async (c) => {
     .set({ isUsed: true })
     .where(eq(magicLinkTokens.id, magicLink.id));
 
-  // Find the user
-  const user = await db.query.users.findFirst({
-    where: eq(users.email, magicLink.email),
-  });
+  // Find the user, or create the account on a first sign-in
+  const user = await accountForEmailSignIn(magicLink.email, magicLink.language);
 
-  if (!user || !user.isActive) {
+  if (!user) {
     const title = lang === "pt" ? "Conta Não Encontrada" : "Account Not Found";
     const message = lang === "pt"
       ? "Não foi possível encontrar a sua conta. Por favor contacte o suporte."
@@ -491,50 +488,6 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
 });
 
 /**
- * POST /api/auth/request-approval
- *
- * For new users who don't have an account yet.
- * Creates an approval request that admins can review.
- */
-auth.post("/request-approval", authIpLimiter(), authEmailLimiter(), async (c) => {
-  const body = await c.req.json();
-  const data = requestApprovalSchema.parse(body);
-
-  // Check if there's already a pending request for this email
-  const existingRequest = await db.query.userApprovalRequests.findFirst({
-    where: and(
-      eq(userApprovalRequests.email, data.email.toLowerCase().trim()),
-      eq(userApprovalRequests.status, "pending"),
-    ),
-  });
-
-  if (existingRequest) {
-    return c.json({
-      status: "already_pending",
-      message: "An approval request is already pending for this email",
-    });
-  }
-
-  await db.insert(userApprovalRequests).values({
-    email: data.email.toLowerCase().trim(),
-    firstName: data.first_name,
-    lastName: data.last_name,
-    message: data.message || null,
-    deviceFingerprint: data.device_fingerprint,
-    deviceName: data.device_name,
-    deviceType: data.device_type,
-    language: data.language ?? "en",
-    ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
-    userAgent: c.req.header("user-agent") || null,
-  });
-
-  return c.json({
-    status: "approval_requested",
-    message: "Thank you for your request. An administrator will review it shortly.",
-  });
-});
-
-/**
  * POST /api/auth/auto-activate
  *
  * Auto-activate a device using a magic link token directly
@@ -564,12 +517,10 @@ auth.post("/auto-activate", authIpLimiter(), async (c) => {
     .set({ isUsed: true })
     .where(eq(magicLinkTokens.id, magicLink.id));
 
-  // Find user
-  const user = await db.query.users.findFirst({
-    where: eq(users.email, magicLink.email),
-  });
+  // Find the user, or create the account on a first sign-in
+  const user = await accountForEmailSignIn(magicLink.email, magicLink.language);
 
-  if (!user || !user.isActive) {
+  if (!user) {
     throw AppError.unauthorized("Account not found or deactivated");
   }
 
@@ -662,10 +613,12 @@ auth.post("/verify-code", authIpLimiter(), authEmailLimiter(), async (c) => {
   const email = data.email.toLowerCase().trim();
   const fail = () => AppError.unauthorized("Invalid or expired code");
 
-  const user = await db.query.users.findFirst({
+  // An address with no account yet may sign in; its account is created only
+  // once the code is right.
+  const existing = await db.query.users.findFirst({
     where: eq(users.email, email),
   });
-  if (!user || !user.isActive) throw fail();
+  if (existing && !existing.isActive) throw fail();
 
   const now = new Date();
   const rows = await db.query.magicLinkTokens.findMany({
@@ -711,6 +664,9 @@ auth.post("/verify-code", authIpLimiter(), authEmailLimiter(), async (c) => {
     .where(and(eq(magicLinkTokens.id, matched.id), eq(magicLinkTokens.isUsed, false)))
     .returning({ id: magicLinkTokens.id });
   if (consumed.length === 0) throw fail();
+
+  const user = await accountForEmailSignIn(email, matched.language);
+  if (!user) throw fail();
 
   await activateDeviceForUser(user, {
     fingerprint: data.device_fingerprint,

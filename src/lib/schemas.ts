@@ -62,17 +62,6 @@ export const discoverDeviceSchema = z.object({
   device_fingerprint: z.string().min(1),
 });
 
-export const requestApprovalSchema = z.object({
-  email: z.email(),
-  first_name: z.string().min(1),
-  last_name: z.string().min(1),
-  message: z.string().optional(),
-  device_fingerprint: z.string().min(1),
-  device_name: z.string().min(1),
-  device_type: z.string().min(1),
-  language: z.enum(["en", "pt"]).optional().default("en"),
-});
-
 export const autoActivateSchema = z.object({
   token: z.string().min(1),
   device_fingerprint: z.string().min(1),

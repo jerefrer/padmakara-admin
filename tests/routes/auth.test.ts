@@ -27,7 +27,13 @@ vi.mock("../../src/services/email.ts", () => ({
   }),
 }));
 
+vi.mock("../../src/services/users-lookup.ts", () => ({
+  findOrCreateUserByEmail: vi.fn(),
+  findUserByEmail: vi.fn(),
+}));
+
 import { db } from "../../src/db/index.ts";
+import { findOrCreateUserByEmail } from "../../src/services/users-lookup.ts";
 import { hashSignInCode, verifySignInCode } from "../../src/services/sign-in-code.ts";
 import { config } from "../../src/config.ts";
 import {
@@ -591,8 +597,9 @@ describe("Auth routes", () => {
       expect((await post("123456")).status).toBe(401);
     });
 
-    it("should return the same 401 for an unknown email", async () => {
+    it("should return the same 401 for an unknown email that was sent no code", async () => {
       (db.query.users.findFirst as any).mockResolvedValue(null);
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([]);
       const { status, body } = await post("123456");
       expect(status).toBe(401);
       expect(body.error).toBe("Invalid or expired code");
@@ -628,6 +635,183 @@ describe("Auth routes", () => {
       const { testRequest } = await import("../helpers.ts");
       const res = await testRequest("/api/auth/activate/sometoken?lang=en");
       expect(await res.text()).toContain("Invalid Link");
+    });
+  });
+
+  describe("account created on first email sign-in", () => {
+    const devicePayload = {
+      device_fingerprint: "device-new",
+      device_name: "New Phone",
+      device_type: "ios",
+    };
+    const newUser = {
+      id: 42, email: "new@test.com", firstName: null, lastName: null,
+      dharmaName: null, preferredLanguage: "pt", role: "user",
+      isActive: true, isVerified: false,
+      subscriptionStatus: "none", subscriptionSource: null, subscriptionExpiresAt: null,
+      lastActivity: null, createdAt: new Date(),
+    };
+    const future = () => new Date(Date.now() + 60 * 60 * 1000);
+    const tokenRow = (over: Record<string, unknown> = {}) => ({
+      id: 21,
+      email: "new@test.com",
+      tokenHash: "x",
+      expiresAt: future(),
+      isUsed: false,
+      deviceFingerprint: "device-new",
+      deviceName: "New Phone",
+      deviceType: "ios",
+      language: "pt",
+      codeHash: hashSignInCode("654321"),
+      codeAttempts: 0,
+      ...over,
+    });
+    function mockUpdateWithReturning(returned: any[] = [{ id: 21 }]) {
+      const set = vi.fn();
+      const where = vi.fn(() =>
+        Object.assign(Promise.resolve(undefined), {
+          returning: vi.fn().mockResolvedValue(returned),
+        }),
+      );
+      set.mockReturnValue({ where });
+      return { set, where };
+    }
+    function requestLink(email: string) {
+      return testJson("/api/auth/request-magic-link", {
+        method: "POST",
+        body: JSON.stringify({ email, ...devicePayload }),
+      });
+    }
+
+    beforeEach(() => {
+      (db.query.deviceActivations.findFirst as any).mockResolvedValue(null);
+      (db.insert as any).mockReturnValue(mockInsertChain());
+      (findOrCreateUserByEmail as any).mockResolvedValue({
+        user: { id: 42, email: "new@test.com", preferredLanguage: "pt" },
+        created: true,
+      });
+    });
+
+    it("should send a sign-in email to an address with no account", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(null);
+      const { sendEmail } = await import("../../src/services/email.ts");
+
+      const { status, body } = await requestLink("new@test.com");
+
+      expect(status).toBe(200);
+      expect(body.status).toBe("magic_link_sent");
+      expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "new@test.com" }));
+    });
+
+    it("should not create the account when only the email is requested", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(null);
+
+      await requestLink("new@test.com");
+
+      expect(findOrCreateUserByEmail).not.toHaveBeenCalled();
+    });
+
+    it("should not email a deactivated account", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue({ ...newUser, isActive: false });
+      const { sendEmail } = await import("../../src/services/email.ts");
+
+      await requestLink("new@test.com");
+
+      expect(sendEmail).not.toHaveBeenCalled();
+    });
+
+    it("should answer a deactivated account exactly like an active one", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue({ ...newUser, isActive: true });
+      const active = (await requestLink("new@test.com")).body;
+      (db.query.users.findFirst as any).mockResolvedValue({ ...newUser, isActive: false });
+      const deactivated = (await requestLink("new@test.com")).body;
+
+      const shape = (b: Record<string, unknown>) => ({ status: b.status, message: b.message, expires_in: b.expires_in });
+      expect(shape(deactivated)).toEqual(shape(active));
+    });
+
+    it("should create the account and sign in when the code from a first email is right", async () => {
+      (db.query.users.findFirst as any)
+        .mockResolvedValueOnce(null) // before the code check
+        .mockResolvedValueOnce(null) // account lookup after the code is consumed
+        .mockResolvedValue(newUser); // the account just created
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([tokenRow()]);
+      (db.update as any).mockReturnValue(mockUpdateWithReturning());
+
+      const { status, body } = await testJson("/api/auth/verify-code", {
+        method: "POST",
+        body: JSON.stringify({ email: "new@test.com", code: "654321", ...devicePayload }),
+      });
+
+      expect(status).toBe(200);
+      expect(body.access_token).toBeDefined();
+      expect(findOrCreateUserByEmail).toHaveBeenCalledWith({ email: "new@test.com", language: "pt" });
+    });
+
+    it("should not create an account when the code is wrong", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(null);
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([tokenRow()]);
+      (db.update as any).mockReturnValue(mockUpdateWithReturning());
+
+      const { status } = await testJson("/api/auth/verify-code", {
+        method: "POST",
+        body: JSON.stringify({ email: "new@test.com", code: "000000", ...devicePayload }),
+      });
+
+      expect(status).toBe(401);
+      expect(findOrCreateUserByEmail).not.toHaveBeenCalled();
+    });
+
+    it("should create the account when the link from a first email is opened", async () => {
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(tokenRow());
+      (db.query.users.findFirst as any).mockResolvedValueOnce(null).mockResolvedValue(newUser);
+      (db.update as any).mockReturnValue(mockUpdateChain());
+      const { testRequest } = await import("../helpers.ts");
+
+      const res = await testRequest("/api/auth/activate/sometoken");
+
+      expect(await res.text()).toContain("Dispositivo Ativado");
+      expect(findOrCreateUserByEmail).toHaveBeenCalledWith({ email: "new@test.com", language: "pt" });
+    });
+
+    it("should create the account when a first link is activated in the app", async () => {
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(tokenRow());
+      (db.query.users.findFirst as any).mockResolvedValueOnce(null).mockResolvedValue(newUser);
+      (db.update as any).mockReturnValue(mockUpdateChain());
+
+      const { status, body } = await testJson("/api/auth/auto-activate", {
+        method: "POST",
+        body: JSON.stringify({ token: "sometoken", ...devicePayload }),
+      });
+
+      expect(status).toBe(200);
+      expect(body.status).toBe("device_activated");
+      expect(findOrCreateUserByEmail).toHaveBeenCalled();
+    });
+
+    it("should refuse a link for an account deactivated after the email was sent", async () => {
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(tokenRow());
+      (db.query.users.findFirst as any).mockResolvedValue({ ...newUser, isActive: false });
+      (db.update as any).mockReturnValue(mockUpdateChain());
+
+      const { status } = await testJson("/api/auth/auto-activate", {
+        method: "POST",
+        body: JSON.stringify({ token: "sometoken", ...devicePayload }),
+      });
+
+      expect(status).toBe(401);
+      expect(findOrCreateUserByEmail).not.toHaveBeenCalled();
+    });
+
+    it("should no longer accept access requests", async () => {
+      const { status } = await testJson("/api/auth/request-approval", {
+        method: "POST",
+        body: JSON.stringify({
+          email: "new@test.com", first_name: "A", last_name: "B", ...devicePayload,
+        }),
+      });
+
+      expect(status).toBe(404);
     });
   });
 

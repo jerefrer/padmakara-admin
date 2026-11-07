@@ -468,60 +468,6 @@ describe("Frontend Compatibility Tests", () => {
     });
   });
 
-  describe("Approval Request Flow Compatibility", () => {
-    it("POST /api/auth/request-approval should accept all required fields", async () => {
-      (db.query.userApprovalRequests.findFirst as any).mockResolvedValue(null);
-
-      const insertChain = mockInsertChain();
-      (db.insert as any).mockReturnValue(insertChain);
-
-      const { status, body } = await testJson("/api/auth/request-approval", {
-        method: "POST",
-        body: JSON.stringify({
-          email: "newuser@test.com",
-          first_name: "New",
-          last_name: "User",
-          message: "I would like access to the retreat materials",
-          device_fingerprint: "new-device-fp",
-          device_name: "iPad Pro",
-          device_type: "ios",
-          language: "en",
-        }),
-      });
-
-      expect(status).toBe(200);
-      expect(body).toMatchObject({
-        status: "approval_requested",
-        message: expect.any(String),
-      });
-    });
-
-    it("POST /api/auth/request-approval should handle existing pending requests", async () => {
-      (db.query.userApprovalRequests.findFirst as any).mockResolvedValue({
-        id: 1,
-        email: "existing@test.com",
-        status: "pending",
-      });
-
-      const { status, body } = await testJson("/api/auth/request-approval", {
-        method: "POST",
-        body: JSON.stringify({
-          email: "existing@test.com",
-          first_name: "Existing",
-          last_name: "Request",
-          device_fingerprint: "device-fp",
-          device_name: "iPhone",
-          device_type: "ios",
-        }),
-      });
-
-      expect(status).toBe(200);
-      expect(body).toMatchObject({
-        status: "already_pending",
-        message: expect.any(String),
-      });
-    });
-  });
 
   describe("Token Validation Compatibility", () => {
     it("should accept tokens validated via GET /api/auth/devices endpoint", async () => {
