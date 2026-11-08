@@ -690,6 +690,8 @@ export const pt = {
     },
     dropzone: {
       title: "Arraste uma pasta de evento para aqui",
+      addSessions: "Adicionar sessões de áudio",
+      orDrop: "Escolha a pasta do evento, ou arraste-a para aqui",
       subtitle: "O nome da pasta será analisado para preencher datas, professor e grupo automaticamente",
       filesFrom: "%{count} ficheiros de áudio de %{folder}",
     },

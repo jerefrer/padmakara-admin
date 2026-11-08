@@ -1,6 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
+import AddIcon from "@mui/icons-material/Add";
 import FolderIcon from "@mui/icons-material/FolderOpen";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import { useTranslate } from "react-admin";
@@ -18,7 +20,7 @@ interface TrackDropZoneProps {
   onFolderDropped: (meta: FolderMetadata, tracks: ParsedTrack[]) => void;
   fileCount: number;
   folderName: string | null;
-  /** One line instead of the big box, for adding sessions to an existing event. */
+  /** An "Add audio sessions" link (folder picker) instead of the big box; dropping still works. */
   compact?: boolean;
 }
 
@@ -61,6 +63,18 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName, compact 
   const [isDragOver, setIsDragOver] = useState(false);
   const translate = useTranslate();
 
+  const handleFolderFiles = useCallback(
+    (folderName: string, files: File[]) => {
+      const mediaFiles = files.filter(isMediaFile);
+      if (mediaFiles.length === 0) return;
+      const parsed = mediaFiles
+        .map(parseTrackFile)
+        .sort((a, b) => a.trackNumber - b.trackNumber);
+      onFolderDropped(parseFolderName(folderName), parsed);
+    },
+    [onFolderDropped],
+  );
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -89,21 +103,28 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName, compact 
       const dirEntry = entries.find((e) => e.isDirectory);
       if (!dirEntry) return; // Only accept folder drops
 
-      const meta = parseFolderName(dirEntry.name);
-
       // Read all files from the folder
-      readEntry(dirEntry).then((files) => {
-        const mediaFiles = files.filter(isMediaFile);
-        if (mediaFiles.length === 0) return;
-
-        const parsed = mediaFiles
-          .map(parseTrackFile)
-          .sort((a, b) => a.trackNumber - b.trackNumber);
-
-        onFolderDropped(meta, parsed);
-      });
+      readEntry(dirEntry).then((files) => handleFolderFiles(dirEntry.name, files));
     },
-    [onFolderDropped],
+    [handleFolderFiles],
+  );
+
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleFolderPicked = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []);
+      e.target.value = "";
+      if (files.length === 0) return;
+      // webkitRelativePath is "Folder/sub/file.mp3"; skip junk folders and files like a drop does.
+      const kept = files.filter((f) => {
+        const parts = (f.webkitRelativePath || f.name).split("/");
+        return !isJunkFilename(f.name) && !parts.slice(0, -1).some(isJunkDirName);
+      });
+      const folder = (files[0].webkitRelativePath || "").split("/")[0] || files[0].name;
+      handleFolderFiles(folder, kept);
+    },
+    [handleFolderFiles],
   );
 
   const hasFiles = fileCount > 0;
@@ -114,14 +135,14 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName, compact 
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       sx={{
-        border: "2px dashed",
+        border: compact && !hasFiles && !isDragOver ? "2px solid transparent" : "2px dashed",
         borderColor: isDragOver
           ? "primary.main"
           : hasFiles
             ? "success.main"
             : "rgba(0,0,0,0.12)",
         borderRadius: 3,
-        p: hasFiles ? 2.5 : compact ? 1.5 : 5,
+        p: hasFiles ? 2.5 : compact ? 0.5 : 5,
         textAlign: "center",
         cursor: "default",
         transition: "all 0.2s ease",
@@ -140,11 +161,29 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName, compact 
           </Typography>
         </Box>
       ) : compact ? (
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
-          <FolderIcon sx={{ fontSize: 22, color: isDragOver ? "primary.main" : "rgba(0,0,0,0.3)", transition: "color 0.2s" }} />
-          <Typography variant="body2" sx={{ fontWeight: 600, color: "text.secondary" }}>
-            {translate("padmakara.dropzone.title")}
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+          <input
+            ref={(el) => {
+              folderInputRef.current = el;
+              // Not in React's input typings; lets the picker select a folder.
+              el?.setAttribute("webkitdirectory", "");
+            }}
+            type="file"
+            multiple
+            style={{ display: "none" }}
+            onChange={handleFolderPicked}
+          />
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {translate("padmakara.dropzone.orDrop")}
           </Typography>
+          <Button
+            size="small"
+            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+            onClick={() => folderInputRef.current?.click()}
+            sx={{ textTransform: "none", fontSize: "0.75rem" }}
+          >
+            {translate("padmakara.dropzone.addSessions")}
+          </Button>
         </Box>
       ) : (
         <>

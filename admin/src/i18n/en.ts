@@ -492,6 +492,8 @@ export const en = {
     },
     dropzone: {
       title: "Drop an event folder here",
+      addSessions: "Add audio sessions",
+      orDrop: "Choose the event folder, or drop it here",
       subtitle: "Folder name will be parsed to fill in dates, teacher, and group automatically",
       filesFrom: "%{count} audio files from %{folder}",
     },
