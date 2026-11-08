@@ -1259,10 +1259,72 @@ export const EventFormFields = ({
     </>
   );
 
+  const bibliographyFields = (
+    <>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TranslatableField
+              label={translate("padmakara.events.bibliographyEn")}
+              value={form.bibliography}
+              onChange={(v) => setForm((p) => ({ ...p, bibliography: v, bibliographyEnReviewed: true }))}
+              reviewed={form.bibliographyEnReviewed}
+              onMarkReviewed={() => setForm((p) => ({ ...p, bibliographyEnReviewed: true }))}
+              canTranslate={!!String(form.bibliography ?? "").trim()}
+              translatePending={busy}
+              direction="en-to-pt"
+              translateTooltip={translate("padmakara.events.translateToPt")}
+              onTranslate={async () => {
+                const out = await ft.translate(String(form.bibliography ?? ""), "en-to-pt");
+                if (out != null) setForm((p) => ({ ...p, bibliographyPt: out, bibliographyPtReviewed: false }));
+              }}
+              multiline
+              minRows={syncedRows(form.bibliography, form.bibliographyPt, 2)}
+              placeholder={translate("padmakara.events.bibliographyPlaceholderEn")}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TranslatableField
+              label={translate("padmakara.events.bibliographyPt")}
+              value={form.bibliographyPt}
+              onChange={(v) => setForm((p) => ({ ...p, bibliographyPt: v, bibliographyPtReviewed: true }))}
+              reviewed={form.bibliographyPtReviewed}
+              onMarkReviewed={() => setForm((p) => ({ ...p, bibliographyPtReviewed: true }))}
+              canTranslate={!!String(form.bibliographyPt ?? "").trim()}
+              translatePending={busy}
+              direction="pt-to-en"
+              translateTooltip={translate("padmakara.events.translateToEn")}
+              onTranslate={async () => {
+                const out = await ft.translate(String(form.bibliographyPt ?? ""), "pt-to-en");
+                if (out != null) setForm((p) => ({ ...p, bibliography: out, bibliographyEnReviewed: false }));
+              }}
+              multiline
+              minRows={syncedRows(form.bibliography, form.bibliographyPt, 2)}
+              placeholder={translate("padmakara.events.bibliographyPlaceholderPt")}
+            />
+          </Grid>
+    </>
+  );
+
+  /* Back office only, stored apart from the event row. Always open, below every section. */
+  const internalNotesField = eventId !== undefined && (
+    <Paper data-testid="internal-notes" sx={{ p: 3, mb: 2 }}>
+      <MuiTextField
+        label={translate("padmakara.events.internalNotes")}
+        value={form.internalNotes}
+        onChange={updateField("internalNotes")}
+        multiline
+        minRows={3}
+        fullWidth
+        helperText={translate("padmakara.events.internalNotesHelper")}
+        slotProps={{ inputLabel: { shrink: true } }}
+      />
+    </Paper>
+  );
+
   const topicsContent = (
     <Paper sx={{ p: 3, mb: 2 }}>
       <Grid container spacing={2.5}>
         {themeFields}
+        {bibliographyFields}
       </Grid>
     </Paper>
   );
@@ -1282,20 +1344,6 @@ export const EventFormFields = ({
         </Box>
       )}
 
-      {/* ── Internal notes — back office only, stored apart from the event row ── */}
-      {eventId !== undefined && (
-        <MuiTextField
-          label={translate("padmakara.events.internalNotes")}
-          value={form.internalNotes}
-          onChange={updateField("internalNotes")}
-          multiline
-          minRows={2}
-          fullWidth
-          helperText={translate("padmakara.events.internalNotesHelper")}
-          slotProps={{ inputLabel: { shrink: true } }}
-          sx={{ mb: 2 }}
-        />
-      )}
 
       {/* ── Library metadata — fill the form from the association's CSV ── */}
       <LibraryMetadataButton
@@ -1539,52 +1587,15 @@ export const EventFormFields = ({
         </Grid>
       </Paper>
 
-      {/* ── Bibliography (the themes sit here in the create wizard) ── */}
-      <Paper sx={{ p: 3, mb: 2 }}>
-        <Grid container spacing={2.5}>
-          {!collapsible && themeFields}
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TranslatableField
-              label={translate("padmakara.events.bibliographyEn")}
-              value={form.bibliography}
-              onChange={(v) => setForm((p) => ({ ...p, bibliography: v, bibliographyEnReviewed: true }))}
-              reviewed={form.bibliographyEnReviewed}
-              onMarkReviewed={() => setForm((p) => ({ ...p, bibliographyEnReviewed: true }))}
-              canTranslate={!!String(form.bibliography ?? "").trim()}
-              translatePending={busy}
-              direction="en-to-pt"
-              translateTooltip={translate("padmakara.events.translateToPt")}
-              onTranslate={async () => {
-                const out = await ft.translate(String(form.bibliography ?? ""), "en-to-pt");
-                if (out != null) setForm((p) => ({ ...p, bibliographyPt: out, bibliographyPtReviewed: false }));
-              }}
-              multiline
-              minRows={syncedRows(form.bibliography, form.bibliographyPt, 2)}
-              placeholder={translate("padmakara.events.bibliographyPlaceholderEn")}
-            />
+      {/* ── Bibliography with the themes (the create wizard keeps them here) ── */}
+      {!collapsible && (
+        <Paper sx={{ p: 3, mb: 2 }}>
+          <Grid container spacing={2.5}>
+            {themeFields}
+            {bibliographyFields}
           </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <TranslatableField
-              label={translate("padmakara.events.bibliographyPt")}
-              value={form.bibliographyPt}
-              onChange={(v) => setForm((p) => ({ ...p, bibliographyPt: v, bibliographyPtReviewed: true }))}
-              reviewed={form.bibliographyPtReviewed}
-              onMarkReviewed={() => setForm((p) => ({ ...p, bibliographyPtReviewed: true }))}
-              canTranslate={!!String(form.bibliographyPt ?? "").trim()}
-              translatePending={busy}
-              direction="pt-to-en"
-              translateTooltip={translate("padmakara.events.translateToEn")}
-              onTranslate={async () => {
-                const out = await ft.translate(String(form.bibliographyPt ?? ""), "pt-to-en");
-                if (out != null) setForm((p) => ({ ...p, bibliography: out, bibliographyEnReviewed: false }));
-              }}
-              multiline
-              minRows={syncedRows(form.bibliography, form.bibliographyPt, 2)}
-              placeholder={translate("padmakara.events.bibliographyPlaceholderPt")}
-            />
-          </Grid>
-        </Grid>
-      </Paper>
+        </Paper>
+      )}
 
       {/* ── Event Code ── */}
       <Paper sx={{ p: 3, mb: 3 }}>
@@ -1725,6 +1736,20 @@ export const EventFormFields = ({
           {detailsContent}
         </CollapsibleSection>
         <CollapsibleSection
+          {...sectionProps("topics")}
+          title={translate("padmakara.eventSections.topicsBibliography")}
+          summary={topicsSummary({
+            mainThemesEn: form.mainThemesEn,
+            mainThemesPt: form.mainThemesPt,
+            sessionThemesEn: form.sessionThemesEn,
+            sessionThemesPt: form.sessionThemesPt,
+            translate,
+          })}
+          action={tickBox("topicsPublished", showInApp)}
+        >
+          {topicsContent}
+        </CollapsibleSection>
+        <CollapsibleSection
           {...sectionProps("access")}
           title={translate("padmakara.eventSections.access")}
           summary={accessSummary({
@@ -1765,20 +1790,6 @@ export const EventFormFields = ({
           {transcriptionExtra}
         </CollapsibleSection>
         <CollapsibleSection
-          {...sectionProps("topics")}
-          title={translate("padmakara.eventSections.topics")}
-          summary={topicsSummary({
-            mainThemesEn: form.mainThemesEn,
-            mainThemesPt: form.mainThemesPt,
-            sessionThemesEn: form.sessionThemesEn,
-            sessionThemesPt: form.sessionThemesPt,
-            translate,
-          })}
-          action={tickBox("topicsPublished", showInApp)}
-        >
-          {topicsContent}
-        </CollapsibleSection>
-        <CollapsibleSection
           {...sectionProps("texts")}
           title={translate("padmakara.eventSections.texts")}
           summary={
@@ -1794,6 +1805,7 @@ export const EventFormFields = ({
           {publicationsPanel}
           {documentsPanel}
         </CollapsibleSection>
+        {internalNotesField}
       </>
     );
   }
@@ -1837,6 +1849,7 @@ export const EventFormFields = ({
 {filesNode}
         </>
       )}
+      {internalNotesField}
     </>
   );
 };

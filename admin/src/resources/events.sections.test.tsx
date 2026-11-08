@@ -1,4 +1,8 @@
-/** The event page's sections: Topics holds the themes, and the "show in app" tick boxes sit in the headers. */
+/**
+ * The event page's sections: Topics holds the themes and the bibliography right
+ * after Event details, internal notes sit open below every section, and the
+ * "show in app" tick boxes sit in the headers.
+ */
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -61,6 +65,7 @@ function renderForm(over: {
     allTeachers: [], allPlaces: [], allOrganizers: [], allGroups: [], allEventTypes: [], allAudiences: [],
     sessions: [], transcripts: [],
     trackCount: 0, transcriptCount: 0,
+    eventId: 1,
     collapsible: { open: { topics: true }, onToggle: over.onToggle ?? vi.fn() },
     visibility: over.visibility,
   };
@@ -80,16 +85,36 @@ describe("Topics section", () => {
     expect(section("details")!.textContent).not.toContain("padmakara.events.mainThemesEn");
   });
 
-  it("should come after Transcription and before Related texts", () => {
+  it("should hold the bibliography after the themes, not the details section", () => {
+    renderForm({});
+    const text = section("topics")!.textContent ?? "";
+    expect(text).toContain("padmakara.events.bibliographyEn");
+    expect(text.indexOf("padmakara.events.sessionThemesPt")).toBeLessThan(text.indexOf("padmakara.events.bibliographyEn"));
+    expect(section("details")!.textContent).not.toContain("padmakara.events.bibliographyEn");
+  });
+
+  it("should come right after Event details", () => {
     renderForm({});
     const order = Array.from(host.querySelectorAll("[data-section]")).map((n) => n.getAttribute("data-section"));
-    expect(order.indexOf("topics")).toBe(order.indexOf("transcription") + 1);
-    expect(order.indexOf("texts")).toBe(order.indexOf("topics") + 1);
+    expect(order.slice(0, 2)).toEqual(["details", "topics"]);
   });
 
   it("should count the filled topic lines in its summary", () => {
     renderForm({});
     expect(section("topics")!.textContent).toContain("padmakara.eventSections.mainTopicsSummary");
+  });
+});
+
+describe("Internal notes", () => {
+  const notes = () => host.querySelector('[data-testid="internal-notes"]') as HTMLElement | null;
+
+  it("should sit below every section, outside them, so it is never folded away", () => {
+    renderForm({});
+    const sections = Array.from(host.querySelectorAll("[data-section]"));
+    expect(notes()).not.toBeNull();
+    expect(sections.some((s) => s.contains(notes()))).toBe(false);
+    const last = sections[sections.length - 1];
+    expect(last.compareDocumentPosition(notes()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 

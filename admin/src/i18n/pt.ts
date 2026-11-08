@@ -769,6 +769,7 @@ export const pt = {
       transcription: "Transcrição e leitura acompanhada",
       texts: "Textos relacionados",
       topics: "Tópicos",
+      topicsBibliography: "Tópicos e bibliografia",
       sessionsSummary: "%{smart_count} sessão |||| %{smart_count} sessões",
       tracksSummary: "%{smart_count} faixa |||| %{smart_count} faixas",
       videosSummary: "%{smart_count} vídeo |||| %{smart_count} vídeos",

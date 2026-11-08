@@ -571,6 +571,7 @@ export const en = {
       transcription: "Transcription & read-along",
       texts: "Related texts",
       topics: "Topics",
+      topicsBibliography: "Topics & bibliography",
       sessionsSummary: "%{smart_count} session |||| %{smart_count} sessions",
       tracksSummary: "%{smart_count} track |||| %{smart_count} tracks",
       videosSummary: "%{smart_count} video |||| %{smart_count} videos",
