@@ -18,6 +18,8 @@ interface TrackDropZoneProps {
   onFolderDropped: (meta: FolderMetadata, tracks: ParsedTrack[]) => void;
   fileCount: number;
   folderName: string | null;
+  /** One line instead of the big box, for adding sessions to an existing event. */
+  compact?: boolean;
 }
 
 function isMediaFile(file: File): boolean {
@@ -55,7 +57,7 @@ function readEntry(entry: FileSystemEntry): Promise<File[]> {
   return Promise.resolve([]);
 }
 
-export const TrackDropZone = ({ onFolderDropped, fileCount, folderName }: TrackDropZoneProps) => {
+export const TrackDropZone = ({ onFolderDropped, fileCount, folderName, compact = false }: TrackDropZoneProps) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const translate = useTranslate();
 
@@ -119,7 +121,7 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName }: TrackD
             ? "success.main"
             : "rgba(0,0,0,0.12)",
         borderRadius: 3,
-        p: hasFiles ? 2.5 : 5,
+        p: hasFiles ? 2.5 : compact ? 1.5 : 5,
         textAlign: "center",
         cursor: "default",
         transition: "all 0.2s ease",
@@ -135,6 +137,13 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName }: TrackD
           <AudioFileIcon sx={{ color: "success.main", fontSize: 24 }} />
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             <strong>{translate("padmakara.dropzone.filesFrom", { count: fileCount, folder: folderName })}</strong>
+          </Typography>
+        </Box>
+      ) : compact ? (
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+          <FolderIcon sx={{ fontSize: 22, color: isDragOver ? "primary.main" : "rgba(0,0,0,0.3)", transition: "color 0.2s" }} />
+          <Typography variant="body2" sx={{ fontWeight: 600, color: "text.secondary" }}>
+            {translate("padmakara.dropzone.title")}
           </Typography>
         </Box>
       ) : (
