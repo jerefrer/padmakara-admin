@@ -749,7 +749,8 @@ const TrackRow = ({
   /** True when this row's inline editor is open (state lives in SessionCard
    *  so ↑/↓ can move the editor between tracks). */
   editing: boolean;
-  onStartEdit: () => void;
+  /** Opens the editor; "pt" puts the cursor in the Portuguese title. */
+  onStartEdit: (focus?: "en" | "pt") => void;
   onCloseEdit: () => void;
   /** Move the editor to the previous/next track of the session. */
   onNavigate: (delta: -1 | 1) => void;
@@ -799,6 +800,11 @@ const TrackRow = ({
   // trailing blur event can't double-commit or clobber the next row's state.
   const doneRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [focusField, setFocusField] = useState<"en" | "pt">("en");
+  const startEdit = (focus: "en" | "pt") => {
+    setFocusField(focus);
+    onStartEdit(focus);
+  };
   const ft = useFieldTranslate();
   // Read from the saved titles, not the ones being typed: the line must not
   // pop back as soon as the Portuguese text starts to differ.
@@ -981,7 +987,7 @@ const TrackRow = ({
             <>
               <LangTag code="en" />
               <InputBase
-                autoFocus
+                autoFocus={focusField === "en"}
                 fullWidth
                 value={editValues.titleEn}
                 placeholder={translate("padmakara.events.titleEn")}
@@ -1012,7 +1018,7 @@ const TrackRow = ({
         {!hideEnglishTitle && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Box sx={{ width: 24, flexShrink: 0 }} />
-            {portugueseTitleField(false)}
+            {portugueseTitleField(focusField === "pt")}
             <TranslateDirChip
               direction="pt-to-en"
               disabled={!editValues.titlePt.trim()}
@@ -1168,12 +1174,21 @@ const TrackRow = ({
           }}
           primaryProps={{
             title: canEdit ? translate("padmakara.tracks.clickToEdit") : undefined,
-            onClick: canEdit ? onStartEdit : undefined,
+            onClick: canEdit ? () => startEdit("en") : undefined,
             sx: {
               fontWeight: track.isTranslation ? 400 : 500,
               ...(canEdit ? clickToEditSx : {}),
             },
           }}
+          secondaryProps={
+            canEdit
+              ? {
+                  title: translate("padmakara.tracks.clickToEdit"),
+                  onClick: () => startEdit("pt"),
+                  sx: { cursor: "pointer" },
+                }
+              : undefined
+          }
         />
       </Box>
 

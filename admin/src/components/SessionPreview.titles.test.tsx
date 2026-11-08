@@ -145,4 +145,21 @@ describe("track title editor", () => {
     expect(input("En")).not.toBeNull();
     expect(input("Pt")).not.toBeNull();
   });
+
+  it("should open the editor on the Portuguese title when its line is clicked", () => {
+    openEditor(
+      { languages: ["en"], originalLanguage: "en", isTranslation: false, titleEn: "Arising deities", titlePt: "Emergir das deidades" },
+      "Emergir das deidades",
+    );
+    expect(input("Pt")).not.toBeNull();
+    expect(document.activeElement).toBe(input("Pt"));
+  });
+
+  it("should still focus the English title when the English line is clicked", () => {
+    openEditor(
+      { languages: ["en"], originalLanguage: "en", isTranslation: false, titleEn: "Arising deities", titlePt: "Emergir das deidades" },
+      "Arising deities",
+    );
+    expect(document.activeElement).toBe(input("En"));
+  });
 });

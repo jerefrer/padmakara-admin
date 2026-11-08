@@ -62,6 +62,8 @@ interface TitlePairProps {
   onMarkReviewed: (lang: TitleLang, options?: MarkReviewedOptions) => void;
   /** Props for the first-line Typography (weight, click-to-edit handlers). */
   primaryProps?: TypographyProps;
+  /** Props for the Portuguese second line (click-to-edit straight into that title). */
+  secondaryProps?: TypographyProps;
 }
 
 export const TitlePair = ({
@@ -74,6 +76,7 @@ export const TitlePair = ({
   titlePtReviewed = true,
   onMarkReviewed,
   primaryProps,
+  secondaryProps,
 }: TitlePairProps) => {
   const translate = useTranslate();
   const en = titleEn?.trim() || "";
@@ -121,7 +124,9 @@ export const TitlePair = ({
             variant="caption"
             noWrap
             data-testid="pt-title-line"
+            {...secondaryProps}
             sx={{
+              ...secondaryProps?.sx,
               minWidth: 0,
               color: pt ? "text.secondary" : "text.disabled",
               fontStyle: pt ? "normal" : "italic",
