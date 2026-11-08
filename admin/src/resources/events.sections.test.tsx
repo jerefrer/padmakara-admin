@@ -51,6 +51,7 @@ function renderForm(over: {
   form?: Partial<EventFormData>;
   onToggle?: (id: string) => void;
   visibility?: { flags: typeof FLAGS; onChange: (key: string, value: boolean) => void };
+  collapsible?: { open: Record<string, boolean> };
 }) {
   const noop = vi.fn();
   const props: any = {
@@ -66,7 +67,7 @@ function renderForm(over: {
     sessions: [], transcripts: [],
     trackCount: 0, transcriptCount: 0,
     eventId: 1,
-    collapsible: { open: { topics: true }, onToggle: over.onToggle ?? vi.fn() },
+    collapsible: { open: over.collapsible?.open ?? { topics: true }, onToggle: over.onToggle ?? vi.fn() },
     visibility: over.visibility,
   };
   act(() => root.render(<EventFormFields {...props} />));
@@ -102,6 +103,17 @@ describe("Topics section", () => {
   it("should count the filled topic lines in its summary", () => {
     renderForm({});
     expect(section("topics")!.textContent).toContain("padmakara.eventSections.mainTopicsSummary");
+  });
+});
+
+describe("Event details", () => {
+  it("should put the one-off tools (library metadata, automatic translation) after the event code", () => {
+    renderForm({ collapsible: { open: { details: true } } });
+    const text = section("details")!.textContent ?? "";
+    const code = text.indexOf("padmakara.events.eventCode");
+    expect(code).toBeGreaterThan(-1);
+    expect(text.indexOf("padmakara.library.button")).toBeGreaterThan(code);
+    expect(text.indexOf("padmakara.events.autoTranslateTitle")).toBeGreaterThan(code);
   });
 });
 

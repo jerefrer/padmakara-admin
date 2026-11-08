@@ -1329,6 +1329,76 @@ export const EventFormFields = ({
     </Paper>
   );
 
+  const setupTools = (
+    <>
+        {/* ── Library metadata — fill the form from the association's CSV ── */}
+        <LibraryMetadataButton
+          form={form} setForm={setForm}
+          selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
+          selectedPlaces={selectedPlaces} setSelectedPlaces={setSelectedPlaces}
+          selectedOrganizers={selectedOrganizers} setSelectedOrganizers={setSelectedOrganizers}
+          selectedGroups={selectedGroups} setSelectedGroups={setSelectedGroups}
+          selectedEventType={selectedEventType} setSelectedEventType={setSelectedEventType}
+          selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
+          allGroups={allGroups} allEventTypes={allEventTypes} allAudiences={allAudiences}
+          eventId={eventId}
+        />
+
+        {/* ── Auto-translate bar — the one place that fills every empty EN/PT
+               target (event fields, session titles and track titles — persisted
+               rows in the edit view, preview state in the create flow), with a
+               live count of what a click will do ── */}
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1.5,
+            flexWrap: "wrap",
+            border: "1px solid rgba(155,27,27,0.22)",
+            backgroundColor: "rgba(155,27,27,0.04)",
+            borderRadius: 2,
+            px: 2,
+            py: 1.25,
+            mb: 2,
+          }}
+        >
+          <TranslateIcon sx={{ color: "primary.main", fontSize: 20 }} />
+          <Box sx={{ flex: 1, minWidth: 220 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              {translate("padmakara.events.autoTranslateTitle")}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {missingSummary}
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            variant={missingPt.total > 0 ? "contained" : "outlined"}
+            disableElevation
+            disabled={busy || missingPt.total === 0}
+            startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
+            onClick={() => fillMissing("en-to-pt")}
+          >
+            {missingPt.total > 0
+              ? `${translate("padmakara.events.fillPt")} (${missingPt.total})`
+              : translate("padmakara.events.ptComplete")}
+          </Button>
+          <Button
+            size="small"
+            variant={missingEn.total > 0 ? "contained" : "outlined"}
+            disableElevation
+            disabled={busy || missingEn.total === 0}
+            startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
+            onClick={() => fillMissing("pt-to-en")}
+          >
+            {missingEn.total > 0
+              ? `${translate("padmakara.events.fillEn")} (${missingEn.total})`
+              : translate("padmakara.events.enComplete")}
+          </Button>
+        </Box>
+    </>
+  );
+
   const detailsContent = (
     <>
       {/* ── Section 1: Event Details ── */}
@@ -1345,71 +1415,8 @@ export const EventFormFields = ({
       )}
 
 
-      {/* ── Library metadata — fill the form from the association's CSV ── */}
-      <LibraryMetadataButton
-        form={form} setForm={setForm}
-        selectedTeachers={selectedTeachers} setSelectedTeachers={setSelectedTeachers}
-        selectedPlaces={selectedPlaces} setSelectedPlaces={setSelectedPlaces}
-        selectedOrganizers={selectedOrganizers} setSelectedOrganizers={setSelectedOrganizers}
-        selectedGroups={selectedGroups} setSelectedGroups={setSelectedGroups}
-        selectedEventType={selectedEventType} setSelectedEventType={setSelectedEventType}
-        selectedAudience={selectedAudience} setSelectedAudience={setSelectedAudience}
-        allGroups={allGroups} allEventTypes={allEventTypes} allAudiences={allAudiences}
-        eventId={eventId}
-      />
-
-      {/* ── Auto-translate bar — the one place that fills every empty EN/PT
-             target (event fields, session titles and track titles — persisted
-             rows in the edit view, preview state in the create flow), with a
-             live count of what a click will do ── */}
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          gap: 1.5,
-          flexWrap: "wrap",
-          border: "1px solid rgba(155,27,27,0.22)",
-          backgroundColor: "rgba(155,27,27,0.04)",
-          borderRadius: 2,
-          px: 2,
-          py: 1.25,
-          mb: 2,
-        }}
-      >
-        <TranslateIcon sx={{ color: "primary.main", fontSize: 20 }} />
-        <Box sx={{ flex: 1, minWidth: 220 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            {translate("padmakara.events.autoTranslateTitle")}
-          </Typography>
-          <Typography variant="caption" sx={{ color: "text.secondary" }}>
-            {missingSummary}
-          </Typography>
-        </Box>
-        <Button
-          size="small"
-          variant={missingPt.total > 0 ? "contained" : "outlined"}
-          disableElevation
-          disabled={busy || missingPt.total === 0}
-          startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
-          onClick={() => fillMissing("en-to-pt")}
-        >
-          {missingPt.total > 0
-            ? `${translate("padmakara.events.fillPt")} (${missingPt.total})`
-            : translate("padmakara.events.ptComplete")}
-        </Button>
-        <Button
-          size="small"
-          variant={missingEn.total > 0 ? "contained" : "outlined"}
-          disableElevation
-          disabled={busy || missingEn.total === 0}
-          startIcon={<AutoAwesomeIcon sx={{ fontSize: 14 }} />}
-          onClick={() => fillMissing("pt-to-en")}
-        >
-          {missingEn.total > 0
-            ? `${translate("padmakara.events.fillEn")} (${missingEn.total})`
-            : translate("padmakara.events.enComplete")}
-        </Button>
-      </Box>
+      {/* One-off setup tools: at the top while creating, below the fields when editing. */}
+      {!collapsible && setupTools}
 
       {/* ── Title ── */}
       <Paper sx={{ p: 3, mb: 2 }}>
@@ -1607,6 +1614,8 @@ export const EventFormFields = ({
           onMarkReviewed={() => setForm((p) => ({ ...p, eventCodeReviewed: true }))}
         />
       </Paper>
+
+      {collapsible && setupTools}
     </>
   );
 
@@ -4546,6 +4555,7 @@ export const EventEdit = () => {
           <NamingConventionsButton />
         </Box>
         <TrackDropZone
+          compact
           onFolderDropped={handleAddFolderDropped}
           fileCount={0}
           folderName={null}
