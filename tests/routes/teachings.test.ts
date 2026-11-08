@@ -523,6 +523,17 @@ describe("GET /api/teachings/mine", () => {
       expect(await mine()).toEqual([]);
     });
 
+    it("should mark an event opened by a grant as granted and one opened by the audience as membership", async () => {
+      grantFindMany.mockResolvedValue([{ eventId: 3, createdAt: new Date("2026-01-01") }]);
+      eventFindMany.mockResolvedValue([row(1, "free-subscribers"), row(3, "everyone-paid")]);
+      const token = await createAccessToken({ sub: 3, email: "member@example.com", role: "user" });
+      const { body } = await testJson("/api/teachings/mine", { headers: { Authorization: `Bearer ${token}` } });
+      expect((body as { id: number; libraryAccess: string }[]).map((e) => [e.id, e.libraryAccess])).toEqual([
+        [3, "granted"],
+        [1, "membership"],
+      ]);
+    });
+
     it("should put bought events first, then the others from newest to oldest", async () => {
       grantFindMany.mockResolvedValue([{ eventId: 3, createdAt: new Date("2026-01-01") }]);
       eventFindMany.mockResolvedValue([

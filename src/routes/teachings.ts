@@ -123,7 +123,8 @@ teachingRoutes.get("/mine", authMiddleware, async (c) => {
   await resolveEventsGroupUrls(data);
   applyEventsVideoThumbnails(data);
   applyEventsOrganizers(data);
-  return c.json(data);
+  // "granted": given or bought; "membership": reachable only through the audience.
+  return c.json(data.map((e) => ({ ...e, libraryAccess: rank.has(e.id) ? "granted" : "membership" })));
 });
 
 // ─── Public ───
