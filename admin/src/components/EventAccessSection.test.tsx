@@ -115,4 +115,58 @@ describe("EventAccessSection", () => {
     expect(authFetch).toHaveBeenCalledWith("/api/admin/events/42/access/5", { method: "DELETE" });
     expect(reload).toHaveBeenCalled();
   });
+  describe("account suggestions", () => {
+    const users = [
+      { id: 11, email: "maria@example.com", firstName: "Maria", lastName: "Costa" },
+      { id: 12, email: "mario@example.com", firstName: "", lastName: "" },
+    ];
+    const type = async (text: string) => {
+      setValue(container.querySelector("textarea") as HTMLTextAreaElement, text);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      authFetch.mockResolvedValue({ ok: true, json: async () => users });
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it("should suggest existing accounts matching the line being typed", async () => {
+      mount();
+      await type("a@x.pt\nmar");
+      expect(authFetch).toHaveBeenCalledTimes(1);
+      expect(authFetch.mock.calls[0][0]).toContain("/api/admin/users?");
+      expect(authFetch.mock.calls[0][0]).toContain("q=mar");
+      expect(container.textContent).toContain("Maria Costa");
+      expect(container.textContent).toContain("maria@example.com");
+      expect(container.textContent).toContain("mario@example.com");
+    });
+
+    it("should replace the current line with the chosen account's email", async () => {
+      mount();
+      await type("a@x.pt\nmar");
+      const option = [...container.querySelectorAll('[role="option"]')].find((o) =>
+        o.textContent?.includes("maria@example.com"),
+      ) as HTMLElement;
+      act(() => option.click());
+      expect((container.querySelector("textarea") as HTMLTextAreaElement).value).toBe("a@x.pt\nmaria@example.com\n");
+      expect(container.querySelector('[role="option"]')).toBeNull();
+    });
+
+    it("should not suggest an account already listed in the box", async () => {
+      mount();
+      await type("maria@example.com\nmar");
+      expect(container.textContent).not.toContain("Maria Costa");
+      expect(container.textContent).toContain("mario@example.com");
+    });
+
+    it("should not search for fewer than 2 characters", async () => {
+      mount();
+      await type("m");
+      expect(authFetch).not.toHaveBeenCalled();
+      expect(container.querySelector('[role="option"]')).toBeNull();
+    });
+  });
 });

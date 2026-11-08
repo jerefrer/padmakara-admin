@@ -803,7 +803,7 @@ export const pt = {
       pending: "A aguardar pagamento",
       giveTitle: "Dar acesso manualmente",
       emailsPlaceholder: "nome@exemplo.com",
-      emailsHelp: "Um email por linha. As contas são criadas quando ainda não existem.",
+      emailsHelp: "Um email por linha. Comece a escrever um nome ou email para escolher uma conta existente. As contas são criadas quando ainda não existem.",
       emailThem: "Enviar-lhes um email",
       language: "Idioma",
       give: "Dar acesso",

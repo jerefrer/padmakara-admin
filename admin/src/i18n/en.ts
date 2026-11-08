@@ -605,7 +605,7 @@ export const en = {
       pending: "Waiting for payment",
       giveTitle: "Give access by hand",
       emailsPlaceholder: "name@example.com",
-      emailsHelp: "One email per line. Accounts are created when they do not exist yet.",
+      emailsHelp: "One email per line. Start typing a name or email to pick an existing account. Accounts are created when they do not exist yet.",
       emailThem: "Email them",
       language: "Language",
       give: "Give access",

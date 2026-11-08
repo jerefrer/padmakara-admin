@@ -3,7 +3,7 @@
  * event, orders still waiting for payment, and a box to give access by hand.
  */
 
-import { useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useNotify, useTranslate } from "react-admin";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
@@ -16,6 +16,9 @@ import DialogContentText from "@mui/material/DialogContentText";
 import DialogTitle from "@mui/material/DialogTitle";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import IconButton from "@mui/material/IconButton";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemText from "@mui/material/ListItemText";
 import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
 import TextField from "@mui/material/TextField";
@@ -38,6 +41,16 @@ interface GiveResult {
   invalid: string[];
 }
 
+interface Suggestion {
+  id: number;
+  email: string;
+  name: string;
+}
+
+const MIN_SEARCH_CHARS = 2;
+const MAX_SUGGESTIONS = 8;
+const SEARCH_DEBOUNCE_MS = 250;
+
 const METHOD_LABELS: Record<string, string> = { mb: "Multibanco", mbw: "MB WAY", cc: "Card" };
 
 const formatDate = (iso: string): string => {
@@ -54,6 +67,70 @@ export const EventAccessSection = ({ eventId, access, reload }: Props) => {
   const [giving, setGiving] = useState(false);
   const [result, setResult] = useState<GiveResult | null>(null);
   const [toRemove, setToRemove] = useState<AccessGrant | null>(null);
+
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+
+  // Look up existing accounts for the line being typed (the last one).
+  const currentLine = emailsText.slice(emailsText.lastIndexOf("\n") + 1).trim();
+  useEffect(() => {
+    setSuggestions([]);
+    setActiveIndex(-1);
+    if (currentLine.length < MIN_SEARCH_CHARS) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        // Ask for a few extra rows so accounts already in the box can be dropped.
+        const params = new URLSearchParams({
+          q: currentLine,
+          _start: "0",
+          _end: String(MAX_SUGGESTIONS * 2),
+          _sort: "email",
+          _order: "ASC",
+        });
+        const res = await authFetch(`/api/admin/users?${params}`);
+        if (!res.ok) return;
+        const rows = (await res.json()) as { id: number; email: string; firstName?: string | null; lastName?: string | null }[];
+        if (cancelled) return;
+        const listed = new Set(emailsText.split("\n").slice(0, -1).map((e) => e.trim().toLowerCase()));
+        setSuggestions(
+          rows
+            .filter((u) => !listed.has(u.email.toLowerCase()))
+            .slice(0, MAX_SUGGESTIONS)
+            .map((u) => ({ id: u.id, email: u.email, name: [u.firstName, u.lastName].filter(Boolean).join(" ") })),
+        );
+      } catch {
+        // Suggestions are a convenience; typing still works without them.
+      }
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // emailsText is read for the lines above the current one; the current line drives the search.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailsText]);
+
+  const pickSuggestion = (s: Suggestion) => {
+    const head = emailsText.slice(0, emailsText.lastIndexOf("\n") + 1);
+    setEmailsText(`${head}${s.email}\n`);
+  };
+
+  const handleEmailsKeyDown = (e: KeyboardEvent) => {
+    if (suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => (i + 1) % suggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+    } else if (e.key === "Enter" && activeIndex >= 0) {
+      e.preventDefault();
+      pickSuggestion(suggestions[activeIndex]);
+    } else if (e.key === "Escape") {
+      setSuggestions([]);
+    }
+  };
 
   const how = (g: AccessGrant): string => {
     if (g.source === "purchase") {
@@ -168,9 +245,28 @@ export const EventAccessSection = ({ eventId, access, reload }: Props) => {
         fullWidth
         value={emailsText}
         onChange={(e) => setEmailsText(e.target.value)}
+        onKeyDown={handleEmailsKeyDown}
         placeholder={translate("padmakara.eventAccess.emailsPlaceholder")}
         helperText={translate("padmakara.eventAccess.emailsHelp")}
       />
+      {suggestions.length > 0 && (
+        <Paper variant="outlined" sx={{ mt: 0.5 }}>
+          <List dense disablePadding role="listbox">
+            {suggestions.map((s, i) => (
+              <ListItemButton
+                key={s.id}
+                role="option"
+                selected={i === activeIndex}
+                aria-selected={i === activeIndex}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pickSuggestion(s)}
+              >
+                <ListItemText primary={s.name || s.email} secondary={s.name ? s.email : undefined} />
+              </ListItemButton>
+            ))}
+          </List>
+        </Paper>
+      )}
       <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap", mt: 1 }}>
         <FormControlLabel
           control={<Checkbox checked={notifyThem} onChange={(_, c) => setNotifyThem(c)} />}
