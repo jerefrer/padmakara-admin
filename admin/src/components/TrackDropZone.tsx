@@ -135,12 +135,14 @@ export const TrackDropZone = ({ onFolderDropped, fileCount, folderName, compact 
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       sx={{
-        border: compact && !hasFiles && !isDragOver ? "2px solid transparent" : "2px dashed",
+        border: "2px dashed",
         borderColor: isDragOver
           ? "primary.main"
           : hasFiles
             ? "success.main"
-            : "rgba(0,0,0,0.12)",
+            : compact
+              ? "transparent"
+              : "rgba(0,0,0,0.12)",
         borderRadius: 3,
         p: hasFiles ? 2.5 : compact ? 0.5 : 5,
         textAlign: "center",
