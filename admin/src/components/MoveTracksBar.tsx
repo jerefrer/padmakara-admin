@@ -68,9 +68,8 @@ export const MoveTracksBar = ({
     </Button>
   );
 
-  if (selectedCount === 0) {
-    return selectAllButton ? <Box sx={{ mb: 1 }}>{selectAllButton}</Box> : null;
-  }
+  // Before any track is ticked, Select all lives in the Sessions heading.
+  if (selectedCount === 0) return null;
 
   const handleSelect = (value: string) => {
     if (value === NEW_SESSION) {

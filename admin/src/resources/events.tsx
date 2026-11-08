@@ -1692,6 +1692,18 @@ export const EventFormFields = ({
             onSelectedTrackIdsChange={onSelectedTrackIdsChange}
             onSessionDelete={onSessionDelete}
             videoCountBySession={videoCountBySession}
+            headerAction={
+              onMoveTracks && onSelectedTrackIdsChange && selectedTrackIds?.size === 0 && selectableTrackIds.length > 0 ? (
+                <Button
+                  size="small"
+                  data-testid="select-all-tracks"
+                  disabled={!!moveBusy}
+                  onClick={() => onSelectedTrackIdsChange(new Set(selectableTrackIds))}
+                >
+                  {translate("padmakara.tracks.selectAllTracks")}
+                </Button>
+              ) : null
+            }
           />
         </Box>
       )}

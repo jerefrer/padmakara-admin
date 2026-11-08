@@ -84,12 +84,10 @@ describe("MoveTracksBar", () => {
 
   const selectAllButton = () => container.querySelector("[data-testid=select-all-tracks]") as HTMLButtonElement | null;
 
-  it("should offer Select all before any track is ticked, without the sticky bar", () => {
-    const onSelectAll = vi.fn();
-    render(0, undefined, { totalCount: 8, onSelectAll });
+  it("should show nothing before any track is ticked (Select all sits in the Sessions heading)", () => {
+    render(0, undefined, { totalCount: 8, onSelectAll: vi.fn() });
     expect(container.querySelector("[data-testid=move-tracks-bar]")).toBeNull();
-    act(() => selectAllButton()!.click());
-    expect(onSelectAll).toHaveBeenCalledTimes(1);
+    expect(selectAllButton()).toBeNull();
   });
 
   it("should offer Select all while only some tracks are ticked", () => {

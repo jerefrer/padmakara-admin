@@ -645,6 +645,7 @@ export const pt = {
       },
       select: "Selecionar faixa",
       selectAll: "Selecionar tudo",
+      selectAllTracks: "Selecionar todas as faixas",
       clearSelection: "Limpar seleção",
       moveTo: "Mover para sessão…",
       newSession: "Nova sessão",

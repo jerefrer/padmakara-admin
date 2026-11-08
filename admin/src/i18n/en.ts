@@ -447,6 +447,7 @@ export const en = {
       },
       select: "Select track",
       selectAll: "Select all",
+      selectAllTracks: "Select all tracks",
       clearSelection: "Clear selection",
       moveTo: "Move to session…",
       newSession: "New session",

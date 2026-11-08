@@ -125,6 +125,8 @@ interface SessionPreviewProps {
   /** Videos linked to each session id, so the confirmation can warn that
    *  they lose their "Session N of M" link. */
   videoCountBySession?: ReadonlyMap<number, number>;
+  /** Shown at the right end of the Sessions heading (Select all tracks). */
+  headerAction?: React.ReactNode;
 }
 
 export const SessionPreview = ({
@@ -139,6 +141,7 @@ export const SessionPreview = ({
   onSelectedTrackIdsChange,
   onSessionDelete,
   videoCountBySession,
+  headerAction,
 }: SessionPreviewProps) => {
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
@@ -159,6 +162,8 @@ export const SessionPreview = ({
           variant="outlined"
           sx={{ height: 22, "& .MuiChip-label": { fontSize: "0.7rem" } }}
         />
+        {headerAction && <Box sx={{ flex: 1 }} />}
+        {headerAction}
       </Box>
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>

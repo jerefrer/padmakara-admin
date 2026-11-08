@@ -162,4 +162,18 @@ describe("track title editor", () => {
     );
     expect(document.activeElement).toBe(input("En"));
   });
+
+  it("should show the heading action next to the Sessions heading", () => {
+    act(() => {
+      root.render(
+        <SessionPreview
+          sessions={[sessionWith({ languages: ["en"], titleEn: "A" })]}
+          onSessionTitleChange={() => {}}
+          headerAction={<button data-testid="heading-action">x</button>}
+        />,
+      );
+    });
+    const action = container.querySelector("[data-testid=heading-action]")!;
+    expect(action.parentElement!.textContent).toContain("Sessions");
+  });
 });
