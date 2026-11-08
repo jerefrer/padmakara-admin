@@ -785,7 +785,8 @@ const SECTION_LABEL_KEYS: Record<SectionVisibilityKey, string> = {
 
 /** Ids of the collapsible cards on the event edit page, in display order. */
 export const EVENT_SECTION_IDS = ["details", "access", "media", "transcription", "topics", "texts"] as const;
-export const EVENT_SECTION_DEFAULTS: Record<string, boolean> = { details: true };
+// Every section starts folded: André wants each event to open the same way.
+export const EVENT_SECTION_DEFAULTS: Record<string, boolean> = {};
 
 /** [sourceField, targetField] pairs for the 3 event-level translatable fields. */
 const eventPairsFor = (
@@ -1692,6 +1693,7 @@ export const EventFormFields = ({
             onSelectedTrackIdsChange={onSelectedTrackIdsChange}
             onSessionDelete={onSessionDelete}
             videoCountBySession={videoCountBySession}
+            collapsedByDefault={!!collapsible}
             headerAction={
               onMoveTracks && onSelectedTrackIdsChange && selectedTrackIds?.size === 0 && selectableTrackIds.length > 0 ? (
                 <Button
@@ -3313,7 +3315,7 @@ export const EventEdit = () => {
   const [selectedGroups, setSelectedGroups] = useState<GroupOption[]>([]);
   const [selectedEventType, setSelectedEventType] = useState<EventTypeOption | null>(null);
   const [selectedAudience, setSelectedAudience] = useState<AudienceOption | null>(null);
-  const sections = useCollapsibleSections("padmakara.eventSections", EVENT_SECTION_IDS, EVENT_SECTION_DEFAULTS);
+  const sections = useCollapsibleSections(EVENT_SECTION_IDS, EVENT_SECTION_DEFAULTS);
   const [publicationCount, setPublicationCount] = useState<number | null>(null);
   const [documentCount, setDocumentCount] = useState<number | null>(null);
 

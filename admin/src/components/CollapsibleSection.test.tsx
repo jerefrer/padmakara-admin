@@ -8,10 +8,9 @@ import { CollapsibleSection, useCollapsibleSections } from "./CollapsibleSection
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const IDS = ["a", "b"] as const;
-const KEY = "test.sections";
 
 function Harness() {
-  const s = useCollapsibleSections(KEY, IDS, { a: true, b: false });
+  const s = useCollapsibleSections(IDS, { a: true, b: false });
   return (
     <div>
       <button data-testid="all" onClick={() => s.setAll(!s.allOpen)}>
@@ -42,7 +41,6 @@ const header = (id: string) => container.querySelector(`#${id}-header`) as HTMLB
 const mount = () => act(() => root.render(<Harness />));
 
 beforeEach(() => {
-  window.localStorage.clear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -95,20 +93,14 @@ describe("CollapsibleSection", () => {
     expect(header("b").getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("should remember the state in localStorage and restore it", () => {
+  it("should open with the defaults every time, not with what was open last time", () => {
     mount();
     act(() => header("b").click());
-    expect(JSON.parse(window.localStorage.getItem(KEY)!)).toEqual({ a: true, b: true });
+    expect(header("b").getAttribute("aria-expanded")).toBe("true");
     act(() => root.unmount());
     root = createRoot(container);
     mount();
-    expect(header("b").getAttribute("aria-expanded")).toBe("true");
-  });
-
-  it("should fall back to the defaults when storage holds garbage", () => {
-    window.localStorage.setItem(KEY, "{not json");
-    mount();
-    expect(header("a").getAttribute("aria-expanded")).toBe("true");
+    expect(header("b").getAttribute("aria-expanded")).toBe("false");
   });
 
   describe("header action", () => {

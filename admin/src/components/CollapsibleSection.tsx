@@ -8,8 +8,9 @@
  * the clickable area rather than inside it: no button inside a button, and using
  * the action never folds or unfolds the section.
  *
- * `useCollapsibleSections` keeps the open/closed state of a set of sections
- * and remembers it per browser in localStorage.
+ * `useCollapsibleSections` keeps the open/closed state of a set of sections.
+ * It is not remembered: a page always opens with the defaults, so editors
+ * find every event laid out the same way.
  */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
@@ -125,49 +126,14 @@ export const CollapsibleSection = ({ id, title, summary, badge, action, open, on
 
 type OpenState = Record<string, boolean>;
 
-function readStored(storageKey: string, ids: readonly string[], defaults: OpenState): OpenState {
-  const state: OpenState = {};
-  for (const id of ids) state[id] = defaults[id] ?? false;
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") {
-        for (const id of ids) {
-          const v = (parsed as Record<string, unknown>)[id];
-          if (typeof v === "boolean") state[id] = v;
-        }
-      }
-    }
-  } catch {
-    // Storage blocked or corrupt: fall back to the defaults.
-  }
-  return state;
-}
-
-function writeStored(storageKey: string, state: OpenState): void {
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(state));
-  } catch {
-    // Storage blocked or full: the choice just does not persist.
-  }
-}
-
-/** Open/closed state of a fixed list of sections, remembered in localStorage. */
-export function useCollapsibleSections(storageKey: string, ids: readonly string[], defaults: OpenState) {
+/** Open/closed state of a fixed list of sections, starting from `defaults` on every mount. */
+export function useCollapsibleSections(ids: readonly string[], defaults: OpenState) {
   const idsKey = ids.join("|");
-  const [open, setOpen] = useState<OpenState>(() => readStored(storageKey, ids, defaults));
-
-  const update = useCallback(
-    (fn: (prev: OpenState) => OpenState) => {
-      setOpen((prev) => {
-        const next = fn(prev);
-        writeStored(storageKey, next);
-        return next;
-      });
-    },
-    [storageKey],
+  const [open, setOpen] = useState<OpenState>(() =>
+    Object.fromEntries(ids.map((id) => [id, defaults[id] ?? false])),
   );
+
+  const update = useCallback((fn: (prev: OpenState) => OpenState) => setOpen(fn), []);
 
   const toggle = useCallback((id: string) => update((prev) => ({ ...prev, [id]: !prev[id] })), [update]);
   const setAll = useCallback(

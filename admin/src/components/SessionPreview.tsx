@@ -127,6 +127,8 @@ interface SessionPreviewProps {
   videoCountBySession?: ReadonlyMap<number, number>;
   /** Shown at the right end of the Sessions heading (Select all tracks). */
   headerAction?: React.ReactNode;
+  /** Start with every session folded (the event edit page); open otherwise. */
+  collapsedByDefault?: boolean;
 }
 
 export const SessionPreview = ({
@@ -142,6 +144,7 @@ export const SessionPreview = ({
   onSessionDelete,
   videoCountBySession,
   headerAction,
+  collapsedByDefault = false,
 }: SessionPreviewProps) => {
   const [preview, setPreview] = useState<PreviewState | null>(null);
 
@@ -172,6 +175,7 @@ export const SessionPreview = ({
               key={session.sessionNumber}
               session={session}
               index={idx}
+              initiallyExpanded={!collapsedByDefault}
               onTitleChange={(patch) => onSessionTitleChange(idx, patch)}
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
@@ -219,6 +223,7 @@ interface SessionCardProps {
   /** Present only for a saved session with no tracks. */
   onDelete?: () => Promise<void>;
   linkedVideoCount?: number;
+  initiallyExpanded?: boolean;
 }
 
 const SessionCard = ({
@@ -235,8 +240,9 @@ const SessionCard = ({
   onSelectedTrackIdsChange,
   onDelete,
   linkedVideoCount = 0,
+  initiallyExpanded = true,
 }: SessionCardProps) => {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(initiallyExpanded);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);

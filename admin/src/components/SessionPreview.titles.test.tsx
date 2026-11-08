@@ -176,4 +176,23 @@ describe("track title editor", () => {
     const action = container.querySelector("[data-testid=heading-action]")!;
     expect(action.parentElement!.textContent).toContain("Sessions");
   });
+
+  it("should fold every session when asked to start collapsed, and keep them open otherwise", () => {
+    const render = (collapsed: boolean) =>
+      act(() => {
+        root.render(
+          <SessionPreview
+            sessions={[sessionWith({ languages: ["en"], titleEn: "A" })]}
+            onSessionTitleChange={() => {}}
+            collapsedByDefault={collapsed}
+          />,
+        );
+      });
+    render(true);
+    expect(container.querySelector(".MuiCollapse-hidden")).not.toBeNull();
+    act(() => root.unmount());
+    root = createRoot(container);
+    render(false);
+    expect(container.querySelector(".MuiCollapse-hidden")).toBeNull();
+  });
 });
