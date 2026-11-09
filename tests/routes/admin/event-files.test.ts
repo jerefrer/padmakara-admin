@@ -25,6 +25,11 @@ vi.mock("../../../src/services/s3.ts", () => ({
   generatePresignedViewUrl: vi.fn(() => Promise.resolve("https://s3/view-url")),
 }));
 
+// The protected-PDF check reads S3; its own behaviour is in tests/services/pdf-protection.test.ts.
+const mockRejectProtectedPdf = vi.fn(() => Promise.resolve());
+vi.mock("../../../src/services/pdf-protection.ts", () => ({
+  rejectProtectedPdf: (key: string) => mockRejectProtectedPdf(key),
+}));
 vi.mock("../../../src/services/sync-versions.ts", () => ({
   bumpVersion: vi.fn(() => Promise.resolve()),
 }));
@@ -55,6 +60,37 @@ describe("event-files admin resource", () => {
     });
     expect(status).toBe(201);
     expect(body).toMatchObject({ id: 7, eventId: 3 });
+  });
+
+  it("should refuse a password-protected PDF document", async () => {
+    const { AppError } = await import("../../../src/lib/errors.ts");
+    mockRejectProtectedPdf.mockRejectedValueOnce(AppError.badRequest("This PDF is password-protected.", "PDF_PROTECTED"));
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/event-files", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventId: 3, originalFilename: "n.pdf", s3Key: "events/E/document/n.pdf",
+        fileType: "document", extension: "pdf",
+      }),
+    });
+    expect(status).toBe(400);
+    expect(body.code).toBe("PDF_PROTECTED");
+  });
+
+  it("should not read documents that are not PDFs", async () => {
+    mockReturning.mockResolvedValueOnce([{ id: 8, eventId: 3, originalFilename: "n.docx" }]);
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/event-files", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventId: 3, originalFilename: "n.docx", s3Key: "events/E/document/n.docx",
+        fileType: "document", extension: "docx",
+      }),
+    });
+    expect(status).toBe(201);
+    expect(mockRejectProtectedPdf).not.toHaveBeenCalled();
   });
 
   it("deletes the row and the S3 object", async () => {

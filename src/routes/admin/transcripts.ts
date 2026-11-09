@@ -8,6 +8,7 @@ import { AppError } from "../../lib/errors.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
 import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
+import { rejectProtectedPdf } from "../../services/pdf-protection.ts";
 
 const transcriptRoutes = new Hono();
 
@@ -36,6 +37,7 @@ transcriptRoutes.get("/", async (c) => {
 
 transcriptRoutes.post("/", async (c) => {
   const data = createTranscriptSchema.parse(await c.req.json());
+  await rejectProtectedPdf(data.s3Key);
   const [row] = await db.insert(transcripts).values(data).returning();
   await touchParentEvent(row!.eventId);
   return c.json(row!, 201);

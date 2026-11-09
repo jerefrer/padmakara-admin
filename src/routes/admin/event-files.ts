@@ -8,6 +8,7 @@ import { AppError } from "../../lib/errors.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
 import { deleteObject, generatePresignedViewUrl } from "../../services/s3.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
+import { rejectProtectedPdf } from "../../services/pdf-protection.ts";
 
 const eventFileRoutes = new Hono();
 
@@ -57,6 +58,7 @@ eventFileRoutes.get("/:id/view-url", async (c) => {
 
 eventFileRoutes.post("/", async (c) => {
   const data = createEventFileSchema.parse(await c.req.json());
+  if (data.extension.toLowerCase().replace(/^\./, "") === "pdf") await rejectProtectedPdf(data.s3Key);
   const [file] = await db.insert(eventFiles).values(data).returning();
   await touchParentEvent(file!.eventId);
   return c.json(file!, 201);

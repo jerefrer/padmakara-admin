@@ -21,6 +21,11 @@ vi.mock("../../../src/services/s3.ts", () => ({
   deleteObject: vi.fn(() => Promise.resolve()),
   generatePresignedAttachmentUrl: vi.fn(() => Promise.resolve("https://signed.example/t.pdf")),
 }));
+// The protected-PDF check reads S3; its own behaviour is in tests/services/pdf-protection.test.ts.
+const mockRejectProtectedPdf = vi.fn(() => Promise.resolve());
+vi.mock("../../../src/services/pdf-protection.ts", () => ({
+  rejectProtectedPdf: (key: string) => mockRejectProtectedPdf(key),
+}));
 vi.mock("../../../src/services/sync-versions.ts", () => ({ bumpVersion: vi.fn(() => Promise.resolve()) }));
 
 import { db } from "../../../src/db/index.ts";
@@ -48,6 +53,21 @@ describe("transcripts admin resource", () => {
     expect(status).toBe(201);
     expect(body).toMatchObject({ id: 11, eventId: 3 });
     expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ status: "published" }));
+  });
+
+  it("should refuse a password-protected PDF without saving a row", async () => {
+    const { AppError } = await import("../../../src/lib/errors.ts");
+    mockRejectProtectedPdf.mockRejectedValueOnce(AppError.badRequest("This PDF is password-protected.", "PDF_PROTECTED"));
+    const token = await adminToken();
+    const { status, body } = await testJson("/api/admin/transcripts", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId: 3, language: "en", s3Key: "events/E/transcripts/t.pdf" }),
+    });
+    expect(status).toBe(400);
+    expect(body.code).toBe("PDF_PROTECTED");
+    expect(mockRejectProtectedPdf).toHaveBeenCalledWith("events/E/transcripts/t.pdf");
+    expect(mockValues).not.toHaveBeenCalled();
   });
 
   it("deletes the row and S3 object", async () => {
