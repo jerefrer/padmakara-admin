@@ -1,4 +1,6 @@
 import { FileInfoButton } from "./FileInfoButton";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import AudioFileIcon from "@mui/icons-material/AudioFile";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
@@ -43,6 +45,7 @@ import {
   formatFileSize,
   languageLabel,
 } from "../utils/trackParser";
+import { movedTrackIds } from "../utils/trackOrder";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
 import { SpeakerChipPicker } from "./SpeakerPicker";
@@ -107,6 +110,9 @@ interface SessionPreviewProps {
   /** Edit-mode only: deletes the track row + its S3 audio (and read-along
    *  JSON). Confirmation is handled by the row before this fires. */
   onTrackDelete?: (trackId: number) => Promise<void>;
+  /** Edit-mode only: saves a session's new track order; gives each track
+   *  ↑/↓ arrows. */
+  onTrackOrderChange?: (sessionId: number, trackIds: number[]) => Promise<void>;
   /** Edit-mode only: uploads audio for a keyless track (finishes an
    *  interrupted upload) and backfills its s3_key. */
   onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
@@ -136,6 +142,7 @@ export const SessionPreview = ({
   onSessionTitleChange,
   onTrackUpdate,
   onTrackDelete,
+  onTrackOrderChange,
   onTrackAudioUpload,
   allTeachers,
   trackCorrections,
@@ -179,6 +186,11 @@ export const SessionPreview = ({
               onTitleChange={(patch) => onSessionTitleChange(idx, patch)}
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
+              onTrackOrderChange={
+                onTrackOrderChange && session.id !== undefined
+                  ? (trackIds) => onTrackOrderChange(session.id!, trackIds)
+                  : undefined
+              }
               onTrackAudioUpload={onTrackAudioUpload}
               allTeachers={allTeachers}
               trackCorrections={trackCorrections}
@@ -214,6 +226,7 @@ interface SessionCardProps {
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
+  onTrackOrderChange?: (trackIds: number[]) => Promise<void>;
   onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   trackCorrections?: TrackCorrectionsMap;
@@ -232,6 +245,7 @@ const SessionCard = ({
   onTitleChange,
   onTrackUpdate,
   onTrackDelete,
+  onTrackOrderChange,
   onTrackAudioUpload,
   allTeachers,
   trackCorrections,
@@ -697,6 +711,16 @@ const SessionCard = ({
               }}
               onTrackUpdate={onTrackUpdate}
               onTrackDelete={onTrackDelete}
+              onMove={
+                onTrackOrderChange
+                  ? (delta) => {
+                      const ids = movedTrackIds(session.tracks, tidx, delta);
+                      if (ids) void onTrackOrderChange(ids);
+                    }
+                  : undefined
+              }
+              canMoveUp={tidx > 0}
+              canMoveDown={tidx < session.tracks.length - 1}
               onTrackAudioUpload={onTrackAudioUpload}
               allTeachers={allTeachers}
               corrections={trackCorrections?.get(track.originalFilename ?? "")}
@@ -745,6 +769,9 @@ const TrackRow = ({
   onNavigate,
   onTrackUpdate,
   onTrackDelete,
+  onMove,
+  canMoveUp = false,
+  canMoveDown = false,
   onTrackAudioUpload,
   allTeachers = [],
   corrections,
@@ -770,6 +797,11 @@ const TrackRow = ({
     updates: Partial<ParsedTrack>,
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
+  /** Moves the track one place up (-1) or down (1) in its session; the
+   *  arrows only show with a handler. */
+  onMove?: (delta: -1 | 1) => void;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
   onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
   allTeachers?: Array<{ id: number; name: string; abbreviation: string }>;
   /** AI corrections that were applied to this track, if any. */
@@ -1399,6 +1431,32 @@ const TrackRow = ({
         >
           <DownloadIcon sx={{ fontSize: 16 }} />
         </IconButton>
+      )}
+
+      {/* Order arrows — edit mode, saved tracks */}
+      {onMove && track.id && (
+        <>
+          <IconButton
+            size="small"
+            data-testid="track-move-up"
+            onClick={() => onMove(-1)}
+            disabled={!canMoveUp}
+            sx={{ opacity: 0.5, "&:hover": { opacity: 1, color: "primary.main" } }}
+            title={translate("padmakara.tracks.moveUp")}
+          >
+            <ArrowUpwardIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+          <IconButton
+            size="small"
+            data-testid="track-move-down"
+            onClick={() => onMove(1)}
+            disabled={!canMoveDown}
+            sx={{ opacity: 0.5, "&:hover": { opacity: 1, color: "primary.main" } }}
+            title={translate("padmakara.tracks.moveDown")}
+          >
+            <ArrowDownwardIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </>
       )}
 
       {/* Delete button — only on edit-mode rows that have a DB id */}

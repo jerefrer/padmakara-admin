@@ -10,6 +10,8 @@ export type TrackMediaType = "audio" | "video";
 export interface ParsedTrack {
   id?: number;
   trackNumber: number;
+  /** Hand-set place in the session (null: follows by number). */
+  position?: number | null;
   speaker: string | null;
   title: string;
   titleEn?: string;

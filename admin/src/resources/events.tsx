@@ -129,6 +129,7 @@ import { UploadIncompleteAlert } from "../components/UploadIncompleteAlert";
 import { uploadVideoFile, uploadVideoMaster } from "../utils/videoUploader";
 import type { SessionOption } from "../utils/slideSequence";
 import { authFetch } from "../utils/authFetch";
+import { compareTracks } from "../utils/trackOrder";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "../components/TranslatableField";
 import { LibraryMetadataButton } from "../components/LibraryMetadataButton";
@@ -698,6 +699,8 @@ interface EventFormProps {
     opts?: { silent?: boolean },
   ) => Promise<void>;
   onTrackDelete?: (trackId: number) => Promise<void>;
+  /** Edit-mode only: saves a session's track order (the ↑/↓ arrows). */
+  onTrackOrderChange?: (sessionId: number, trackIds: number[]) => Promise<void>;
   /** Edit-mode only: uploads audio for a keyless track (finishes an
    *  interrupted upload) and backfills its s3_key. */
   onTrackAudioUpload?: (trackId: number, file: File) => Promise<void>;
@@ -863,7 +866,7 @@ export const EventFormFields = ({
   selectedEventType, setSelectedEventType,
   selectedAudience, setSelectedAudience,
   allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences,
-  sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete,
+  sessions, transcripts, onSessionTitleChange, onTrackUpdate, onTrackDelete, onTrackOrderChange,
   onTrackAudioUpload,
   selectedTrackIds, onSelectedTrackIdsChange, onMoveTracks, onBulkEditTracks, onBulkDeleteTracks, onSessionDelete, moveBusy,
   videos, onVideosChange, onVideoUpload, onVideoAttachMaster, masterUpload, onCancelVideoUpload, onVideoImportUrl, eventId,
@@ -1687,6 +1690,7 @@ export const EventFormFields = ({
             onSessionTitleChange={onSessionTitleChange}
             onTrackUpdate={onTrackUpdate}
             onTrackDelete={onTrackDelete}
+            onTrackOrderChange={onTrackOrderChange}
             onTrackAudioUpload={onTrackAudioUpload}
             allTeachers={allTeachers}
             selectedTrackIds={selectedTrackIds}
@@ -3027,7 +3031,6 @@ export const EventCreate = () => {
 
 /** Convert DB sessions+tracks into InferredSession[] for the SessionPreview */
 function toInferredSessions(dbSessions: any[]): InferredSession[] {
-  const LANG_ORDER: Record<string, number> = { en: 0, pt: 1, es: 2, fr: 3 };
   return dbSessions.map((s) => ({
     id: s.id, // Preserve database session id for transcript matching
     sessionNumber: s.sessionNumber,
@@ -3046,6 +3049,7 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
       return {
         id: t.id,
         trackNumber: t.trackNumber,
+        position: t.position ?? null,
         title: t.title,
         titleEn: t.titleEn || (_lang === "en" ? (t.title || "") : ""),
         titlePt: t.titlePt || (_lang === "pt" ? (t.title || "") : ""),
@@ -3064,12 +3068,7 @@ function toInferredSessions(dbSessions: any[]): InferredSession[] {
         fileFormat: t.fileFormat || null,
         hasAudio: !!t.s3Key,
       };
-    }).sort((a: any, b: any) => {
-      if (a.trackNumber !== b.trackNumber) return a.trackNumber - b.trackNumber;
-      const transOrd = (a.isTranslation ? 1 : 0) - (b.isTranslation ? 1 : 0);
-      if (transOrd !== 0) return transOrd;
-      return (LANG_ORDER[a.originalLanguage] ?? 4) - (LANG_ORDER[b.originalLanguage] ?? 4);
-    }),
+    }).sort(compareTracks),
   }));
 }
 
@@ -3876,6 +3875,43 @@ export const EventEdit = () => {
     [dataProvider, notify, translate, refresh],
   );
 
+  // ↑/↓ on a track: reorder on screen at once, then save the whole session's order.
+  const handleTrackOrderChange = useCallback(
+    async (sessionId: number, trackIds: number[]) => {
+      const rank = new Map(trackIds.map((trackId, i) => [trackId, i + 1]));
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id !== sessionId
+            ? session
+            : {
+                ...session,
+                tracks: session.tracks
+                  .map((t) => ({ ...t, position: rank.get(t.id as number) ?? null }))
+                  .sort(compareTracks),
+              },
+        ),
+      );
+      try {
+        const res = await authFetch(`/api/admin/sessions/${sessionId}/track-order`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trackIds }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.error || `HTTP ${res.status}`);
+        }
+      } catch (err) {
+        notify("padmakara.tracks.reorderFailed", {
+          type: "error",
+          messageArgs: { message: err instanceof Error ? err.message : String(err) },
+        });
+        refresh();
+      }
+    },
+    [notify, refresh],
+  );
+
   // Single-video upload from the edit page. Drives the same UploadProgress
   // overlay used by the create wizard so progress + transcoding feedback look
   // identical. The promise resolves once Bunny finishes transcoding and a new
@@ -4665,6 +4701,7 @@ export const EventEdit = () => {
         sessions={sessions} transcripts={event?.transcripts || []} onSessionTitleChange={handleSessionTitleChange}
         onTrackUpdate={handleTrackUpdate}
         onTrackDelete={handleTrackDelete}
+        onTrackOrderChange={handleTrackOrderChange}
         onTrackAudioUpload={handleTrackAudioUpload}
         selectedTrackIds={selectedTrackIds}
         onSelectedTrackIdsChange={setSelectedTrackIds}
