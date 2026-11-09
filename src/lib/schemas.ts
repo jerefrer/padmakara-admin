@@ -490,6 +490,11 @@ export const updateTrackSchema = z.object({
 }).partial();
 
 /** Bulk metadata edit of several tracks at once (admin "Edit selected…"). */
+/** PUT /admin/sessions/:id/track-order: every track of the session, in its new order. */
+export const sessionTrackOrderSchema = z.object({
+  trackIds: z.array(z.number().int()).min(1).max(500),
+});
+
 export const bulkUpdateTracksSchema = z.object({
   ids: z.array(z.number().int()).min(1).max(500),
   patch: z

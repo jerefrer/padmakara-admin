@@ -28,6 +28,7 @@ import {
   contentVisibleTo,
   mediaVisibleTo,
 } from "../services/media-visibility.ts";
+import { trackOrderBy } from "../services/track-order.ts";
 
 const eventRoutes = new Hono();
 
@@ -120,7 +121,7 @@ const eventWithSessions = {
     orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
     with: {
       tracks: {
-        orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
+        orderBy: (t: any) => trackOrderBy(t),
       },
     },
   },
@@ -410,7 +411,7 @@ eventRoutes.get("/sessions/:sessionId", async (c) => {
     where: eq(sessions.id, sessionId),
     with: {
       tracks: {
-        orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
+        orderBy: (t: any) => trackOrderBy(t),
       },
       event: {
         with: { audience: true },

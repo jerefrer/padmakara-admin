@@ -11,6 +11,7 @@ import { recordSearch, purgeIfDue } from "../services/search-log.ts";
 import { filterAccessibleEvents, AUDIENCE_SLUGS, eventStatusVisibleTo } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyContentVisibilityToAll } from "../services/media-visibility.ts";
+import { trackOrderBy } from "../services/track-order.ts";
 
 const searchRoutes = new Hono();
 
@@ -114,7 +115,7 @@ const searchEventWith = {
     orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
     with: {
       tracks: {
-        orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
+        orderBy: (t: any) => trackOrderBy(t),
       },
     },
   },

@@ -15,6 +15,7 @@ import {
   generatePresignedDownloadUrl,
 } from "./s3.ts";
 import { buildConventionFilename } from "./track-filename.ts";
+import { trackOrderBy } from "./track-order.ts";
 
 const ZIP_EXPIRY_HOURS = 24;
 
@@ -103,7 +104,7 @@ export async function generateRetreatZip(
         sessions: {
           with: {
             tracks: {
-              orderBy: (tracks, { asc }) => [asc(tracks.trackNumber)],
+              orderBy: (tracks) => trackOrderBy(tracks),
             },
           },
           orderBy: (sessions, { asc }) => [asc(sessions.sessionDate)],

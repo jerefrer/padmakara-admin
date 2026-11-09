@@ -3,11 +3,12 @@ import { eq } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import { sessions } from "../../db/schema/sessions.ts";
 import { events } from "../../db/schema/retreats.ts";
-import { createSessionSchema, updateSessionSchema } from "../../lib/schemas.ts";
+import { createSessionSchema, sessionTrackOrderSchema, updateSessionSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 import { renumberEventSessions } from "../../services/session-order.ts";
+import { setSessionTrackOrder } from "../../services/track-order.ts";
 
 const sessionRoutes = new Hono();
 
@@ -104,6 +105,28 @@ sessionRoutes.put("/:id", async (c) => {
     console.error("[sync] failed to bump events version:", err),
   );
   return c.json(session);
+});
+
+/** PUT /:id/track-order — save the session's track order set with the up/down arrows. */
+sessionRoutes.put("/:id/track-order", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const parsed = sessionTrackOrderSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    throw AppError.badRequest(parsed.error.issues[0]?.message ?? "Invalid request", "VALIDATION_ERROR");
+  }
+  const session = await db.query.sessions.findFirst({ where: eq(sessions.id, id) });
+  if (!session) throw AppError.notFound("Session not found");
+
+  await setSessionTrackOrder(id, parsed.data.trackIds);
+
+  await db
+    .update(events)
+    .set({ updatedAt: new Date() })
+    .where(eq(events.id, session.eventId));
+  bumpVersion("events").catch((err) =>
+    console.error("[sync] failed to bump events version:", err),
+  );
+  return c.json({ sessionId: id, trackIds: parsed.data.trackIds });
 });
 
 // Note: Videos no longer belong to sessions — they are managed at the event

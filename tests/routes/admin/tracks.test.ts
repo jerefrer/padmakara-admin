@@ -162,6 +162,8 @@ describe("PUT /api/admin/tracks/:id", () => {
       }),
     );
     mockFindFirst
+      // The track's current session, read to tell whether it is moving.
+      .mockResolvedValueOnce({ sessionId: 1261 })
       .mockResolvedValueOnce({ id: 54953, sessionId: 1261, trackNumber: 93, originalLanguage: "pt" })
       .mockResolvedValueOnce({ id: 54951, title: "7 de Outubro - sessão da tarde - tradução integral" })
       .mockResolvedValueOnce({ id: 1260, sessionNumber: 4 });
@@ -186,6 +188,8 @@ describe("PUT /api/admin/tracks/:id", () => {
       }),
     );
     mockFindFirst
+      // The track's current session, read to tell whether it is moving.
+      .mockResolvedValueOnce({ sessionId: 1261 })
       .mockResolvedValueOnce({ id: 54953, sessionId: 1261, trackNumber: 93, originalLanguage: "pt" })
       .mockResolvedValueOnce({ id: 54951, title: "7 de Outubro - sessão da tarde - tradução integral" })
       .mockResolvedValueOnce({ id: 1260, sessionNumber: 4 });

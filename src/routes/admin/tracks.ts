@@ -238,6 +238,14 @@ trackRoutes.put("/:id", async (c) => {
       data.channels = null;
     }
   }
+  // A track moved to another session goes to its end, after any hand-set order there.
+  if (typeof parsed.sessionId === "number") {
+    const before = await db.query.tracks.findFirst({
+      columns: { sessionId: true },
+      where: eq(tracks.id, id),
+    });
+    if (before && before.sessionId !== parsed.sessionId) data.position = null;
+  }
   let track: typeof tracks.$inferSelect | undefined;
   try {
     [track] = await db.update(tracks).set(data).where(eq(tracks.id, id)).returning();

@@ -11,6 +11,7 @@ import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { applyContentVisibilityToAll } from "../services/media-visibility.ts";
+import { trackOrderBy } from "../services/track-order.ts";
 
 const groupRoutes = new Hono();
 
@@ -141,7 +142,7 @@ groupRoutes.get("/:id/events", async (c) => {
         orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
         with: {
           tracks: {
-            orderBy: (t: any, { asc }: any) => [asc(t.trackNumber)],
+            orderBy: (t: any) => trackOrderBy(t),
           },
         },
       },

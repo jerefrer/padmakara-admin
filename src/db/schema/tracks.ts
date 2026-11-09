@@ -24,6 +24,9 @@ export const tracks = pgTable(
     titleEnReviewed: boolean("title_en_reviewed").notNull().default(true),
     titlePtReviewed: boolean("title_pt_reviewed").notNull().default(true),
     trackNumber: integer("track_number").notNull(),
+    // Hand-set place in the session (admin up/down arrows). Null until the
+    // session is reordered; null tracks follow, by number. See track-order.ts.
+    position: integer("position"),
     speaker: text("speaker"),
     languages: text("languages").array().notNull().default(["en"]),
     originalLanguage: text("original_language").notNull().default("en"),
