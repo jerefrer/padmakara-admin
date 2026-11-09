@@ -1,6 +1,7 @@
 import { uploadVideoFile } from "./videoUploader";
 import { isVideoFilename } from "./trackParser";
 import { authFetch } from "./authFetch";
+import { assertUnprotectedPdf } from "./pdfProtection";
 import {
   HttpStatusError,
   NetworkError,
@@ -45,6 +46,7 @@ export async function uploadTranscript(
   file: File,
   onProgress?: (fraction: number) => void,
 ): Promise<{ s3Key: string }> {
+  await assertUnprotectedPdf(file);
   const contentType = file.type || "application/pdf";
   const { s3Key, uploadUrl } = await presignTranscript(
     eventCode,
@@ -110,6 +112,7 @@ export async function uploadFile(
   fileType: string,
   onProgress?: (fraction: number) => void,
 ): Promise<{ s3Key: string }> {
+  await assertUnprotectedPdf(file);
   const contentType = file.type || "application/octet-stream";
   const { s3Key, uploadUrl } = await presignFile(
     eventCode,
