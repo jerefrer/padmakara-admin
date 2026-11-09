@@ -135,16 +135,21 @@ async function watermarkPdf(originalPdfBytes: Uint8Array, watermarkText: string)
 /**
  * The line stamped on a gated document: the reader's full name and the email
  * they signed in with, so a leaked copy points back to the account it came
- * from. Falls back to the email alone when the profile carries no name.
+ * from. The email alone when the profile carries no name.
  */
+export function watermarkLine(
+  profile: { firstName: string | null; lastName: string | null } | undefined,
+  email: string,
+): string {
+  const name = profile ? [profile.firstName, profile.lastName].filter(Boolean).join(" ") : "";
+  return name ? `${name} — ${email}` : email;
+}
+
 async function watermarkTextFor(authUser: { id: number; email: string }): Promise<string> {
   const fullUser = await db.query.users.findFirst({
     where: eq(users.id, authUser.id),
   });
-  const userName = fullUser
-    ? [fullUser.firstName, fullUser.lastName].filter(Boolean).join(" ") || authUser.email
-    : authUser.email;
-  return `${userName} — ${authUser.email}`;
+  return watermarkLine(fullUser, authUser.email);
 }
 
 /**
@@ -747,16 +752,12 @@ mediaRoutes.get("/file/:id", async (c) => {
 
   // Sensitive PDFs → per-user watermark (same treatment as transcripts).
   if (isPdf && result.file.sensitive) {
-    const fullUser = await db.query.users.findFirst({ where: eq(users.id, authUser.id) });
-    const userName = fullUser
-      ? [fullUser.firstName, fullUser.lastName].filter(Boolean).join(" ") || authUser.email
-      : authUser.email;
     const presignedUrl = await generatePresignedDownloadUrl(result.file.s3Key);
     const pdfResponse = await fetch(presignedUrl);
     if (!pdfResponse.ok) throw AppError.internal("Failed to fetch file from storage");
     const bytes = await watermarkPdf(
       new Uint8Array(await pdfResponse.arrayBuffer()),
-      `${userName} — ${authUser.email}`,
+      await watermarkTextFor(authUser),
     );
     const disposition = isDownload ? "attachment" : "inline";
     return new Response(bytes as BodyInit, {
