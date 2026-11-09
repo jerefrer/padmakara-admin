@@ -107,6 +107,8 @@ export async function formatUserForApp(user: {
   return {
     id: String(user.id),
     name,
+    first_name: firstName,
+    last_name: lastName,
     email: user.email,
     avatar: null,
     dharma_name: user.dharmaName || undefined,

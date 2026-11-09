@@ -280,6 +280,9 @@ describe("Frontend Compatibility Tests", () => {
       expect(body).toMatchObject({
         id: expect.any(String), // App expects string IDs
         name: "Jane Smith", // Concatenated name
+        // Separate parts so the app can edit the name without guessing the split.
+        first_name: "Jane",
+        last_name: "Smith",
         email: mockUser.email,
         dharma_name: mockUser.dharmaName,
         retreat_groups: expect.any(Array),
