@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, gt, lt, isNotNull, inArray, sql } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users, userGroupMemberships } from "../db/schema/users.ts";
 import {
@@ -40,12 +40,8 @@ import { config } from "../config.ts";
 import { activateDeviceForUser } from "../services/device-activation.ts";
 import { accountForEmailSignIn } from "../services/sign-in-account.ts";
 import { isReviewLoginFor, verifyReviewCode } from "../services/review-account.ts";
-import {
-  generateSignInCode,
-  hashSignInCode,
-  verifySignInCode,
-  MAX_CODE_ATTEMPTS,
-} from "../services/sign-in-code.ts";
+import { generateSignInCode, hashSignInCode } from "../services/sign-in-code.ts";
+import { claimSignInCode } from "../services/sign-in-code-claim.ts";
 import { deleteUserAccount } from "../services/account-deletion.ts";
 import {
   authIpLimiter,
@@ -622,50 +618,8 @@ auth.post("/verify-code", authIpLimiter(), authEmailLimiter(), async (c) => {
   });
   if (existing && !existing.isActive) throw fail();
 
-  const now = new Date();
-  const rows = await db.query.magicLinkTokens.findMany({
-    where: and(
-      eq(magicLinkTokens.email, email),
-      eq(magicLinkTokens.deviceFingerprint, data.device_fingerprint),
-      eq(magicLinkTokens.isUsed, false),
-      gt(magicLinkTokens.expiresAt, now),
-      isNotNull(magicLinkTokens.codeHash),
-      lt(magicLinkTokens.codeAttempts, MAX_CODE_ATTEMPTS),
-    ),
-  });
-  // The query already filters; re-check so a bug there cannot widen the match.
-  const candidates = rows.filter(
-    (r) =>
-      !r.isUsed &&
-      r.expiresAt > now &&
-      r.codeHash !== null &&
-      r.codeAttempts < MAX_CODE_ATTEMPTS &&
-      r.deviceFingerprint === data.device_fingerprint,
-  );
-
-  // Check every candidate (no early exit) so timing does not depend on which row matched.
-  let matched: (typeof candidates)[number] | undefined;
-  for (const row of candidates) {
-    if (verifySignInCode(data.code, row.codeHash as string) && !matched) matched = row;
-  }
-
-  if (!matched) {
-    if (candidates.length > 0) {
-      await db
-        .update(magicLinkTokens)
-        .set({ codeAttempts: sql`${magicLinkTokens.codeAttempts} + 1` })
-        .where(inArray(magicLinkTokens.id, candidates.map((r) => r.id)));
-    }
-    throw fail();
-  }
-
-  // Consume atomically: of two concurrent requests with the right code only one wins.
-  const consumed = await db
-    .update(magicLinkTokens)
-    .set({ isUsed: true })
-    .where(and(eq(magicLinkTokens.id, matched.id), eq(magicLinkTokens.isUsed, false)))
-    .returning({ id: magicLinkTokens.id });
-  if (consumed.length === 0) throw fail();
+  const matched = await claimSignInCode(email, data.device_fingerprint, data.code);
+  if (!matched) throw fail();
 
   const user = await accountForEmailSignIn(email, matched.language);
   if (!user) throw fail();
