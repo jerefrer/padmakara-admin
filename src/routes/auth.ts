@@ -21,13 +21,20 @@ import {
   type TokenPayload,
 } from "../services/auth.ts";
 import { hasActiveSubscription } from "../services/access.ts";
-import { sendEmail, buildMagicLinkEmail, buildAccountDeletionEmail } from "../services/email.ts";
+import {
+  sendEmail,
+  buildMagicLinkEmail,
+  buildAccountDeletionEmail,
+  buildBackofficeCodeEmail,
+} from "../services/email.ts";
 import { AppError } from "../lib/errors.ts";
 import {
   loginSchema,
   requestMagicLinkSchema,
   reviewLoginSchema,
   verifyCodeSchema,
+  backofficeCodeRequestSchema,
+  backofficeCodeVerifySchema,
   refreshTokenSchema,
   discoverDeviceSchema,
   autoActivateSchema,
@@ -176,6 +183,94 @@ auth.post("/login", authIpLimiter(), authEmailLimiter(), async (c) => {
 
   const tokens = await generateTokensForUser(user);
 
+  await db
+    .update(users)
+    .set({ lastActivity: new Date(), updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+
+  return c.json({
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+    },
+  });
+});
+
+// ──────────────────────────────────────────────────────
+// Backoffice sign-in by emailed code — used by React-admin UI
+// ──────────────────────────────────────────────────────
+
+/**
+ * Accounts made in the app have no password, so an admin signs in to the
+ * backoffice with a 6-digit code sent by email, like in the app. The code is
+ * bound to the page that asked for it through a random challenge id (stored as
+ * the token's device fingerprint), so a code read off the email works nowhere
+ * else. No device is activated: the backoffice only gets tokens.
+ */
+const BACKOFFICE_FINGERPRINT_PREFIX = "backoffice:";
+
+function isActiveAdmin(user: { role: string; isActive: boolean } | undefined | null): boolean {
+  return !!user && user.isActive && (user.role === "admin" || user.role === "superadmin");
+}
+
+/**
+ * POST /api/auth/backoffice/request-code
+ *
+ * Always answers with a fresh challenge id, admin or not, so the response
+ * does not reveal who has backoffice access; only an active admin gets an email.
+ */
+auth.post("/backoffice/request-code", authIpLimiter(), authEmailLimiter(), async (c) => {
+  const data = backofficeCodeRequestSchema.parse(await c.req.json());
+  const email = data.email.toLowerCase().trim();
+  const challengeId = generateMagicLinkToken();
+
+  const user = await db.query.users.findFirst({ where: eq(users.email, email) });
+  if (!isActiveAdmin(user)) return c.json({ challengeId });
+
+  const code = generateSignInCode();
+  await db.insert(magicLinkTokens).values({
+    email,
+    // The row's link is never sent; it only holds the code.
+    tokenHash: await hashToken(generateMagicLinkToken()),
+    expiresAt: magicLinkExpiresAt(),
+    deviceFingerprint: `${BACKOFFICE_FINGERPRINT_PREFIX}${challengeId}`,
+    deviceName: "Backoffice",
+    deviceType: "web",
+    language: data.language,
+    codeHash: hashSignInCode(code),
+  });
+  await sendEmail({ to: email, ...buildBackofficeCodeEmail(code, data.language) });
+
+  return c.json({ challengeId });
+});
+
+/**
+ * POST /api/auth/backoffice/verify-code
+ *
+ * Same success shape as /login. Every failure (not an active admin, wrong,
+ * expired or used code, other challenge, attempts exhausted) is the same 401.
+ */
+auth.post("/backoffice/verify-code", authIpLimiter(), authEmailLimiter(), async (c) => {
+  const data = backofficeCodeVerifySchema.parse(await c.req.json());
+  const email = data.email.toLowerCase().trim();
+  const fail = () => AppError.unauthorized("Invalid or expired code");
+
+  const user = await db.query.users.findFirst({ where: eq(users.email, email) });
+  if (!user || !isActiveAdmin(user)) throw fail();
+
+  const claimed = await claimSignInCode(
+    email,
+    `${BACKOFFICE_FINGERPRINT_PREFIX}${data.challengeId}`,
+    data.code,
+  );
+  if (!claimed) throw fail();
+
+  const tokens = await generateTokensForUser(user);
   await db
     .update(users)
     .set({ lastActivity: new Date(), updatedAt: new Date() })

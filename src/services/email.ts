@@ -94,6 +94,40 @@ export function buildMagicLinkEmail(
   };
 }
 
+/** The code a backoffice admin types on the sign-in page. No link: the code is bound to that page. */
+export function buildBackofficeCodeEmail(
+  code: string,
+  language: string,
+): { subject: string; html: string; text: string } {
+  if (lang(language) === "pt") {
+    const subject = "O seu código de acesso ao backoffice - Padmakara";
+    return {
+      subject,
+      ...renderBrandEmail({
+        lang: "pt",
+        subject,
+        kicker: "Backoffice",
+        paragraphs: ["Introduza este código na página de acesso ao backoffice."],
+        note: "Este código expira dentro de uma hora. Se não pediu para entrar, ignore este email.",
+        code: { intro: "O seu código:", value: code },
+      }),
+    };
+  }
+
+  const subject = "Your backoffice sign-in code - Padmakara";
+  return {
+    subject,
+    ...renderBrandEmail({
+      lang: "en",
+      subject,
+      kicker: "Backoffice",
+      paragraphs: ["Enter this code on the backoffice sign-in page."],
+      note: "This code expires in one hour. If you did not try to sign in, ignore this email.",
+      code: { intro: "Your code:", value: code },
+    }),
+  };
+}
+
 export function buildAccountDeletionEmail(
   confirmUrl: string,
   language: string,

@@ -25,6 +25,17 @@ export const verifyCodeSchema = requestMagicLinkSchema.extend({
   code: z.string().trim().regex(/^\d{6}$/),
 });
 
+export const backofficeCodeRequestSchema = z.object({
+  email: z.email(),
+  language: z.enum(["en", "pt"]).optional().default("en"),
+});
+
+export const backofficeCodeVerifySchema = z.object({
+  email: z.email(),
+  challengeId: z.string().min(16).max(128),
+  code: z.string().trim().regex(/^\d{6}$/),
+});
+
 // Single teachings (public sale page)
 export const teachingCheckoutSchema = z.object({
   email: z.string().trim().pipe(z.email()),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMagicLinkEmail } from "../../src/services/email.ts";
+import { buildMagicLinkEmail, buildBackofficeCodeEmail } from "../../src/services/email.ts";
 
 const URL_WITH_QUERY = "https://api.test/api/auth/activate/tok3n?lang=pt";
 
@@ -61,5 +61,23 @@ describe("buildMagicLinkEmail", () => {
 
   it("should omit the code block when no code is given", () => {
     expect(buildMagicLinkEmail("https://api.test/x", "en").text).not.toContain("enter this code");
+  });
+});
+
+describe("buildBackofficeCodeEmail", () => {
+  it("should show the code in both languages, never in the subject", () => {
+    for (const lang of ["en", "pt"]) {
+      const { subject, html, text } = buildBackofficeCodeEmail("042917", lang);
+      expect(html).toContain("042917");
+      expect(text).toContain("042917");
+      expect(subject).not.toContain("042917");
+    }
+    expect(buildBackofficeCodeEmail("042917", "pt").subject).toBe("O seu código de acesso ao backoffice - Padmakara");
+  });
+
+  it("should carry no link to click, since the code only works on the page that asked for it", () => {
+    const { html, text } = buildBackofficeCodeEmail("042917", "en");
+    expect(html).not.toContain("/api/auth/");
+    expect(text).not.toContain("http");
   });
 });
