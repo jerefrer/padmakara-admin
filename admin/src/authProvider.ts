@@ -3,13 +3,33 @@ import { refreshAccessToken } from "./utils/authFetch";
 
 const API_URL = "/api/auth";
 
+/** Ask for a sign-in code by email. Returns the challenge the code is bound to. */
+export async function requestBackofficeCode(email: string, language: string): Promise<string> {
+  const res = await fetch(`${API_URL}/backoffice/request-code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, language: language === "pt" ? "pt" : "en" }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || "Could not send the code");
+  return body.challengeId;
+}
+
 export const authProvider: AuthProvider = {
-  login: async ({ username, password }) => {
-    const res = await fetch(`${API_URL}/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: username, password }),
-    });
+  // Either { email, challengeId, code } from the emailed-code form, or
+  // { username, password } for accounts that still have a password.
+  login: async (params) => {
+    const res = params.code
+      ? await fetch(`${API_URL}/backoffice/verify-code`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: params.email, challengeId: params.challengeId, code: params.code }),
+        })
+      : await fetch(`${API_URL}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: params.username, password: params.password }),
+        });
 
     if (!res.ok) {
       const body = await res.json();

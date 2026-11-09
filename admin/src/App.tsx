@@ -5,6 +5,7 @@ import { authProvider } from "./authProvider";
 import { i18nProvider } from "./i18n";
 import { theme } from "./theme";
 import { Layout } from "./layout/Layout";
+import { LoginPage } from "./layout/LoginPage";
 
 import { TeacherList, TeacherEdit, TeacherCreate } from "./resources/teachers";
 import { PlaceList, PlaceEdit, PlaceCreate } from "./resources/places";
@@ -25,6 +26,7 @@ const App = () => (
     i18nProvider={i18nProvider}
     theme={theme}
     layout={Layout}
+    loginPage={LoginPage}
     title="Padmakara"
   >
     <Resource

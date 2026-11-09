@@ -215,6 +215,20 @@ export const pt = {
     publications: { name: "Publicação |||| Publicações" },
   },
   padmakara: {
+    login: {
+      email: "Email",
+      sendCode: "Enviar-me um código de acesso",
+      codeSent: "Se %{email} tem acesso ao backoffice, um código de 6 dígitos foi enviado. Expira dentro de uma hora.",
+      code: "Código de 6 dígitos",
+      signIn: "Entrar",
+      resend: "Enviar um novo código",
+      usePassword: "Usar uma palavra-passe",
+      useCode: "Usar um código por email",
+      password: "Palavra-passe",
+      sendFailed: "Não foi possível enviar o código. Tente de novo dentro de alguns minutos.",
+      codeFailed: "Este código está errado ou expirou.",
+      passwordFailed: "Email ou palavra-passe errados.",
+    },
     audiences: {
       slugLocked: "Usado pelas regras de acesso, por isso não pode mudar. Os nomes podem.",
     },

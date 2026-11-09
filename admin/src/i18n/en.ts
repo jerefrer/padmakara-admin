@@ -14,6 +14,20 @@ export const en = {
     publications: { name: "Publication |||| Publications" },
   },
   padmakara: {
+    login: {
+      email: "Email",
+      sendCode: "Email me a sign-in code",
+      codeSent: "If %{email} has backoffice access, a 6-digit code is on its way. It expires in one hour.",
+      code: "6-digit code",
+      signIn: "Sign in",
+      resend: "Send a new code",
+      usePassword: "Use a password instead",
+      useCode: "Use an emailed code instead",
+      password: "Password",
+      sendFailed: "Couldn't send the code. Try again in a few minutes.",
+      codeFailed: "This code is wrong or has expired.",
+      passwordFailed: "Wrong email or password.",
+    },
     audiences: {
       slugLocked: "Used by the access rules, so it cannot change. The names can.",
     },
