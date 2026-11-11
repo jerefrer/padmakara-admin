@@ -1,11 +1,18 @@
 /**
- * Pure helpers for the S3 multipart upload of video masters: byte ranges,
- * retry/backoff decisions and progress arithmetic. No I/O, so they are unit
- * tested directly; the XHR/fetch engine lives in videoUploader.ts.
+ * Pure helpers for the S3 multipart uploads (video masters and track audio):
+ * byte ranges, retry/backoff decisions and progress arithmetic. No I/O, so
+ * they are unit tested directly; the XHR/fetch engine lives in multipartUpload.ts.
  */
 
 /** Files at or above this size use multipart; smaller ones keep the single PUT. */
 export const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Track audio at or above this size goes up in (8 MiB) parts: on a slow line
+ * a whole recording in one PUT may never get through before the connection
+ * drops, and every drop restarted it from zero.
+ */
+export const AUDIO_MULTIPART_THRESHOLD_BYTES = 16 * 1024 * 1024;
 
 /** Parts uploaded in parallel. */
 export const PART_CONCURRENCY = 4;
@@ -103,6 +110,17 @@ export function resumeStorageKey(opts: {
 }): string {
   const target = opts.videoId != null ? `video-${opts.videoId}` : "new";
   return `padmakara.videoUpload:${opts.eventCode}:${target}:${opts.size}:${opts.lastModified}:${opts.name}`;
+}
+
+/** localStorage key for a track's audio upload: event, track, and the file's identity. */
+export function audioResumeStorageKey(opts: {
+  eventCode: string;
+  trackId: number;
+  name: string;
+  size: number;
+  lastModified: number;
+}): string {
+  return `padmakara.audioUpload:${opts.eventCode}:track-${opts.trackId}:${opts.size}:${opts.lastModified}:${opts.name}`;
 }
 
 /**

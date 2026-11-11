@@ -1,4 +1,6 @@
 import { uploadVideoFile } from "./videoUploader";
+import { uploadMultipart } from "./multipartUpload";
+import { AUDIO_MULTIPART_THRESHOLD_BYTES, audioResumeStorageKey } from "./multipartPlan";
 import { isVideoFilename } from "./trackParser";
 import { authFetch } from "./authFetch";
 import { assertUnprotectedPdf } from "./pdfProtection";
@@ -393,28 +395,44 @@ export function uploadTracks(
       emit(0, bytesCompleted);
 
       const contentType = item.file.type || "audio/mpeg";
+      const onFileBytes = (loaded: number) => {
+        const totalUploaded = fileStart + loaded;
+        const pct = loaded / item.file.size;
+        speedTracker.record(totalUploaded);
+        if (fileIdx >= 0) {
+          fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, progress: pct };
+        }
+        emit(pct, totalUploaded);
+      };
       const s3Key = await withRetry(
         async () => {
+          // Big recordings go in parts: a drop costs one part, and a retry
+          // (or the same files chosen again after a reload) resumes from the
+          // parts storage already holds.
+          if (item.file.size >= AUDIO_MULTIPART_THRESHOLD_BYTES) {
+            return uploadMultipart({
+              routeBase: "/upload/audio/multipart",
+              createBody: { eventCode, filename: item.filename, contentType, size: item.file.size },
+              storageKey: audioResumeStorageKey({
+                eventCode,
+                trackId: item.trackId,
+                name: item.file.name,
+                size: item.file.size,
+                lastModified: item.file.lastModified,
+              }),
+              file: item.file,
+              signal,
+              onProgress: (fraction) => onFileBytes(fraction * item.file.size),
+              sleep: options.retry?.sleep,
+            });
+          }
           const [url] = await presignBatch(
             [{ filename: item.filename, contentType, size: item.file.size }],
             eventCode,
             item.sessionNumber,
           );
           if (!url) throw new Error(`Presign returned no URL for ${item.filename}`);
-          await uploadFileXhr(
-            url.uploadUrl,
-            item.file,
-            (loaded) => {
-              const totalUploaded = fileStart + loaded;
-              const pct = loaded / item.file.size;
-              speedTracker.record(totalUploaded);
-              if (fileIdx >= 0) {
-                fileStatuses[fileIdx] = { ...fileStatuses[fileIdx]!, progress: pct };
-              }
-              emit(pct, totalUploaded);
-            },
-            signal,
-          );
+          await uploadFileXhr(url.uploadUrl, item.file, onFileBytes, signal);
           return url.s3Key;
         },
         {

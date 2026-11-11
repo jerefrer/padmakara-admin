@@ -5,6 +5,7 @@ vi.mock("./videoUploader", () => ({ uploadVideoFile: vi.fn() }));
 
 import { authFetch } from "./authFetch";
 import { uploadTracks, type UploadItem, type UploadProgress } from "./uploadManager";
+import { AUDIO_MULTIPART_THRESHOLD_BYTES, audioResumeStorageKey } from "./multipartPlan";
 
 const mockedAuthFetch = vi.mocked(authFetch);
 
@@ -166,5 +167,105 @@ describe("uploadTracks (audio)", () => {
     expect(trackCalls).toBe(2);
     expect(FakeXhr.sent).toHaveLength(1);
     expect(onItemUploaded).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("uploadTracks (large audio, in parts)", () => {
+  const originalXhr = globalThis.XMLHttpRequest;
+  const MIB = 1024 * 1024;
+  const KEY = "events/E1/001 A.mp3";
+
+  const bigItem = (): UploadItem => ({
+    trackId: 1,
+    sessionNumber: 1,
+    file: new File([new Uint8Array(AUDIO_MULTIPART_THRESHOLD_BYTES + MIB)], "001 A.mp3", {
+      type: "audio/mpeg",
+      lastModified: 1_700_000_000_000,
+    }),
+    filename: "001 A.mp3",
+    mediaType: "audio",
+  });
+
+  const calls = (path: string) =>
+    mockedAuthFetch.mock.calls.filter(([url]) => url === `/api/admin/upload/audio/multipart/${path}`);
+
+  beforeEach(() => {
+    FakeXhr.outcomes = [];
+    FakeXhr.sent = [];
+    localStorage.clear();
+    globalThis.XMLHttpRequest = FakeXhr as unknown as typeof XMLHttpRequest;
+    mockedAuthFetch.mockReset();
+    mockedAuthFetch.mockImplementation(async (url, init) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      switch (url) {
+        case "/api/admin/upload/audio/multipart/create":
+          return jsonResponse({ uploadId: "u1", s3Key: KEY, partSize: 8 * MIB, partCount: 3 });
+        case "/api/admin/upload/audio/multipart/presign-parts":
+          return jsonResponse({
+            urls: Object.fromEntries(
+              (body.partNumbers as number[]).map((n) => [n, `https://s3.test/part-${n}`]),
+            ),
+          });
+        case "/api/admin/upload/audio/multipart/list-parts":
+          return jsonResponse({
+            parts: [
+              { partNumber: 1, size: 8 * MIB, etag: "a" },
+              { partNumber: 2, size: 8 * MIB, etag: "b" },
+            ],
+          });
+        case "/api/admin/upload/audio/multipart/complete":
+          return jsonResponse({ s3Key: body.s3Key });
+        default:
+          return jsonResponse({});
+      }
+    });
+  });
+
+  afterEach(() => {
+    globalThis.XMLHttpRequest = originalXhr;
+  });
+
+  it("should send a large file in parts and backfill its track's s3_key", async () => {
+    await uploadTracks([bigItem()], "E1", () => {}, { retry: noDelay }).promise;
+
+    expect([...FakeXhr.sent].sort()).toEqual([
+      "https://s3.test/part-1",
+      "https://s3.test/part-2",
+      "https://s3.test/part-3",
+    ]);
+    expect(calls("complete")).toHaveLength(1);
+    expect(trackUpdates()).toEqual([
+      { url: "/api/admin/tracks/1", body: { s3Key: KEY, fileSizeBytes: bigItem().file.size } },
+    ]);
+  });
+
+  it("should resend only the part whose connection dropped", async () => {
+    FakeXhr.outcomes = ["network-error"];
+
+    await uploadTracks([bigItem()], "E1", () => {}, { retry: noDelay }).promise;
+
+    expect(FakeXhr.sent).toHaveLength(4);
+    expect(calls("create")).toHaveLength(1);
+    expect(trackUpdates()).toHaveLength(1);
+  });
+
+  it("should resume from the parts already in storage instead of starting over", async () => {
+    const item = bigItem();
+    localStorage.setItem(
+      audioResumeStorageKey({
+        eventCode: "E1",
+        trackId: 1,
+        name: item.file.name,
+        size: item.file.size,
+        lastModified: item.file.lastModified,
+      }),
+      JSON.stringify({ uploadId: "u-old", s3Key: KEY, partSize: 8 * MIB, partCount: 3, createdAt: Date.now() }),
+    );
+
+    await uploadTracks([item], "E1", () => {}, { retry: noDelay }).promise;
+
+    expect(calls("create")).toHaveLength(0);
+    expect(FakeXhr.sent).toEqual(["https://s3.test/part-3"]);
+    expect(trackUpdates()).toHaveLength(1);
   });
 });
