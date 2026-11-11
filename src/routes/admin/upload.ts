@@ -11,9 +11,16 @@ import {
   completeMultipartUpload,
   abortMultipartUpload,
 } from "../../services/s3.ts";
-import { planParts, isVideoMasterKey, contiguousParts } from "../../lib/video-multipart.ts";
+import {
+  planParts,
+  isVideoMasterKey,
+  isTrackAudioKey,
+  contiguousParts,
+  AUDIO_PART_SIZE,
+} from "../../lib/video-multipart.ts";
 import {
   createVideoMultipartSchema,
+  createAudioMultipartSchema,
   presignVideoPartsSchema,
   completeVideoMultipartSchema,
   abortVideoMultipartSchema,
@@ -130,79 +137,107 @@ uploadRoutes.post("/video/multipart/create", async (c) => {
   return c.json({ uploadId, s3Key, partSize, partCount });
 });
 
-uploadRoutes.post("/video/multipart/presign-parts", async (c) => {
-  const parsed = presignVideoPartsSchema.safeParse(await c.req.json().catch(() => null));
+/**
+ * Track audio goes up in parts too, so a dropped connection on a slow line
+ * costs one 8 MiB part instead of restarting the whole recording. Same key
+ * as the single-PUT /presign route.
+ */
+uploadRoutes.post("/audio/multipart/create", async (c) => {
+  const parsed = createAudioMultipartSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
   }
-  const { s3Key, uploadId, partNumbers } = parsed.data;
-  if (!isVideoMasterKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
-  const entries = await Promise.all(
-    partNumbers.map(
-      async (n) => [n, await generatePresignedPartUrl(s3Key, uploadId, n, 6 * 3600)] as const,
-    ),
-  );
-  return c.json({ urls: Object.fromEntries(entries) });
+  const { eventCode, filename, contentType, size } = parsed.data;
+  const s3Key = buildTrackS3Key(eventCode, 0, filename);
+  const { partSize, partCount } = planParts(size, AUDIO_PART_SIZE);
+  const uploadId = await createMultipartUpload(s3Key, contentType);
+  return c.json({ uploadId, s3Key, partSize, partCount });
 });
 
 /**
- * Completes by listing the parts S3 holds instead of trusting ETags from the
- * browser (the bucket CORS may not expose the ETag header).
+ * The part routes shared by both kinds of multipart upload: presign-parts (in
+ * batches) → complete, list-parts to resume, or abort. `isAllowedKey` limits
+ * each prefix to the keys its own create route produces, so they never sign
+ * arbitrary keys in the bucket.
  */
-uploadRoutes.post("/video/multipart/complete", async (c) => {
-  const parsed = completeVideoMultipartSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
-  }
-  const { s3Key, uploadId } = parsed.data;
-  if (!isVideoMasterKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
-  const parts = contiguousParts(await listUploadedParts(s3Key, uploadId));
-  if (!parts) {
-    throw AppError.badRequest(
-      "Uploaded parts are missing or not contiguous from part 1",
-      "INCOMPLETE_UPLOAD",
-    );
-  }
-  await completeMultipartUpload(s3Key, uploadId, parts);
-  return c.json({ s3Key });
-});
-
-/**
- * Parts S3 already holds for an in-progress upload, so a reloaded or
- * discarded tab can resume instead of starting over. 404 NO_SUCH_UPLOAD when
- * S3 no longer knows the upload (aborted, completed or expired).
- */
-uploadRoutes.post("/video/multipart/list-parts", async (c) => {
-  const parsed = listVideoPartsSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
-  }
-  const { s3Key, uploadId } = parsed.data;
-  if (!isVideoMasterKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
-  let listed: Awaited<ReturnType<typeof listUploadedParts>>;
-  try {
-    listed = await listUploadedParts(s3Key, uploadId);
-  } catch (err) {
-    if (err instanceof Error && err.name === "NoSuchUpload") {
-      throw new AppError(404, "Multipart upload not found", "NO_SUCH_UPLOAD");
+function registerPartRoutes(prefix: string, isAllowedKey: (key: string) => boolean): void {
+  uploadRoutes.post(`${prefix}/presign-parts`, async (c) => {
+    const parsed = presignVideoPartsSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
     }
-    throw err;
-  }
-  return c.json({
-    parts: listed.map((p) => ({ partNumber: p.partNumber, size: p.size, etag: p.etag })),
+    const { s3Key, uploadId, partNumbers } = parsed.data;
+    if (!isAllowedKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
+    const entries = await Promise.all(
+      partNumbers.map(
+        async (n) => [n, await generatePresignedPartUrl(s3Key, uploadId, n, 6 * 3600)] as const,
+      ),
+    );
+    return c.json({ urls: Object.fromEntries(entries) });
   });
-});
 
-uploadRoutes.post("/video/multipart/abort", async (c) => {
-  const parsed = abortVideoMultipartSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
-  }
-  const { s3Key, uploadId } = parsed.data;
-  if (!isVideoMasterKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
-  await abortMultipartUpload(s3Key, uploadId);
-  return c.json({ ok: true });
-});
+  /**
+   * Completes by listing the parts S3 holds instead of trusting ETags from the
+   * browser (the bucket CORS may not expose the ETag header).
+   */
+  uploadRoutes.post(`${prefix}/complete`, async (c) => {
+    const parsed = completeVideoMultipartSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+    }
+    const { s3Key, uploadId } = parsed.data;
+    if (!isAllowedKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
+    const parts = contiguousParts(await listUploadedParts(s3Key, uploadId));
+    if (!parts) {
+      throw AppError.badRequest(
+        "Uploaded parts are missing or not contiguous from part 1",
+        "INCOMPLETE_UPLOAD",
+      );
+    }
+    await completeMultipartUpload(s3Key, uploadId, parts);
+    return c.json({ s3Key });
+  });
+
+  /**
+   * Parts S3 already holds for an in-progress upload, so a reloaded or
+   * discarded tab can resume instead of starting over. 404 NO_SUCH_UPLOAD when
+   * S3 no longer knows the upload (aborted, completed or expired).
+   */
+  uploadRoutes.post(`${prefix}/list-parts`, async (c) => {
+    const parsed = listVideoPartsSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+    }
+    const { s3Key, uploadId } = parsed.data;
+    if (!isAllowedKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
+    let listed: Awaited<ReturnType<typeof listUploadedParts>>;
+    try {
+      listed = await listUploadedParts(s3Key, uploadId);
+    } catch (err) {
+      if (err instanceof Error && err.name === "NoSuchUpload") {
+        throw new AppError(404, "Multipart upload not found", "NO_SUCH_UPLOAD");
+      }
+      throw err;
+    }
+    return c.json({
+      parts: listed.map((p) => ({ partNumber: p.partNumber, size: p.size, etag: p.etag })),
+    });
+  });
+
+  uploadRoutes.post(`${prefix}/abort`, async (c) => {
+    const parsed = abortVideoMultipartSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
+    }
+    const { s3Key, uploadId } = parsed.data;
+    if (!isAllowedKey(s3Key)) throw AppError.badRequest("Invalid s3Key", "INVALID_S3_KEY");
+    await abortMultipartUpload(s3Key, uploadId);
+    return c.json({ ok: true });
+  });
+}
+
+registerPartRoutes("/video/multipart", isVideoMasterKey);
+registerPartRoutes("/audio/multipart", isTrackAudioKey);
 
 /**
  * POST /api/admin/upload/bunny/create

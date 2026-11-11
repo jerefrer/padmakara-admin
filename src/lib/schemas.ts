@@ -645,6 +645,11 @@ export const createVideoMultipartSchema = presignVideoMasterSchema.extend({
   size: z.number().int().positive().max(200 * 1024 ** 3),
 });
 
+// Track audio sent in parts, so a dropped connection costs one part, not the file.
+export const createAudioMultipartSchema = presignVideoMasterSchema.extend({
+  size: z.number().int().positive().max(5 * 1024 ** 3),
+});
+
 const multipartTargetSchema = z.object({
   s3Key: z.string().min(1).max(1200),
   uploadId: z.string().min(1).max(2000),

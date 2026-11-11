@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the video-master multipart upload routes.
+ * Pure helpers for the multipart upload routes (video masters and track audio).
  */
 
 export const MIB = 1024 * 1024;
@@ -13,13 +13,22 @@ export const DEFAULT_PART_SIZE = 64 * MIB;
 const MAX_PART_SIZE = 5 * GIB;
 /** Upper bound on a master file accepted by the create route. */
 export const MAX_MASTER_SIZE = 200 * GIB;
+/**
+ * Part size for track audio. Small enough that one part gets through on a
+ * slow or flaky line (8 MiB is about two minutes at 0.5 Mbit/s), and above
+ * the 5 MiB minimum S3 sets for every part but the last.
+ */
+export const AUDIO_PART_SIZE = 8 * MIB;
 
 /**
- * Part size for a file of `size` bytes: 64 MiB, raised (in whole MiB) if the
- * file would otherwise need more than MAX_PARTS parts.
+ * Part size for a file of `size` bytes: `basePartSize` (64 MiB by default),
+ * raised (in whole MiB) if the file would otherwise need more than MAX_PARTS parts.
  */
-export function planParts(size: number): { partSize: number; partCount: number } {
-  let partSize = DEFAULT_PART_SIZE;
+export function planParts(
+  size: number,
+  basePartSize = DEFAULT_PART_SIZE,
+): { partSize: number; partCount: number } {
+  let partSize = basePartSize;
   if (Math.ceil(size / partSize) > MAX_PARTS) {
     partSize = Math.ceil(size / MAX_PARTS / MIB) * MIB;
   }
@@ -36,6 +45,18 @@ export function isVideoMasterKey(key: string): boolean {
   if (key.length > 1200) return false;
   if (key.split("/").some((seg) => seg === ".." || seg === ".")) return false;
   return /^events\/.+\/masters\/[^/].*$/.test(key);
+}
+
+/**
+ * True only for keys the audio multipart create route can produce:
+ * `events/{eventCode}/{filename}` (see buildTrackS3Key), one file directly
+ * under the event, nothing nested.
+ */
+export function isTrackAudioKey(key: string): boolean {
+  if (key.length > 1200) return false;
+  const segments = key.split("/");
+  if (segments.some((seg) => seg === ".." || seg === ".")) return false;
+  return segments.length === 3 && segments[0] === "events" && segments[1] !== "" && segments[2] !== "";
 }
 
 /**
