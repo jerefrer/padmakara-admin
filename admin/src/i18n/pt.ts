@@ -692,6 +692,7 @@ export const pt = {
       uploadAudio: "Carregar áudio",
       uploadingAudio: "A carregar…",
       uploadAudioFailed: "Não foi possível carregar o áudio",
+      uploadAudioFailedReason: "Não foi possível carregar o áudio: %{reason}",
       uploadAudioDone: "Áudio carregado",
       repairTitle: "%{smart_count} faixa está sem áudio |||| %{smart_count} faixas estão sem áudio",
       repairInstructions: "Arraste para aqui os ficheiros de áudio originais ou a pasta. Os ficheiros são associados às faixas em falta pelo nome; as faixas que já têm áudio são ignoradas.",
@@ -704,7 +705,7 @@ export const pt = {
       chooseFolder: "Escolher pasta",
       chooseFiles: "Escolher ficheiros",
       repairStillMissing: "%{smart_count} faixa em falta não teve ficheiro correspondente |||| %{smart_count} faixas em falta não tiveram ficheiro correspondente",
-      repairProgress: "%{completed} de %{total} ficheiros carregados",
+      repairProgress: "%{completed} de %{total} ficheiros carregados · %{uploaded} de %{size}",
     },
     dropzone: {
       title: "Arraste uma pasta de evento para aqui",

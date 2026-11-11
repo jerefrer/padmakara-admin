@@ -148,6 +148,7 @@ import {
 } from "../utils/trackParser";
 import type { AnalysisResult, ScannedFile, TrackCorrection } from "../utils/analyzeFolder";
 import { needsTitle } from "../utils/trackTitles";
+import { formatBytes } from "../utils/fileInfo";
 
 /** Convert a human-readable date ("April 17") or ISO date to YYYY-MM-DD using event year */
 const MONTH_MAP: Record<string, string> = {
@@ -3117,7 +3118,12 @@ const AudioRepairPanel = ({
   const notify = useNotify();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    completed: number;
+    total: number;
+    bytesUploaded: number;
+    bytesTotal: number;
+  } | null>(null);
   const busy = progress !== null;
 
   const missing = missingAudioFromSessions(sessions);
@@ -3133,9 +3139,19 @@ const AudioRepairPanel = ({
       return;
     }
 
-    setProgress({ completed: 0, total: match.items.length });
+    setProgress({
+      completed: 0,
+      total: match.items.length,
+      bytesUploaded: 0,
+      bytesTotal: match.items.reduce((sum, i) => sum + i.file.size, 0),
+    });
     const { promise } = uploadTracksWithResumeQueue(eventId, eventCode, match.items, (p) =>
-      setProgress({ completed: p.filesCompleted, total: p.filesTotal }),
+      setProgress({
+        completed: p.filesCompleted,
+        total: p.filesTotal,
+        bytesUploaded: p.bytesUploaded,
+        bytesTotal: p.bytesTotal,
+      }),
     );
     try {
       await promise;
@@ -3154,8 +3170,14 @@ const AudioRepairPanel = ({
           messageArgs: { smart_count: match.unusedFiles.length },
         });
       }
-    } catch {
-      notify("padmakara.tracks.uploadAudioFailed", { type: "error" });
+    } catch (err) {
+      // Say why: "could not upload" alone leaves no way to tell a refused
+      // file from a dropped connection.
+      notify("padmakara.tracks.uploadAudioFailedReason", {
+        type: "error",
+        autoHideDuration: null,
+        messageArgs: { reason: err instanceof Error ? err.message : String(err) },
+      });
     } finally {
       setProgress(null);
       onUploadEnded();
@@ -3239,12 +3261,14 @@ const AudioRepairPanel = ({
         <Box sx={{ mt: 1.5 }}>
           <LinearProgress
             variant="determinate"
-            value={progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}
+            value={progress.bytesTotal > 0 ? (progress.bytesUploaded / progress.bytesTotal) * 100 : 0}
           />
           <Typography variant="caption" sx={{ color: "text.secondary" }}>
             {translate("padmakara.tracks.repairProgress", {
               completed: progress.completed,
               total: progress.total,
+              uploaded: formatBytes(progress.bytesUploaded),
+              size: formatBytes(progress.bytesTotal),
             })}
           </Typography>
         </Box>

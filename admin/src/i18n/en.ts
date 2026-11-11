@@ -494,6 +494,7 @@ export const en = {
       uploadAudio: "Upload audio",
       uploadingAudio: "Uploading…",
       uploadAudioFailed: "Could not upload audio",
+      uploadAudioFailedReason: "Could not upload audio: %{reason}",
       uploadAudioDone: "Audio uploaded",
       repairTitle: "%{smart_count} track is missing audio |||| %{smart_count} tracks are missing audio",
       repairInstructions: "Drag the original audio files or folder here. Files are matched to the missing tracks by filename; tracks that already have audio are skipped.",
@@ -506,7 +507,7 @@ export const en = {
       chooseFolder: "Choose folder",
       chooseFiles: "Choose files",
       repairStillMissing: "%{smart_count} missing track had no matching file |||| %{smart_count} missing tracks had no matching file",
-      repairProgress: "%{completed} of %{total} files uploaded",
+      repairProgress: "%{completed} of %{total} files uploaded · %{uploaded} of %{size}",
     },
     dropzone: {
       title: "Drop an event folder here",
