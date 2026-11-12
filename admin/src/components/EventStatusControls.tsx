@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useTranslate } from "react-admin";
 import Box from "@mui/material/Box";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import { ConfirmChangeDialog } from "./ConfirmChangeDialog";
 import { FeatureStarButton } from "./FeatureStarButton";
 
 interface EventStatusControlsProps {
@@ -17,15 +19,18 @@ interface EventStatusControlsProps {
   };
 }
 
-/** Draft / Published toggle and the highlight star of an event. */
+/** Draft / Published toggle and the highlight star of an event. Either way,
+ *  the switch asks first: it shows or hides the whole event in the app. */
 export function EventStatusControls({ status, onStatusChange, star }: EventStatusControlsProps) {
   const translate = useTranslate();
+  const [pending, setPending] = useState<string | null>(null);
+  const publishing = pending === "published";
   return (
     <Box sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
       <ToggleButtonGroup
         value={status}
         exclusive
-        onChange={(_, val) => { if (val) onStatusChange(val); }}
+        onChange={(_, val) => { if (val) setPending(val); }}
         size="small"
         sx={{ flexShrink: 0 }}
       >
@@ -61,6 +66,17 @@ export function EventStatusControls({ status, onStatusChange, star }: EventStatu
           />
         </Box>
       )}
+      <ConfirmChangeDialog
+        open={pending !== null}
+        title={translate(publishing ? "padmakara.events.confirmPublishTitle" : "padmakara.events.confirmUnpublishTitle")}
+        message={translate(publishing ? "padmakara.events.confirmPublishMessage" : "padmakara.events.confirmUnpublishMessage")}
+        confirmLabel={translate(publishing ? "padmakara.events.confirmPublish" : "padmakara.events.confirmUnpublish")}
+        onConfirm={() => {
+          if (pending) onStatusChange(pending);
+          setPending(null);
+        }}
+        onCancel={() => setPending(null)}
+      />
     </Box>
   );
 }

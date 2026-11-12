@@ -621,7 +621,8 @@ export interface EventFormData {
   /** Teachers (ids from the selected list) saved with the 'guest' role. */
   guestTeacherIds: number[];
   status: string;
-  /** Per-section visibility of a published event; all on unless an admin switches one off. */
+  /** Per-section visibility of a published event. A new event starts with all
+   *  of them off, so nothing reaches the app until an admin ticks it. */
   audioPublished: boolean;
   videoPublished: boolean;
   transcriptsPublished: boolean;
@@ -654,11 +655,11 @@ export const EMPTY_FORM: EventFormData = {
   bibliographyEnReviewed: true, bibliographyPtReviewed: true,
   wixId: null, librarySnapshot: null, guestTeacherIds: [],
   status: "draft",
-  audioPublished: true,
-  videoPublished: true,
-  transcriptsPublished: true,
-  textsPublished: true,
-  topicsPublished: true,
+  audioPublished: false,
+  videoPublished: false,
+  transcriptsPublished: false,
+  textsPublished: false,
+  topicsPublished: false,
   featuredAt: null,
   saleMode: "none", priceCents: null, includedInMembership: false,
   internalNotes: "",

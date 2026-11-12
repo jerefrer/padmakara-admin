@@ -215,6 +215,14 @@ export const en = {
       mediaHiddenInList: "Hidden in the app",
       mediaNowVisible: "%{media} is now visible in the app",
       mediaNowHidden: "%{media} is now hidden in the app",
+      confirmPublishTitle: "Publish this event?",
+      confirmPublishMessage: "The event will appear in the app straight away. Of its content, only the sections ticked \"Show in app\" will show (the boxes appear once it is published).",
+      confirmPublish: "Publish",
+      confirmUnpublishTitle: "Unpublish this event?",
+      confirmUnpublishMessage: "The event will disappear from the app straight away.",
+      confirmUnpublish: "Unpublish",
+      confirmShowTitle: "Show in the app?",
+      confirmShowMessage: "This content will appear in the app straight away.",
       groupsRequiredForParallel: "Parallel retreats need at least one user group",
       // Original language — the language the event was taught in. The app
       // always shows it, so a Tibetan teaching is never hidden behind its

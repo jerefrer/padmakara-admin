@@ -155,6 +155,14 @@ describe("Internal notes", () => {
 });
 
 describe("show-in-app tick boxes", () => {
+  it("should start a new event with every section hidden in the app", () => {
+    expect(EMPTY_FORM.audioPublished).toBe(false);
+    expect(EMPTY_FORM.videoPublished).toBe(false);
+    expect(EMPTY_FORM.transcriptsPublished).toBe(false);
+    expect(EMPTY_FORM.textsPublished).toBe(false);
+    expect(EMPTY_FORM.topicsPublished).toBe(false);
+  });
+
   it("should not show any tick box without visibility settings (a draft)", () => {
     renderForm({});
     expect(host.querySelector("input[data-visibility]")).toBeNull();
@@ -181,6 +189,8 @@ describe("show-in-app tick boxes", () => {
 
     act(() => tick("topicsPublished")!.click());
     act(() => tick("videoPublished")!.click());
+    // Ticking asks first; the flag only changes once confirmed.
+    act(() => (document.body.querySelector('[data-testid="confirm-change-ok"]') as HTMLButtonElement).click());
 
     expect(onChange).toHaveBeenNthCalledWith(1, "topicsPublished", false);
     expect(onChange).toHaveBeenNthCalledWith(2, "videoPublished", true);
