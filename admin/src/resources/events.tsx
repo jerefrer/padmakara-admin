@@ -53,7 +53,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
 import { FeatureStarButton } from "../components/FeatureStarButton";
-import { EventStatusControls } from "../components/EventStatusControls";
+import { EventStatusControls, type PublishSection } from "../components/EventStatusControls";
 import { apiErrorMessageKey, isMappedApiError } from "../utils/apiErrors";
 import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
@@ -68,6 +68,13 @@ import { findMatchingExistingSession } from "../utils/sessionMatch";
 import { moveTracksToSession, nextSessionNumber } from "../utils/moveTracks";
 import { isMediaHiddenInApp, saveMediaVisibility } from "../utils/mediaVisibility";
 import type { SectionVisibilityKey } from "../utils/mediaVisibility";
+import {
+  isHiddenWithContent,
+  sectionsToShowOnPublish,
+  topicLineCount,
+  type SectionContent,
+  type SectionFlags,
+} from "../utils/sectionContent";
 import { SectionVisibilityCheckbox } from "../components/SectionVisibilityCheckbox";
 import { MoveTracksBar, type MoveTarget } from "../components/MoveTracksBar";
 import {
@@ -767,6 +774,8 @@ interface EventFormProps {
   visibility?: {
     flags: Record<SectionVisibilityKey, boolean>;
     onChange: (key: SectionVisibilityKey, value: boolean) => void;
+    /** What each section holds, to flag content left hidden in the app. */
+    content?: SectionContent;
   };
   /** Collapsible layout only: panels the page owns that belong in a card. */
   audioExtra?: React.ReactNode;
@@ -786,6 +795,31 @@ const SECTION_LABEL_KEYS: Record<SectionVisibilityKey, string> = {
   transcriptsPublished: "padmakara.eventSections.transcription",
   textsPublished: "padmakara.eventSections.texts",
   topicsPublished: "padmakara.eventSections.topics",
+};
+
+/** The flags of a form, in the shape the visibility helpers take. */
+const sectionFlagsOf = (form: EventFormData): SectionFlags => ({
+  audioPublished: form.audioPublished,
+  videoPublished: form.videoPublished,
+  transcriptsPublished: form.transcriptsPublished,
+  textsPublished: form.textsPublished,
+  topicsPublished: form.topicsPublished,
+});
+
+/** The publish dialog's boxes, in page order: sections with content start ticked. */
+const buildPublishSections = (
+  flags: SectionFlags,
+  content: SectionContent,
+  translate: (key: string) => string,
+): PublishSection[] => {
+  const start = sectionsToShowOnPublish(flags, content);
+  const order: SectionVisibilityKey[] = ["topicsPublished", "audioPublished", "videoPublished", "transcriptsPublished", "textsPublished"];
+  return order.map((key) => ({
+    key,
+    label: translate(SECTION_LABEL_KEYS[key]),
+    detail: content[key] > 0 ? undefined : translate("padmakara.eventSections.nothingYet").toLowerCase(),
+    checked: start[key],
+  }));
 };
 
 /** Ids of the collapsible cards on the event edit page, in display order. */
@@ -1178,6 +1212,24 @@ export const EventFormFields = ({
     sess.tracks.flatMap((track) => (track.id !== undefined ? [track.id] : [])),
   );
   const videoTotal = (videos ?? []).length;
+  // The create wizard's content, for the publish dialog: tracks and videos of
+  // the preview, transcripts dropped so far, and the topic fields.
+  const previewTracks = (previewSessions ?? []).flatMap((sess) => sess.tracks);
+  const wizardContent: SectionContent = {
+    audioPublished: previewTracks.filter((t) => t.mediaType !== "video").length,
+    videoPublished: previewTracks.filter((t) => t.mediaType === "video").length,
+    transcriptsPublished: transcripts.length,
+    textsPublished: 0,
+    topicsPublished: topicLineCount(form),
+  };
+  /** The amber "hidden in the app" flag of a published section whose content is unticked. */
+  const hiddenBadge = (...keys: SectionVisibilityKey[]) => {
+    const content = visibility?.content;
+    if (!visibility || !content) return null;
+    return keys.some((k) => isHiddenWithContent(visibility.flags, content, k))
+      ? translate("padmakara.events.mediaHiddenInList")
+      : null;
+  };
 
   // Main and session themes: in the Topics card on the edit page, in the details flat in the wizard.
   const themeFields = (
@@ -1420,7 +1472,8 @@ export const EventFormFields = ({
           </Box>
           <EventStatusControls
             status={form.status}
-            onStatusChange={(val) => { setForm((prev) => ({ ...prev, status: val })); onStatusChange?.(val); }}
+            publishSections={buildPublishSections(sectionFlagsOf(form), wizardContent, translate)}
+            onStatusChange={(val, chosen) => { setForm((prev) => ({ ...prev, status: val, ...chosen })); onStatusChange?.(val); }}
           />
         </Box>
       )}
@@ -1791,6 +1844,7 @@ export const EventFormFields = ({
             sessionThemesPt: form.sessionThemesPt,
             translate,
           })}
+          badge={hiddenBadge("topicsPublished")}
           action={tickBox("topicsPublished", showInApp)}
         >
           {topicsContent}
@@ -1812,7 +1866,11 @@ export const EventFormFields = ({
           {...sectionProps("media")}
           title={translate("padmakara.eventSections.media")}
           summary={mediaParts.length > 0 ? mediaParts.join(" · ") : translate("padmakara.eventSections.nothingYet")}
-          badge={sessions.length > 0 && tracksInEvent === 0 ? translate("padmakara.eventSections.noTracks") : null}
+          badge={
+            sessions.length > 0 && tracksInEvent === 0
+              ? translate("padmakara.eventSections.noTracks")
+              : hiddenBadge("audioPublished", "videoPublished")
+          }
           action={
             visibility ? (
               <>
@@ -1830,6 +1888,7 @@ export const EventFormFields = ({
           {...sectionProps("transcription")}
           title={translate("padmakara.eventSections.transcription")}
           summary={transcriptionSummary({ transcriptCount, readAlongTracks: readAlongTracks ?? 0, translate })}
+          badge={hiddenBadge("transcriptsPublished")}
           action={tickBox("transcriptsPublished", showInApp)}
         >
           {filesNode}
@@ -1846,6 +1905,7 @@ export const EventFormFields = ({
                   documentCount > 0 ? translate("padmakara.eventSections.documentsSummary", { smart_count: documentCount }) : "",
                 ].filter(Boolean).join(" · ") || translate("padmakara.eventSections.nothingYet")
           }
+          badge={hiddenBadge("textsPublished")}
           action={tickBox("textsPublished", showInApp)}
         >
           {publicationsPanel}
@@ -4488,14 +4548,19 @@ export const EventEdit = () => {
     [form.eventCode, sessions, refresh],
   );
 
-  const handleStatusChange = useCallback(async (newStatus: string) => {
+  const handleStatusChange = useCallback(async (
+    newStatus: string,
+    chosen?: Partial<Record<SectionVisibilityKey, boolean>>,
+  ) => {
     if (!id) return;
     try {
+      // A publish carries the "show in app" boxes ticked in its dialog.
       await dataProvider.update("events", {
         id,
-        data: { status: newStatus },
+        data: { status: newStatus, ...chosen },
         previousData: event,
       });
+      if (chosen) setForm((prev) => ({ ...prev, ...chosen }));
       notify("padmakara.events.statusChanged", {
         type: "success",
         messageArgs: { status: translate(`padmakara.events.${newStatus}`, { _: newStatus }) },
@@ -4598,6 +4663,13 @@ export const EventEdit = () => {
   const trackCount = sessions.reduce((sum, s) => sum + s.tracks.length, 0);
   const transcriptCount = event?.transcripts?.length ?? 0;
   const readAlongTracks = readAlongTrackCount(event?.sessions);
+  const sectionContent: SectionContent = {
+    audioPublished: trackCount,
+    videoPublished: videos.length,
+    transcriptsPublished: transcriptCount + readAlongTracks,
+    textsPublished: (publicationCount ?? 0) + (documentCount ?? 0),
+    topicsPublished: topicLineCount(form),
+  };
 
   // Panels the page owns; the form places them in its collapsible cards.
   const audioExtra = (
@@ -4712,7 +4784,8 @@ export const EventEdit = () => {
           <>
             <EventStatusControls
               status={form.status}
-              onStatusChange={(val) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val); }}
+              publishSections={buildPublishSections(sectionFlagsOf(form), sectionContent, translate)}
+              onStatusChange={(val, chosen) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val, chosen); }}
               star={{
                 eventId: Number(id),
                 featured: !!form.featuredAt,
@@ -4784,6 +4857,7 @@ export const EventEdit = () => {
                   topicsPublished: form.topicsPublished,
                 },
                 onChange: handleMediaVisibilityChange,
+                content: sectionContent,
               }
             : undefined
         }

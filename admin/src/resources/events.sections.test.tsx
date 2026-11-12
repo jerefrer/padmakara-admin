@@ -47,10 +47,19 @@ const FLAGS = {
   topicsPublished: true,
 };
 
+/** Every section holds something, video included (its box is unticked in FLAGS). */
+const FLAGS_CONTENT = {
+  audioPublished: 12,
+  videoPublished: 2,
+  transcriptsPublished: 6,
+  textsPublished: 1,
+  topicsPublished: 2,
+};
+
 function renderForm(over: {
   form?: Partial<EventFormData>;
   onToggle?: (id: string) => void;
-  visibility?: { flags: typeof FLAGS; onChange: (key: string, value: boolean) => void };
+  visibility?: { flags: typeof FLAGS; onChange: (key: string, value: boolean) => void; content?: typeof FLAGS_CONTENT };
   collapsible?: { open: Record<string, boolean> };
 }) {
   const noop = vi.fn();
@@ -200,6 +209,17 @@ describe("show-in-app tick boxes", () => {
 
     expect(onChange).toHaveBeenNthCalledWith(1, "topicsPublished", false);
     expect(onChange).toHaveBeenNthCalledWith(2, "videoPublished", true);
+  });
+
+  it("should flag a section whose content is hidden in the app", () => {
+    renderForm({ visibility: { flags: FLAGS, onChange: vi.fn(), content: FLAGS_CONTENT } });
+    expect(section("media")!.textContent).toContain("padmakara.events.mediaHiddenInList");
+    expect(section("transcription")!.textContent).not.toContain("padmakara.events.mediaHiddenInList");
+  });
+
+  it("should not flag an unticked section that has nothing to show", () => {
+    renderForm({ visibility: { flags: FLAGS, onChange: vi.fn(), content: { ...FLAGS_CONTENT, videoPublished: 0 } } });
+    expect(section("media")!.textContent).not.toContain("padmakara.events.mediaHiddenInList");
   });
 
   it("should not fold the section when its tick box is clicked", () => {

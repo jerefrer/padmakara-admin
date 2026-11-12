@@ -46,7 +46,47 @@ describe("EventStatusControls", () => {
     expect(document.body.textContent).toContain("padmakara.events.confirmPublishTitle");
 
     act(() => dialogButton("confirm-change-ok")!.click());
-    expect(onStatusChange).toHaveBeenCalledWith("published");
+    expect(onStatusChange).toHaveBeenCalledWith("published", undefined);
+  });
+
+  const SECTIONS = [
+    { key: "audioPublished" as const, label: "Audio", checked: true },
+    { key: "videoPublished" as const, label: "Video", detail: "nothing yet", checked: false },
+  ];
+  const sectionBox = (key: string) =>
+    document.body.querySelector(`input[data-publish-section="${key}"]`) as HTMLInputElement | null;
+
+  it("should offer the section boxes when publishing, ticked as given", () => {
+    act(() => root.render(<EventStatusControls status="draft" onStatusChange={() => {}} publishSections={SECTIONS} />));
+
+    act(() => button("published").click());
+
+    expect(sectionBox("audioPublished")!.checked).toBe(true);
+    expect(sectionBox("videoPublished")!.checked).toBe(false);
+    expect(document.body.textContent).toContain("nothing yet");
+  });
+
+  it("should report the boxes as chosen in the dialog with the new status", () => {
+    const onStatusChange = vi.fn();
+    act(() => root.render(<EventStatusControls status="draft" onStatusChange={onStatusChange} publishSections={SECTIONS} />));
+
+    act(() => button("published").click());
+    act(() => sectionBox("audioPublished")!.click());
+    act(() => sectionBox("videoPublished")!.click());
+    act(() => dialogButton("confirm-change-ok")!.click());
+
+    expect(onStatusChange).toHaveBeenCalledWith("published", { audioPublished: false, videoPublished: true });
+  });
+
+  it("should not offer section boxes when unpublishing", () => {
+    const onStatusChange = vi.fn();
+    act(() => root.render(<EventStatusControls status="published" onStatusChange={onStatusChange} publishSections={SECTIONS} />));
+
+    act(() => button("draft").click());
+    expect(sectionBox("audioPublished")).toBeNull();
+    act(() => dialogButton("confirm-change-ok")!.click());
+
+    expect(onStatusChange).toHaveBeenCalledWith("draft", undefined);
   });
 
   it("should ask before unpublishing too", () => {
