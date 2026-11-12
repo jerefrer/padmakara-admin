@@ -22,11 +22,16 @@ describe("SectionVisibilityCheckbox", () => {
   });
   const input = () => host.querySelector("input") as HTMLInputElement;
 
-  it("should be ticked when visible and report the flag unticked when clicked", () => {
+  it("should ask before unticking and report the flag unticked once confirmed", () => {
     const onChange = vi.fn();
     act(() => root.render(<SectionVisibilityCheckbox flag="textsPublished" label="Show" visible onChange={onChange} />));
     expect(input().checked).toBe(true);
+
     act(() => input().click());
+    expect(onChange).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("padmakara.events.confirmHideTitle");
+
+    act(() => (document.body.querySelector('[data-testid="confirm-change-ok"]') as HTMLButtonElement).click());
     expect(onChange).toHaveBeenCalledWith("textsPublished", false);
   });
 

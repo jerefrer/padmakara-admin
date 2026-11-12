@@ -16,10 +16,11 @@ interface SectionVisibilityCheckboxProps {
 }
 
 /** A compact tick box for a section header: ticked means the section shows in
- *  the app. Ticking asks first, since the content goes live at once; unticking does not. */
+ *  the app. Either way it asks first, since the change reaches the app at once. */
 export function SectionVisibilityCheckbox({ flag, label, visible, onChange }: SectionVisibilityCheckboxProps) {
   const translate = useTranslate();
-  const [confirming, setConfirming] = useState(false);
+  /** The value waiting for confirmation, or null when no dialog is open. */
+  const [pending, setPending] = useState<boolean | null>(null);
   const tooltip = translate(visible ? "padmakara.events.mediaVisible" : "padmakara.events.mediaHidden");
   return (
     <>
@@ -31,10 +32,7 @@ export function SectionVisibilityCheckbox({ flag, label, visible, onChange }: Se
         <Checkbox
           size="small"
           checked={visible}
-          onChange={(event) => {
-            if (event.target.checked) setConfirming(true);
-            else onChange(flag, false);
-          }}
+          onChange={(event) => setPending(event.target.checked)}
           slotProps={{ input: { "aria-label": `${label}: ${tooltip}`, "data-visibility": flag } as object }}
           sx={{ p: 0.5 }}
         />
@@ -42,15 +40,15 @@ export function SectionVisibilityCheckbox({ flag, label, visible, onChange }: Se
       </Box>
     </Tooltip>
     <ConfirmChangeDialog
-      open={confirming}
-      title={translate("padmakara.events.confirmShowTitle")}
-      message={translate("padmakara.events.confirmShowMessage")}
-      confirmLabel={translate("padmakara.events.showInApp")}
+      open={pending !== null}
+      title={translate(pending === false ? "padmakara.events.confirmHideTitle" : "padmakara.events.confirmShowTitle")}
+      message={translate(pending === false ? "padmakara.events.confirmHideMessage" : "padmakara.events.confirmShowMessage")}
+      confirmLabel={translate(pending === false ? "padmakara.events.confirmHide" : "padmakara.events.showInApp")}
       onConfirm={() => {
-        setConfirming(false);
-        onChange(flag, true);
+        if (pending !== null) onChange(flag, pending);
+        setPending(null);
       }}
-      onCancel={() => setConfirming(false)}
+      onCancel={() => setPending(null)}
     />
     </>
   );

@@ -187,10 +187,16 @@ describe("show-in-app tick boxes", () => {
     const onChange = vi.fn();
     renderForm({ visibility: { flags: FLAGS, onChange } });
 
+    // Every change asks first; the flag only changes once confirmed.
+    // The last match: a dialog just confirmed stays mounted while it fades out.
+    const confirm = () => {
+      const buttons = document.body.querySelectorAll<HTMLButtonElement>('[data-testid="confirm-change-ok"]');
+      buttons[buttons.length - 1].click();
+    };
     act(() => tick("topicsPublished")!.click());
+    act(confirm);
     act(() => tick("videoPublished")!.click());
-    // Ticking asks first; the flag only changes once confirmed.
-    act(() => (document.body.querySelector('[data-testid="confirm-change-ok"]') as HTMLButtonElement).click());
+    act(confirm);
 
     expect(onChange).toHaveBeenNthCalledWith(1, "topicsPublished", false);
     expect(onChange).toHaveBeenNthCalledWith(2, "videoPublished", true);

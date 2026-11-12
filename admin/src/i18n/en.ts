@@ -223,6 +223,9 @@ export const en = {
       confirmUnpublish: "Unpublish",
       confirmShowTitle: "Show in the app?",
       confirmShowMessage: "This content will appear in the app straight away.",
+      confirmHideTitle: "Hide from the app?",
+      confirmHideMessage: "This content will disappear from the app straight away, including for anyone listening to it now.",
+      confirmHide: "Hide",
       groupsRequiredForParallel: "Parallel retreats need at least one user group",
       // Original language — the language the event was taught in. The app
       // always shows it, so a Tibetan teaching is never hidden behind its
