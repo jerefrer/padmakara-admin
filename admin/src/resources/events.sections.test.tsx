@@ -107,13 +107,37 @@ describe("Topics section", () => {
 });
 
 describe("Event details", () => {
-  it("should put the one-off tools (library metadata, automatic translation) after the event code", () => {
+  it("should put the library metadata button after the event code", () => {
     renderForm({ collapsible: { open: { details: true } } });
     const text = section("details")!.textContent ?? "";
     const code = text.indexOf("padmakara.events.eventCode");
     expect(code).toBeGreaterThan(-1);
     expect(text.indexOf("padmakara.library.button")).toBeGreaterThan(code);
-    expect(text.indexOf("padmakara.events.autoTranslateTitle")).toBeGreaterThan(code);
+  });
+
+  it("should not hold the automatic translation bar, which covers every section", () => {
+    renderForm({ collapsible: { open: { details: true } } });
+    expect(section("details")!.textContent).not.toContain("padmakara.events.autoTranslateTitle");
+  });
+});
+
+describe("Automatic translation bar", () => {
+  const bar = () => host.querySelector('[data-testid="auto-translate-bar"]') as HTMLElement | null;
+  const notes = () => host.querySelector('[data-testid="internal-notes"]') as HTMLElement | null;
+
+  it("should sit below every section, just above the internal notes, when a translation is missing", () => {
+    renderForm({ form: { titlePt: "" } });
+    const sections = Array.from(host.querySelectorAll("[data-section]"));
+    expect(bar()).not.toBeNull();
+    expect(sections.some((s) => s.contains(bar()))).toBe(false);
+    const last = sections[sections.length - 1];
+    expect(last.compareDocumentPosition(bar()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bar()!.compareDocumentPosition(notes()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("should be hidden when nothing is missing in either language", () => {
+    renderForm({ form: { titleEn: "T", titlePt: "T", mainThemesEn: "", mainThemesPt: "" } });
+    expect(bar()).toBeNull();
   });
 });
 

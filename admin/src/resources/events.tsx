@@ -1334,7 +1334,7 @@ export const EventFormFields = ({
     </Paper>
   );
 
-  const setupTools = (
+  const libraryButton = (
     <>
         {/* ── Library metadata — fill the form from the association's CSV ── */}
         <LibraryMetadataButton
@@ -1348,12 +1348,17 @@ export const EventFormFields = ({
           allGroups={allGroups} allEventTypes={allEventTypes} allAudiences={allAudiences}
           eventId={eventId}
         />
+    </>
+  );
 
-        {/* ── Auto-translate bar — the one place that fills every empty EN/PT
-               target (event fields, session titles and track titles — persisted
-               rows in the edit view, preview state in the create flow), with a
-               live count of what a click will do ── */}
+  /* ── Auto-translate bar — the one place that fills every empty EN/PT
+         target (event fields, session titles and track titles — persisted
+         rows in the edit view, preview state in the create flow), with a
+         live count of what a click will do ── */
+  const translateBar = (
+    <>
         <Box
+          data-testid="auto-translate-bar"
           sx={{
             display: "flex",
             alignItems: "center",
@@ -1420,8 +1425,10 @@ export const EventFormFields = ({
       )}
 
 
-      {/* One-off setup tools: at the top while creating, below the fields when editing. */}
-      {!collapsible && setupTools}
+      {/* One-off setup tools: at the top while creating. When editing, the library
+          button sits below the fields and the translation bar below every section. */}
+      {!collapsible && libraryButton}
+      {!collapsible && translateBar}
 
       {/* ── Title ── */}
       <Paper sx={{ p: 3, mb: 2 }}>
@@ -1630,7 +1637,7 @@ export const EventFormFields = ({
         />
       </Paper>
 
-      {collapsible && setupTools}
+      {collapsible && libraryButton}
     </>
   );
 
@@ -1843,6 +1850,9 @@ export const EventFormFields = ({
           {publicationsPanel}
           {documentsPanel}
         </CollapsibleSection>
+        {/* It fills fields across every section, so it sits below them all, and
+            only while something is still missing in one of the two languages. */}
+        {missingPt.total + missingEn.total > 0 && translateBar}
         {internalNotesField}
       </>
     );
