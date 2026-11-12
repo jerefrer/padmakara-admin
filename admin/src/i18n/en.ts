@@ -215,6 +215,7 @@ export const en = {
       mediaHiddenInList: "Hidden in the app",
       mediaNowVisible: "%{media} is now visible in the app",
       mediaNowHidden: "%{media} is now hidden in the app",
+      groupsRequiredForParallel: "Parallel retreats need at least one user group",
       // Original language — the language the event was taught in. The app
       // always shows it, so a Tibetan teaching is never hidden behind its
       // translation.

@@ -1540,7 +1540,17 @@ export const EventFormFields = ({
                 onChange={(_, v) => setSelectedGroups(v)}
                 isOptionEqualToValue={(o, v) => o.id === v.id}
                 renderInput={(params) => (
-                  <MuiTextField {...params} label={translate("padmakara.events.retreatGroups")} placeholder={translate("padmakara.events.retreatGroupsPlaceholder")} slotProps={{ inputLabel: { shrink: true } }} />
+                  <MuiTextField
+                    {...params}
+                    label={translate("padmakara.events.retreatGroups")}
+                    placeholder={translate("padmakara.events.retreatGroupsPlaceholder")}
+                    // A parallel retreat belongs to its groups: saving refuses it without one.
+                    // The asterisk goes on the label only; a native `required` would sit on
+                    // the chip input, which stays empty even with groups picked.
+                    slotProps={{ inputLabel: { shrink: true, required: audienceFrozen } }}
+                    error={audienceFrozen && selectedGroups.length === 0}
+                    helperText={audienceFrozen && selectedGroups.length === 0 ? translate("padmakara.events.groupsRequiredForParallel") : undefined}
+                  />
                 )}
               />
             </Grid>
@@ -2607,6 +2617,8 @@ export const EventCreate = () => {
       audienceSelected: selectedAudience !== null,
       teacherCount: selectedTeachers.length,
       placeCount: selectedPlaces.length,
+      groupsRequired: isParallelRetreats(selectedEventType),
+      groupCount: selectedGroups.length,
       sessions,
     });
     if (problems.length > 0) {
@@ -4509,6 +4521,10 @@ export const EventEdit = () => {
   const handleSave = async (close: boolean) => {
     if (!form.eventCode || !form.titleEn) {
       notify(translate("padmakara.events.codeAndTitleRequired"), { type: "warning" });
+      return;
+    }
+    if (isParallelRetreats(selectedEventType) && selectedGroups.length === 0) {
+      notify(translate("padmakara.events.groupsRequiredForParallel"), { type: "warning" });
       return;
     }
     setSaving(true);

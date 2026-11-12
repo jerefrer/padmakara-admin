@@ -416,6 +416,7 @@ export const pt = {
       mediaHiddenInList: "Escondido na aplicação",
       mediaNowVisible: "%{media} visível na aplicação",
       mediaNowHidden: "%{media} escondido na aplicação",
+      groupsRequiredForParallel: "Os retiros paralelos precisam de pelo menos um grupo de utilizadores",
       originalLanguage: "Idioma Original",
       originalLanguageHelper: "O idioma em que o evento foi ensinado. Sempre mostrado na app.",
       langTib: "Tibetano",
