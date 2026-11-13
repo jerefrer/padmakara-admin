@@ -10,6 +10,7 @@ import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import SearchIcon from "@mui/icons-material/Search";
+import BarChartIcon from "@mui/icons-material/BarChart";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Divider from "@mui/material/Divider";
@@ -80,6 +81,7 @@ export const Menu = () => {
       <SectionLabel>{translate("padmakara.menu.other")}</SectionLabel>
       <RaMenu.Item to="/library" primaryText={translate("padmakara.library.menu")} leftIcon={<LibraryBooksIcon />} />
       <RaMenu.Item to="/searches" primaryText={translate("padmakara.searches.menu")} leftIcon={<SearchIcon />} />
+      <RaMenu.Item to="/statistics" primaryText={translate("padmakara.statistics.menu")} leftIcon={<BarChartIcon />} />
     </Box>
   );
 };

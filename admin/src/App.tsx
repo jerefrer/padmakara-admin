@@ -17,6 +17,7 @@ import { AudienceList, AudienceEdit, AudienceCreate } from "./resources/audience
 import { UserList, UserEdit } from "./resources/users";
 import { LibraryPage } from "./pages/LibraryPage";
 import { SearchesPage } from "./pages/SearchesPage";
+import { StatisticsPage } from "./pages/StatisticsPage";
 import { PublicationList, PublicationEdit, PublicationCreate } from "./resources/publications";
 
 const App = () => (
@@ -97,6 +98,7 @@ const App = () => (
     <CustomRoutes>
       <Route path="/library" element={<LibraryPage />} />
       <Route path="/searches" element={<SearchesPage />} />
+      <Route path="/statistics" element={<StatisticsPage />} />
     </CustomRoutes>
     <Resource name="event-files" />
     <Resource name="transcripts" />
