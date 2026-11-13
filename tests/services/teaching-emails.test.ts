@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTeachingAvailableEmail } from "../../src/services/teaching-emails.ts";
+import { buildTeachingAvailableEmail, buildTeachingPublishedEmail } from "../../src/services/teaching-emails.ts";
 
 const build = (lang: "en" | "pt", published: boolean, firstName: string | null = "Ana") =>
   buildTeachingAvailableEmail({ lang, firstName, eventTitle: "Autumn Retreat 2026", published });
@@ -37,5 +37,38 @@ describe("teaching available email", () => {
 
   it("should greet without a name when none is known", () => {
     expect(build("en", true, null).text).toContain("Hello,");
+  });
+});
+
+describe("teaching published email", () => {
+  const build = (lang: "en" | "pt", firstName: string | null = "Ana") =>
+    buildTeachingPublishedEmail({ lang, firstName, eventTitle: "Autumn Retreat 2026" });
+
+  it("should announce the recordings and link to the app (en)", () => {
+    const e = build("en");
+    expect(e.subject).toBe("Now available: Autumn Retreat 2026");
+    expect(e.text).toContain("The recordings of Autumn Retreat 2026 are now available.");
+    expect(e.text).toContain("Sign in with this email address.");
+    expect(e.text).toContain("Dear Ana,");
+    expect(e.html).toContain("https://app.padmakara.pt");
+    expect(e.html).toContain("Open Padmakara");
+  });
+
+  it("should use European Portuguese (pt)", () => {
+    const e = build("pt");
+    expect(e.subject).toBe("Já disponível: Autumn Retreat 2026");
+    expect(e.text).toContain("As gravações de Autumn Retreat 2026 já estão disponíveis.");
+    expect(e.text).toContain("Olá Ana,");
+    expect(e.html).toContain("Abrir a Padmakara");
+    expect(e.text).not.toMatch(/\b(você|vocês)\b/i);
+  });
+
+  it("should greet without a name when none is known", () => {
+    expect(build("en", null).text).toContain("Hello,");
+  });
+
+  it("should never use the word subscription", () => {
+    expect(build("en").text.toLowerCase()).not.toContain("subscri");
+    expect(build("pt").text.toLowerCase()).not.toMatch(/subscri|assinatura/);
   });
 });

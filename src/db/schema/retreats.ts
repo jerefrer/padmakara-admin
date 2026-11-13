@@ -99,6 +99,12 @@ export const events = pgTable("retreats", {
   // event's videos. Organizers are linked through `retreat_organizers`.
   creditLines: text("credit_lines").array().notNull().default([]),
   copyrightHolder: text("copyright_holder"),
+  /**
+   * When the admin emailed the people with access that the event is now available,
+   * and to how many. Null until then; the notify route refuses a second send unless forced.
+   */
+  publishedNotifiedAt: timestamp("published_notified_at", { withTimezone: true }),
+  publishedNotifiedCount: integer("published_notified_count"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

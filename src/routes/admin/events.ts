@@ -24,6 +24,7 @@ import { isPaidAudience } from "../../services/access.ts";
 import { audiences } from "../../db/schema/audiences.ts";
 import { eventAccessRoutes } from "./event-access.ts";
 import { eventParticipantRoutes } from "./event-participants.ts";
+import { eventNotifyRoutes } from "./event-notify.ts";
 import { eventSortColumns } from "./events-sort.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs, cancelReadAlongJob } from "../../services/read-along.ts";
@@ -38,6 +39,8 @@ const eventRoutes = new Hono();
 eventRoutes.route("/", eventAccessRoutes);
 // Participants (attendance rows) added in batch: /:id/participants (see event-participants.ts).
 eventRoutes.route("/", eventParticipantRoutes);
+// "Now available" email on publish: /:id/recipients, /:id/notify-published (see event-notify.ts).
+eventRoutes.route("/", eventNotifyRoutes);
 
 
 eventRoutes.get("/", async (c) => {

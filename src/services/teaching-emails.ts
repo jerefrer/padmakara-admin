@@ -9,6 +9,12 @@ function greeting(lang: Lang, firstName: string | null | undefined): string {
   return lang === "pt" ? "Olá," : "Hello,";
 }
 
+const PUBLISHED_ACCESS: Record<Lang, string> = {
+  pt: "Estão na sua conta em app.padmakara.pt e na aplicação Padmakara. Inicie sessão com este endereço de email.",
+  en: "They are in your account on app.padmakara.pt and in the Padmakara app. Sign in with this email address.",
+};
+const OPEN_BUTTON: Record<Lang, string> = { pt: "Abrir a Padmakara", en: "Open Padmakara" };
+
 /** Sent once access to a single teaching is granted (purchase, free or manual). */
 export function buildTeachingAvailableEmail(p: {
   lang: Lang;
@@ -27,9 +33,7 @@ export function buildTeachingAvailableEmail(p: {
 
   let second: string;
   if (p.published) {
-    second = pt
-      ? "Estão na sua conta em app.padmakara.pt e na aplicação Padmakara. Inicie sessão com este endereço de email."
-      : "They are in your account on app.padmakara.pt and in the Padmakara app. Sign in with this email address.";
+    second = PUBLISHED_ACCESS[p.lang];
   } else {
     second = pt
       ? "Avisamos assim que estiverem disponíveis online."
@@ -37,7 +41,7 @@ export function buildTeachingAvailableEmail(p: {
   }
 
   const button = p.published
-    ? { label: pt ? "Abrir a Padmakara" : "Open Padmakara", href: APP_URL }
+    ? { label: OPEN_BUTTON[p.lang], href: APP_URL }
     : undefined;
 
   return {
@@ -49,6 +53,35 @@ export function buildTeachingAvailableEmail(p: {
       greeting: greeting(p.lang, p.firstName),
       paragraphs: [intro, second],
       button,
+    }),
+  };
+}
+
+/**
+ * Sent to everyone who has access when an event goes from forthcoming/draft to published
+ * and the admin chooses to announce it. Same follow-up text and button as the
+ * "you now have access" email, with a different opening.
+ */
+export function buildTeachingPublishedEmail(p: {
+  lang: Lang;
+  firstName?: string | null;
+  eventTitle: string;
+}): { subject: string; html: string; text: string } {
+  const pt = p.lang === "pt";
+  const subject = pt ? `Já disponível: ${p.eventTitle}` : `Now available: ${p.eventTitle}`;
+  const intro = pt
+    ? `As gravações de ${p.eventTitle} já estão disponíveis.`
+    : `The recordings of ${p.eventTitle} are now available.`;
+
+  return {
+    subject,
+    ...renderBrandEmail({
+      lang: p.lang,
+      subject,
+      kicker: KICKER[p.lang],
+      greeting: greeting(p.lang, p.firstName),
+      paragraphs: [intro, PUBLISHED_ACCESS[p.lang]],
+      button: { label: OPEN_BUTTON[p.lang], href: APP_URL },
     }),
   };
 }
