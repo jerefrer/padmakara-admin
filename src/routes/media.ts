@@ -23,6 +23,7 @@ import { issueMat, verifyMat } from "../services/media-access.ts";
 import { withIntroSubtitlesForVideo } from "../services/intro-subtitles.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
+import { countUsage, countVideoStart, isFirstChunkRequest } from "../services/usage.ts";
 import { optionalAuthMiddleware, getOptionalUser, getUser } from "../middleware/auth.ts";
 import { checkEventAccess, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
 import {
@@ -348,6 +349,7 @@ mediaRoutes.get("/video/hls/:videoId/master.m3u8", async (c) => {
   if (!res.ok) {
     throw AppError.internal(`Bunny returned ${res.status} for master playlist`);
   }
+  countVideoStart(videoId);
   const body = await res.text();
 
   const base = proxyBaseUrl(c, videoId);
@@ -592,6 +594,7 @@ mediaRoutes.get("/video/:videoId/download", async (c) => {
   }
 
   const { url, expiresAt } = buildMp4DownloadUrl(downloadGuid, chosen);
+  if (result.video.eventId != null) countUsage("video_download", result.video.eventId);
   return c.json({
     url,
     quality: chosen,
@@ -623,6 +626,9 @@ mediaRoutes.get("/readalong/:trackId", async (c) => {
   }
 
   const jsonContent = await getObjectText(result.track.readAlongS3Key);
+  if (result.event && isFirstChunkRequest(c.req.header("Range"))) {
+    countUsage("readalong_open", result.event.id);
+  }
   return new Response(jsonContent, {
     headers: {
       "Content-Type": "application/json",
@@ -680,6 +686,10 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
   const pdfBytes = isPublicEvent || !authUser
     ? originalPdfBytes
     : await watermarkPdf(originalPdfBytes, await watermarkTextFor(authUser));
+
+  if (isFirstChunkRequest(c.req.header("Range"))) {
+    countUsage("transcript_open", result.event?.id ?? 0);
+  }
 
   // Use original filename if available, fall back to generated name
   const rawFilename = result.transcript.originalFilename
@@ -741,6 +751,10 @@ mediaRoutes.get("/file/:id", async (c) => {
     const accessResult = await checkEventAccess(userForAccess, result.event);
     if (!accessResult.allowed) denialToHttpError(accessResult.reason);
     assertTextsVisible(result.event, authUser.role, "File not found");
+  }
+
+  if (isFirstChunkRequest(c.req.header("Range"))) {
+    countUsage("file_open", result.event?.id ?? result.file.eventId ?? 0);
   }
 
   const ext = (result.file.extension || "").replace(/^\./, "").toLowerCase();

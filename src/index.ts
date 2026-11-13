@@ -5,6 +5,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { config } from "./config.ts";
 import { errorHandler } from "./lib/errors.ts";
 import { api } from "./routes/index.ts";
+import { startUsagePruning } from "./services/usage.ts";
 
 const app = new Hono();
 
@@ -55,6 +56,9 @@ app.onError(errorHandler);
 app.notFound((c) =>
   c.json({ error: "Not found", code: "NOT_FOUND" }, 404),
 );
+
+// Daily activity rows are kept 13 months, then deleted
+if (process.env.NODE_ENV !== "test") startUsagePruning();
 
 export default {
   port: config.port,

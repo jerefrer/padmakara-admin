@@ -1,6 +1,7 @@
 import type { Context, Next } from "hono";
 import { verifyAccessToken } from "../services/auth.ts";
 import { AppError } from "../lib/errors.ts";
+import { markActive } from "../services/usage.ts";
 
 export interface AuthUser {
   id: number;
@@ -27,6 +28,7 @@ export async function authMiddleware(c: Context, next: Next) {
       role: payload.role!,
     };
     c.set("user", user);
+    markActive(user.id);
     await next();
   } catch {
     throw AppError.unauthorized("Invalid or expired token");
@@ -56,6 +58,7 @@ export async function optionalAuthMiddleware(c: Context, next: Next) {
         role: payload.role!,
       };
       c.set("user", user);
+      markActive(user.id);
     } catch {
       // Invalid token — treat as unauthenticated
     }

@@ -7,7 +7,8 @@
  * test JWT secret from tests/setup.ts (or a different one, on purpose).
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { markActive } from "../../src/services/usage.ts";
 import { Hono } from "hono";
 import * as jose from "jose";
 import {
@@ -259,5 +260,26 @@ describe("adminMiddleware", () => {
     const { status } = await call("/admin", "Bearer garbage");
 
     expect(status).toBe(401);
+  });
+});
+
+describe("daily activity marking", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("should mark the account active when authMiddleware accepts the token", async () => {
+    await call("/protected", `Bearer ${await accessToken("user", 11)}`);
+    expect(markActive).toHaveBeenCalledWith(11);
+  });
+
+  it("should mark the account active when optionalAuthMiddleware resolves a user", async () => {
+    await call("/optional", `Bearer ${await accessToken("user", 12)}`);
+    expect(markActive).toHaveBeenCalledWith(12);
+  });
+
+  it("should not mark anyone when the token is invalid or absent", async () => {
+    await call("/protected", "Bearer garbage");
+    await call("/optional", "Bearer garbage");
+    await call("/optional");
+    expect(markActive).not.toHaveBeenCalled();
   });
 });

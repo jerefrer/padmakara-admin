@@ -13,6 +13,7 @@ vi.mock("../../src/middleware/auth.ts", () => ({
   getUser: (c: any) => c.get("user"),
 }));
 
+import { countAppOpen } from "../../src/services/usage.ts";
 import { syncRoutes } from "../../src/routes/sync.ts";
 import { getAllVersions, getUserVersion } from "../../src/services/sync-versions.ts";
 import { Hono } from "hono";
@@ -81,5 +82,20 @@ describe("GET /sync/versions", () => {
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.events).toEqual({ global: 10, user: 0 });
+  });
+});
+
+describe("app_open counting", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should count an app open for the authenticated user when versions are fetched", async () => {
+    (getAllVersions as any).mockResolvedValue({});
+    (getUserVersion as any).mockResolvedValue(0);
+
+    await buildApp().request("/sync/versions");
+
+    expect(countAppOpen).toHaveBeenCalledWith(1);
   });
 });

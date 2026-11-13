@@ -129,3 +129,6 @@ export type { SearchQuery } from "./search-queries.ts";
 
 // Passkeys (WebAuthn)
 export { passkeyCredentials, webauthnChallenges } from "./passkeys.ts";
+
+// Usage statistics (server-side totals + daily activity)
+export { usageDaily, userActiveDays } from "./usage.ts";

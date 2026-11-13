@@ -38,6 +38,7 @@ vi.mock("../../src/services/s3.ts", () => ({
   generatePresignedDownloadUrl: vi.fn(() => Promise.resolve("https://storage.example.test/x")),
 }));
 
+import { countUsage } from "../../src/services/usage.ts";
 import { createAccessToken } from "../../src/services/auth.ts";
 
 function makeEvent(overrides: Record<string, unknown> = {}) {
@@ -250,5 +251,33 @@ describe("POST /api/events/public/:id/request-download", () => {
 
     expect(status).toBe(404);
     expect(mockGenerateRetreatZip).not.toHaveBeenCalled();
+  });
+});
+
+describe("zip_download usage counting", () => {
+  it("should count a zip download for the event when a user creates a request", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(makeEvent());
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUser());
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(undefined);
+
+    await testJson("/api/events/42/request-download", { method: "POST", headers: await authHeader() });
+
+    expect(countUsage).toHaveBeenCalledTimes(1);
+    expect(countUsage).toHaveBeenCalledWith("zip_download", 42);
+  });
+
+  it("should count a zip download when an anonymous visitor creates a request", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(makeEvent());
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(undefined);
+
+    await testJson("/api/events/public/42/request-download", { method: "POST" });
+
+    expect(countUsage).toHaveBeenCalledWith("zip_download", 42);
+  });
+
+  it("should not count when the request is denied", async () => {
+    await testJson("/api/events/42/request-download", { method: "POST" });
+
+    expect(countUsage).not.toHaveBeenCalled();
   });
 });

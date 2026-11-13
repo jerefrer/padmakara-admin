@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
+import { countAppOpen } from "../services/usage.ts";
 import { getAllVersions, getUserVersion } from "../services/sync-versions.ts";
 
 const syncRoutes = new Hono();
@@ -25,6 +26,8 @@ syncRoutes.use("*", authMiddleware);
  */
 syncRoutes.get("/versions", async (c) => {
   const user = getUser(c);
+  // The app calls this on launch and on foreground: the server-side "app open" count
+  countAppOpen(user.id);
   const [globals, userVersion] = await Promise.all([
     getAllVersions(),
     getUserVersion(user.id),

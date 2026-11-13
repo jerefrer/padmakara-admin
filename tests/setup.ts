@@ -20,3 +20,20 @@ process.env.BUNNY_WEBHOOK_SECRET = "test-webhook-secret";
 // Keep each parallel Vitest worker's DB pool small so they don't collectively
 // exhaust the shared padmakara_test connection limit.
 process.env.DB_POOL_MAX = "3";
+
+// Usage counting writes to the database from inside request handlers. Route
+// tests mock the database with strict shapes, so counting is a no-op by
+// default; tests/services/usage.test.ts un-mocks it and route tests that care
+// re-mock it with spies.
+import { vi } from "vitest";
+vi.mock("../src/services/usage.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/services/usage.ts")>();
+  return {
+    ...actual,
+    countUsage: vi.fn(),
+    markActive: vi.fn(),
+    countAppOpen: vi.fn(),
+    countVideoStart: vi.fn(),
+    startUsagePruning: vi.fn(),
+  };
+});

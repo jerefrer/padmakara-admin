@@ -16,6 +16,7 @@ import { publicationsViaGroups, mergePublications } from "../services/event-publ
 import { openablePublications } from "../services/publication-access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { teacherArtworkUrl } from "../lib/teacher-artwork.ts";
+import { countUsage } from "../services/usage.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
@@ -319,6 +320,8 @@ eventRoutes.post("/public/:id/request-download", async (c) => {
   if (!newRequest) {
     throw new AppError(500, "Failed to create download request", "INTERNAL_ERROR");
   }
+
+  countUsage("zip_download", eventId);
 
   generateRetreatZip(newRequest.id, eventId).catch((error) => {
     console.error(`[ZIP] Background generation failed for request ${newRequest.id}:`, error);
@@ -686,6 +689,8 @@ eventRoutes.post("/:id/request-download", async (c) => {
   if (!newRequest) {
     throw new AppError(500, "Failed to create download request", "INTERNAL_ERROR");
   }
+
+  countUsage("zip_download", eventId);
 
   // Start ZIP generation asynchronously
   generateRetreatZip(newRequest.id, eventId, user.id).catch((error) => {
