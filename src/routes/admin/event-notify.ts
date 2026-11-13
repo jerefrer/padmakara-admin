@@ -37,7 +37,9 @@ async function loadEvent(id: number) {
 
 // Open to everyone or to any account, the email reaches the whole user base, like a
 // newsletter: André keeps those for major events, so the box starts unticked.
-const BROAD_AUDIENCES = new Set<string>([AUDIENCE_SLUGS.PUBLIC, AUDIENCE_SLUGS.ACCOUNT_HOLDERS]);
+// A function, not a constant: read lazily so test mocks of access.ts need not export the slugs.
+const isBroadAudience = (slug: string | undefined): boolean =>
+  slug === AUDIENCE_SLUGS.PUBLIC || slug === AUDIENCE_SLUGS.ACCOUNT_HOLDERS;
 
 /** How many people would get the "now available" email, and whether it was already sent. */
 eventNotifyRoutes.get("/:id/recipients", async (c) => {
@@ -47,7 +49,7 @@ eventNotifyRoutes.get("/:id/recipients", async (c) => {
     count: recipients.length,
     notifiedAt: event.publishedNotifiedAt,
     notifiedCount: event.publishedNotifiedCount,
-    notifyByDefault: !BROAD_AUDIENCES.has(event.audience?.slug ?? ""),
+    notifyByDefault: !isBroadAudience(event.audience?.slug),
   });
 });
 
