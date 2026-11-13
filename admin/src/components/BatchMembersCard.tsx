@@ -133,6 +133,10 @@ export const BatchMembersCard = ({ endpoint, i18nPrefix }: Props) => {
             size="small"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
+            // On the group page the card sits inside the group's form: Enter must not save it.
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
             placeholder={t("filterPlaceholder")}
             sx={{ mb: 1, width: 280 }}
             slotProps={{ htmlInput: { "aria-label": t("filterPlaceholder") } }}
