@@ -32,7 +32,7 @@ export async function sendPublishedEmails(
       const title =
         (lang === "pt" ? event.titlePt || event.titleEn : event.titleEn || event.titlePt) ||
         `Event ${event.id}`;
-      const mail = buildTeachingPublishedEmail({ lang, firstName: recipient.firstName, eventTitle: title });
+      const mail = buildTeachingPublishedEmail({ lang, firstName: recipient.firstName, eventId: event.id, eventTitle: title });
       await sendEmail({ to: recipient.email, ...mail });
       sent++;
     } catch (err) {

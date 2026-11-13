@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildTeachingAvailableEmail, buildTeachingPublishedEmail } from "../../src/services/teaching-emails.ts";
 
 const build = (lang: "en" | "pt", published: boolean, firstName: string | null = "Ana") =>
-  buildTeachingAvailableEmail({ lang, firstName, eventTitle: "Autumn Retreat 2026", published });
+  buildTeachingAvailableEmail({ lang, firstName, eventId: 919, eventTitle: "Autumn Retreat 2026", published });
 
 describe("teaching available email", () => {
   it("should say the recordings are in the account and link to the app when published (en)", () => {
@@ -11,7 +11,7 @@ describe("teaching available email", () => {
     expect(e.text).toContain(
       "They are in your account on app.padmakara.pt and in the Padmakara app. Sign in with this email address.",
     );
-    expect(e.html).toContain("https://app.padmakara.pt");
+    expect(e.html).toContain('href="https://app.padmakara.pt/retreat/919"');
     expect(e.text).not.toContain("as soon as they are online");
   });
 
@@ -42,7 +42,7 @@ describe("teaching available email", () => {
 
 describe("teaching published email", () => {
   const build = (lang: "en" | "pt", firstName: string | null = "Ana") =>
-    buildTeachingPublishedEmail({ lang, firstName, eventTitle: "Autumn Retreat 2026" });
+    buildTeachingPublishedEmail({ lang, firstName, eventId: 919, eventTitle: "Autumn Retreat 2026" });
 
   it("should announce the recordings and link to the app (en)", () => {
     const e = build("en");
@@ -50,7 +50,7 @@ describe("teaching published email", () => {
     expect(e.text).toContain("The recordings of Autumn Retreat 2026 are now available.");
     expect(e.text).toContain("Sign in with this email address.");
     expect(e.text).toContain("Dear Ana,");
-    expect(e.html).toContain("https://app.padmakara.pt");
+    expect(e.html).toContain('href="https://app.padmakara.pt/retreat/919"');
     expect(e.html).toContain("Open Padmakara");
   });
 

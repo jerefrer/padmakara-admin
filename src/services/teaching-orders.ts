@@ -110,6 +110,7 @@ export async function sendTeachingAvailableEmail(
     const mail = buildTeachingAvailableEmail({
       lang,
       firstName: order.firstName,
+      eventId: event.id,
       eventTitle: title,
       published: event.status === "published",
     });

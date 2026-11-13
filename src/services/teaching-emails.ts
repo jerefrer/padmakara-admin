@@ -15,10 +15,14 @@ const PUBLISHED_ACCESS: Record<Lang, string> = {
 };
 const OPEN_BUTTON: Record<Lang, string> = { pt: "Abrir a Padmakara", en: "Open Padmakara" };
 
+/** The event's page: on a phone with the app installed it opens the app there (app links). */
+const eventUrl = (eventId: number): string => `${APP_URL}/retreat/${eventId}`;
+
 /** Sent once access to a single teaching is granted (purchase, free or manual). */
 export function buildTeachingAvailableEmail(p: {
   lang: Lang;
   firstName?: string | null;
+  eventId: number;
   eventTitle: string;
   published: boolean;
 }): { subject: string; html: string; text: string } {
@@ -41,7 +45,7 @@ export function buildTeachingAvailableEmail(p: {
   }
 
   const button = p.published
-    ? { label: OPEN_BUTTON[p.lang], href: APP_URL }
+    ? { label: OPEN_BUTTON[p.lang], href: eventUrl(p.eventId) }
     : undefined;
 
   return {
@@ -65,6 +69,7 @@ export function buildTeachingAvailableEmail(p: {
 export function buildTeachingPublishedEmail(p: {
   lang: Lang;
   firstName?: string | null;
+  eventId: number;
   eventTitle: string;
 }): { subject: string; html: string; text: string } {
   const pt = p.lang === "pt";
@@ -81,7 +86,7 @@ export function buildTeachingPublishedEmail(p: {
       kicker: KICKER[p.lang],
       greeting: greeting(p.lang, p.firstName),
       paragraphs: [intro, PUBLISHED_ACCESS[p.lang]],
-      button: { label: OPEN_BUTTON[p.lang], href: APP_URL },
+      button: { label: OPEN_BUTTON[p.lang], href: eventUrl(p.eventId) },
     }),
   };
 }
