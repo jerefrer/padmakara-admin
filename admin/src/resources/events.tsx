@@ -53,7 +53,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
 import { FeatureStarButton } from "../components/FeatureStarButton";
-import { EventStatusControls, type PublishSection } from "../components/EventStatusControls";
+import { EventStatusControls, type PublishOptions, type PublishRecipients, type PublishSection } from "../components/EventStatusControls";
 import { apiErrorMessageKey, isMappedApiError } from "../utils/apiErrors";
 import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
@@ -201,8 +201,9 @@ const LocaleNameChip = () => {
 
 const StatusChip = ({ status }: { status: string }) => {
   const translate = useTranslate();
-  const colorMap: Record<string, "success" | "warning" | "default"> = {
+  const colorMap: Record<string, "success" | "warning" | "info" | "default"> = {
     published: "success",
+    forthcoming: "info",
     draft: "warning",
     archived: "default",
   };
@@ -377,6 +378,7 @@ const eventFilters = [
     label="padmakara.events.status"
     choices={[
       { id: "draft", name: "padmakara.events.draft" },
+      { id: "forthcoming", name: "padmakara.events.forthcoming" },
       { id: "published", name: "padmakara.events.published" },
       { id: "archived", name: "padmakara.events.archived" },
     ]}
@@ -4555,9 +4557,17 @@ export const EventEdit = () => {
     [form.eventCode, sessions, refresh],
   );
 
+  /** Who the "now available" email would reach, for the publish dialog. */
+  const loadPublishRecipients = useCallback(async (): Promise<PublishRecipients> => {
+    const res = await authFetch(`/api/admin/events/${id}/recipients`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }, [id]);
+
   const handleStatusChange = useCallback(async (
     newStatus: string,
     chosen?: Partial<Record<SectionVisibilityKey, boolean>>,
+    options?: PublishOptions,
   ) => {
     if (!id) return;
     try {
@@ -4578,6 +4588,25 @@ export const EventEdit = () => {
         setForm((prev) => ({ ...prev, status: "published" }));
       }
       notify(apiErrorMessageKey(error), { type: "error", messageArgs: { message: error.message } });
+      return;
+    }
+
+    // The event is published and saved: now tell the people who have access, if asked to.
+    if (!options?.notify) return;
+    try {
+      const res = await authFetch(`/api/admin/events/${id}/notify-published`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `HTTP ${res.status}`);
+      }
+      const { queued } = (await res.json()) as { queued: number };
+      notify("padmakara.events.notifying", { type: "info", messageArgs: { smart_count: queued } });
+    } catch (error: any) {
+      notify("padmakara.events.notifyFailed", { type: "error", messageArgs: { message: error.message } });
     }
   }, [id, dataProvider, event, notify, translate]);
 
@@ -4792,7 +4821,8 @@ export const EventEdit = () => {
             <EventStatusControls
               status={form.status}
               publishSections={buildPublishSections(sectionFlagsOf(form), sectionContent, translate)}
-              onStatusChange={(val, chosen) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val, chosen); }}
+              loadRecipients={loadPublishRecipients}
+              onStatusChange={(val, chosen, options) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val, chosen, options); }}
               star={{
                 eventId: Number(id),
                 featured: !!form.featuredAt,
