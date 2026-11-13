@@ -1205,7 +1205,10 @@ export const EventFormFields = ({
   // Parallel retreats belong to retreat groups; any other event only needs the
   // picker when its audience goes by them, or to keep existing links editable.
   const showGroupsPicker =
-    audienceFrozen || selectedAudience?.slug === "retreat-group-members" || selectedGroups.length > 0;
+    audienceFrozen ||
+    selectedAudience?.slug === "retreat-group-members" ||
+    selectedAudience?.slug === "retreat-group-members-no-membership" ||
+    selectedGroups.length > 0;
 
   const tracksInEvent = sessions.reduce((sum, sess) => sum + sess.tracks.length, 0);
   const selectableTrackIds = sessions.flatMap((sess) =>

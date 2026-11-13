@@ -549,6 +549,22 @@ export const en = {
       groupHand: "Given by hand only",
       othersCanBuy: "Others can buy it",
       soldCount: "%{count} sold",
+      requiresMembership: "Requires an active membership",
+      requiresMembershipHint: "Turn off to open it to people without an active membership too.",
+      pairs: {
+        accounts: {
+          title: "Anyone with an account",
+          desc: "People with an account in the app",
+        },
+        groups: {
+          title: "User group members",
+          desc: "Members of the event's user groups",
+        },
+        participants: {
+          title: "Event participants",
+          desc: "People marked as having attended",
+        },
+      },
       options: {
         everyone: {
           desc: "Anyone, without an account",
@@ -558,6 +574,21 @@ export const en = {
           desc: "Benefactor members with an active membership",
           panel: "Members with an active membership get this event for free.",
           othersHint: "People who are not members get it with a link and a payment.",
+        },
+        accountHolders: {
+          desc: "Anyone signed in to the app, membership or not",
+          panel: "Anyone with an account in the app gets this event for free, even without an active membership.",
+          othersHint: "People without an account get it with a link and a payment.",
+        },
+        groupsNoMembership: {
+          desc: "Members of the event's user groups, membership or not",
+          panel: "Members of the user groups below get this event for free, even without an active membership.",
+          othersHint: "People outside these groups get it with a link and a payment.",
+        },
+        participantsNoMembership: {
+          desc: "People marked as having attended, membership or not",
+          panel: "People marked as having attended this event get it for free, even without an active membership.",
+          othersHint: "People who did not attend get it with a link and a payment.",
         },
         groups: {
           desc: "Members of the event's user groups",

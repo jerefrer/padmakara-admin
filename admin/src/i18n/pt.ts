@@ -747,6 +747,22 @@ export const pt = {
       groupHand: "Só dado à mão",
       othersCanBuy: "Outras pessoas podem comprar",
       soldCount: "%{count} vendidos",
+      requiresMembership: "Exige uma adesão ativa",
+      requiresMembershipHint: "Desative para abrir também a quem não tem adesão ativa.",
+      pairs: {
+        accounts: {
+          title: "Qualquer pessoa com conta",
+          desc: "Pessoas com conta na aplicação",
+        },
+        groups: {
+          title: "Membros do grupo de utilizadores",
+          desc: "Membros dos grupos de utilizadores do evento",
+        },
+        participants: {
+          title: "Participantes no evento",
+          desc: "Pessoas marcadas como presentes",
+        },
+      },
       options: {
         everyone: {
           desc: "Qualquer pessoa, sem conta",
@@ -756,6 +772,21 @@ export const pt = {
           desc: "Membros benfeitores com adesão ativa",
           panel: "Os membros com adesão ativa têm este evento gratuitamente.",
           othersHint: "Quem não é membro obtém-no com uma ligação e um pagamento.",
+        },
+        accountHolders: {
+          desc: "Qualquer pessoa com sessão iniciada na aplicação, com ou sem adesão",
+          panel: "Qualquer pessoa com conta na aplicação tem este evento gratuitamente, mesmo sem adesão ativa.",
+          othersHint: "Quem não tem conta obtém-no com uma ligação e um pagamento.",
+        },
+        groupsNoMembership: {
+          desc: "Membros dos grupos de utilizadores do evento, com ou sem adesão",
+          panel: "Os membros dos grupos de utilizadores abaixo têm este evento gratuitamente, mesmo sem adesão ativa.",
+          othersHint: "Quem está fora destes grupos obtém-no com uma ligação e um pagamento.",
+        },
+        participantsNoMembership: {
+          desc: "Pessoas marcadas como presentes, com ou sem adesão",
+          panel: "As pessoas marcadas como presentes neste evento têm-no gratuitamente, mesmo sem adesão ativa.",
+          othersHint: "Quem não esteve presente obtém-no com uma ligação e um pagamento.",
         },
         groups: {
           desc: "Membros dos grupos de utilizadores do evento",

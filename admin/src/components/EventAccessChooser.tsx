@@ -82,14 +82,40 @@ interface AccessOption {
 export const ACCESS_OPTIONS: readonly AccessOption[] = [
   { slug: "free-anyone", key: "everyone", group: "free" },
   { slug: "free-subscribers", key: "members", group: "free", canSell: true },
+  { slug: "account-holders", key: "accountHolders", group: "free", canSell: true },
   { slug: "retreat-group-members", key: "groups", group: "free", canSell: true, groups: true },
+  { slug: "retreat-group-members-no-membership", key: "groupsNoMembership", group: "free", canSell: true, groups: true },
   { slug: "event-participants", key: "participants", group: "free", canSell: true },
+  { slug: "event-participants-no-membership", key: "participantsNoMembership", group: "free", canSell: true },
   { slug: "everyone-paid", key: "everyonePaid", group: "paid", paid: true },
   { slug: "member-extra-subscription", key: "membersPaid", group: "paid", paid: true },
   { slug: "received-initiation", key: "initiation", group: "hand" },
   { slug: "available-on-request-only", key: "onRequest", group: "hand" },
   { slug: "restricted", key: "restricted", group: "hand" },
 ];
+
+/**
+ * Audiences that differ only by whether an active membership is required. They share
+ * one row in the list; a switch on the right panel moves between the two slugs.
+ */
+export interface MembershipPair {
+  /** i18n key under padmakara.eventAccessChooser.pairs. */
+  key: string;
+  required: string;
+  optional: string;
+}
+
+export const MEMBERSHIP_PAIRS: readonly MembershipPair[] = [
+  { key: "accounts", required: "free-subscribers", optional: "account-holders" },
+  { key: "groups", required: "retreat-group-members", optional: "retreat-group-members-no-membership" },
+  { key: "participants", required: "event-participants", optional: "event-participants-no-membership" },
+];
+
+const pairForSlug = (slug: string | null | undefined): MembershipPair | undefined =>
+  MEMBERSHIP_PAIRS.find((p) => p.required === slug || p.optional === slug);
+
+/** The groups of a parallel retreat: both variants of the user-groups audience. */
+const isGroupsSlug = (slug: string): boolean => pairForSlug(slug)?.key === "groups";
 
 const GROUP_ORDER: readonly OptionGroup[] = ["free", "paid", "hand"];
 const GROUP_LABEL_KEY: Record<OptionGroup, string> = {
@@ -210,6 +236,18 @@ export function EventAccessChooser<A extends AudienceChoice>({
     }
   };
 
+  // The membership switch needs both variants of the pair to exist in the Audiences list.
+  const selectedPair = pairForSlug(selectedAudience?.slug);
+  const requiredVariant = selectedPair && audiences.find((a) => a.slug === selectedPair.required);
+  const optionalVariant = selectedPair && audiences.find((a) => a.slug === selectedPair.optional);
+  const showMembershipSwitch = !!selectedPair && !!requiredVariant && !!optionalVariant;
+  const requiresMembership = selectedAudience?.slug === selectedPair?.required;
+
+  const handleRequiresMembership = (on: boolean) => {
+    const target = on ? requiredVariant : optionalVariant;
+    if (target) handleChoose(target);
+  };
+
   const othersCanBuy = !!current?.canSell && sale.saleMode === "paid";
   const showPrice = !!current?.paid || othersCanBuy;
   const priceInvalid = showPrice && (sale.priceCents ?? 0) < MIN_PRICE_CENTS;
@@ -218,21 +256,28 @@ export function EventAccessChooser<A extends AudienceChoice>({
 
   const renderRow = (audience: A): ReactNode => {
     const option = optionForAudience(audience);
+    const pair = pairForSlug(audience.slug);
+    // A pair is one row. It stands at the required audience (or at the optional one
+    // when that is all the Audiences list has) and shows whichever variant is picked.
+    const pairMembers = pair ? audiences.filter((a) => a.slug === pair.required || a.slug === pair.optional) : [];
+    if (pair && audience.slug === pair.optional && pairMembers.some((a) => a.slug === pair.required)) return null;
+    const selectedInPair = pair && pairMembers.find((a) => a.slug === selectedAudience?.slug);
+    const rowAudience = selectedInPair ?? audience;
     return (
       <FormControlLabel
-        key={audience.slug}
-        value={audience.slug}
-        disabled={!!frozen && audience.slug !== "retreat-group-members"}
+        key={pair ? pair.key : audience.slug}
+        value={rowAudience.slug}
+        disabled={!!frozen && !isGroupsSlug(audience.slug)}
         control={<Radio size="small" />}
-        onChange={() => handleChoose(audience)}
+        onChange={() => handleChoose(rowAudience)}
         sx={{ alignItems: "flex-start", m: 0, py: 0.5, "& .MuiRadio-root": { pt: 0.5 } }}
         label={
           <Box>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {localised(audience, locale)}
+              {pair ? t(`pairs.${pair.key}.title`) : localised(audience, locale)}
             </Typography>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              {t(`options.${option.key}.desc`)}
+              {pair ? t(`pairs.${pair.key}.desc`) : t(`options.${option.key}.desc`)}
             </Typography>
           </Box>
         }
@@ -275,6 +320,25 @@ export function EventAccessChooser<A extends AudienceChoice>({
                   {t(`options.${current.key}.panel`)}
                 </Typography>
               </>
+            )}
+
+            {showMembershipSwitch && (
+              <Box sx={{ mb: 1 }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={requiresMembership}
+                      onChange={(_, on) => handleRequiresMembership(on)}
+                      // Cast: data-* attributes are not part of the typed input props.
+                      slotProps={{ input: { "data-testid": "requires-membership" } as Record<string, string> }}
+                    />
+                  }
+                  label={t("requiresMembership")}
+                />
+                <Typography variant="caption" sx={{ display: "block", color: "text.secondary", ml: 6 }}>
+                  {t("requiresMembershipHint")}
+                </Typography>
+              </Box>
             )}
 
             {current.canSell && (

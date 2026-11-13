@@ -11,6 +11,7 @@ vi.mock("react-admin", () => ({
 
 import {
   ACCESS_OPTIONS,
+  MEMBERSHIP_PAIRS,
   EventAccessChooser,
   accessSummary,
   type AudienceChoice,
@@ -84,7 +85,9 @@ const mount = (props: Parameters<typeof Harness>[0]) => act(() => root.render(<H
 
 const radio = (slug: string) => container.querySelector(`input[type="radio"][value="${slug}"]`) as HTMLInputElement;
 const priceInput = () => container.querySelector('input[inputmode="decimal"]') as HTMLInputElement | null;
-const othersSwitch = () => container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+const othersSwitch = () =>
+  container.querySelector('input[type="checkbox"]:not([data-testid="requires-membership"])') as HTMLInputElement | null;
+const membershipSwitch = () => container.querySelector('[data-testid="requires-membership"]') as HTMLInputElement | null;
 const typeInto = (input: HTMLInputElement, text: string) =>
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
@@ -191,6 +194,65 @@ describe("EventAccessChooser options", () => {
     mount({ audienceSlug: "everyone-paid", sale: { ...NONE, saleMode: "paid", priceCents: 2000 } });
     act(() => radio("member-extra-subscription").click());
     expect(latestSale.priceCents).toBe(2000);
+  });
+});
+
+describe("EventAccessChooser membership pairs", () => {
+  it("should show one row per pair, keeping the optional variant out of the list", () => {
+    mount({ audienceSlug: null, sale: NONE });
+    for (const pair of MEMBERSHIP_PAIRS) {
+      expect(radio(pair.required)).not.toBeNull();
+      expect(radio(pair.optional)).toBeNull();
+      expect(container.textContent).toContain(`pairs.${pair.key}.title`);
+    }
+  });
+
+  it("should pick the required variant when a pair row is clicked", () => {
+    mount({ audienceSlug: null, sale: NONE });
+    act(() => radio("free-subscribers").click());
+    expect(latestAudience?.slug).toBe("free-subscribers");
+  });
+
+  it("should move to the optional variant and back with the membership switch", () => {
+    mount({ audienceSlug: "free-subscribers", sale: NONE });
+    expect(membershipSwitch()!.checked).toBe(true);
+    act(() => membershipSwitch()!.click());
+    expect(latestAudience?.slug).toBe("account-holders");
+    expect(radio("account-holders").checked).toBe(true);
+    expect(membershipSwitch()!.checked).toBe(false);
+    act(() => membershipSwitch()!.click());
+    expect(latestAudience?.slug).toBe("free-subscribers");
+  });
+
+  it.each(MEMBERSHIP_PAIRS.map((p) => [p.key, p.required, p.optional]))(
+    "should keep the sale settings when switching the %s pair",
+    (_key, required, optional) => {
+      mount({ audienceSlug: required!, sale: { ...NONE, saleMode: "paid", priceCents: 2500 } });
+      act(() => membershipSwitch()!.click());
+      expect(latestAudience?.slug).toBe(optional);
+      expect(latestSale).toEqual({ ...NONE, saleMode: "paid", priceCents: 2500 });
+    },
+  );
+
+  it("should hide the membership switch for Everyone and for a paid option", () => {
+    mount({ audienceSlug: "free-anyone", sale: NONE });
+    expect(membershipSwitch()).toBeNull();
+    mount({ audienceSlug: "everyone-paid", sale: { ...NONE, saleMode: "paid", priceCents: 1500 } });
+    expect(membershipSwitch()).toBeNull();
+  });
+
+  it("should hide the membership switch when the optional audience does not exist", () => {
+    mount({ audienceSlug: "free-subscribers", sale: NONE, audiences: AUDIENCES.filter((a) => a.slug !== "account-holders") });
+    expect(membershipSwitch()).toBeNull();
+  });
+
+  it("should allow both group variants and nothing else for a parallel retreat", () => {
+    mount({ audienceSlug: "retreat-group-members-no-membership", sale: NONE, frozen: true });
+    expect(radio("retreat-group-members-no-membership").disabled).toBe(false);
+    expect(radio("retreat-group-members-no-membership").checked).toBe(true);
+    expect(radio("free-anyone").disabled).toBe(true);
+    expect(radio("free-subscribers").disabled).toBe(true);
+    expect(membershipSwitch()!.disabled).toBe(false);
   });
 });
 

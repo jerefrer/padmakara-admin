@@ -22,6 +22,9 @@ const BUILT_IN_SLUGS = new Set([
   "available-on-request-only",
   "received-initiation",
   "restricted",
+  "account-holders",
+  "retreat-group-members-no-membership",
+  "event-participants-no-membership",
 ]);
 
 const SlugInput = () => {
