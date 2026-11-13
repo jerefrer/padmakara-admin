@@ -138,6 +138,8 @@ import { uploadVideoFile, uploadVideoMaster } from "../utils/videoUploader";
 import type { SessionOption } from "../utils/slideSequence";
 import { authFetch } from "../utils/authFetch";
 import { notifyPublishedBody } from "../utils/publishNotify";
+import { AnnounceContentButton } from "../components/AnnounceContentButton";
+import type { AnnouncementsInfo } from "../utils/announce";
 import { compareTracks } from "../utils/trackOrder";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "../components/TranslatableField";
@@ -4565,6 +4567,31 @@ export const EventEdit = () => {
     return res.json();
   }, [id]);
 
+  /** What the "Announce new content" dialog shows: kinds, recipients, history. */
+  const loadAnnouncements = useCallback(async (): Promise<AnnouncementsInfo> => {
+    const res = await authFetch(`/api/admin/events/${id}/announcements`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }, [id]);
+
+  const handleAnnounce = useCallback(async (body: object) => {
+    try {
+      const res = await authFetch(`/api/admin/events/${id}/announce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `HTTP ${res.status}`);
+      }
+      const { queued } = (await res.json()) as { queued: number };
+      notify("padmakara.events.notifying", { type: "info", messageArgs: { smart_count: queued } });
+    } catch (error: any) {
+      notify("padmakara.events.notifyFailed", { type: "error", messageArgs: { message: error.message } });
+    }
+  }, [id, notify]);
+
   const handleStatusChange = useCallback(async (
     newStatus: string,
     chosen?: Partial<Record<SectionVisibilityKey, boolean>>,
@@ -4833,6 +4860,7 @@ export const EventEdit = () => {
                   setForm((prev) => ({ ...prev, featuredAt: updated.featuredAt ?? new Date().toISOString() })),
               }}
             />
+            <AnnounceContentButton status={form.status} load={loadAnnouncements} onConfirm={handleAnnounce} />
             <Button variant="outlined" size="small" sx={{ flexShrink: 0 }} onClick={() => sections.setAll(!sections.allOpen)}>
               {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
             </Button>
