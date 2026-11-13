@@ -12,6 +12,7 @@ import { findOrCreateUserByEmail } from "../../services/users-lookup.ts";
 import { grantEventAccess } from "../../services/event-access.ts";
 import { sendTeachingAvailableEmail } from "../../services/teaching-orders.ts";
 import { bumpUserAccessVersion } from "../../services/sync-versions.ts";
+import { parseEmailList } from "../../services/email-list.ts";
 
 const eventAccessRoutes = new Hono();
 
@@ -22,8 +23,6 @@ const addAccessSchema = z.object({
   notify: z.boolean(),
   language: z.enum(["pt", "en"]).optional(),
 });
-
-const emailSchema = z.string().email().max(254);
 
 function parseEventId(raw: string): number {
   const id = Number(raw);
@@ -142,20 +141,7 @@ eventAccessRoutes.post("/:id/access", async (c) => {
   const { emails, notify, language = "pt" } = parsed.data;
   await assertEventExists(eventId);
 
-  const invalid: string[] = [];
-  const seen = new Set<string>();
-  const valid: string[] = [];
-  for (const raw of emails) {
-    const email = raw.trim().toLowerCase();
-    if (!email) continue;
-    if (!emailSchema.safeParse(email).success) {
-      if (!invalid.includes(raw.trim())) invalid.push(raw.trim());
-      continue;
-    }
-    if (seen.has(email)) continue;
-    seen.add(email);
-    valid.push(email);
-  }
+  const { valid, invalid } = parseEmailList(emails);
 
   const added: string[] = [];
   const alreadyHad: string[] = [];

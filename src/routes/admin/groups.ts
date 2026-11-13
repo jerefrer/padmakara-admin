@@ -23,9 +23,13 @@ import {
 import { resolveGroupUrls } from "../../lib/group-utils.ts";
 import { loadImageSource, imageSourceResponse } from "../../lib/image-source.ts";
 import { parseHeroCrop, saveHeroOriginal } from "../../lib/hero-original.ts";
+import { groupMemberRoutes } from "./group-members.ts";
 import { bumpVersion, bumpUserAccessVersion } from "../../services/sync-versions.ts";
 
 const groupRoutes = new Hono();
+
+// Members added in batch by email: /:id/members (see group-members.ts).
+groupRoutes.route("/", groupMemberRoutes);
 
 const columns: Record<string, any> = {
   id: retreatGroups.id,

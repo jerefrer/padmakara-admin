@@ -23,6 +23,7 @@ import { resolveSaleSettings, MIN_PRICE_CENTS } from "../../lib/sale-settings.ts
 import { isPaidAudience } from "../../services/access.ts";
 import { audiences } from "../../db/schema/audiences.ts";
 import { eventAccessRoutes } from "./event-access.ts";
+import { eventParticipantRoutes } from "./event-participants.ts";
 import { eventSortColumns } from "./events-sort.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs, cancelReadAlongJob } from "../../services/read-along.ts";
@@ -35,6 +36,8 @@ const eventRoutes = new Hono();
 
 // People with access / manual grants: /:id/access (see event-access.ts).
 eventRoutes.route("/", eventAccessRoutes);
+// Participants (attendance rows) added in batch: /:id/participants (see event-participants.ts).
+eventRoutes.route("/", eventParticipantRoutes);
 
 
 eventRoutes.get("/", async (c) => {
