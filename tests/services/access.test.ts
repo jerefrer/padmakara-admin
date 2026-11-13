@@ -131,6 +131,9 @@ describe("Access Control Service", () => {
       expect(AUDIENCE_SLUGS.RESTRICTED).toBe("restricted");
       expect(AUDIENCE_SLUGS.PAID_ALL).toBe("everyone-paid");
       expect(AUDIENCE_SLUGS.PAID_MEMBERS).toBe("member-extra-subscription");
+      expect(AUDIENCE_SLUGS.ACCOUNT_HOLDERS).toBe("account-holders");
+      expect(AUDIENCE_SLUGS.GROUP_MEMBERS_ANY).toBe("retreat-group-members-no-membership");
+      expect(AUDIENCE_SLUGS.EVENT_PARTICIPANTS_ANY).toBe("event-participants-no-membership");
     });
   });
 
@@ -332,6 +335,82 @@ describe("Access Control Service", () => {
 
         const result = await checkEventAccess(user, event);
         expect(result).toEqual({ allowed: true });
+      });
+    });
+
+    describe("membership-optional audiences", () => {
+      const noMembership = () => makeUser({ subscriptionStatus: "none" });
+
+      it("allows any signed-in account holder without a membership", async () => {
+        const result = await checkEventAccess(noMembership(), makeEvent(AUDIENCE_SLUGS.ACCOUNT_HOLDERS));
+        expect(result).toEqual({ allowed: true });
+      });
+
+      it("requires authentication for account holders", async () => {
+        const result = await checkEventAccess(null, makeEvent(AUDIENCE_SLUGS.ACCOUNT_HOLDERS));
+        expect(result).toEqual({ allowed: false, reason: "AUTH_REQUIRED" });
+      });
+
+      it("allows participants without a membership", async () => {
+        mockDb.query.userEventAttendance.findFirst.mockResolvedValueOnce({ userId: 1, eventId: 1 });
+        const result = await checkEventAccess(noMembership(), makeEvent(AUDIENCE_SLUGS.EVENT_PARTICIPANTS_ANY));
+        expect(result).toEqual({ allowed: true });
+      });
+
+      it("denies a non-participant even with a membership", async () => {
+        mockDb.query.userEventAttendance.findFirst.mockResolvedValueOnce(null);
+        const result = await checkEventAccess(makeUser(), makeEvent(AUDIENCE_SLUGS.EVENT_PARTICIPANTS_ANY));
+        expect(result).toEqual({ allowed: false, reason: "EVENT_ATTENDANCE_REQUIRED" });
+      });
+
+      it("requires authentication for participants", async () => {
+        const result = await checkEventAccess(null, makeEvent(AUDIENCE_SLUGS.EVENT_PARTICIPANTS_ANY));
+        expect(result).toEqual({ allowed: false, reason: "AUTH_REQUIRED" });
+      });
+
+      it("allows a group member without a membership", async () => {
+        mockDb.query.userEventAttendance.findFirst.mockResolvedValueOnce(null);
+        mockSelectChain([{ retreatGroupId: 5 }]);
+        mockDb.query.userGroupMemberships.findFirst.mockResolvedValueOnce({ userId: 1, retreatGroupId: 5 });
+        const result = await checkEventAccess(noMembership(), makeEvent(AUDIENCE_SLUGS.GROUP_MEMBERS_ANY));
+        expect(result).toEqual({ allowed: true });
+      });
+
+      it("allows an attendee of the event without a membership or group", async () => {
+        mockDb.query.userEventAttendance.findFirst.mockResolvedValueOnce({ userId: 1, eventId: 1 });
+        const result = await checkEventAccess(noMembership(), makeEvent(AUDIENCE_SLUGS.GROUP_MEMBERS_ANY));
+        expect(result).toEqual({ allowed: true });
+      });
+
+      it("denies a user outside the linked groups", async () => {
+        mockDb.query.userEventAttendance.findFirst.mockResolvedValueOnce(null);
+        mockSelectChain([{ retreatGroupId: 5 }]);
+        mockDb.query.userGroupMemberships.findFirst.mockResolvedValueOnce(null);
+        const result = await checkEventAccess(noMembership(), makeEvent(AUDIENCE_SLUGS.GROUP_MEMBERS_ANY));
+        expect(result).toEqual({ allowed: false, reason: "GROUP_MEMBERSHIP_REQUIRED" });
+      });
+
+      it("allows anyone with an account when no group is linked", async () => {
+        mockDb.query.userEventAttendance.findFirst.mockResolvedValueOnce(null);
+        mockSelectChain([]);
+        const result = await checkEventAccess(noMembership(), makeEvent(AUDIENCE_SLUGS.GROUP_MEMBERS_ANY));
+        expect(result).toEqual({ allowed: true });
+      });
+
+      it("requires authentication for group members", async () => {
+        const result = await checkEventAccess(null, makeEvent(AUDIENCE_SLUGS.GROUP_MEMBERS_ANY));
+        expect(result).toEqual({ allowed: false, reason: "AUTH_REQUIRED" });
+      });
+
+      it("still requires a membership for the original slugs", async () => {
+        for (const slug of [
+          AUDIENCE_SLUGS.SUBSCRIBERS,
+          AUDIENCE_SLUGS.GROUP_MEMBERS,
+          AUDIENCE_SLUGS.EVENT_PARTICIPANTS,
+        ]) {
+          const result = await checkEventAccess(noMembership(), makeEvent(slug));
+          expect(result).toEqual({ allowed: false, reason: "SUBSCRIPTION_REQUIRED" });
+        }
       });
     });
 

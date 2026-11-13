@@ -15,6 +15,10 @@ import { trackOrderBy } from "../services/track-order.ts";
 
 const groupRoutes = new Hono();
 
+// A function, not a constant: read lazily so test mocks of access.ts need not export the slugs.
+const isGroupAudience = (slug: string | undefined): boolean =>
+  slug === AUDIENCE_SLUGS.GROUP_MEMBERS || slug === AUDIENCE_SLUGS.GROUP_MEMBERS_ANY;
+
 groupRoutes.use("*", authMiddleware);
 
 // ─── Shared: get full user record for access checks ───────────────
@@ -72,7 +76,7 @@ groupRoutes.get("/", async (c) => {
     // An event shared by several groups must not list the ones the user is not in.
     // A member of none of them got in as an attendee, and keeps seeing them all.
     const restrictToMemberships =
-      (event as any).audience?.slug === AUDIENCE_SLUGS.GROUP_MEMBERS &&
+      isGroupAudience((event as any).audience?.slug) &&
       linked.some((erg) => memberOf.has(erg.retreatGroup?.id));
     for (const erg of linked) {
       const rg = erg.retreatGroup;

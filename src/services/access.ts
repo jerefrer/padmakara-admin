@@ -21,6 +21,11 @@ export const AUDIENCE_SLUGS = {
   // per-event grant or the admin role alone, never by the audience itself.
   PAID_ALL: "everyone-paid",
   PAID_MEMBERS: "member-extra-subscription",
+  // Same conditions as SUBSCRIBERS / GROUP_MEMBERS / EVENT_PARTICIPANTS, but an
+  // active membership is not required.
+  ACCOUNT_HOLDERS: "account-holders",
+  GROUP_MEMBERS_ANY: "retreat-group-members-no-membership",
+  EVENT_PARTICIPANTS_ANY: "event-participants-no-membership",
 } as const;
 
 /** Whether the audience slug is one of the paid-per-teaching audiences. */
@@ -163,6 +168,8 @@ export async function hasEventGrant(userId: number, eventId: number): Promise<bo
  * - Subscriber events: active subscription
  * - Group member events: active subscription + user in event's group
  * - Event participant events: active subscription + user attended event
+ * - Account holders / group members / participants "(membership not required)": the
+ *   same conditions as above, any signed-in user, no subscription
  * - On request / initiation / restricted: admin-granted via userEventAttendance (subscription optional)
  * - Audience created in the admin (no rule of its own): per-event grant only
  */
@@ -183,6 +190,44 @@ export async function checkEventAccessAudienceOnly(
   event: EventForAccess,
 ): Promise<AccessResult> {
   return checkEventAccessWith(user, { ...event, includedInMembership: false }, async () => false);
+}
+
+async function hasAttended(userId: number, eventId: number): Promise<boolean> {
+  const attendance = await db.query.userEventAttendance.findFirst({
+    where: and(
+      eq(userEventAttendance.userId, userId),
+      eq(userEventAttendance.eventId, eventId),
+    ),
+  });
+  return !!attendance;
+}
+
+/**
+ * Group rule shared by both group audiences (with and without membership):
+ * event attendance takes precedence — members who attended events in other groups
+ * should have access to those recordings even without formal group membership —
+ * then no linked groups (open), then membership in a linked group.
+ */
+async function checkGroupRule(userId: number, eventId: number): Promise<AccessResult> {
+  if (await hasAttended(userId, eventId)) return { allowed: true };
+
+  const eventGroups = await db
+    .select({ retreatGroupId: eventRetreatGroups.retreatGroupId })
+    .from(eventRetreatGroups)
+    .where(eq(eventRetreatGroups.eventId, eventId));
+
+  if (eventGroups.length === 0) return { allowed: true }; // No groups linked = open
+
+  const eventGroupIds = eventGroups.map((g) => g.retreatGroupId);
+  const membership = await db.query.userGroupMemberships.findFirst({
+    where: and(
+      eq(userGroupMemberships.userId, userId),
+      inArray(userGroupMemberships.retreatGroupId, eventGroupIds),
+    ),
+  });
+
+  if (membership) return { allowed: true };
+  return { allowed: false, reason: "GROUP_MEMBERSHIP_REQUIRED" };
 }
 
 async function checkEventAccessWith(
@@ -247,6 +292,19 @@ async function checkEventAccessWith(
     return { allowed: false, reason: "ACCESS_DENIED" };
   }
 
+  // Membership-optional audiences: the same conditions as their membership-gated
+  // twins, checked before the subscription gate.
+  if (audienceSlug === AUDIENCE_SLUGS.ACCOUNT_HOLDERS) {
+    return { allowed: true };
+  }
+  if (audienceSlug === AUDIENCE_SLUGS.EVENT_PARTICIPANTS_ANY) {
+    if (await hasAttended(user.id, event.id)) return { allowed: true };
+    return { allowed: false, reason: "EVENT_ATTENDANCE_REQUIRED" };
+  }
+  if (audienceSlug === AUDIENCE_SLUGS.GROUP_MEMBERS_ANY) {
+    return checkGroupRule(user.id, event.id);
+  }
+
   // All remaining audience types require active subscription
   if (!hasActiveSubscription(user)) {
     return { allowed: false, reason: "SUBSCRIPTION_REQUIRED" };
@@ -258,46 +316,13 @@ async function checkEventAccessWith(
   }
 
   // Group member events: subscription + (user in event's retreat group OR attended this event)
-  // Event attendance takes precedence — members who attended events in other groups
-  // should have access to those recordings even without formal group membership.
   if (audienceSlug === AUDIENCE_SLUGS.GROUP_MEMBERS) {
-    // Check event attendance first (covers cross-group participants)
-    const attendance = await db.query.userEventAttendance.findFirst({
-      where: and(
-        eq(userEventAttendance.userId, user.id),
-        eq(userEventAttendance.eventId, event.id),
-      ),
-    });
-    if (attendance) return { allowed: true };
-
-    const eventGroups = await db
-      .select({ retreatGroupId: eventRetreatGroups.retreatGroupId })
-      .from(eventRetreatGroups)
-      .where(eq(eventRetreatGroups.eventId, event.id));
-
-    if (eventGroups.length === 0) return { allowed: true }; // No groups linked = open to subscribers
-
-    const eventGroupIds = eventGroups.map((g) => g.retreatGroupId);
-    const membership = await db.query.userGroupMemberships.findFirst({
-      where: and(
-        eq(userGroupMemberships.userId, user.id),
-        inArray(userGroupMemberships.retreatGroupId, eventGroupIds),
-      ),
-    });
-
-    if (membership) return { allowed: true };
-    return { allowed: false, reason: "GROUP_MEMBERSHIP_REQUIRED" };
+    return checkGroupRule(user.id, event.id);
   }
 
   // Event participant events: subscription + user attended this event
   if (audienceSlug === AUDIENCE_SLUGS.EVENT_PARTICIPANTS) {
-    const attendance = await db.query.userEventAttendance.findFirst({
-      where: and(
-        eq(userEventAttendance.userId, user.id),
-        eq(userEventAttendance.eventId, event.id),
-      ),
-    });
-    if (attendance) return { allowed: true };
+    if (await hasAttended(user.id, event.id)) return { allowed: true };
     return { allowed: false, reason: "EVENT_ATTENDANCE_REQUIRED" };
   }
 

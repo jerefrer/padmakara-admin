@@ -40,6 +40,13 @@ describe("admin audiences", () => {
     expect(updateSet).not.toHaveBeenCalled();
   });
 
+  it("should refuse to change the slug of a membership-optional audience", async () => {
+    mockDb.query.audiences.findFirst.mockResolvedValueOnce({ id: 21, slug: "account-holders" });
+    const { status } = await put({ nameEn: "Anyone", slug: "anyone" });
+    expect(status).toBe(409);
+    expect(updateSet).not.toHaveBeenCalled();
+  });
+
   it("should still rename a built-in audience when its slug is unchanged", async () => {
     mockDb.query.audiences.findFirst.mockResolvedValueOnce({ id: 7, slug: "free-anyone" });
     const { status } = await put({ nameEn: "Everyone Free Tier", slug: "free-anyone" });
