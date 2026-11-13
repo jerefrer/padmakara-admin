@@ -23,6 +23,7 @@ export { eventVideos, eventVideosRelations } from "./event-videos.ts";
 export { tracks, tracksRelations } from "./tracks.ts";
 export { transcripts, transcriptsRelations } from "./transcripts.ts";
 export { eventFiles, eventFilesRelations } from "./event-files.ts";
+export { eventAnnouncements } from "./event-announcements.ts";
 
 // Library metadata (Wix CSV export)
 export { libraryRecords } from "./library-records.ts";

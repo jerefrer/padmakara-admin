@@ -1,4 +1,5 @@
 import { renderBrandEmail, type Lang } from "./email-template.ts";
+import { ANNOUNCEMENT_KINDS, type AnnouncementKind } from "../lib/announcement-kinds.ts";
 
 const KICKER: Record<Lang, string> = { en: "Your recordings", pt: "As suas gravações" };
 const APP_URL = "https://app.padmakara.pt";
@@ -88,6 +89,52 @@ export function buildTeachingPublishedEmail(p: {
       kicker: KICKER[p.lang],
       greeting: greeting(p.lang, p.firstName),
       // The template escapes every paragraph and turns line breaks into <br />
+      paragraphs: [intro, p.message?.replace(/\r\n?/g, "\n").trim() ?? "", PUBLISHED_ACCESS[p.lang]],
+      button: { label: OPEN_BUTTON[p.lang], href: eventUrl(p.eventId) },
+    }),
+  };
+}
+
+const KIND_PHRASE: Record<Lang, Record<AnnouncementKind, string>> = {
+  en: { transcripts: "the transcripts", videos: "the videos with subtitles", texts: "the related texts" },
+  pt: { transcripts: "as transcrições", videos: "os vídeos com legendas", texts: "os textos relacionados" },
+};
+
+/** "a, b and c" in the reader's language, kinds always in the same order. */
+function joinKinds(lang: Lang, kinds: AnnouncementKind[]): string {
+  const items = ANNOUNCEMENT_KINDS.filter((k) => kinds.includes(k)).map((k) => KIND_PHRASE[lang][k]);
+  const and = lang === "pt" ? "e" : "and";
+  const list = items.length > 1 ? `${items.slice(0, -1).join(", ")} ${and} ${items[items.length - 1]}` : (items[0] ?? "");
+  return list.charAt(0).toUpperCase() + list.slice(1);
+}
+
+/**
+ * Second email of an event: sent when its transcripts, videos with subtitles and/or related
+ * texts are ready. Same access paragraph and button as the "recordings available" email.
+ */
+export function buildContentAnnouncementEmail(p: {
+  lang: Lang;
+  firstName?: string | null;
+  eventId: number;
+  eventTitle: string;
+  kinds: AnnouncementKind[];
+  /** A personal note from the admin, shown as its own paragraph after the intro. Plain text. */
+  message?: string;
+}): { subject: string; html: string; text: string } {
+  const pt = p.lang === "pt";
+  const subject = pt ? `Novidades: ${p.eventTitle}` : `New on ${p.eventTitle}`;
+  const list = joinKinds(p.lang, p.kinds);
+  const intro = pt
+    ? `${list} de ${p.eventTitle} já estão disponíveis.`
+    : `${list} of ${p.eventTitle} are now available.`;
+
+  return {
+    subject,
+    ...renderBrandEmail({
+      lang: p.lang,
+      subject,
+      kicker: KICKER[p.lang],
+      greeting: greeting(p.lang, p.firstName),
       paragraphs: [intro, p.message?.replace(/\r\n?/g, "\n").trim() ?? "", PUBLISHED_ACCESS[p.lang]],
       button: { label: OPEN_BUTTON[p.lang], href: eventUrl(p.eventId) },
     }),

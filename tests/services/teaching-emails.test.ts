@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTeachingAvailableEmail, buildTeachingPublishedEmail } from "../../src/services/teaching-emails.ts";
+import { buildContentAnnouncementEmail, buildTeachingAvailableEmail, buildTeachingPublishedEmail } from "../../src/services/teaching-emails.ts";
 
 const build = (lang: "en" | "pt", published: boolean, firstName: string | null = "Ana") =>
   buildTeachingAvailableEmail({ lang, firstName, eventId: 919, eventTitle: "Autumn Retreat 2026", published });
@@ -104,5 +104,69 @@ describe("teaching published email", () => {
       expect(withMessage("   \n ").text).toBe(plain.text);
       expect(withMessage(undefined).html).toBe(plain.html);
     });
+  });
+});
+
+describe("content announcement email", () => {
+  type Kinds = Parameters<typeof buildContentAnnouncementEmail>[0]["kinds"];
+  const build = (lang: "en" | "pt", kinds: Kinds, message?: string, firstName: string | null = "Ana") =>
+    buildContentAnnouncementEmail({ lang, firstName, eventId: 919, eventTitle: "Autumn Retreat 2026", kinds, message });
+
+  it("should announce one kind (en)", () => {
+    const e = build("en", ["transcripts"]);
+    expect(e.subject).toBe("New on Autumn Retreat 2026");
+    expect(e.text).toContain("The transcripts of Autumn Retreat 2026 are now available.");
+    expect(e.text).toContain("Dear Ana,");
+    expect(e.text).toContain("Sign in with this email address.");
+    expect(e.html).toContain('href="https://app.padmakara.pt/retreat/919"');
+    expect(e.html).toContain("Open Padmakara");
+  });
+
+  it("should join two kinds with and (en)", () => {
+    expect(build("en", ["transcripts", "videos"]).text).toContain(
+      "The transcripts and the videos with subtitles of Autumn Retreat 2026 are now available.",
+    );
+  });
+
+  it("should join three kinds without an Oxford comma, in a fixed order (en)", () => {
+    expect(build("en", ["texts", "videos", "transcripts"]).text).toContain(
+      "The transcripts, the videos with subtitles and the related texts of Autumn Retreat 2026 are now available.",
+    );
+  });
+
+  it("should capitalise the first item whichever kind it is (en)", () => {
+    expect(build("en", ["texts"]).text).toContain("The related texts of Autumn Retreat 2026 are now available.");
+    expect(build("en", ["videos"]).text).toContain("The videos with subtitles of Autumn Retreat 2026 are now available.");
+  });
+
+  it("should use European Portuguese (pt)", () => {
+    const one = build("pt", ["transcripts"]);
+    expect(one.subject).toBe("Novidades: Autumn Retreat 2026");
+    expect(one.text).toContain("As transcrições de Autumn Retreat 2026 já estão disponíveis.");
+    expect(one.text).toContain("Olá Ana,");
+    expect(one.html).toContain("Abrir a Padmakara");
+    expect(build("pt", ["transcripts", "videos", "texts"]).text).toContain(
+      "As transcrições, os vídeos com legendas e os textos relacionados de Autumn Retreat 2026 já estão disponíveis.",
+    );
+    expect(one.text).not.toMatch(/\b(você|vocês)\b/i);
+  });
+
+  it("should put the message between the intro and the access paragraph", () => {
+    const text = build("en", ["videos"], "Subtitles took a while.").text;
+    expect(text.indexOf("are now available.")).toBeLessThan(text.indexOf("Subtitles took a while."));
+    expect(text.indexOf("Subtitles took a while.")).toBeLessThan(text.indexOf("Sign in with this email address."));
+  });
+
+  it("should escape HTML in the message", () => {
+    expect(build("en", ["videos"], "<b>x</b>").html).toContain("&lt;b&gt;x&lt;/b&gt;");
+  });
+
+  it("should leave the email unchanged when the message is blank", () => {
+    expect(build("en", ["videos"], "  ").html).toBe(build("en", ["videos"]).html);
+  });
+
+  it("should never use the word subscription", () => {
+    expect(build("en", ["texts"]).text.toLowerCase()).not.toContain("subscri");
+    expect(build("pt", ["texts"]).text.toLowerCase()).not.toMatch(/subscri|assinatura/);
   });
 });
