@@ -253,7 +253,7 @@ export const createEventSchema = z.object({
   // The language the event was taught in. Drives which languages the app
   // shows a user arriving at the event for the first time.
   originalLanguage: z.enum(["tib", "en", "pt"]).optional(),
-  status: z.enum(["draft", "published", "archived"]).optional().default("draft"),
+  status: z.enum(["draft", "forthcoming", "published", "archived"]).optional().default("draft"),
   imageUrl: z.string().url().optional().nullable(),
   featuredAt: z.string().datetime().optional().nullable(),
   // Single-teaching sale settings; cross-field rules live in lib/sale-settings.ts.

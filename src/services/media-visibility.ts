@@ -84,13 +84,23 @@ const THEME_FIELDS = ["mainThemesEn", "mainThemesPt", "sessionThemesEn", "sessio
  * carries tracks. Video hidden: no videos. Transcripts hidden: no transcripts and no
  * read-along on the tracks. Texts hidden: no files and no linked publications (the
  * publications stay in their own catalogue). Topics hidden: the themes are nulled.
+ * A `forthcoming` event is announced without any content, whatever its flags say: for a
+ * non-admin it loses sessions, videos, transcripts, files, publications, themes and bibliography.
  * Call it before the tracks are enriched with `hasReadAlong`.
  */
 export function applyContentVisibility(event: unknown, role: string | null | undefined): void {
   if (!event || typeof event !== "object") return;
   const ev = event as ContentFlags & Record<string, unknown> & {
+    status?: unknown;
     sessions?: Array<{ tracks?: unknown[] }>;
   };
+  if (ev.status === "forthcoming" && !isAdminRole(role)) {
+    for (const field of ["sessions", "videos", "transcripts", "eventFiles", "eventPublications", "relatedPublications"]) {
+      if (field in ev) ev[field] = [];
+    }
+    for (const field of [...THEME_FIELDS, "bibliography", "bibliographyPt"]) if (field in ev) ev[field] = null;
+    return;
+  }
   const visible = contentVisibleTo(ev, role);
   if (!visible.transcripts) {
     if (ev.transcripts) ev.transcripts = [];

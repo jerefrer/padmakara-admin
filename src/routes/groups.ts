@@ -50,9 +50,10 @@ groupRoutes.get("/", async (c) => {
     return c.json(resolved);
   }
 
-  // Get all published events with audience + retreat group info
+  // Get all published and forthcoming events with audience + retreat group info (a
+  // forthcoming event puts its group in the list; its content is never served here)
   const allEvents = await db.query.events.findMany({
-    where: eq(events.status, "published"),
+    where: inArray(events.status, eventStatusVisibleTo(user.role)),
     with: {
       audience: true,
       eventRetreatGroups: { with: { retreatGroup: true } },
@@ -62,7 +63,7 @@ groupRoutes.get("/", async (c) => {
   // Filter to events the audience rules open for the user. Grants and membership inclusion
   // are left out on purpose: buying one teaching must not add its whole group to the list.
   const fullUser = await getFullUser(user.id);
-  const accessibleEvents = await filterAccessibleEvents(fullUser, allEvents, { audienceOnly: true });
+  const accessibleEvents = await filterAccessibleEvents(fullUser, allEvents, { audienceOnly: true, listing: true });
 
   const memberships = await db.query.userGroupMemberships.findMany({
     where: eq(userGroupMemberships.userId, user.id),
@@ -158,8 +159,9 @@ groupRoutes.get("/:id/events", async (c) => {
 
   // Filter events by audience-based access control
   const fullUser = await getFullUser(user.id);
-  const accessibleEvents = await filterAccessibleEvents(fullUser, data);
+  const accessibleEvents = await filterAccessibleEvents(fullUser, data, { listing: true });
 
+  // Strips the content of forthcoming events
   applyContentVisibilityToAll(accessibleEvents, user.role);
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);

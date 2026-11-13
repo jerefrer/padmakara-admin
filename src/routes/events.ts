@@ -11,7 +11,7 @@ import { downloadRequests } from "../db/schema/index.ts";
 import { authMiddleware, optionalAuthMiddleware, getUser, getOptionalUser } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
-import { checkEventAccess, filterAccessibleEvents, eventStatusVisibleTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
+import { checkEventAccess, filterAccessibleEvents, eventStatusVisibleTo, eventStatusOpenTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
 import { publicationsViaGroups, mergePublications } from "../services/event-publications.ts";
 import { openablePublications } from "../services/publication-access.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
@@ -157,7 +157,8 @@ export const eventListWith = {
 /**
  * GET /api/events/public - List public events (optional auth)
  * Returns events with audience slug "free-anyone".
- * Admins/superadmins who send a JWT also see draft events.
+ * Admins/superadmins who send a JWT also see draft and forthcoming events (content
+ * routes only open published events to everyone else).
  */
 eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
   const user = getOptionalUser(c);
@@ -173,7 +174,7 @@ eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
 
   const data = await db.query.events.findMany({
     where: and(
-      inArray(events.status, eventStatusVisibleTo(user?.role)),
+      inArray(events.status, eventStatusOpenTo(user?.role)),
       eq(events.audienceId, publicAudience.id),
     ),
     orderBy: (r, { desc }) => [desc(r.startDate)],
@@ -198,7 +199,7 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
   const user = getOptionalUser(c);
 
   const event = await db.query.events.findFirst({
-    where: and(eq(events.id, id), inArray(events.status, eventStatusVisibleTo(user?.role))),
+    where: and(eq(events.id, id), inArray(events.status, eventStatusOpenTo(user?.role))),
     with: eventWithSessions,
   });
 
@@ -235,7 +236,7 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
 
   const event = await db.query.events.findFirst({
     where: and(
-      inArray(events.status, eventStatusVisibleTo(user?.role)),
+      inArray(events.status, eventStatusOpenTo(user?.role)),
       isNotNull(events.featuredAt),
     ),
     orderBy: [desc(events.featuredAt)],
@@ -374,11 +375,13 @@ eventRoutes.use("/*", authMiddleware);
  * Helper: check event access, throw on denied.
  * Runs for ALL callers including admins/superadmins so the status gate
  * (STATUS_HIDDEN) applies universally — archived events return 404 for everyone,
- * and draft events return 404 for non-admins.
+ * and draft and forthcoming events return 404 for non-admins (content check; the event
+ * detail passes `listing` so a forthcoming event is announced).
  */
 async function requireEventAccess(
   userId: number,
   event: { id: number; status: string; audience?: { slug: string } | null },
+  opts: { listing?: boolean } = {},
 ) {
   const fullUser = await db.query.users.findFirst({
     where: eq(users.id, userId),
@@ -393,6 +396,7 @@ async function requireEventAccess(
       subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
     },
     event,
+    opts,
   );
 
   if (result.allowed) return;
@@ -481,10 +485,10 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
 eventRoutes.get("/", async (c) => {
   const user = getUser(c);
 
-  // Admin users can see published and draft events
+  // Admin users can see published, forthcoming and draft events
   if (user.role === "admin" || user.role === "superadmin") {
     const data = await db.query.events.findMany({
-      where: inArray(events.status, ["published", "draft"]),
+      where: inArray(events.status, eventStatusVisibleTo(user.role)),
       orderBy: (r, { desc }) => [desc(r.startDate)],
       with: eventListWith,
     });
@@ -505,9 +509,10 @@ eventRoutes.get("/", async (c) => {
     throw AppError.unauthorized("User not found");
   }
 
-  // Fetch all published events with audience info
+  // Fetch all published and forthcoming events with audience info (a forthcoming event
+  // is listed to the people its audience lets in, without content: see below)
   const allEvents = await db.query.events.findMany({
-    where: eq(events.status, "published"),
+    where: inArray(events.status, eventStatusVisibleTo(user.role)),
     orderBy: (r, { desc }) => [desc(r.startDate)],
     with: eventListWith,
   });
@@ -521,8 +526,10 @@ eventRoutes.get("/", async (c) => {
       subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
     },
     allEvents,
+    { listing: true },
   );
 
+  // Strips the content of forthcoming events
   applyContentVisibilityToAll(accessibleEvents, user.role);
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
@@ -548,10 +555,13 @@ eventRoutes.get("/:id", async (c) => {
     throw AppError.notFound("Event not found");
   }
 
-  await requireEventAccess(user.id, event);
+  // A forthcoming event is announced to the people its audience lets in: metadata only
+  await requireEventAccess(user.id, event, { listing: true });
 
-  // Hidden audio/video never leaves the server for a regular user
+  // Hidden audio/video never leaves the server for a regular user; a forthcoming event
+  // loses all its content here
   applyContentVisibility(event, user.role);
+  const contentClosed = !eventStatusOpenTo(user.role).includes(event.status);
 
   // Enrich all tracks with speaker names
   for (const session of (event as any).sessions ?? []) {
@@ -570,10 +580,12 @@ eventRoutes.get("/:id", async (c) => {
   const eventGroupIds = ((event as any).eventRetreatGroups || []).map(
     (g: any) => g.retreatGroupId ?? g.retreatGroup?.id,
   ).filter((gid: unknown): gid is number => typeof gid === "number");
-  const linkedPublications = mergePublications(
-    directPublications,
-    textsVisible ? await publicationsViaGroups(eventGroupIds) : [],
-  );
+  const linkedPublications = contentClosed
+    ? []
+    : mergePublications(
+        directPublications,
+        textsVisible ? await publicationsViaGroups(eventGroupIds) : [],
+      );
   const openedPublications = await openablePublications(user, linkedPublications);
   const relatedPublications = linkedPublications.filter((pub: any) =>
     openedPublications.has(pub.id),

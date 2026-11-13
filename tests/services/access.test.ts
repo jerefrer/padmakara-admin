@@ -24,6 +24,7 @@ import {
   checkEventAccess,
   filterAccessibleEvents,
   eventStatusVisibleTo,
+  eventStatusOpenTo,
   denialToHttpError,
   hasActiveSubscription,
   AUDIENCE_SLUGS,
@@ -501,18 +502,86 @@ describe("Access Control Service", () => {
 });
 
 describe("eventStatusVisibleTo", () => {
-  it("returns published + draft for an admin", () => {
-    expect([...eventStatusVisibleTo("admin")].sort()).toEqual(["draft", "published"]);
+  it("returns published + forthcoming + draft for an admin", () => {
+    expect([...eventStatusVisibleTo("admin")].sort()).toEqual(["draft", "forthcoming", "published"]);
   });
-  it("returns published + draft for a superadmin", () => {
-    expect([...eventStatusVisibleTo("superadmin")].sort()).toEqual(["draft", "published"]);
+  it("returns published + forthcoming + draft for a superadmin", () => {
+    expect([...eventStatusVisibleTo("superadmin")].sort()).toEqual(["draft", "forthcoming", "published"]);
   });
-  it("returns published only for a regular user", () => {
-    expect(eventStatusVisibleTo("user")).toEqual(["published"]);
+  it("returns published + forthcoming for a regular user", () => {
+    expect([...eventStatusVisibleTo("user")].sort()).toEqual(["forthcoming", "published"]);
   });
-  it("returns published only for an unauthenticated caller", () => {
-    expect(eventStatusVisibleTo(null)).toEqual(["published"]);
-    expect(eventStatusVisibleTo(undefined)).toEqual(["published"]);
+  it("returns published + forthcoming for an unauthenticated caller", () => {
+    expect([...eventStatusVisibleTo(null)].sort()).toEqual(["forthcoming", "published"]);
+    expect([...eventStatusVisibleTo(undefined)].sort()).toEqual(["forthcoming", "published"]);
+  });
+});
+
+describe("eventStatusOpenTo", () => {
+  it("returns published only for a regular user and an unauthenticated caller", () => {
+    expect(eventStatusOpenTo("user")).toEqual(["published"]);
+    expect(eventStatusOpenTo(null)).toEqual(["published"]);
+    expect(eventStatusOpenTo(undefined)).toEqual(["published"]);
+  });
+  it("returns published + forthcoming + draft for admins", () => {
+    expect([...eventStatusOpenTo("admin")].sort()).toEqual(["draft", "forthcoming", "published"]);
+    expect([...eventStatusOpenTo("superadmin")].sort()).toEqual(["draft", "forthcoming", "published"]);
+  });
+});
+
+describe("forthcoming events", () => {
+  const forthcoming = (slug: string | null) => ({
+    id: 5,
+    status: "forthcoming",
+    audienceId: 1,
+    audience: slug ? { slug } : null,
+  });
+  const admin = { id: 1, role: "admin", subscriptionStatus: "none", subscriptionExpiresAt: null };
+  const member = { id: 2, role: "user", subscriptionStatus: "active", subscriptionExpiresAt: null };
+
+  it("keeps content closed to a regular user even on a public audience", async () => {
+    const r = await checkEventAccess(member, forthcoming("free-anyone"));
+    expect(r).toEqual({ allowed: false, reason: "STATUS_HIDDEN" });
+  });
+  it("keeps content closed to an anonymous caller", async () => {
+    const r = await checkEventAccess(null, forthcoming("free-anyone"));
+    expect(r).toEqual({ allowed: false, reason: "STATUS_HIDDEN" });
+  });
+  it("keeps content closed to a user holding a grant", async () => {
+    mockDb.query.eventAccessGrants.findFirst.mockResolvedValue({ id: 1 });
+    const r = await checkEventAccess(member, forthcoming("everyone-paid"));
+    mockDb.query.eventAccessGrants.findFirst.mockResolvedValue(undefined);
+    expect(r).toEqual({ allowed: false, reason: "STATUS_HIDDEN" });
+  });
+  it("opens content to an admin", async () => {
+    const r = await checkEventAccess(admin, forthcoming("free-anyone"));
+    expect(r.allowed).toBe(true);
+  });
+  it("passes the listing check for a user the audience would let in", async () => {
+    const r = await checkEventAccess(member, forthcoming("free-subscribers"), { listing: true });
+    expect(r.allowed).toBe(true);
+  });
+  it("fails the listing check for a user the audience would not let in", async () => {
+    const nonMember = { ...member, subscriptionStatus: "none" };
+    const r = await checkEventAccess(nonMember, forthcoming("free-subscribers"), { listing: true });
+    expect(r).toEqual({ allowed: false, reason: "SUBSCRIPTION_REQUIRED" });
+  });
+  it("still hides a draft in the listing check", async () => {
+    const r = await checkEventAccess(member, { ...forthcoming("free-anyone"), status: "draft" }, { listing: true });
+    expect(r).toEqual({ allowed: false, reason: "STATUS_HIDDEN" });
+  });
+  it("filterAccessibleEvents lists a forthcoming event only with the listing option", async () => {
+    const list = [forthcoming("free-subscribers")];
+    mockSelectChain([]);
+    expect(await filterAccessibleEvents(member, list)).toEqual([]);
+    mockSelectChain([]);
+    expect(await filterAccessibleEvents(member, list, { listing: true })).toHaveLength(1);
+    expect(await filterAccessibleEvents(member, list, { listing: true, audienceOnly: true })).toHaveLength(1);
+  });
+  it("filterAccessibleEvents leaves out a forthcoming event the audience does not open", async () => {
+    const nonMember = { ...member, subscriptionStatus: "none" };
+    mockSelectChain([]);
+    expect(await filterAccessibleEvents(nonMember, [forthcoming("free-subscribers")], { listing: true })).toEqual([]);
   });
 });
 

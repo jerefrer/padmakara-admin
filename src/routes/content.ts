@@ -16,7 +16,7 @@ import {
 } from "../lib/schemas.ts";
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
-import { checkEventAccess, eventStatusVisibleTo } from "../services/access.ts";
+import { checkEventAccess, eventStatusOpenTo } from "../services/access.ts";
 import {
   applyContentVisibility,
   applyTrackReadAlongVisibility,
@@ -77,12 +77,12 @@ contentRoutes.post("/progress", async (c) => {
     return c.json({ skipped: true, reason: "unknown_track", trackId: data.trackId });
   }
 
-  // Draft-event status guard: non-admin callers must not be able to record
+  // Draft/forthcoming status guard (content, not listing): non-admin callers must not be able to record
   // progress on tracks that belong to a draft event (that would leak that
   // the event exists). Treat it the same as a missing track (`skipped` would
   // be confusing for a draft — 404 is cleaner and matches the GET behaviour).
   const eventStatus = trackExists.session?.event?.status;
-  if (!eventStatus || !eventStatusVisibleTo(user.role).includes(eventStatus)) {
+  if (!eventStatus || !eventStatusOpenTo(user.role).includes(eventStatus)) {
     throw AppError.notFound("Track not found");
   }
   // Same for a track whose audio is hidden (a regular user must not know it exists)
@@ -428,7 +428,7 @@ contentRoutes.post("/event-bookmarks", async (c) => {
   const event = await db.query.events.findFirst({
     where: eq(events.id, data.eventId),
   });
-  if (!event || !eventStatusVisibleTo(user.role).includes(event.status)) {
+  if (!event || !eventStatusOpenTo(user.role).includes(event.status)) {
     throw AppError.notFound("Event not found");
   }
 
@@ -548,7 +548,7 @@ contentRoutes.post("/track-bookmarks", async (c) => {
     with: { session: { with: { event: true } } },
   });
   const guardStatus = trackForGuard?.session?.event?.status;
-  if (!guardStatus || !eventStatusVisibleTo(user.role).includes(guardStatus)) {
+  if (!guardStatus || !eventStatusOpenTo(user.role).includes(guardStatus)) {
     throw AppError.notFound("Track not found");
   }
   assertAudioVisible(trackForGuard?.session?.event, user.role, "Track not found");

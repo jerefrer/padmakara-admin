@@ -62,6 +62,8 @@ const publicEvent = { id: 42, status: "published", audience: { slug: "free-anyon
 beforeEach(() => {
   vi.clearAllMocks();
   updateSets.length = 0;
+  // The owner path re-reads the event: published unless a test says otherwise
+  mockDb.query.events.findFirst.mockResolvedValue(publicEvent);
 });
 
 describe("GET /api/download-requests/:id/status", () => {
@@ -79,6 +81,17 @@ describe("GET /api/download-requests/:id/status", () => {
       total_files: 20,
       processed_files: 9,
     });
+  });
+
+  it("should return 404 to the owner once the event is only forthcoming", async () => {
+    mockDb.query.downloadRequests.findFirst.mockResolvedValueOnce(makeRequest({ status: "ready" }));
+    mockDb.query.events.findFirst.mockResolvedValueOnce({ ...publicEvent, status: "forthcoming" });
+
+    const { status } = await testJson(`/api/download-requests/${REQUEST_ID}/download`, {
+      headers: await authHeader(1),
+    });
+
+    expect(status).toBe(404);
   });
 
   it("should return 404 when the request does not exist", async () => {

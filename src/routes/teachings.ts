@@ -76,8 +76,11 @@ async function findSaleEvent(id: number) {
 
 // ─── Authenticated ───
 
+/** Statuses shown in the library, for admins too: published, and forthcoming (announced, no content). */
+const LIBRARY_STATUSES = ["published", "forthcoming"];
+
 /**
- * GET /api/teachings/mine: the published events of the user's library that no group
+ * GET /api/teachings/mine: the published (and forthcoming) events of the user's library that no group
  * lists. Bought events come first, newest grant first. Then the events their audience
  * opens to this user with no group linked (Every Member, event participants), which
  * would otherwise appear nowhere. Public events stay in Teachings & Talks.
@@ -89,8 +92,9 @@ teachingRoutes.get("/mine", authMiddleware, async (c) => {
   });
   const rank = new Map(grants.map((g) => [g.eventId, g.createdAt.getTime()]));
 
+  // Forthcoming events are listed too (without content, see applyContentVisibilityToAll)
   const published = await db.query.events.findMany({
-    where: eq(events.status, "published"),
+    where: inArray(events.status, LIBRARY_STATUSES),
     with: { audience: true, eventRetreatGroups: true },
   });
   const fullUser = await db.query.users.findFirst({ where: eq(users.id, user.id) });
@@ -100,6 +104,7 @@ teachingRoutes.get("/mine", authMiddleware, async (c) => {
         published.filter(
           (e) => !rank.has(e.id) && e.audience?.slug !== AUDIENCE_SLUGS.PUBLIC && e.eventRetreatGroups.length === 0,
         ),
+        { listing: true },
       )
     : [];
 
@@ -112,7 +117,7 @@ teachingRoutes.get("/mine", authMiddleware, async (c) => {
   });
   const openIds = new Set(open.map((e) => e.id));
   const data = rows
-    .filter((e) => e.status === "published" && (rank.has(e.id) || openIds.has(e.id)))
+    .filter((e) => LIBRARY_STATUSES.includes(e.status) && (rank.has(e.id) || openIds.has(e.id)))
     .sort((a, b) => {
       const byGrant = (rank.get(b.id) ?? 0) - (rank.get(a.id) ?? 0);
       return byGrant || String(b.startDate ?? "").localeCompare(String(a.startDate ?? ""));

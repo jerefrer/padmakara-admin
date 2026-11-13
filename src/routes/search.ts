@@ -180,7 +180,8 @@ searchRoutes.get("/", async (c) => {
   const totalWords = queryWords.length;
 
   // Resolve the caller's role (if any) to determine which statuses to fetch.
-  // Admins/superadmins see drafts in addition to published; everyone else sees published only.
+  // Everyone sees published and forthcoming events (a forthcoming one matches on its
+  // title and teachers only: its content is stripped below); admins also see drafts.
   const authUser = getOptionalUser(c);
 
   // Fetch events with the status set visible to this caller.
@@ -209,17 +210,19 @@ searchRoutes.get("/", async (c) => {
           subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
         },
         allEvents,
+        { listing: true },
       );
     } else {
       // User record not found — treat as unauthenticated
       accessibleEvents = allEvents.filter(
-        (e) => e.audience?.slug === AUDIENCE_SLUGS.PUBLIC,
+        (e) => e.status === "published" && e.audience?.slug === AUDIENCE_SLUGS.PUBLIC,
       );
     }
   } else {
-    // Unauthenticated — public events only
+    // Unauthenticated — published public events only (a forthcoming event is announced
+    // to signed-in people who will have access, never to anonymous callers)
     accessibleEvents = allEvents.filter(
-      (e) => e.audience?.slug === AUDIENCE_SLUGS.PUBLIC,
+      (e) => e.status === "published" && e.audience?.slug === AUDIENCE_SLUGS.PUBLIC,
     );
   }
 

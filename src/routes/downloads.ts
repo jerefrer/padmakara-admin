@@ -6,7 +6,7 @@ import { events } from "../db/schema/retreats.ts";
 import { AppError } from "../lib/errors.ts";
 import { optionalAuthMiddleware, getOptionalUser } from "../middleware/auth.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
-import { AUDIENCE_SLUGS } from "../services/access.ts";
+import { AUDIENCE_SLUGS, eventStatusOpenTo } from "../services/access.ts";
 import { assertAudioVisible } from "../services/media-visibility.ts";
 
 const downloadsRoutes = new Hono();
@@ -40,8 +40,12 @@ async function verifyEventStillPublic(eventId: number): Promise<void> {
 async function verifyAudioStillVisible(eventId: number, role: string | undefined): Promise<void> {
   const event = await db.query.events.findFirst({
     where: eq(events.id, eventId),
-    columns: { audioPublished: true, videoPublished: true },
+    columns: { status: true, audioPublished: true, videoPublished: true },
   });
+  // A ZIP built before the event went back to forthcoming/draft is not served either
+  if (!event || !eventStatusOpenTo(role).includes(event.status)) {
+    throw AppError.notFound("Download request not found");
+  }
   assertAudioVisible(event, role, "Download request not found");
 }
 

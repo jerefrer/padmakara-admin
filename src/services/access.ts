@@ -111,15 +111,39 @@ export function hasActiveSubscription(user: {
   return cutoff >= new Date();
 }
 
+function isAdminRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "superadmin";
+}
+
 /**
- * Event statuses a caller of the given role may see in the app.
- * Admins/superadmins see drafts; everyone else (incl. unauthenticated) sees
- * only published. `archived` is never visible in the app.
+ * Event statuses a caller of the given role may SEE in the app: in lists and in the event
+ * detail (metadata only for a `forthcoming` event, see `applyContentVisibility`).
+ * Everyone sees published and forthcoming; admins/superadmins also see drafts.
+ * `archived` is never visible in the app.
+ *
+ * Never use this to gate content (sessions, tracks, audio/video, transcripts, files,
+ * downloads, progress, bookmarks): that is `eventStatusOpenTo`.
  */
 export function eventStatusVisibleTo(role: string | null | undefined): string[] {
-  return role === "admin" || role === "superadmin"
-    ? ["published", "draft"]
-    : ["published"];
+  return isAdminRole(role) ? ["published", "forthcoming", "draft"] : ["published", "forthcoming"];
+}
+
+/**
+ * Event statuses whose CONTENT a caller of the given role may open: published only for
+ * everyone but admins/superadmins, who also open forthcoming events and drafts.
+ */
+export function eventStatusOpenTo(role: string | null | undefined): string[] {
+  return isAdminRole(role) ? ["published", "forthcoming", "draft"] : ["published"];
+}
+
+/**
+ * Options of the access checks. `listing`: judge the event as it appears in a list or in
+ * the event detail, where a `forthcoming` event is announced to the people its audience
+ * will let in (the status gate uses `eventStatusVisibleTo`). Without it the check is for
+ * content and the status gate uses `eventStatusOpenTo`.
+ */
+export interface AccessCheckOptions {
+  listing?: boolean;
 }
 
 /**
@@ -176,8 +200,9 @@ export async function hasEventGrant(userId: number, eventId: number): Promise<bo
 export async function checkEventAccess(
   user: UserForAccess | null,
   event: EventForAccess,
+  opts: AccessCheckOptions = {},
 ): Promise<AccessResult> {
-  return checkEventAccessWith(user, event, (u) => hasEventGrant(u.id, event.id));
+  return checkEventAccessWith(user, event, (u) => hasEventGrant(u.id, event.id), opts);
 }
 
 /**
@@ -188,8 +213,9 @@ export async function checkEventAccess(
 export async function checkEventAccessAudienceOnly(
   user: UserForAccess | null,
   event: EventForAccess,
+  opts: AccessCheckOptions = {},
 ): Promise<AccessResult> {
-  return checkEventAccessWith(user, { ...event, includedInMembership: false }, async () => false);
+  return checkEventAccessWith(user, { ...event, includedInMembership: false }, async () => false, opts);
 }
 
 async function hasAttended(userId: number, eventId: number): Promise<boolean> {
@@ -234,10 +260,13 @@ async function checkEventAccessWith(
   user: UserForAccess | null,
   event: EventForAccess,
   hasGrant: (user: UserForAccess) => Promise<boolean>,
+  opts: AccessCheckOptions = {},
 ): Promise<AccessResult> {
   // Status gate: runs before all other checks, including admin bypass.
-  // archived is hidden from everyone; draft is hidden from non-admins.
-  if (!eventStatusVisibleTo(user?.role).includes(event.status)) {
+  // archived is hidden from everyone; draft is hidden from non-admins; forthcoming is
+  // hidden from non-admins unless the caller only wants to know whether to list it.
+  const gate = opts.listing ? eventStatusVisibleTo : eventStatusOpenTo;
+  if (!gate(user?.role).includes(event.status)) {
     return { allowed: false, reason: "STATUS_HIDDEN" };
   }
 
@@ -332,16 +361,19 @@ async function checkEventAccessWith(
 
 /**
  * Check which events from a list the user can access.
- * Returns the subset of events the user is allowed to see.
+ * Returns the subset of events the user is allowed to see. Pass `listing: true` from list
+ * endpoints so forthcoming events are judged on their audience; the payload must then go
+ * through `applyContentVisibility`, which strips a forthcoming event's content.
  */
 export async function filterAccessibleEvents<T extends EventForAccess>(
   user: UserForAccess | null,
   eventList: T[],
-  opts: { audienceOnly?: boolean } = {},
+  opts: { audienceOnly?: boolean } & AccessCheckOptions = {},
 ): Promise<T[]> {
+  const check: AccessCheckOptions = { listing: opts.listing };
   if (opts.audienceOnly) {
     const kept: (T | null)[] = await Promise.all(
-      eventList.map(async (event) => ((await checkEventAccessAudienceOnly(user, event)).allowed ? event : null)),
+      eventList.map(async (event) => ((await checkEventAccessAudienceOnly(user, event, check)).allowed ? event : null)),
     );
     return kept.filter((e): e is T => e !== null);
   }
@@ -361,6 +393,7 @@ export async function filterAccessibleEvents<T extends EventForAccess>(
     eventList.map(async (event) => {
       const result = await checkEventAccessWith(user, event, async () =>
         grantedIds.has(event.id),
+        check,
       );
       return result.allowed ? event : null;
     }),
