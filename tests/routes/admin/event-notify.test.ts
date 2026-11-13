@@ -47,6 +47,7 @@ function eventRow(overrides: Record<string, unknown> = {}) {
     titlePt: "Retiro",
     publishedNotifiedAt: null,
     publishedNotifiedCount: null,
+    audience: { slug: "retreat-group-members" },
     ...overrides,
   };
 }
@@ -74,12 +75,20 @@ describe("GET /api/admin/events/:id/recipients", () => {
     const { status, body } = await testJson("/api/admin/events/5/recipients", { headers: await adminAuth() });
 
     expect(status).toBe(200);
-    expect(body).toEqual({ count: 2, notifiedAt: at, notifiedCount: 7 });
+    expect(body).toEqual({ count: 2, notifiedAt: at, notifiedCount: 7, notifyByDefault: true });
   });
 
   it("should return nulls when nobody was emailed yet", async () => {
     const { body } = await testJson("/api/admin/events/5/recipients", { headers: await adminAuth() });
-    expect(body).toEqual({ count: 2, notifiedAt: null, notifiedCount: null });
+    expect(body).toEqual({ count: 2, notifiedAt: null, notifiedCount: null, notifyByDefault: true });
+  });
+
+  it("should not suggest emailing when the event is open to everyone or to any account", async () => {
+    for (const slug of ["free-anyone", "account-holders"]) {
+      h.event = eventRow({ audience: { slug } });
+      const { body } = await testJson("/api/admin/events/5/recipients", { headers: await adminAuth() });
+      expect(body).toMatchObject({ notifyByDefault: false });
+    }
   });
 
   it("should answer 404 for an unknown event", async () => {

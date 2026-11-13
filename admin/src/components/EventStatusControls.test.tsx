@@ -180,7 +180,7 @@ describe("EventStatusControls", () => {
 
   describe("email on publish", () => {
     const openPublish = async (
-      recipients: { count: number; notifiedAt: string | null } | "fail",
+      recipients: { count: number; notifiedAt: string | null; notifyByDefault?: boolean } | "fail",
       onStatusChange = vi.fn(),
     ) => {
       const loadRecipients = vi.fn(() =>
@@ -211,6 +211,12 @@ describe("EventStatusControls", () => {
       // below the section boxes
       const html = document.body.innerHTML;
       expect(html.indexOf("data-publish-section")).toBeLessThan(html.indexOf("notify-on-publish"));
+    });
+
+    it("should leave the box unticked when the server does not suggest emailing", async () => {
+      await openPublish({ count: 40, notifiedAt: null, notifyByDefault: false });
+
+      expect(notifyBox()!.checked).toBe(false);
     });
 
     it("should report notify: true with the sections when confirmed with the box ticked", async () => {

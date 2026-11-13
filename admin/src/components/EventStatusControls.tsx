@@ -16,6 +16,8 @@ export interface PublishRecipients {
   count: number;
   /** ISO date of an earlier send, or null. */
   notifiedAt: string | null;
+  /** False for events open to everyone or any account: the box then starts unticked. */
+  notifyByDefault?: boolean;
 }
 
 /** What a confirmed publish asks for besides the status. */
@@ -80,7 +82,11 @@ export function EventStatusControls({ status, onStatusChange, publishSections, l
     const mine = ++askCount.current;
     if (val === "published" && loadRecipients) {
       loadRecipients()
-        .then((r) => { if (askCount.current === mine) setRecipients(r); })
+        .then((r) => {
+          if (askCount.current !== mine) return;
+          setRecipients(r);
+          setNotifyChecked(r.notifyByDefault !== false);
+        })
         .catch(() => { /* no box when the count cannot be fetched: publishing still works */ });
     }
   };
