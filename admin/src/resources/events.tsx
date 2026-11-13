@@ -92,6 +92,7 @@ import { EventAccessChooser, accessSummary } from "../components/EventAccessChoo
 import { CollapsibleSection, useCollapsibleSections } from "../components/CollapsibleSection";
 import { formatDateRange } from "../utils/formatDateRange";
 import { EventAccessSection } from "../components/EventAccessSection";
+import { BatchMembersCard } from "../components/BatchMembersCard";
 import { useEventAccess } from "../components/useEventAccess";
 import { EventFilesPreview } from "../components/EventFilesPreview";
 import { UploadProgress } from "../components/UploadProgress";
@@ -1713,6 +1714,9 @@ export const EventFormFields = ({
           stats={access?.stats}
         />
       </Box>
+      {eventId !== undefined && (
+        <BatchMembersCard endpoint={`/api/admin/events/${eventId}/participants`} i18nPrefix="padmakara.participants" />
+      )}
       {eventId !== undefined && <EventAccessSection eventId={eventId} access={access} reload={reloadAccess} />}
     </>
   );

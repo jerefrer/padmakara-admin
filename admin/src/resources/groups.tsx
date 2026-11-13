@@ -33,6 +33,7 @@ import {
 import DeleteIcon from "@mui/icons-material/Delete";
 import { SortableList } from "../components/SortableList";
 import { GroupImageUpload } from "../components/GroupImageUpload";
+import { BatchMembersCard } from "../components/BatchMembersCard";
 import { authFetch } from "../utils/authFetch";
 
 const API_URL = "/api/admin";
@@ -104,6 +105,16 @@ const EditToolbar = () => {
   );
 };
 
+const GroupMembersSection = () => {
+  const record = useRecordContext<GroupRecord>();
+  if (!record) return null;
+  return (
+    <Box sx={{ width: "100%", mt: 2 }}>
+      <BatchMembersCard endpoint={`${API_URL}/groups/${record.id}/members`} i18nPrefix="padmakara.groupMembers" />
+    </Box>
+  );
+};
+
 export const GroupEdit = () => {
   const translate = useTranslate();
   return (
@@ -116,6 +127,7 @@ export const GroupEdit = () => {
         <TextInput source="description" label={translate("padmakara.fields.description")} multiline />
         <GroupImageUpload />
         <TextInput source="logoUrl" label={translate("padmakara.fields.logoUrl")} helperText={translate("padmakara.groups.logoUrlHelper")} />
+        <GroupMembersSection />
       </SimpleForm>
     </Edit>
   );
