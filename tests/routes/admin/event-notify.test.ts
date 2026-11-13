@@ -111,7 +111,36 @@ describe("POST /api/admin/events/:id/notify-published", () => {
     expect(body).toEqual({ queued: 2 });
     expect(h.updateSet.publishedNotifiedCount).toBe(2);
     expect(h.updateSet.publishedNotifiedAt).toBeInstanceOf(Date);
-    expect(sendPublishedEmails).toHaveBeenCalledWith(h.event, recipients);
+    expect(sendPublishedEmails).toHaveBeenCalledWith(h.event, recipients, undefined, undefined);
+  });
+
+  it("should pass the trimmed personal message to the sender", async () => {
+    const { status } = await post({ message: "  Welcome back.\nWith love  " });
+    expect(status).toBe(200);
+    expect(sendPublishedEmails).toHaveBeenCalledWith(h.event, recipients, undefined, "Welcome back.\nWith love");
+  });
+
+  it("should treat a blank message as none", async () => {
+    await post({ message: "   " });
+    expect(sendPublishedEmails).toHaveBeenCalledWith(h.event, recipients, undefined, undefined);
+  });
+
+  it("should accept a message of exactly 1000 characters", async () => {
+    const { status } = await post({ message: "a".repeat(1000) });
+    expect(status).toBe(200);
+  });
+
+  it("should answer 400 when the message is over 1000 characters", async () => {
+    const { status, body } = await post({ message: "a".repeat(1001) });
+    expect(status).toBe(400);
+    expect(body.code).toBe("VALIDATION_ERROR");
+    expect(sendPublishedEmails).not.toHaveBeenCalled();
+    expect(h.updateSet).toBeUndefined();
+  });
+
+  it("should answer 400 when the message is not text", async () => {
+    const { status } = await post({ message: 42 });
+    expect(status).toBe(400);
   });
 
   it("should answer 409 EVENT_NOT_PUBLISHED for a forthcoming event", async () => {

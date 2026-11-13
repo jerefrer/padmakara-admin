@@ -54,4 +54,17 @@ describe("sendPublishedEmails", () => {
     await sendPublishedEmails({ id: 5, titleEn: "Retreat", titlePt: null }, [people[0]!], 0);
     expect(vi.mocked(sendEmail).mock.calls[0]![0].subject).toBe("Já disponível: Retreat");
   });
+
+  it("should include the personal message in every email", async () => {
+    await sendPublishedEmails(event, people.slice(0, 2), 0, "Hello from André");
+
+    for (const [mail] of vi.mocked(sendEmail).mock.calls) {
+      expect(mail.text).toContain("Hello from André");
+    }
+  });
+
+  it("should send no extra paragraph when there is no message", async () => {
+    await sendPublishedEmails(event, [people[1]!], 0);
+    expect(vi.mocked(sendEmail).mock.calls[0]![0].text).not.toContain("undefined");
+  });
 });

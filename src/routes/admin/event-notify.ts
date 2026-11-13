@@ -10,7 +10,12 @@ import { sendPublishedEmails } from "../../services/event-publish-notify.ts";
 
 const eventNotifyRoutes = new Hono();
 
-const notifySchema = z.object({ force: z.boolean().optional() });
+const MAX_MESSAGE_LENGTH = 1000;
+const notifySchema = z.object({
+  force: z.boolean().optional(),
+  // Plain text added to the email; trimmed first so a blank one counts as none
+  message: z.string().trim().max(MAX_MESSAGE_LENGTH).optional(),
+});
 
 function parseEventId(raw: string): number {
   const id = Number(raw);
@@ -62,6 +67,7 @@ eventNotifyRoutes.post("/:id/notify-published", async (c) => {
   const parsed = notifySchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw AppError.badRequest("Validation failed", "VALIDATION_ERROR");
   const force = parsed.data.force === true;
+  const message = parsed.data.message || undefined;
 
   const event = await loadEvent(parseEventId(c.req.param("id")));
   if (event.status !== "published") {
@@ -89,7 +95,7 @@ eventNotifyRoutes.post("/:id/notify-published", async (c) => {
   }
 
   // Background: the response must not wait for hundreds of emails
-  void sendPublishedEmails(event, recipients).catch((err) => {
+  void sendPublishedEmails(event, recipients, undefined, message).catch((err) => {
     console.error(`[PUBLISH-EMAIL] event ${event.id} aborted:`, err);
   });
 

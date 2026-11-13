@@ -259,6 +259,8 @@ export const en = {
       confirmForthcoming: "Show as forthcoming",
       notifyOnPublish: "Email the %{smart_count} person who has access that it's now available |||| Email the %{smart_count} people who have access that it's now available",
       alreadyNotified: "Already emailed on %{date}",
+      notifyMessageLabel: "Add a personal message (optional)",
+      notifyMessageHint: "Shown after the first line of the email. Plain text.",
       notifying: "Emailing %{smart_count} person |||| Emailing %{smart_count} people",
       notifyFailed: "Could not send the emails: %{message}",
       confirmShowTitle: "Show in the app?",

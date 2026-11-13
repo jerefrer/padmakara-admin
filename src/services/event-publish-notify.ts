@@ -15,13 +15,15 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 /**
  * Email each recipient that the event is now available, one by one and in their own
- * language. A failure is logged and does not stop the others. Returns how many were
+ * language, with the admin's personal message when there is one. A failure is logged and
+ * does not stop the others. Returns how many were
  * sent and how many failed. Meant to run in the background after the route has answered.
  */
 export async function sendPublishedEmails(
   event: EventTitles,
   recipients: Recipient[],
   delayMs: number = PUBLISH_EMAIL_DELAY_MS,
+  message?: string,
 ): Promise<{ sent: number; failed: number }> {
   let sent = 0;
   let failed = 0;
@@ -32,7 +34,7 @@ export async function sendPublishedEmails(
       const title =
         (lang === "pt" ? event.titlePt || event.titleEn : event.titleEn || event.titlePt) ||
         `Event ${event.id}`;
-      const mail = buildTeachingPublishedEmail({ lang, firstName: recipient.firstName, eventId: event.id, eventTitle: title });
+      const mail = buildTeachingPublishedEmail({ lang, firstName: recipient.firstName, eventId: event.id, eventTitle: title, message });
       await sendEmail({ to: recipient.email, ...mail });
       sent++;
     } catch (err) {

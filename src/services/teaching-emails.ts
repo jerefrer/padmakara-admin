@@ -71,6 +71,8 @@ export function buildTeachingPublishedEmail(p: {
   firstName?: string | null;
   eventId: number;
   eventTitle: string;
+  /** A personal note from the admin, shown as its own paragraph after the intro. Plain text. */
+  message?: string;
 }): { subject: string; html: string; text: string } {
   const pt = p.lang === "pt";
   const subject = pt ? `Já disponível: ${p.eventTitle}` : `Now available: ${p.eventTitle}`;
@@ -85,7 +87,8 @@ export function buildTeachingPublishedEmail(p: {
       subject,
       kicker: KICKER[p.lang],
       greeting: greeting(p.lang, p.firstName),
-      paragraphs: [intro, PUBLISHED_ACCESS[p.lang]],
+      // The template escapes every paragraph and turns line breaks into <br />
+      paragraphs: [intro, p.message?.replace(/\r\n?/g, "\n").trim() ?? "", PUBLISHED_ACCESS[p.lang]],
       button: { label: OPEN_BUTTON[p.lang], href: eventUrl(p.eventId) },
     }),
   };

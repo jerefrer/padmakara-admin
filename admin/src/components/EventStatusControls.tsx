@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useTranslate } from "react-admin";
 import Box from "@mui/material/Box";
 import Checkbox from "@mui/material/Checkbox";
+import TextField from "@mui/material/TextField";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
@@ -24,7 +25,12 @@ export interface PublishRecipients {
 export interface PublishOptions {
   /** Email the people who have access that the event is now available. */
   notify: boolean;
+  /** An optional personal note added to the email, already trimmed. */
+  message?: string;
 }
+
+/** Longest personal message the server accepts. */
+export const MAX_NOTIFY_MESSAGE_LENGTH = 1000;
 
 export interface PublishSection {
   key: SectionVisibilityKey;
@@ -70,6 +76,7 @@ export function EventStatusControls({ status, onStatusChange, publishSections, l
   const [chosen, setChosen] = useState<Partial<Record<SectionVisibilityKey, boolean>>>({});
   const [recipients, setRecipients] = useState<PublishRecipients | null>(null);
   const [notifyChecked, setNotifyChecked] = useState(true);
+  const [message, setMessage] = useState("");
   // Answers of an earlier dialog must not land in a later one
   const askCount = useRef(0);
   const publishing = pending === "published";
@@ -78,6 +85,7 @@ export function EventStatusControls({ status, onStatusChange, publishSections, l
     setChosen(Object.fromEntries((publishSections ?? []).map((sec) => [sec.key, sec.checked])));
     setRecipients(null);
     setNotifyChecked(true);
+    setMessage("");
     setPending(val);
     const mine = ++askCount.current;
     if (val === "published" && loadRecipients) {
@@ -150,7 +158,10 @@ export function EventStatusControls({ status, onStatusChange, publishSections, l
         onConfirm={() => {
           if (pending) {
             const sections = publishing && publishSections ? chosen : undefined;
-            if (publishing && canNotify && notifyChecked) onStatusChange(pending, sections, { notify: true });
+            if (publishing && canNotify && notifyChecked) {
+              const note = message.trim();
+              onStatusChange(pending, sections, note ? { notify: true, message: note } : { notify: true });
+            }
             else onStatusChange(pending, sections);
           }
           setPending(null);
@@ -195,6 +206,23 @@ export function EventStatusControls({ status, onStatusChange, publishSections, l
               }
               label={translate("padmakara.events.notifyOnPublish", { smart_count: recipients.count })}
             />
+            {notifyChecked && (
+              <TextField
+                multiline
+                minRows={3}
+                fullWidth
+                size="small"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                label={translate("padmakara.events.notifyMessageLabel")}
+                helperText={translate("padmakara.events.notifyMessageHint")}
+                slotProps={{
+                  htmlInput: { maxLength: MAX_NOTIFY_MESSAGE_LENGTH },
+                }}
+                data-testid="notify-message"
+                sx={{ mt: 1 }}
+              />
+            )}
           </Box>
         )}
         {publishing && recipients?.notifiedAt && (

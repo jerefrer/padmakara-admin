@@ -240,6 +240,75 @@ describe("EventStatusControls", () => {
       expect(onStatusChange).toHaveBeenCalledWith("published", { audioPublished: true, videoPublished: false });
     });
 
+    const messageBox = () =>
+      document.body.querySelector('[data-testid="notify-message"] textarea:not([aria-hidden])') as HTMLTextAreaElement | null;
+    const typeMessage = (value: string) =>
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(messageBox()!, value);
+        messageBox()!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+    it("should offer an optional message field while the email box is ticked", async () => {
+      await openPublish({ count: 12, notifiedAt: null });
+
+      expect(messageBox()).not.toBeNull();
+      act(() => notifyBox()!.click());
+      expect(messageBox()).toBeNull();
+      act(() => notifyBox()!.click());
+      expect(messageBox()).not.toBeNull();
+    });
+
+    it("should not offer the message field when nobody would be emailed", async () => {
+      await openPublish({ count: 0, notifiedAt: null });
+      expect(messageBox()).toBeNull();
+    });
+
+    it("should report the trimmed message with notify", async () => {
+      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: null });
+
+      typeMessage("  Welcome back.  ");
+      act(() => dialogButton("confirm-change-ok")!.click());
+
+      expect(onStatusChange).toHaveBeenCalledWith(
+        "published",
+        { audioPublished: true, videoPublished: false },
+        { notify: true, message: "Welcome back." },
+      );
+    });
+
+    it("should report no message when the field is left blank", async () => {
+      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: null });
+
+      typeMessage("   ");
+      act(() => dialogButton("confirm-change-ok")!.click());
+
+      expect(onStatusChange).toHaveBeenCalledWith(
+        "published",
+        { audioPublished: true, videoPublished: false },
+        { notify: true },
+      );
+    });
+
+    it("should drop a typed message when the email box is unticked before confirming", async () => {
+      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: null });
+
+      typeMessage("Welcome back.");
+      act(() => notifyBox()!.click());
+      act(() => dialogButton("confirm-change-ok")!.click());
+
+      expect(onStatusChange).toHaveBeenCalledWith("published", { audioPublished: true, videoPublished: false });
+    });
+
+    it("should start with an empty message in each new dialog", async () => {
+      await openPublish({ count: 12, notifiedAt: null });
+      typeMessage("Old text");
+      act(() => dialogButton("confirm-change-cancel")?.click());
+      await act(async () => {
+        button("published").click();
+      });
+      expect(messageBox()?.value ?? "").toBe("");
+    });
+
     it("should hide the box when nobody has access", async () => {
       const { onStatusChange } = await openPublish({ count: 0, notifiedAt: null });
 

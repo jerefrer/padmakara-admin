@@ -137,6 +137,7 @@ import { UploadIncompleteAlert } from "../components/UploadIncompleteAlert";
 import { uploadVideoFile, uploadVideoMaster } from "../utils/videoUploader";
 import type { SessionOption } from "../utils/slideSequence";
 import { authFetch } from "../utils/authFetch";
+import { notifyPublishedBody } from "../utils/publishNotify";
 import { compareTracks } from "../utils/trackOrder";
 import { translateFields, type TranslateDirection } from "../utils/translateFields";
 import { TranslatableField, useFieldTranslate } from "../components/TranslatableField";
@@ -4597,7 +4598,7 @@ export const EventEdit = () => {
       const res = await authFetch(`/api/admin/events/${id}/notify-published`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: notifyPublishedBody(options),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
