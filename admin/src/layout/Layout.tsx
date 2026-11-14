@@ -1,12 +1,12 @@
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import { AppBar, Sidebar, CheckForApplicationUpdate, useResourceDefinitions, useGetResourceLabel } from "react-admin";
-import { useLocation } from "react-router-dom";
+import { AppBar, Sidebar, CheckForApplicationUpdate, useResourceDefinitions, useGetResourceLabel, useGetOne, useLocaleState } from "react-admin";
+import { Link, useLocation } from "react-router-dom";
 import { Menu } from "./Menu";
 import { LanguageSwitcher } from "../components/LanguageSwitcher";
 import { IncompleteAudioBanner } from "../components/IncompleteAudioBanner";
 
-function PageTitle() {
+export function PageTitle() {
   const location = useLocation();
   const resourceDefinitions = useResourceDefinitions();
   const getResourceLabel = useGetResourceLabel();
@@ -19,6 +19,15 @@ function PageTitle() {
   const isEdit = !!recordId && recordId !== "create";
   const isCreate = recordId === "create";
 
+  const [locale] = useLocaleState();
+  // Events show their title instead of "#id" once loaded (same fetch as the edit page, so react-query shares it).
+  const { data: event } = useGetOne(
+    "events",
+    { id: recordId ?? "" },
+    { enabled: resourceName === "events" && isEdit, refetchOnWindowFocus: false },
+  );
+  const eventTitle = (locale === "pt" && event?.titlePt ? event.titlePt : event?.titleEn) as string | undefined;
+
   if (!resourceName || !resourceDefinitions[resourceName]) {
     return <Box sx={{ flex: 1 }} />;
   }
@@ -29,13 +38,15 @@ function PageTitle() {
     <Box sx={{ flex: 1, display: "flex", alignItems: "center", gap: 1 }}>
       <Typography
         variant="body1"
-        sx={{ fontWeight: 600, color: "text.primary" }}
+        component={isEdit || isCreate ? Link : "span"}
+        {...(isEdit || isCreate ? { to: `/${resourceName}` } : {})}
+        sx={{ fontWeight: 600, color: "text.primary", textDecoration: "none", "&:hover": isEdit || isCreate ? { textDecoration: "underline" } : undefined }}
       >
         {label}
       </Typography>
       {(isEdit || isCreate) && (
         <Typography variant="body2" sx={{ color: "text.secondary" }}>
-          / {isCreate ? "New" : `#${recordId}`}
+          / {isCreate ? "New" : eventTitle || `#${recordId}`}
         </Typography>
       )}
     </Box>

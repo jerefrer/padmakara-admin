@@ -4842,8 +4842,6 @@ export const EventEdit = () => {
       <Title title={`${translate("ra.action.edit")}: ${event ? localeTitle(event, locale) : ""}`} />
       <PageHeader
         title={(event && localeTitle(event, locale)) || translate("ra.action.edit")}
-        backLabel={translate("padmakara.events.back")}
-        onBack={() => redirect("list", "events")}
         trailing={
           <>
             <EventStatusControls
@@ -5039,28 +5037,37 @@ const DeleteConfirmDialog = ({
 
 /* ───────────── Helpers ───────────── */
 
-const PageHeader = ({
+/** Title on its own full-width row; the optional action row sits below it. Going back is the breadcrumb's job. */
+export const PageHeader = ({
   title,
   backLabel,
   onBack,
   trailing,
 }: {
   title: string;
-  backLabel: string;
-  onBack: () => void;
-  /** Shown after the title (the edit page's status, highlight and expand/collapse-all). */
+  /** Only the create page shows a back button; the edit page relies on the top breadcrumb. */
+  backLabel?: string;
+  onBack?: () => void;
+  /** Actions shown on a row under the title (the edit page's status, highlight and expand/collapse-all). */
   trailing?: React.ReactNode;
 }) => (
-  <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 4 }}>
-    <Button startIcon={<ArrowBackIcon />} onClick={onBack} sx={{ color: "text.secondary" }}>
-      {backLabel}
-    </Button>
-    <SpaIcon sx={{ color: "primary.main", fontSize: 28 }} />
-    <Typography variant="h5" sx={{ fontWeight: 700 }}>
-      {title}
-    </Typography>
-    <Box sx={{ flex: 1 }} />
-    {trailing}
+  <Box sx={{ mb: 4 }} data-testid="page-header">
+    <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: trailing ? 1.5 : 0 }}>
+      {onBack && (
+        <Button startIcon={<ArrowBackIcon />} onClick={onBack} sx={{ color: "text.secondary" }}>
+          {backLabel}
+        </Button>
+      )}
+      <SpaIcon sx={{ color: "primary.main", fontSize: 28 }} />
+      <Typography variant="h5" sx={{ fontWeight: 700, minWidth: 0, flex: 1, overflowWrap: "anywhere" }} data-testid="page-header-title">
+        {title}
+      </Typography>
+    </Box>
+    {trailing && (
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }} data-testid="page-header-actions">
+        {trailing}
+      </Box>
+    )}
   </Box>
 );
 
