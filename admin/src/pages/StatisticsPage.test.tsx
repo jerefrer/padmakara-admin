@@ -24,6 +24,7 @@ const month = (m: string, signups: number) => ({
   activeUsers: signups * 2,
   teachingSalesCents: 1500,
   membershipCents: 2500,
+  readAlongOpens: signups * 3,
 });
 
 const RESPONSE = {
@@ -85,6 +86,20 @@ describe("StatisticsPage", () => {
     expect(text()).toContain("Android");
     expect(text()).toContain("Web");
     expect(text()).toContain("50");
+  });
+
+  it("should give every monthly chart its own card titled with its name and the period", () => {
+    const grid = container.querySelector('[data-testid="chart-grid"]')!;
+    const cards = Array.from(grid.children);
+    expect(cards).toHaveLength(5);
+    const titles = cards.map((c) => c.querySelector("h6, .MuiTypography-subtitle1")?.textContent);
+    expect(titles).toEqual([
+      "padmakara.statistics.signups, padmakara.statistics.last12",
+      "padmakara.statistics.activeUsersMonthly, padmakara.statistics.last12",
+      "padmakara.statistics.teachingSales, padmakara.statistics.last12",
+      "padmakara.statistics.membershipIncome, padmakara.statistics.last12",
+      "padmakara.statistics.readAlongOpens, padmakara.statistics.last12",
+    ]);
   });
 
   it("should show monthly income in euros", () => {

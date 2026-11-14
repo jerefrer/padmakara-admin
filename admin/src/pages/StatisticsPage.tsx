@@ -22,6 +22,7 @@ interface MonthRow {
   activeUsers: number;
   teachingSalesCents: number;
   membershipCents: number;
+  readAlongOpens: number;
 }
 interface EventRow {
   id: number;
@@ -77,8 +78,8 @@ const MonthBars = ({
 }) => {
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
-    <Box sx={{ flex: 1, minWidth: 0 }}>
-      <Typography variant="subtitle2" sx={{ mb: 1 }}>{title}</Typography>
+    <Paper sx={{ p: 2, minWidth: 0 }}>
+      <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>{title}</Typography>
       <Box sx={{ display: "flex", alignItems: "flex-end", gap: 0.5, height: 120 }}>
         {rows.map((r) => (
           <Box
@@ -100,7 +101,7 @@ const MonthBars = ({
           </Typography>
         ))}
       </Box>
-    </Box>
+    </Paper>
   );
 };
 
@@ -191,21 +192,16 @@ export const StatisticsPage = () => {
             <Tile label={t("active30")} value={stats.activeUsers.last30} />
           </Box>
 
-          <Paper sx={{ p: 2, mb: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>{t("people")}</Typography>
-            <Box sx={{ display: "flex", gap: 3, flexDirection: { xs: "column", md: "row" } }}>
-              <MonthBars title={t("signups")} rows={monthRows((m) => m.signups)} />
-              <MonthBars title={t("activeUsersMonthly")} rows={monthRows((m) => m.activeUsers)} />
-            </Box>
-          </Paper>
-
-          <Paper sx={{ p: 2, mb: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>{t("income")}</Typography>
-            <Box sx={{ display: "flex", gap: 3, flexDirection: { xs: "column", md: "row" } }}>
-              <MonthBars title={t("teachingSales")} rows={monthRows((m) => m.teachingSalesCents)} format={euros} />
-              <MonthBars title={t("membershipIncome")} rows={monthRows((m) => m.membershipCents)} format={euros} />
-            </Box>
-          </Paper>
+          <Box
+            data-testid="chart-grid"
+            sx={{ display: "grid", gap: 2, mb: 2, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}
+          >
+            <MonthBars title={`${t("signups")}, ${t("last12")}`} rows={monthRows((m) => m.signups)} />
+            <MonthBars title={`${t("activeUsersMonthly")}, ${t("last12")}`} rows={monthRows((m) => m.activeUsers)} />
+            <MonthBars title={`${t("teachingSales")}, ${t("last12")}`} rows={monthRows((m) => m.teachingSalesCents)} format={euros} />
+            <MonthBars title={`${t("membershipIncome")}, ${t("last12")}`} rows={monthRows((m) => m.membershipCents)} format={euros} />
+            <MonthBars title={`${t("readAlongOpens")}, ${t("last12")}`} rows={monthRows((m) => m.readAlongOpens)} />
+          </Box>
 
           <Paper sx={{ p: 2, mb: 2 }}>
             <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>{t("platforms")}</Typography>
