@@ -39,8 +39,8 @@ const RESPONSE = {
   ],
   appOpens: [],
   events: [
-    { id: 1, title: "Alpha", titlePt: null, listeners: 5, completedTracks: 1, listenHours: 2, videoViewers: 0, transcriptOpens: 9, fileOpens: 0, videoStarts: 0, zipDownloads: 0 },
-    { id: 2, title: "Beta", titlePt: null, listeners: 8, completedTracks: 4, listenHours: 1, videoViewers: 3, transcriptOpens: 1, fileOpens: 0, videoStarts: 0, zipDownloads: 2 },
+    { id: 1, title: "Alpha", titlePt: null, listeners: 5, completedTracks: 1, listenHours: 2, videoViewers: 0, transcriptOpens: 9, readAlongOpens: 4, fileOpens: 0, videoStarts: 0, zipDownloads: 0 },
+    { id: 2, title: "Beta", titlePt: null, listeners: 8, completedTracks: 4, listenHours: 1, videoViewers: 3, transcriptOpens: 1, readAlongOpens: 2, fileOpens: 0, videoStarts: 0, zipDownloads: 2 },
   ],
 };
 
@@ -111,6 +111,12 @@ describe("StatisticsPage", () => {
     const header = container.querySelector('[data-testid="sort-listeners"]')!;
     click(header);
     expect(rowTitles()).toEqual(["Beta", "Alpha"]);
+    click(header);
+    expect(rowTitles()).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("should sort the events table by read-along opens", () => {
+    const header = container.querySelector('[data-testid="sort-readAlongOpens"]')!;
     click(header);
     expect(rowTitles()).toEqual(["Alpha", "Beta"]);
   });

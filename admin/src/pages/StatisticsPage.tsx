@@ -33,6 +33,7 @@ interface EventRow {
   listenHours: number;
   videoViewers: number;
   transcriptOpens: number;
+  readAlongOpens: number;
   fileOpens: number;
   videoStarts: number;
   zipDownloads: number;
@@ -45,8 +46,8 @@ interface Stats {
   events: EventRow[];
 }
 
-type SortKey = "listeners" | "completedTracks" | "listenHours" | "videoViewers" | "transcriptOpens" | "downloads";
-const SORT_KEYS: SortKey[] = ["listeners", "completedTracks", "listenHours", "videoViewers", "transcriptOpens", "downloads"];
+type SortKey = "listeners" | "completedTracks" | "listenHours" | "videoViewers" | "transcriptOpens" | "readAlongOpens" | "downloads";
+const SORT_KEYS: SortKey[] = ["listeners", "completedTracks", "listenHours", "videoViewers", "transcriptOpens", "readAlongOpens", "downloads"];
 
 /** Files, videos and ZIPs opened or downloaded, counted as one "downloads" figure. */
 const downloadsOf = (e: EventRow) => e.fileOpens + e.videoStarts + e.zipDownloads;

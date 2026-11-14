@@ -256,6 +256,7 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       listenHours: Math.round((num(r.listenSeconds) / 3600) * 10) / 10,
       videoViewers: num(videoRows.find((v) => v.eventId === r.id)?.n),
       transcriptOpens: usage(r.id, "transcript_open"),
+      readAlongOpens: usage(r.id, "readalong_open"),
       fileOpens: usage(r.id, "file_open"),
       videoStarts: usage(r.id, "video_start"),
       zipDownloads: usage(r.id, "zip_download"),

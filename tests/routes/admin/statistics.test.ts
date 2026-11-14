@@ -48,6 +48,7 @@ function queueFullResponse() {
     [{ eventId: 3, n: 5 }], // video viewers
     [
       { eventId: 3, metric: "transcript_open", n: 8 },
+      { eventId: 3, metric: "readalong_open", n: 3 },
       { eventId: 3, metric: "file_open", n: 2 },
       { eventId: 3, metric: "video_start", n: 6 },
       { eventId: 3, metric: "zip_download", n: 1 },
@@ -149,6 +150,7 @@ describe("GET /api/admin/statistics", () => {
         listenHours: 2,
         videoViewers: 5,
         transcriptOpens: 8,
+        readAlongOpens: 3,
         fileOpens: 2,
         videoStarts: 6,
         zipDownloads: 1,
