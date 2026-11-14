@@ -280,7 +280,7 @@ export const pt = {
       active7: "Utilizadores ativos, 7 dias",
       active30: "Utilizadores ativos, 30 dias",
       last12: "últimos 12 meses",
-      readAlongOpens: "Leitura acompanhada: sessões abertas",
+      readAlongOpens: "Ler em Conjunto: aberturas",
       signups: "Novos registos",
       activeUsersMonthly: "Utilizadores ativos",
       teachingSales: "Venda de ensinamentos",
