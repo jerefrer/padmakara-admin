@@ -55,7 +55,6 @@ import {
   countUsage,
   markActive,
   countAppOpen,
-  countReadAlongOpen,
   countVideoStart,
   isFirstChunkRequest,
   pruneUsage,
@@ -194,39 +193,5 @@ describe("pruneUsage", () => {
     const q = dialect.sqlToQuery(state.deleteWhere as SQL);
     expect(q.sql).toContain('"day" <');
     expect(q.params).toContain("2025-10-13");
-  });
-});
-
-describe("countReadAlongOpen", () => {
-  it("should count against the event of the track", async () => {
-    countReadAlongOpen(1, 10, 3);
-    await flush();
-    expect(state.inserts).toHaveLength(1);
-    expect(state.inserts[0]!.values).toMatchObject({ metric: "readalong_open", eventId: 3, count: 1 });
-    expect(JSON.stringify(state.inserts[0]!.values)).not.toMatch(/user/i);
-  });
-
-  it("should count a user re-opening the same track within ten minutes once", async () => {
-    const t0 = 1_000_000;
-    countReadAlongOpen(1, 10, 3, t0);
-    countReadAlongOpen(1, 10, 3, t0 + 9 * 60_000);
-    await flush();
-    expect(state.inserts).toHaveLength(1);
-  });
-
-  it("should count again after ten minutes", async () => {
-    const t0 = 1_000_000;
-    countReadAlongOpen(1, 10, 3, t0);
-    countReadAlongOpen(1, 10, 3, t0 + 10 * 60_000);
-    await flush();
-    expect(state.inserts).toHaveLength(2);
-  });
-
-  it("should count a different user or a different track separately", async () => {
-    countReadAlongOpen(1, 10, 3, 1_000_000);
-    countReadAlongOpen(2, 10, 3, 1_000_000);
-    countReadAlongOpen(1, 11, 3, 1_000_000);
-    await flush();
-    expect(state.inserts).toHaveLength(3);
   });
 });

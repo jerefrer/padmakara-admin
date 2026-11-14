@@ -28,39 +28,11 @@ import { users } from "../db/schema/users.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
-import { countReadAlongOpen } from "../services/usage.ts";
 import { z } from "zod";
 
 const contentRoutes = new Hono();
 
 contentRoutes.use("*", authMiddleware);
-
-// --- Read-along usage ---
-
-/**
- * POST /api/content/read-along/:trackId/open - The app calls this when the
- * read-along is opened for a track. Counted as an anonymous total per event
- * (usage_daily); the same user re-opening a track within 10 minutes counts once.
- * 204 with no body; 404 for an unknown, hidden or draft-event track.
- */
-contentRoutes.post("/read-along/:trackId/open", async (c) => {
-  const user = getUser(c);
-  const trackId = Number(c.req.param("trackId"));
-  if (!Number.isInteger(trackId) || trackId <= 0) {
-    throw AppError.notFound("Track not found");
-  }
-  const track = await db.query.tracks.findFirst({
-    where: eq(tracks.id, trackId),
-    with: { session: { with: { event: true } } },
-  });
-  const event = track?.session?.event;
-  if (!track || !event || !eventStatusOpenTo(user.role).includes(event.status)) {
-    throw AppError.notFound("Track not found");
-  }
-  assertAudioVisible(event, user.role, "Track not found");
-  countReadAlongOpen(user.id, trackId, event.id);
-  return c.body(null, 204);
-});
 
 // --- Progress ---
 

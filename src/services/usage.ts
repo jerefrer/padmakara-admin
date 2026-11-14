@@ -88,32 +88,6 @@ export function countAppOpen(userId: number, nowMs: number = Date.now()): void {
   countUsage("app_open");
 }
 
-const READ_ALONG_WINDOW_MS = 10 * 60 * 1000;
-const lastReadAlongOpen = new Map<string, number>();
-
-/**
- * Count a read-along opened for a track, against the track's event. One user
- * re-opening the same track within ten minutes counts once. The user id lives
- * only in this in-memory map, never in the database.
- */
-export function countReadAlongOpen(
-  userId: number,
-  trackId: number,
-  eventId: number,
-  nowMs: number = Date.now(),
-): void {
-  const key = `${userId}:${trackId}`;
-  const last = lastReadAlongOpen.get(key);
-  if (last !== undefined && nowMs - last < READ_ALONG_WINDOW_MS) return;
-  if (lastReadAlongOpen.size > 5000) {
-    for (const [k, t] of lastReadAlongOpen) {
-      if (nowMs - t >= READ_ALONG_WINDOW_MS) lastReadAlongOpen.delete(k);
-    }
-  }
-  lastReadAlongOpen.set(key, nowMs);
-  countUsage("readalong_open", eventId);
-}
-
 /** Count a video start against the event that owns the video. */
 export function countVideoStart(videoId: number): void {
   void (async () => {
@@ -160,5 +134,4 @@ export function resetUsageStateForTests(): void {
   activeSeen = new Set();
   activeSeenDay = "";
   lastAppOpen.clear();
-  lastReadAlongOpen.clear();
 }
