@@ -1,4 +1,4 @@
-import { and, count, countDistinct, desc, eq, gte, inArray, lte, sql, sum } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gte, inArray, lte, or, sql, sum } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
@@ -25,7 +25,6 @@ import { usageDaily, userActiveDays } from "../db/schema/usage.ts";
 const MAX_RANGE_DAYS = 400;
 const DAY_MS = 86_400_000;
 const TOP_EVENTS = 20;
-const PLATFORM_WINDOW_DAYS = 90;
 const LISBON = "Europe/Lisbon";
 
 export interface DateRange {
@@ -158,9 +157,7 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
     db
       .select({ deviceType: deviceActivations.deviceType, n: count() })
       .from(deviceActivations)
-      .where(
-        sql`(${deviceActivations.lastUsed} >= now() - (${PLATFORM_WINDOW_DAYS} * interval '1 day') OR ${deviceActivations.activatedAt} >= now() - (${PLATFORM_WINDOW_DAYS} * interval '1 day'))`,
-      )
+      .where(or(inRange(deviceActivations.lastUsed), inRange(deviceActivations.activatedAt)))
       .groupBy(deviceActivations.deviceType)
       .orderBy(desc(count())),
     db

@@ -91,15 +91,36 @@ describe("StatisticsPage", () => {
   it("should give every monthly chart its own card titled with its name and the period", () => {
     const grid = container.querySelector('[data-testid="chart-grid"]')!;
     const cards = Array.from(grid.children);
-    expect(cards).toHaveLength(5);
+    expect(cards).toHaveLength(4);
     const titles = cards.map((c) => c.querySelector("h6, .MuiTypography-subtitle1")?.textContent);
     expect(titles).toEqual([
       "padmakara.statistics.signups, padmakara.statistics.last12",
       "padmakara.statistics.activeUsersMonthly, padmakara.statistics.last12",
       "padmakara.statistics.teachingSales, padmakara.statistics.last12",
       "padmakara.statistics.membershipIncome, padmakara.statistics.last12",
-      "padmakara.statistics.readAlongOpens, padmakara.statistics.last12",
     ]);
+  });
+
+  it("should add a bold total row of the additive columns at the bottom, whatever the sort", () => {
+    const check = () => {
+      const rows = Array.from(container.querySelectorAll("tbody tr"));
+      const cells = Array.from(rows[rows.length - 1]!.querySelectorAll("td")).map((c) => c.textContent);
+      // teaching, listeners, tracks, hours, video viewers, transcripts, read-along, downloads
+      expect(cells).toEqual(["padmakara.statistics.total", "", "5", "3", "", "10", "6", "2"]);
+    };
+    check();
+    click(container.querySelector('[data-testid="sort-listeners"]')!);
+    check();
+  });
+
+  it("should put the 12-month charts before the period selector and the period-dependent blocks after it", () => {
+    const html = container.innerHTML;
+    const at = (needle: string) => html.indexOf(needle);
+    expect(at("padmakara.statistics.last12Heading")).toBeLessThan(at('data-testid="chart-grid"'));
+    expect(at('data-testid="chart-grid"')).toBeLessThan(at('data-testid="range-7"'));
+    expect(at('data-testid="range-7"')).toBeLessThan(at("padmakara.statistics.newAccounts"));
+    expect(at("padmakara.statistics.newAccounts")).toBeLessThan(at("padmakara.statistics.platforms"));
+    expect(at("padmakara.statistics.active30")).toBeLessThan(at('data-testid="range-7"'));
   });
 
   it("should show monthly income in euros", () => {

@@ -157,6 +157,19 @@ export const StatisticsPage = () => {
     return [...stats.events].sort((a, b) => sign * (valueOf(a, sort.key) - valueOf(b, sort.key)));
   }, [stats, sort]);
 
+  /** Additive columns only: listeners and video viewers count people, who can appear in several teachings. */
+  const totals = useMemo(() => {
+    if (!stats) return null;
+    const sum = (key: SortKey) => stats.events.reduce((acc, e) => acc + valueOf(e, key), 0);
+    return {
+      completedTracks: sum("completedTracks"),
+      listenHours: Math.round(sum("listenHours") * 10) / 10,
+      transcriptOpens: sum("transcriptOpens"),
+      readAlongOpens: sum("readAlongOpens"),
+      downloads: sum("downloads"),
+    };
+  }, [stats]);
+
   const onSort = (key: SortKey) =>
     setSort((s) => (s?.key === key && s.dir === "desc" ? { key, dir: "asc" } : { key, dir: "desc" }));
 
@@ -170,24 +183,12 @@ export const StatisticsPage = () => {
       <Typography variant="h6" sx={{ mb: 0.5 }}>{t("pageTitle")}</Typography>
       <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>{t("intro")}</Typography>
 
-      <ToggleButtonGroup
-        exclusive
-        size="small"
-        value={days}
-        onChange={(_e, v: StatisticsRange | null) => v && setDays(v)}
-        sx={{ mb: 2 }}
-      >
-        {STATISTICS_RANGES.map((r) => (
-          <ToggleButton key={r} value={r} data-testid={`range-${r}`}>{t(`range${r}`)}</ToggleButton>
-        ))}
-      </ToggleButtonGroup>
-
       {error && <Alert severity="error" sx={{ mb: 2 }}>{t("loadFailed")}</Alert>}
       {stats && (
         <>
+          <Typography variant="subtitle2" sx={{ mb: 1, color: "text.secondary", textTransform: "uppercase" }}>{t("last12Heading")}</Typography>
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 2 }}>
             <Tile label={t("accounts")} value={stats.accounts.total} />
-            <Tile label={t("newAccounts")} value={stats.accounts.newInRange} />
             <Tile label={t("activeMembers")} value={stats.accounts.activeMembers} />
             <Tile label={t("active7")} value={stats.activeUsers.last7} />
             <Tile label={t("active30")} value={stats.activeUsers.last30} />
@@ -201,7 +202,22 @@ export const StatisticsPage = () => {
             <MonthBars title={`${t("activeUsersMonthly")}, ${t("last12")}`} rows={monthRows((m) => m.activeUsers)} />
             <MonthBars title={`${t("teachingSales")}, ${t("last12")}`} rows={monthRows((m) => m.teachingSalesCents)} format={euros} />
             <MonthBars title={`${t("membershipIncome")}, ${t("last12")}`} rows={monthRows((m) => m.membershipCents)} format={euros} />
-            <MonthBars title={`${t("readAlongOpens")}, ${t("last12")}`} rows={monthRows((m) => m.readAlongOpens)} />
+          </Box>
+
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={days}
+          onChange={(_e, v: StatisticsRange | null) => v && setDays(v)}
+          sx={{ mb: 2 }}
+        >
+          {STATISTICS_RANGES.map((r) => (
+            <ToggleButton key={r} value={r} data-testid={`range-${r}`}>{t(`range${r}`)}</ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+
+          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 2 }}>
+            <Tile label={t("newAccounts")} value={stats.accounts.newInRange} />
           </Box>
 
           <Paper sx={{ p: 2, mb: 2 }}>
@@ -251,6 +267,14 @@ export const StatisticsPage = () => {
                       ))}
                     </TableRow>
                   ))}
+                  <TableRow data-testid="total-row">
+                    <TableCell sx={{ fontWeight: 700 }}>{t("total")}</TableCell>
+                    {SORT_KEYS.map((k) => (
+                      <TableCell key={k} align="right" sx={{ fontWeight: 700 }}>
+                        {totals && k in totals ? totals[k as keyof typeof totals] : ""}
+                      </TableCell>
+                    ))}
+                  </TableRow>
                 </TableBody>
               </Table>
             )}
