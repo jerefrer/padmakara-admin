@@ -30,6 +30,7 @@ import {
   mediaVisibleTo,
 } from "../services/media-visibility.ts";
 import { trackOrderBy } from "../services/track-order.ts";
+import { stampEffectiveUpdatedAt } from "../lib/event-freshness.ts";
 
 const eventRoutes = new Hono();
 
@@ -496,6 +497,7 @@ eventRoutes.get("/", async (c) => {
       with: eventListWith,
     });
     applyContentVisibilityToAll(data, user.role);
+    stampEffectiveUpdatedAt(data);
     await resolveEventsTeacherUrls(data);
     await resolveEventsGroupUrls(data);
   applyEventsVideoThumbnails(data);
@@ -534,6 +536,7 @@ eventRoutes.get("/", async (c) => {
 
   // Strips the content of forthcoming events
   applyContentVisibilityToAll(accessibleEvents, user.role);
+  stampEffectiveUpdatedAt(accessibleEvents);
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
   applyEventsVideoThumbnails(accessibleEvents);

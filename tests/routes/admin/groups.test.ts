@@ -31,6 +31,7 @@ vi.mock("../../../src/db/index.ts", () => {
 
 vi.mock("../../../src/services/sync-versions.ts", () => ({
   bumpVersion: vi.fn(() => Promise.resolve()),
+  bumpVersions: vi.fn(() => Promise.resolve()),
   bumpUserAccessVersion: vi.fn(() => Promise.resolve()),
 }));
 
@@ -119,9 +120,9 @@ describe("DELETE /admin/groups/:id", () => {
     expect(body).toMatchObject({ id: 5, reassignedEventCount: 0 });
     expect(db.update).not.toHaveBeenCalled();
 
-    const { bumpVersion } = await import("../../../src/services/sync-versions.ts");
-    expect(bumpVersion).toHaveBeenCalledWith("groups");
-    expect(bumpVersion).not.toHaveBeenCalledWith("events");
+    // Event lists embed their groups, so the apps must refetch them too.
+    const { bumpVersions } = await import("../../../src/services/sync-versions.ts");
+    expect(bumpVersions).toHaveBeenCalledWith(["groups", "events"]);
   });
 
   it("returns 400 if reassignTo is the same as the group being deleted", async () => {
@@ -204,11 +205,10 @@ describe("DELETE /admin/groups/:id", () => {
     expect(eventUpdateWhere).toHaveBeenCalledTimes(1);
     expect(memberUpdateWhere).toHaveBeenCalledTimes(1);
 
-    const { bumpVersion, bumpUserAccessVersion } = await import(
+    const { bumpVersions, bumpUserAccessVersion } = await import(
       "../../../src/services/sync-versions.ts"
     );
-    expect(bumpVersion).toHaveBeenCalledWith("groups");
-    expect(bumpVersion).toHaveBeenCalledWith("events");
+    expect(bumpVersions).toHaveBeenCalledWith(["groups", "events"]);
     expect(bumpUserAccessVersion).toHaveBeenCalledWith(100);
     expect(bumpUserAccessVersion).toHaveBeenCalledWith(102);
     expect(bumpUserAccessVersion).not.toHaveBeenCalledWith(101);

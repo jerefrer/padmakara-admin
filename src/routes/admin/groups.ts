@@ -24,7 +24,7 @@ import { resolveGroupUrls } from "../../lib/group-utils.ts";
 import { loadImageSource, imageSourceResponse } from "../../lib/image-source.ts";
 import { parseHeroCrop, saveHeroOriginal } from "../../lib/hero-original.ts";
 import { groupMemberRoutes } from "./group-members.ts";
-import { bumpVersion, bumpUserAccessVersion } from "../../services/sync-versions.ts";
+import { bumpVersions, bumpUserAccessVersion } from "../../services/sync-versions.ts";
 
 const groupRoutes = new Hono();
 
@@ -73,8 +73,8 @@ groupRoutes.put("/reorder", async (c) => {
       .set({ displayOrder: i, updatedAt: new Date() })
       .where(eq(retreatGroups.id, ids[i]!));
   }
-  bumpVersion("groups").catch((err) =>
-    console.error("[sync] failed to bump groups version:", err),
+  bumpVersions(["groups", "events"]).catch((err) =>
+    console.error("[sync] failed to bump groups/events versions:", err),
   );
   return c.json({ success: true });
 });
@@ -149,8 +149,8 @@ groupRoutes.post("/:id/avatar", async (c) => {
   if (!group) throw AppError.notFound("Group not found");
 
   const resolved = await resolveGroupUrls(group);
-  bumpVersion("groups").catch((err) =>
-    console.error("[sync] failed to bump groups version:", err),
+  bumpVersions(["groups", "events"]).catch((err) =>
+    console.error("[sync] failed to bump groups/events versions:", err),
   );
   return c.json({ ...group, ...resolved });
 });
@@ -222,8 +222,8 @@ groupRoutes.post("/:id/hero", async (c) => {
   if (!group) throw AppError.notFound("Group not found");
 
   const resolved = await resolveGroupUrls(group);
-  bumpVersion("groups").catch((err) =>
-    console.error("[sync] failed to bump groups version:", err),
+  bumpVersions(["groups", "events"]).catch((err) =>
+    console.error("[sync] failed to bump groups/events versions:", err),
   );
   return c.json({ ...group, ...resolved });
 });
@@ -277,8 +277,8 @@ groupRoutes.post("/", async (c) => {
   const body = await c.req.json();
   const data = createRetreatGroupSchema.parse(body);
   const [group] = await db.insert(retreatGroups).values(data).returning();
-  bumpVersion("groups").catch((err) =>
-    console.error("[sync] failed to bump groups version:", err),
+  bumpVersions(["groups", "events"]).catch((err) =>
+    console.error("[sync] failed to bump groups/events versions:", err),
   );
   return c.json(group!, 201);
 });
@@ -335,8 +335,8 @@ groupRoutes.put("/:id", async (c) => {
     .where(eq(retreatGroups.id, id))
     .returning();
   if (!group) throw AppError.notFound("Group not found");
-  bumpVersion("groups").catch((err) =>
-    console.error("[sync] failed to bump groups version:", err),
+  bumpVersions(["groups", "events"]).catch((err) =>
+    console.error("[sync] failed to bump groups/events versions:", err),
   );
   return c.json(group);
 });
@@ -449,14 +449,9 @@ groupRoutes.delete("/:id", async (c) => {
     .returning();
   if (!group) throw AppError.notFound("Group not found");
 
-  bumpVersion("groups").catch((err) =>
-    console.error("[sync] failed to bump groups version:", err),
+  bumpVersions(["groups", "events"]).catch((err) =>
+    console.error("[sync] failed to bump groups/events versions:", err),
   );
-  if (reassignedEventCount > 0) {
-    bumpVersion("events").catch((err) =>
-      console.error("[sync] failed to bump events version:", err),
-    );
-  }
   for (const userId of affectedUserIds) {
     bumpUserAccessVersion(userId).catch((err) =>
       console.error("[sync] failed to bump user access version:", err),
