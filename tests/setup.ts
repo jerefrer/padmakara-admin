@@ -33,6 +33,7 @@ vi.mock("../src/services/usage.ts", async (importOriginal) => {
     countUsage: vi.fn(),
     markActive: vi.fn(),
     countAppOpen: vi.fn(),
+    countReadAlongOpen: vi.fn(),
     countVideoStart: vi.fn(),
     startUsagePruning: vi.fn(),
   };

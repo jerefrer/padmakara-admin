@@ -44,6 +44,7 @@ function queueFullResponse() {
     [{ deviceType: "ios", n: 50 }, { deviceType: "android", n: 20 }, { deviceType: "web", n: 5 }],
     [{ day: "2026-11-12", n: 7 }], // app opens per day
     [{ id: 3, titleEn: "Spring", titlePt: "Primavera", listeners: 14, completedTracks: 22, listenSeconds: 7200 }],
+    [{ month: "2026-11", n: "6" }, { month: "2026-09", n: "2" }], // read-along opens per month
     [{ eventId: 3, n: 5 }], // video viewers
     [
       { eventId: 3, metric: "transcript_open", n: 8 },
@@ -126,7 +127,9 @@ describe("GET /api/admin/statistics", () => {
     expect(body.activeUsers).toEqual({ last7: 11, last30: 30, inRange: 25 });
 
     expect(body.monthly).toHaveLength(12);
-    expect(body.monthly[11]).toMatchObject({ month: "2026-11", signups: 2, activeUsers: 18, teachingSalesCents: 1500, membershipCents: 0 });
+    expect(body.monthly[11]).toMatchObject({ month: "2026-11", signups: 2, activeUsers: 18, teachingSalesCents: 1500, membershipCents: 0, readAlongOpens: 6 });
+    expect(body.monthly.find((m: any) => m.month === "2026-09").readAlongOpens).toBe(2);
+    expect(body.monthly.find((m: any) => m.month === "2026-10").readAlongOpens).toBe(0);
     const oct = body.monthly.find((m: any) => m.month === "2026-10");
     expect(oct).toMatchObject({ signups: 4, activeUsers: 0, teachingSalesCents: 0, membershipCents: 1750 });
 
@@ -168,7 +171,7 @@ describe("GET /api/admin/statistics", () => {
     const res = await testRequest("/api/admin/statistics", { headers: await adminHeaders() });
     const body = (await res.json()) as any;
     expect(body.events).toEqual([]);
-    expect(state.selects).toBe(13);
+    expect(state.selects).toBe(14);
   });
 
   it("should not expose any email, name or user id", async () => {

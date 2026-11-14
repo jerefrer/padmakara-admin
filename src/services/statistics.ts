@@ -112,6 +112,7 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
     platformRows,
     openRows,
     eventRows,
+    readAlongRows,
   ] = await Promise.all([
     db.select({ n: count() }).from(users),
     db.select({ n: count() }).from(users).where(inRange(users.createdAt)),
@@ -186,6 +187,12 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       .groupBy(events.id, events.titleEn, events.titlePt)
       .orderBy(desc(countDistinct(userProgress.userId)), events.id)
       .limit(TOP_EVENTS),
+    // Read-along opens per month: an anonymous total, no per-user data behind it.
+    db
+      .select({ month: sql<string>`to_char(${usageDaily.day}, 'YYYY-MM')`, n: sum(usageDaily.count) })
+      .from(usageDaily)
+      .where(and(eq(usageDaily.metric, "readalong_open"), gte(usageDaily.day, monthsStart)))
+      .groupBy(sql`to_char(${usageDaily.day}, 'YYYY-MM')`),
   ]);
 
   const eventIds = eventRows.map((r) => r.id);
@@ -214,6 +221,7 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
   const active = byMonth(activeMonthRows);
   const sales = byMonth(salesRows);
   const membership = byMonth(membershipRows);
+  const readAlong = byMonth(readAlongRows);
 
   const usage = (eventId: number, metric: string) =>
     num(usageRows.find((r) => r.eventId === eventId && r.metric === metric)?.n);
@@ -235,6 +243,7 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       signups: num(signups.get(month)?.n),
       activeUsers: num(active.get(month)?.n),
       teachingSalesCents: num(sales.get(month)?.cents),
+      readAlongOpens: num(readAlong.get(month)?.n),
       membershipCents: Math.round(num(membership.get(month)?.amount) * 100),
     })),
     platforms: platformRows.map((r) => ({ deviceType: r.deviceType, count: num(r.n) })),
