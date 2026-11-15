@@ -5,6 +5,7 @@ import { passkeyRoutes } from "./passkeys.ts";
 import { admin } from "./admin/index.ts";
 import { emailAssetRoutes } from "./email-assets.ts";
 import { eventRoutes } from "./events.ts";
+import { eventArtworkRoutes } from "./event-artwork.ts";
 import { groupRoutes } from "./groups.ts";
 import { contentRoutes } from "./content.ts";
 import { mediaRoutes } from "./media.ts";
@@ -40,6 +41,9 @@ api.route("/admin", admin);
 
 // Search (optional auth — works for both authenticated and unauthenticated users)
 api.route("/search", searchRoutes);
+
+// Square event-photo artwork for the lock screen (public: the OS fetches it, mounted before the authed router)
+api.route("/events", eventArtworkRoutes);
 
 // Public API (requires auth)
 api.route("/events", eventRoutes);

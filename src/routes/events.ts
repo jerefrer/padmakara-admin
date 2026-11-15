@@ -19,6 +19,7 @@ import { teacherArtworkUrl } from "../lib/teacher-artwork.ts";
 import { countUsage } from "../services/usage.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
+import { eventArtworkUrl, resolveEventImageUrls, resolveEventsImageUrls } from "../lib/event-image.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { applyEventVideoThumbnails, applyEventsVideoThumbnails } from "../lib/video-utils.ts";
 import {
@@ -84,19 +85,22 @@ function firstTeacherArtworkUrl(eventTeachers: Array<{ teacher?: any }> | undefi
 
 /**
  * Add speakerName, speakerArtworkUrl and hasReadAlong to each track in-place, strip internal fields.
- * speakerArtworkUrl is the track speaker's square artwork, else the first event teacher's
+ * speakerArtworkUrl is the event photo's square artwork when the event has one, else the
+ * track speaker's square artwork, else the first event teacher's
  * who has a photo (when the event's teachers were loaded), else null.
  */
 async function enrichTracksWithSpeakerNames(trackList: any[], event?: any): Promise<void> {
   if (!trackList.length) return;
   const nameMap = await getSpeakerNameMap();
-  const fallbackArtworkUrl = firstTeacherArtworkUrl(event?.eventTeachers);
+  // An event photo replaces the teachers' artwork on the lock screen too.
+  const fallbackArtworkUrl = eventArtworkUrl(event) ?? firstTeacherArtworkUrl(event?.eventTeachers);
+  const eventPhotoArtworkUrl = eventArtworkUrl(event);
   for (const track of trackList) {
     const speaker = track.speaker ? nameMap.get(track.speaker.toUpperCase()) : undefined;
     if (track.speaker) {
       track.speakerName = speaker?.name ?? null;
     }
-    track.speakerArtworkUrl = speaker?.artworkUrl ?? fallbackArtworkUrl;
+    track.speakerArtworkUrl = eventPhotoArtworkUrl ?? speaker?.artworkUrl ?? fallbackArtworkUrl;
     // Expose hasReadAlong boolean, strip the internal S3 key
     track.hasReadAlong = !!track.readAlongS3Key;
     delete track.readAlongS3Key;
@@ -186,6 +190,7 @@ eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
   applyContentVisibilityToAll(data, user?.role);
   await resolveEventsTeacherUrls(data);
   await resolveEventsGroupUrls(data);
+  await resolveEventsImageUrls(data);
   applyEventsVideoThumbnails(data);
   applyEventsOrganizers(data);
   return c.json(data);
@@ -223,6 +228,7 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
 
   await resolveEventTeacherUrls(event);
   await resolveEventGroupUrls(event);
+  await resolveEventImageUrls(event);
   applyEventVideoThumbnails(event);
   applyEventOrganizers(event);
   return c.json(event);
@@ -258,6 +264,7 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
 
   await resolveEventTeacherUrls(event);
   await resolveEventGroupUrls(event);
+  await resolveEventImageUrls(event);
   applyEventVideoThumbnails(event);
   applyEventOrganizers(event);
   return c.json(event);
@@ -438,7 +445,7 @@ eventRoutes.get("/sessions/:sessionId", async (c) => {
   for (const track of session.tracks ?? []) {
     applyTrackReadAlongVisibility(track, session.event, user.role);
   }
-  await enrichTracksWithSpeakerNames(session.tracks);
+  await enrichTracksWithSpeakerNames(session.tracks, session.event);
 
   return c.json(session);
 });
@@ -477,7 +484,7 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
   assertAudioVisible(event, user.role, "Track not found");
   applyTrackReadAlongVisibility(track, event, user.role);
   applyContentVisibility(event, user.role);
-  await enrichTracksWithSpeakerNames([track]);
+  await enrichTracksWithSpeakerNames([track], event);
 
   return c.json(track);
 });
@@ -500,6 +507,7 @@ eventRoutes.get("/", async (c) => {
     stampEffectiveUpdatedAt(data);
     await resolveEventsTeacherUrls(data);
     await resolveEventsGroupUrls(data);
+    await resolveEventsImageUrls(data);
   applyEventsVideoThumbnails(data);
   applyEventsOrganizers(data);
     return c.json(data);
@@ -539,6 +547,7 @@ eventRoutes.get("/", async (c) => {
   stampEffectiveUpdatedAt(accessibleEvents);
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
+  await resolveEventsImageUrls(accessibleEvents);
   applyEventsVideoThumbnails(accessibleEvents);
   applyEventsOrganizers(accessibleEvents);
   return c.json(accessibleEvents);
@@ -610,6 +619,7 @@ eventRoutes.get("/:id", async (c) => {
 
   await resolveEventTeacherUrls(event);
   await resolveEventGroupUrls(event);
+  await resolveEventImageUrls(event);
   applyEventVideoThumbnails(event);
   applyEventOrganizers(event);
   return c.json({ ...event, relatedPublications: relatedPubsWithUrls });

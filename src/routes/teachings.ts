@@ -25,6 +25,7 @@ import { easypayFetch, isMockMode } from "./payment.ts";
 import { eventListWith } from "./events.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventsGroupUrls } from "../lib/group-utils.ts";
+import { resolveEventsImageUrls } from "../lib/event-image.ts";
 import { applyEventsOrganizers } from "../lib/organizer-utils.ts";
 import { applyEventsVideoThumbnails } from "../lib/video-utils.ts";
 import { applyContentVisibilityToAll, mediaVisibleTo } from "../services/media-visibility.ts";
@@ -126,6 +127,7 @@ teachingRoutes.get("/mine", authMiddleware, async (c) => {
   applyContentVisibilityToAll(data, user.role);
   await resolveEventsTeacherUrls(data);
   await resolveEventsGroupUrls(data);
+  await resolveEventsImageUrls(data);
   applyEventsVideoThumbnails(data);
   applyEventsOrganizers(data);
   // "granted": given or bought; "membership": reachable only through the audience.

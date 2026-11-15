@@ -28,6 +28,7 @@ import { users } from "../db/schema/users.ts";
 import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
+import { resolveEventImageUrls, resolveEventsImageUrls } from "../lib/event-image.ts";
 import { z } from "zod";
 
 const contentRoutes = new Hono();
@@ -412,6 +413,7 @@ contentRoutes.get("/event-bookmarks", async (c) => {
   for (const event of events) applyContentVisibility(event, user.role);
   await resolveEventsTeacherUrls(events);
   await resolveEventsGroupUrls(events);
+  await resolveEventsImageUrls(events);
   applyEventsOrganizers(events);
 
   return c.json(rows);
@@ -458,6 +460,7 @@ contentRoutes.post("/event-bookmarks", async (c) => {
     applyContentVisibility(existing.event, user.role);
     await resolveEventTeacherUrls(existing.event as any);
     await resolveEventGroupUrls(existing.event as any);
+    await resolveEventImageUrls(existing.event as any);
     applyEventOrganizers(existing.event);
   }
 
@@ -528,6 +531,7 @@ contentRoutes.get("/track-bookmarks", async (c) => {
   for (const event of events) applyContentVisibility(event, user.role);
   await resolveEventsTeacherUrls(events);
   await resolveEventsGroupUrls(events);
+  await resolveEventsImageUrls(events);
   applyEventsOrganizers(events);
 
   return c.json(rows);
@@ -578,6 +582,7 @@ contentRoutes.post("/track-bookmarks", async (c) => {
   if (event) {
     await resolveEventTeacherUrls(event);
     await resolveEventGroupUrls(event);
+    await resolveEventImageUrls(event);
     applyEventOrganizers(event);
   }
 
@@ -629,6 +634,7 @@ async function enrichVideoBookmarkEvents(
   for (const event of evts) applyContentVisibility(event, role);
   await resolveEventsTeacherUrls(evts);
   await resolveEventsGroupUrls(evts);
+  await resolveEventsImageUrls(evts);
   applyEventsOrganizers(evts);
 }
 

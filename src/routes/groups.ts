@@ -10,6 +10,7 @@ import { AUDIENCE_SLUGS, filterAccessibleEvents, eventStatusVisibleTo } from "..
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
+import { resolveEventsImageUrls } from "../lib/event-image.ts";
 import { applyContentVisibilityToAll } from "../services/media-visibility.ts";
 import { trackOrderBy } from "../services/track-order.ts";
 
@@ -165,6 +166,7 @@ groupRoutes.get("/:id/events", async (c) => {
   applyContentVisibilityToAll(accessibleEvents, user.role);
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
+  await resolveEventsImageUrls(accessibleEvents);
   applyEventsOrganizers(accessibleEvents);
   return c.json(accessibleEvents);
 });
