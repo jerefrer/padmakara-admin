@@ -73,3 +73,21 @@ export async function processHeroMobile(
   if (options.grayscale) pipeline = pipeline.greyscale();
   return pipeline.webp({ quality: HERO_MOBILE_DIMENSIONS.quality }).toBuffer();
 }
+
+/**
+ * Derive the square avatar from an already framed hero: the largest square around the focal
+ * point (percent of the image), resized to the canonical avatar shape. Used for event photos,
+ * where the admin frames one photo and the list thumbnail follows it.
+ */
+export async function processAvatarFromHero(
+  input: Buffer,
+  focal: { x: number; y: number },
+): Promise<Buffer> {
+  const meta = await sharp(input).metadata();
+  if (!meta.width || !meta.height) throw new Error("Unreadable hero image");
+  const size = Math.min(meta.width, meta.height);
+  const left = Math.min(meta.width - size, Math.max(0, Math.round((focal.x / 100) * meta.width - size / 2)));
+  const top = Math.min(meta.height - size, Math.max(0, Math.round((focal.y / 100) * meta.height - size / 2)));
+  const square = await sharp(input).extract({ left, top, width: size, height: size }).toBuffer();
+  return processAvatar(square);
+}

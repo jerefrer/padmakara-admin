@@ -26,6 +26,8 @@ import { eventAccessRoutes } from "./event-access.ts";
 import { eventParticipantRoutes } from "./event-participants.ts";
 import { eventNotifyRoutes } from "./event-notify.ts";
 import { eventAnnounceRoutes } from "./event-announce.ts";
+import { eventImageRoutes } from "./event-image.ts";
+import { adminEventImageFields } from "../../lib/event-image.ts";
 import { eventSortColumns } from "./events-sort.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { submitReadAlongJob, getReadAlongJobs, cancelReadAlongJob } from "../../services/read-along.ts";
@@ -43,6 +45,8 @@ eventRoutes.route("/", eventParticipantRoutes);
 // "Now available" email on publish: /:id/recipients, /:id/notify-published (see event-notify.ts).
 eventRoutes.route("/", eventNotifyRoutes);
 eventRoutes.route("/", eventAnnounceRoutes);
+// Optional event photo: /:id/avatar, /:id/hero, /:id/photo (see event-image.ts).
+eventRoutes.route("/", eventImageRoutes);
 
 
 eventRoutes.get("/", async (c) => {
@@ -335,6 +339,7 @@ eventRoutes.get("/:id", async (c) => {
   applyEventOrganizers(event);
   return c.json({
     ...event,
+    ...(await adminEventImageFields(event)),
     internalNotes: await readInternalNotes(id),
     publicationIds: event.eventPublications?.map((ep: any) => ep.publicationId) || [],
   });
@@ -592,7 +597,7 @@ eventRoutes.put("/:id", async (c) => {
     console.error("[sync] failed to bump events version:", err),
   );
   applyEventOrganizers(full);
-  return c.json({ ...full!, internalNotes: await readInternalNotes(id) });
+  return c.json({ ...full!, ...(await adminEventImageFields(full!)), internalNotes: await readInternalNotes(id) });
 });
 
 eventRoutes.delete("/:id", async (c) => {
