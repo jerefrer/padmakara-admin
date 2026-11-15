@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
@@ -16,6 +17,17 @@ import {
 } from "../services/publication-access.ts";
 
 export const publicationRoutes = new Hono();
+
+/**
+ * Identifies the PDF file without exposing its S3 key. Every upload gets a new
+ * key, so the fingerprint changes when the file is replaced and only then; the
+ * app compares it with its cached copy to offer the new file. The `version`
+ * field cannot do this: it mirrors the edition printed in the book, which a
+ * corrected file usually keeps.
+ */
+function pdfFingerprint(pdfS3Key: string): string {
+  return createHash("sha256").update(pdfS3Key).digest("hex").slice(0, 16);
+}
 
 /**
  * GET /api/publications — List published publications (optional auth)
@@ -94,6 +106,7 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
         pageCount: p.pageCount,
         publicationDate: p.publicationDate,
         version: p.version,
+        pdfFingerprint: pdfFingerprint(p.pdfS3Key),
         coverImageUrl,
         fileSizeBytes: p.fileSizeBytes,
         updatedAt: p.updatedAt,

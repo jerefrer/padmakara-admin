@@ -216,6 +216,34 @@ describe("GET /api/publications", () => {
     expect(pub.coverImageUrl).toBe("https://s3.example.com/signed-url");
   });
 
+  it("should give a fingerprint of the PDF file that does not reveal its S3 key", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication()]));
+    canOpen(1);
+
+    const { body } = await testJson("/api/publications");
+
+    const { pdfFingerprint } = body.publications[0];
+    expect(pdfFingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(JSON.stringify(body)).not.toContain("guide.pdf");
+  });
+
+  it("should change the fingerprint when the PDF file is replaced, and only then", async () => {
+    mockFrom.mockReturnValueOnce(
+      chainable([
+        makePublication({ id: 1 }),
+        makePublication({ id: 2, title: "Renamed", pdfS3Key: "publications/pdfs/guide.pdf" }),
+        makePublication({ id: 3, pdfS3Key: "publications/pdfs/guide-fixed.pdf" }),
+      ]),
+    );
+    canOpen(1, 2, 3);
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    const byId = new Map(body.publications.map((p: any) => [p.id, p.pdfFingerprint]));
+    expect(byId.get(2)).toBe(byId.get(1));
+    expect(byId.get(3)).not.toBe(byId.get(1));
+  });
+
   it("should generate coverImageUrl only when coverImageS3Key exists", async () => {
     mockFrom.mockReturnValueOnce(
       chainable([
