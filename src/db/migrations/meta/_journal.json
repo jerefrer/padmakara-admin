@@ -484,6 +484,13 @@
       "when": 1814233600000,
       "tag": "0068_event_announcements",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1814320000000,
+      "tag": "0069_event_photo",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { teachers } from "./teachers.ts";
+import type { HeroCrop, HeroFrameOverrides } from "./teachers.ts";
 import { places } from "./places.ts";
 import { organizers } from "./organizers.ts";
 import { retreatGroups } from "./retreat-groups.ts";
@@ -79,6 +80,22 @@ export const events = pgTable("retreats", {
   textsPublished: boolean("texts_published").notNull().default(true),
   topicsPublished: boolean("topics_published").notNull().default(true),
   imageUrl: text("image_url"),
+  // Optional event photo (e.g. several teachers together). Same model as retreat_groups: when set,
+  // it replaces the teachers' photos wherever the event is shown. See lib/event-image.ts.
+  avatarS3Key: text("avatar_s3_key"),
+  heroS3Key: text("hero_s3_key"),
+  heroMobileS3Key: text("hero_mobile_s3_key"),
+  heroFocalX: integer("hero_focal_x").notNull().default(50),
+  heroFocalY: integer("hero_focal_y").notNull().default(50),
+  heroScale: integer("hero_scale").notNull().default(100),
+  // The hero as uploaded, before any crop, so the admin can always re-frame it.
+  heroOriginalS3Key: text("hero_original_s3_key"),
+  heroCrop: jsonb("hero_crop").$type<HeroCrop>(),
+  heroGrayscale: boolean("hero_grayscale").notNull().default(false),
+  // Per-layout framing, tied to the stored crop: cleared whenever the hero or its crop changes.
+  heroFrameOverrides: jsonb("hero_frame_overrides").$type<HeroFrameOverrides>(),
+  avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
+  heroUpdatedAt: timestamp("hero_updated_at", { withTimezone: true }),
   s3Prefix: text("s3_prefix"),
   /** Wix ID of the library record this event was filled from (library_records.wix_id). */
   wixId: text("wix_id"),

@@ -182,6 +182,8 @@ export async function abortMultipartUpload(key: string, uploadId: string): Promi
  *   groups/avatars/
  *   groups/heroes/
  *
+ *   events/{eventCode}/images/  (event photos)
+ *
  * Everything else (events/…, downloads/…, or unrecognised) → not cached.
  */
 const CACHEABLE_PREFIXES = [
@@ -191,8 +193,11 @@ const CACHEABLE_PREFIXES = [
   "groups/heroes/",
 ] as const;
 
+/** Event photos: events/{eventCode}/images/… (the rest of events/… stays uncached). */
+const EVENT_IMAGE_KEY = /^events\/[^/]+\/images\//;
+
 export function isCacheableKey(key: string): boolean {
-  return CACHEABLE_PREFIXES.some((prefix) => key.startsWith(prefix));
+  return CACHEABLE_PREFIXES.some((prefix) => key.startsWith(prefix)) || EVENT_IMAGE_KEY.test(key);
 }
 
 /**
@@ -597,4 +602,36 @@ export function buildGroupHeroMobileS3Key(groupId: number, ext: string): string 
  */
 export function buildGroupHeroOriginalS3Key(groupId: number, ext: string): string {
   return `groups/heroes/originals/${groupId}-${Date.now()}.${ext}`;
+}
+
+/**
+ * Build S3 key for an event photo avatar (square thumbnail).
+ * Format: events/{eventCode}/images/avatar-{timestamp}.{ext}
+ */
+export function buildEventAvatarS3Key(eventCode: string, ext: string): string {
+  return `events/${eventCode}/images/avatar-${Date.now()}.${ext}`;
+}
+
+/**
+ * Build S3 key for the event photo hero (desktop, 2400px wide).
+ * Format: events/{eventCode}/images/hero-{timestamp}.{ext}
+ */
+export function buildEventHeroS3Key(eventCode: string, ext: string): string {
+  return `events/${eventCode}/images/hero-${Date.now()}.${ext}`;
+}
+
+/**
+ * Build S3 key for the mobile-sized event photo variant (1200px wide).
+ * Format: events/{eventCode}/images/hero-{timestamp}-m.{ext}
+ */
+export function buildEventHeroMobileS3Key(eventCode: string, ext: string): string {
+  return `events/${eventCode}/images/hero-${Date.now()}-m.${ext}`;
+}
+
+/**
+ * Build S3 key for the original of an event photo, kept as uploaded so it can be re-cropped.
+ * Format: events/{eventCode}/images/originals/{timestamp}.{ext}
+ */
+export function buildEventHeroOriginalS3Key(eventCode: string, ext: string): string {
+  return `events/${eventCode}/images/originals/${Date.now()}.${ext}`;
 }

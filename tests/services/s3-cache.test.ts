@@ -27,6 +27,15 @@ describe("isCacheableKey", () => {
     it("returns true for a group hero mobile key", () => {
       expect(isCacheableKey("groups/heroes/3-1716800000000-m.jpg")).toBe(true);
     });
+
+    it("returns true for an event photo key", () => {
+      expect(isCacheableKey("events/2026.05.01 - HK/images/hero-1716800000000.webp")).toBe(true);
+    });
+
+    it("returns false for other keys under the same event prefix", () => {
+      expect(isCacheableKey("events/2026.05.01 - HK/track1.mp3")).toBe(false);
+      expect(isCacheableKey("events/2026.05.01 - HK/transcripts/t.pdf")).toBe(false);
+    });
   });
 
   describe("not cacheable — sensitive content keys", () => {
