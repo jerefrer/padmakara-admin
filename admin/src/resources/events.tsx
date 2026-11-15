@@ -99,6 +99,7 @@ import { UploadProgress } from "../components/UploadProgress";
 import { ReadAlongPanel } from "../components/ReadAlongPanel";
 import { detailsSummary, readAlongTrackCount, topicsSummary, transcriptionSummary } from "../utils/eventSectionSummaries";
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
+import { EventPhotoSection } from "../components/EventPhotoSection";
 import { DocumentsSection, type PendingDocument } from "../components/DocumentsSection";
 import { AiAssistPanel, type AiAssistResult } from "../components/AiAssistPanel";
 import {
@@ -790,6 +791,9 @@ interface EventFormProps {
   /** Number of related publications, once loaded (null while unknown). */
   publicationCount?: number | null;
   documentsPanel?: React.ReactNode;
+  /** Optional event photo editor (edit view only: it needs a saved event). */
+  photoPanel?: React.ReactNode;
+  hasPhoto?: boolean;
   /** Number of event documents, once loaded (null while unknown). */
   documentCount?: number | null;
 }
@@ -829,7 +833,7 @@ const buildPublishSections = (
 };
 
 /** Ids of the collapsible cards on the event edit page, in display order. */
-export const EVENT_SECTION_IDS = ["details", "access", "media", "transcription", "topics", "texts"] as const;
+export const EVENT_SECTION_IDS = ["details", "photo", "access", "media", "transcription", "topics", "texts"] as const;
 // Every section starts folded: André wants each event to open the same way.
 export const EVENT_SECTION_DEFAULTS: Record<string, boolean> = {};
 
@@ -916,6 +920,7 @@ export const EventFormFields = ({
   onStatusChange, trackCount, transcriptCount, readAlongTracks,
   readOnlyEventCode,
   collapsible, visibility, audioExtra, transcriptionExtra, publicationsPanel, publicationCount, documentsPanel, documentCount,
+  photoPanel, hasPhoto,
 }: EventFormProps) => {
   const translate = useTranslate();
   // How many videos point at each session, for the empty-session delete warning.
@@ -1846,6 +1851,15 @@ export const EventFormFields = ({
         >
           {detailsContent}
         </CollapsibleSection>
+        {photoPanel && (
+          <CollapsibleSection
+            {...sectionProps("photo")}
+            title={translate("padmakara.eventSections.photo")}
+            summary={translate(hasPhoto ? "padmakara.eventSections.photoSet" : "padmakara.eventSections.photoNone")}
+          >
+            {photoPanel}
+          </CollapsibleSection>
+        )}
         <CollapsibleSection
           {...sectionProps("topics")}
           title={translate("padmakara.eventSections.topicsBibliography")}
@@ -4831,6 +4845,8 @@ export const EventEdit = () => {
     />
   );
 
+  const photoPanel = event?.id ? <EventPhotoSection record={event} /> : null;
+
   const publicationsPanel = (
     event?.id ? (
       <EventPublicationsPanel eventId={Number(event.id)} onCount={setPublicationCount} />
@@ -4930,6 +4946,8 @@ export const EventEdit = () => {
         publicationsPanel={publicationsPanel}
         publicationCount={publicationCount}
         documentsPanel={documentsPanel}
+        photoPanel={photoPanel}
+        hasPhoto={!!event?.heroUrl}
         documentCount={documentCount}
       />
 
