@@ -313,7 +313,6 @@ export function ImageSetUpload({
 
   const focalX = (record.heroFocalX as number) ?? 50;
   const focalY = (record.heroFocalY as number) ?? 50;
-  const heroScale = (record.heroScale as number) ?? 100;
   const hasAvatar = !!(record.avatarUrl || record.logoUrl);
   const hasHero = !!record.heroUrl;
   const groupName = (record.nameEn || record.titleEn || "?") as string;
@@ -485,7 +484,7 @@ export function ImageSetUpload({
         </Box>
         {hasHero && (
           <Typography variant="caption" color="text.secondary">
-            Focal point: {focalX}% / {focalY}% — Zoom: {heroScale}%
+            Focal point: {focalX}% / {focalY}%
           </Typography>
         )}
         <Box sx={{ mt: 1 }}>

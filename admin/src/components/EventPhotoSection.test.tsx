@@ -53,6 +53,12 @@ describe("EventPhotoSection", () => {
     expect(host.textContent).toContain("Upload photo");
   });
 
+  it("should show the saved focal point and no zoom figure, which no editor sets", () => {
+    render({ id: 5, titleEn: "Hong Kong", heroUrl: "https://signed/hero.webp", heroFocalX: 30, heroFocalY: 40, heroScale: 100 });
+    expect(host.textContent).toContain("Focal point: 30% / 40%");
+    expect(host.textContent).not.toContain("Zoom");
+  });
+
   it("should delete the photo through the admin API when removing", async () => {
     authFetch.mockResolvedValue({ ok: true });
     render({ id: 5, titleEn: "Hong Kong", heroUrl: "https://signed/hero.webp", heroFocalX: 50, heroFocalY: 50 });
