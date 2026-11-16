@@ -3395,7 +3395,8 @@ export const EventEdit = () => {
   const [locale] = useLocaleState();
   const refresh = useRefresh();
 
-  const { data: event, isPending } = useGetOne("events", { id: id! }, {
+  // `isFetchedAfterMount`: the cache can hand back a stale event first (see the form effect).
+  const { data: event, isPending, isFetchedAfterMount } = useGetOne("events", { id: id! }, {
     enabled: !!id,
     refetchOnMount: true,
     refetchOnWindowFocus: false,
@@ -3451,8 +3452,13 @@ export const EventEdit = () => {
   const [publicationCount, setPublicationCount] = useState<number | null>(null);
   const [documentCount, setDocumentCount] = useState<number | null>(null);
 
+  // The form is filled once, so only from the event this page fetched itself. Until
+  // then `event` is react-admin's cached copy: the list row (no internal notes) or
+  // the event as it was before the last Save (saves go through dataProvider.update,
+  // which leaves the cache alone). Filling from it showed the old values, and the
+  // next Save wrote them back.
   useEffect(() => {
-    if (!event || !lookupsLoaded || initialized) return;
+    if (!event || !isFetchedAfterMount || !lookupsLoaded || initialized) return;
 
     setForm({
       eventCode: event.eventCode || "",
@@ -3525,7 +3531,7 @@ export const EventEdit = () => {
     }
 
     setInitialized(true);
-  }, [event, allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences, lookupsLoaded, initialized]);
+  }, [event, isFetchedAfterMount, allTeachers, allPlaces, allOrganizers, allGroups, allEventTypes, allAudiences, lookupsLoaded, initialized]);
 
   // Separate effect for loading sessions - runs whenever event.sessions changes
   // This prevents the race condition where cached event data (without sessions)
