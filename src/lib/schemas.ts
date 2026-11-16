@@ -186,7 +186,12 @@ export const createTeacherSchema = z.object({
 export const updateTeacherSchema = createTeacherSchema
   .omit(IMAGE_EDITOR_FIELDS)
   .partial()
-  .extend({ avatarS3Key: removedImageKey, heroS3Key: removedImageKey })
+  .extend({
+    // .partial() keeps the create default, which would reset the aliases of every PUT that omits them.
+    aliases: createTeacherSchema.shape.aliases.removeDefault(),
+    avatarS3Key: removedImageKey,
+    heroS3Key: removedImageKey,
+  })
   .transform(withoutKeptImageKeys);
 
 // Places
@@ -226,7 +231,12 @@ export const createRetreatGroupSchema = z.object({
 export const updateRetreatGroupSchema = createRetreatGroupSchema
   .omit(IMAGE_EDITOR_FIELDS)
   .partial()
-  .extend({ avatarS3Key: removedImageKey, heroS3Key: removedImageKey })
+  .extend({
+    // .partial() keeps the create default, which would move the group to the top of the list on every PUT that omits it.
+    displayOrder: createRetreatGroupSchema.shape.displayOrder.removeDefault(),
+    avatarS3Key: removedImageKey,
+    heroS3Key: removedImageKey,
+  })
   .transform(withoutKeptImageKeys);
 
 // Event Types
