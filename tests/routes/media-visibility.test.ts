@@ -25,7 +25,7 @@ const { mockDb, mockGenerateRetreatZip } = vi.hoisted(() => {
     select: vi.fn(() => ({
       from: vi.fn(() =>
         Object.assign(Promise.resolve<unknown[]>([]), {
-          where: vi.fn(() => Promise.resolve([])),
+          where: vi.fn(() => Promise.resolve<unknown[]>([])),
         }),
       ),
     })),
@@ -199,7 +199,11 @@ describe("event lists — hidden media", () => {
   it("should strip hidden media from GET /api/groups/:id/events for a regular user", async () => {
     mockDb.query.retreatGroups.findFirst.mockResolvedValueOnce({ id: 5 });
     mockDb.select.mockImplementationOnce(() => ({
-      from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([{ eventId: 1 }])) })),
+      from: vi.fn(() =>
+        Object.assign(Promise.resolve<unknown[]>([]), {
+          where: vi.fn(() => Promise.resolve([{ eventId: 1 }])),
+        }),
+      ),
     }));
     mockDb.query.events.findMany.mockResolvedValueOnce([
       makeEvent({ ...AUDIO_HIDDEN, ...VIDEO_HIDDEN }),

@@ -113,7 +113,10 @@ async function getUserForAccess(authUser: { id: number; role: string } | null) {
  * bottom (e.g. viewer name + email). Shared by the transcript and generic
  * file routes so sensitive documents get identical per-user watermarking.
  */
-async function watermarkPdf(originalPdfBytes: Uint8Array, watermarkText: string): Promise<Uint8Array> {
+async function watermarkPdf(
+  originalPdfBytes: Uint8Array,
+  watermarkText: string,
+): Promise<Uint8Array<ArrayBuffer>> {
   const pdfDoc = await PDFDocument.load(originalPdfBytes);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const fontSize = 9;
@@ -130,7 +133,8 @@ async function watermarkPdf(originalPdfBytes: Uint8Array, watermarkText: string)
       opacity: 0.85,
     });
   }
-  return await pdfDoc.save();
+  // pdf-lib types save() as Uint8Array<ArrayBufferLike>; copy into a plain ArrayBuffer so it is a valid BodyInit
+  return new Uint8Array(await pdfDoc.save());
 }
 
 /**
@@ -774,7 +778,7 @@ mediaRoutes.get("/file/:id", async (c) => {
       await watermarkTextFor(authUser),
     );
     const disposition = isDownload ? "attachment" : "inline";
-    return new Response(bytes as BodyInit, {
+    return new Response(bytes, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `${disposition}; filename="${asciiFilename}"; filename*=UTF-8''${utf8Filename}`,

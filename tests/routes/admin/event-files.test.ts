@@ -26,7 +26,7 @@ vi.mock("../../../src/services/s3.ts", () => ({
 }));
 
 // The protected-PDF check reads S3; its own behaviour is in tests/services/pdf-protection.test.ts.
-const mockRejectProtectedPdf = vi.fn(() => Promise.resolve());
+const mockRejectProtectedPdf = vi.fn((_key: string) => Promise.resolve());
 vi.mock("../../../src/services/pdf-protection.ts", () => ({
   rejectProtectedPdf: (key: string) => mockRejectProtectedPdf(key),
 }));

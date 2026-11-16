@@ -22,7 +22,7 @@ import { bumpVersion } from "../../services/sync-versions.ts";
  * Uses pdftoppm (poppler) via Bun.spawn to render page 1 to PNG, then sharp to resize to JPEG.
  * Returns a JPEG buffer at 2x retina resolution (240×320).
  */
-async function generateCoverFromPdf(pdfBuffer: Buffer | Uint8Array): Promise<Buffer> {
+async function generateCoverFromPdf(pdfBuffer: Uint8Array<ArrayBuffer>): Promise<Buffer> {
   const proc = Bun.spawn(["pdftoppm", "-png", "-f", "1", "-l", "1", "-scale-to", "480", "-"], {
     stdin: new Blob([pdfBuffer]),
     stdout: "pipe",
@@ -49,7 +49,7 @@ async function generateCoverFromPdf(pdfBuffer: Buffer | Uint8Array): Promise<Buf
  * Count the pages of a PDF via poppler's pdfinfo. Robust against malformed
  * cross-reference tables that crash pdf-lib.
  */
-async function getPdfPageCount(pdfBuffer: Uint8Array): Promise<number> {
+async function getPdfPageCount(pdfBuffer: Uint8Array<ArrayBuffer>): Promise<number> {
   const proc = Bun.spawn(["pdfinfo", "-"], {
     stdin: new Blob([pdfBuffer]),
     stdout: "pipe",
@@ -79,7 +79,7 @@ async function getPdfPageCount(pdfBuffer: Uint8Array): Promise<number> {
  * vision API when pdf-lib's page subsetting fails on malformed/encrypted PDFs.
  */
 async function renderPageAsJpeg(
-  pdfBuffer: Uint8Array,
+  pdfBuffer: Uint8Array<ArrayBuffer>,
   pageNum: number,
   width = 1280,
 ): Promise<Buffer> {
