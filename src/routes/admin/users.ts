@@ -14,8 +14,36 @@ import {
   replaceUserAttendance,
   replaceUserGroups,
 } from "../../services/user-access.ts";
+import { getUser } from "../../middleware/auth.ts";
 
 const userRoutes = new Hono();
+
+const isStaffRole = (role: string) => role === "admin" || role === "superadmin";
+
+/** The account being edited or deleted, or 404. */
+async function findTarget(id: number) {
+  const target = await db.query.users.findFirst({
+    where: eq(users.id, id),
+    columns: { id: true, role: true, isActive: true },
+  });
+  if (!target) throw AppError.notFound("User not found");
+  return target;
+}
+
+/**
+ * Sensitive actions (roles, staff accounts) are reserved to superadmins. The role is
+ * read from the database, not the token: a demoted admin's token stays valid until it
+ * expires.
+ */
+async function requireSuperadmin(actorId: number, message: string): Promise<void> {
+  const actor = await db.query.users.findFirst({
+    where: eq(users.id, actorId),
+    columns: { role: true, isActive: true },
+  });
+  if (!actor || !actor.isActive || actor.role !== "superadmin") {
+    throw AppError.forbidden(message);
+  }
+}
 
 const columns: Record<string, any> = {
   id: users.id,
@@ -102,6 +130,24 @@ userRoutes.put("/:id", async (c) => {
   const body = await c.req.json();
   const { retreatGroupIds, attendedEventIds, ...data } = updateUserSchema.parse(body);
 
+  // The edit form sends every field, so only an actual change counts.
+  if (data.role !== undefined || data.isActive !== undefined) {
+    const target = await findTarget(id);
+    const roleChanges = data.role !== undefined && data.role !== target.role;
+    const activeChanges = data.isActive !== undefined && data.isActive !== target.isActive;
+    const self = getUser(c).id === id;
+    if (self && roleChanges) throw AppError.forbidden("You cannot change your own role.");
+    if (self && activeChanges) throw AppError.forbidden("You cannot change your own sign-in access.");
+    if (roleChanges) {
+      await requireSuperadmin(getUser(c).id, "Only a superadmin can change roles.");
+    } else if (activeChanges && isStaffRole(target.role)) {
+      await requireSuperadmin(
+        getUser(c).id,
+        "Only a superadmin can change sign-in access for an admin account.",
+      );
+    }
+  }
+
   // Handle subscriptionExpiresAt string → Date conversion
   const setData: Record<string, any> = { ...data, updatedAt: new Date() };
   if (data.subscriptionExpiresAt !== undefined) {
@@ -155,10 +201,18 @@ userRoutes.put("/:id", async (c) => {
  * Same deletion as the member's own: a live Easypay subscription is stopped first (502
  * and nothing deleted when Easypay cannot be reached), payment records are detached and
  * anonymised rather than deleted. Answers `{ id, email }`, which react-admin expects.
+ * Nobody deletes their own account here; only a superadmin deletes an admin account.
  */
 userRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
-  return c.json(await deleteUserAccount(id));
+  const actorId = getUser(c).id;
+  if (actorId === id) throw AppError.forbidden("You cannot delete your own account.");
+  const target = await findTarget(id);
+  const allowStaff = isStaffRole(target.role);
+  if (allowStaff) {
+    await requireSuperadmin(actorId, "Only a superadmin can delete an admin account.");
+  }
+  return c.json(await deleteUserAccount(id, { allowStaff }));
 });
 
 export { userRoutes };
