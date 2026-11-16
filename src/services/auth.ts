@@ -36,7 +36,7 @@ export interface TokenPayload {
 }
 
 export async function createAccessToken(payload: TokenPayload): Promise<string> {
-  return await new jose.SignJWT({ email: payload.email, role: payload.role })
+  return await new jose.SignJWT({ type: "access", email: payload.email, role: payload.role })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(String(payload.sub))
     .setIssuedAt()
@@ -59,16 +59,26 @@ export async function verifyToken(token: string): Promise<jose.JWTPayload & { em
 }
 
 /**
- * Verifies a token presented as an access token. Refresh tokens share the signing secret,
- * so without this check a 60-day refresh token would pass as a Bearer access token — and
- * logging out (which only deletes the stored refresh-token row) would not revoke it.
+ * Verifies a token presented as an access token. Every token type (access, refresh, media)
+ * shares the signing secret, so the `type` claim is what keeps them apart: a 60-day refresh
+ * token must not pass as a Bearer access token (logging out only deletes the stored
+ * refresh-token row, so it would not be revoked), and neither must a media token, which
+ * carries a bare `sub` (0 for anonymous viewers).
  */
 export async function verifyAccessToken(token: string): Promise<jose.JWTPayload & { email?: string; role?: string }> {
   const payload = await verifyToken(token);
-  if (payload.type === "refresh") {
-    throw new Error("refresh token used as an access token");
+  if (payload.type === "access") return payload;
+  // Legacy arm for access tokens issued before the `type` claim existed. Delete it one hour
+  // after the deploy that introduced `type: "access"` (access tokens live 1 h).
+  if (
+    payload.type === undefined &&
+    typeof payload.email === "string" &&
+    typeof payload.role === "string" &&
+    payload.svid === undefined
+  ) {
+    return payload;
   }
-  return payload;
+  throw new Error("token is not an access token");
 }
 
 export function generateMagicLinkToken(): string {
