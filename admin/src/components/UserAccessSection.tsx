@@ -108,6 +108,12 @@ export const AccessPicker = ({ source, title, options, addLabel, emptyLabel, rem
   const { field } = useInput({ source });
   const chosen: number[] = Array.isArray(field.value) ? field.value : [];
   const byId = new Map(options.map((o) => [o.id, o]));
+  // Listed in the options' order (groups by their display order, as in the app),
+  // not in the order they were added; ids with no option go last.
+  const shown = [
+    ...options.filter((o) => chosen.includes(o.id)).map((o) => o.id),
+    ...chosen.filter((id) => !byId.has(id)),
+  ];
   // Remounting clears the search box after each pick.
   const [pickKey, setPickKey] = useState(0);
 
@@ -117,7 +123,7 @@ export const AccessPicker = ({ source, title, options, addLabel, emptyLabel, rem
       {chosen.length === 0 && (
         <Typography variant="body2" color="text.secondary" sx={{ py: 0.75 }}>{emptyLabel}</Typography>
       )}
-      {chosen.map((id) => {
+      {shown.map((id) => {
         const option = byId.get(id);
         return (
           <Row

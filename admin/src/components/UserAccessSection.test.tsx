@@ -81,6 +81,15 @@ describe("AccessPicker", () => {
 
     expect(host.textContent).toContain("#99");
   });
+
+  it("should list what the person has in the order of the options, not the order they were added", () => {
+    act(() => root.render(<Harness initial={[3, 99, 1]} />));
+
+    const rows = [...host.querySelectorAll("button[aria-label^='remove: ']")].map((b) =>
+      b.getAttribute("aria-label"),
+    );
+    expect(rows).toEqual(["remove: Guru Yoga", "remove: Vietnamese Study Group", "remove: 99"]);
+  });
 });
 
 describe("eventOption", () => {
