@@ -44,7 +44,10 @@ interface BaseProps {
   initialCrop?: Area;
   /** Hero re-edit: the black-and-white choice saved last time. */
   initialGrayscale?: boolean;
-  /** Hero re-edit: per-frame framing saved with `initialCrop`; kept only while the crop stays the same. */
+  /**
+   * Hero re-edit: per-frame framing saved with `initialCrop` (without it, with the crop the editor
+   * opens on); kept only while the crop stays the same.
+   */
   initialFrameOverrides?: HeroFrameOverrides;
 }
 
@@ -76,6 +79,9 @@ export function ImageCropDialog(props: Props) {
   // (the cropper reports a default crop before it restores the saved one).
   const overridesCropRef = useRef<Area | null>(null);
   const cropTouchedRef = useRef(false);
+  // Overrides opened without a saved crop (a hero saved before originals were kept) belong to the
+  // crop the cropper settles on before the user touches it.
+  const overridesOnOpeningCropRef = useRef(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const draggingFocalRef = useRef(false);
 
@@ -102,9 +108,11 @@ export function ImageCropDialog(props: Props) {
       setOverridesReset(false);
       overridesCropRef.current = null;
       cropTouchedRef.current = false;
+      overridesOnOpeningCropRef.current = false;
     } else {
       setFrameOverrides(initialFrameOverrides ?? {});
       overridesCropRef.current = initialFrameOverrides && hasHeroFrameOverrides(initialFrameOverrides) ? initialCrop ?? null : null;
+      overridesOnOpeningCropRef.current = !initialCrop && hasHeroFrameOverrides(initialFrameOverrides);
       if (initialFocal) {
         setFocal({
           x: clamp(initialFocal.x, 0, 100),
@@ -117,6 +125,7 @@ export function ImageCropDialog(props: Props) {
 
   const onCropComplete = useCallback((_areaPercent: Area, areaPixels: Area) => {
     setCroppedAreaPixels(areaPixels);
+    if (!cropTouchedRef.current && overridesOnOpeningCropRef.current) overridesCropRef.current = areaPixels;
     // Frame adjustments belong to the crop they were made on: another crop frames other pixels.
     if (cropTouchedRef.current && !overridesSurviveCrop(overridesCropRef.current, areaPixels)) {
       overridesCropRef.current = null;

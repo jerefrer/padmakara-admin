@@ -13,7 +13,10 @@ import { hasHeroFrameOverrides, readHeroFrameOverrides, serializeHeroFrameOverri
 export interface StoredHeroEdit {
   initialCrop?: Area;
   initialGrayscale?: boolean;
-  /** Per-frame framing saved with that crop. Only set when the crop is restored: it is tied to it. */
+  /**
+   * Per-frame framing saved with the hero. Tied to the crop it was made on: the restored crop, or
+   * for a hero without original the whole stored image, which is what the editor opens on.
+   */
   initialFrameOverrides?: HeroFrameOverrides;
   /** The file loaded into the editor is the stored original: it is not uploaded again. */
   storedOriginal: boolean;
@@ -30,11 +33,14 @@ function isArea(value: unknown): value is Area {
 
 /**
  * Read the saved crop of a hero record. Heroes saved before originals were kept have none: the
- * editor then opens the stored (already cropped) image, which becomes the original on save.
+ * editor then opens the stored (already cropped) image, which becomes the original on save, with
+ * the per-frame framing saved on it.
  */
 export function storedHeroEdit(record: HeroRecord): StoredHeroEdit {
   if (typeof record.heroOriginalS3Key !== "string" || !record.heroOriginalS3Key) {
-    return { storedOriginal: false };
+    // The overrides are positions in the stored hero, which is the image the editor loads here.
+    const overrides = readHeroFrameOverrides(record.heroFrameOverrides);
+    return hasHeroFrameOverrides(overrides) ? { storedOriginal: false, initialFrameOverrides: overrides } : { storedOriginal: false };
   }
   const initialCrop = isArea(record.heroCrop) ? record.heroCrop : undefined;
   return {
