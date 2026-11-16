@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { eq, and, inArray, desc, gte, ne } from "drizzle-orm";
+import { bodyLimit } from "hono/body-limit";
+import { eq, and, or, inArray, desc, gte, ne, isNull, isNotNull, sql } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users } from "../db/schema/users.ts";
 import { paymentTransactions } from "../db/schema/payment-transactions.ts";
@@ -15,15 +16,22 @@ import {
   emailLanguage,
 } from "../services/membership-emails.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
+import { authIpLimiter } from "../middleware/rate-limit.ts";
 import {
   parseContribution,
   frequencyFor,
   intervalFromFrequency,
   addInterval,
-  nextExpiry,
   easypayDateTime,
   type MembershipInterval,
 } from "../services/membership.ts";
+import {
+  CREDIT_ACTIONS,
+  easypayTime,
+  expiryAfterCapture,
+  listCaptures,
+  uncountedPaidCaptures,
+} from "../services/membership-captures.ts";
 import { teachingOrders } from "../db/schema/event-access.ts";
 import {
   probeSinglePayment,
@@ -34,6 +42,12 @@ import {
 const EASYPAY_API_BASE = config.easypay.testing
   ? "https://api.test.easypay.pt/2.0"
   : "https://api.prod.easypay.pt/2.0";
+
+/** Largest webhook body accepted; a real Easypay notification is far smaller. */
+const WEBHOOK_MAX_BODY_BYTES = 64 * 1024;
+
+/** Easypay resource ids (subscription, single payment, checkout): checked against every id stored in production on 2026-11-16 (54 of 54). */
+const EASYPAY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const EASYPAY_CHECKOUT_SDK = "https://cdn.easypay.pt/checkout/2.9.1/";
 
@@ -61,9 +75,10 @@ interface EasypayCheckoutResponse {
  * NOT contain, despite earlier code assuming otherwise: there is no `order` object,
  * and there is no top-level `status`. The user id travels in `customer.key`; the
  * mandate/method state is `method.status` — which is not the same thing as the money
- * having arrived, so it must not be used to grant access.
+ * having arrived, so it must not be used to grant access. Money is read from
+ * `transactions` (see `src/services/membership-captures.ts`).
  */
-interface EasypaySubscriptionResponse {
+export interface EasypaySubscriptionResponse {
   id?: string;
   key?: string;
   frequency?: string;
@@ -79,12 +94,13 @@ interface EasypaySubscriptionResponse {
 /**
  * Easypay generic notifications carry `{id, key, type, status, messages, date}`.
  *
- * These sets come from Easypay's documentation, **not from observation**: we have never
- * seen a real subscription capture notification, because the sandbox account cannot
- * complete a card payment (card-on-file returns HTTP 500) and SEPA direct debit takes up
- * to 14 days to confirm. So anything unrecognised is logged loudly and stored verbatim
- * in `payment_transactions` rather than dropped — the first live notification is how we
- * find out what these should really be.
+ * The body is unauthenticated, so its `type` and `status` are hints and nothing more:
+ * they decide which Easypay resource to read and what to log, never whether money
+ * arrived or went back. Access is extended from the captures Easypay lists on the
+ * subscription (`creditNewCaptures`) and closed only on a refund or chargeback that
+ * Easypay itself reports on a capture we credited (`verifyReversal`). The one thing a
+ * hint still drives on its own is the "payment failed" email and page state, which
+ * change no access.
  */
 // "subscription_capture" is the type Easypay actually sent for a monthly charge — first
 // observed live on 2026-08-09 / 2026-09-09 (see payment_transactions id 1). Without it a
@@ -119,7 +135,7 @@ function classifyNotification(
  * account — and since the subscription resource has no `order.key` and its own `key`
  * came back empty, that fallback was previously the *only* code path, not an edge case.
  */
-function resolveUserId(subscription: EasypaySubscriptionResponse): number | null {
+export function resolveUserId(subscription: EasypaySubscriptionResponse): number | null {
   const match = /^user-(\d+)$/.exec(subscription.customer?.key ?? "");
   return match ? parseInt(match[1]!, 10) : null;
 }
@@ -226,8 +242,23 @@ interface LedgerRow {
   createdAt: Date;
 }
 
-const newestProgressRow = <T extends { notificationType: string | null }>(rows: T[]): T | undefined =>
-  rows.find((r) => PROGRESS_TYPES.includes(r.notificationType ?? ""));
+/**
+ * Ledger action of a capture notification after which Easypay listed no new paid capture:
+ * the body claimed a payment that is not (or not yet) there. It records what was received
+ * and says nothing about where a payment stands, so the read model skips it — a forged or
+ * early notification must not end a Direct Debit's "processing" state or hide a failure.
+ */
+const NO_NEW_CAPTURE = "no_new_capture";
+
+/** Note on an `unverified` row whose subscription Easypay answered 404 for; the reconcile job reads these again. */
+export const SUBSCRIPTION_NOT_FOUND_NOTE = "subscription not found at Easypay (404)";
+
+/** A capture-type row that describes a charge attempt (not one only recorded for a human). */
+const isChargeRow = (r: { notificationType: string | null; action: string }) =>
+  CAPTURE_TYPES.includes(r.notificationType ?? "") && r.action !== NO_NEW_CAPTURE;
+
+const newestProgressRow = <T extends { notificationType: string | null; action: string }>(rows: T[]): T | undefined =>
+  rows.find((r) => PROGRESS_TYPES.includes(r.notificationType ?? "") && r.action !== NO_NEW_CAPTURE);
 
 const isRecent = (at: Date) => Date.now() - at.getTime() <= FIRST_PAYMENT_WINDOW_MS;
 
@@ -454,7 +485,7 @@ async function wasReplaced(userId: number, id: string): Promise<boolean> {
 
 export async function deactivateAtEasypay(id: string): Promise<StopResult> {
   try {
-    await easypayFetch(`/subscription/${id}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) });
+    await easypayFetch(`/subscription/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) });
     return "stopped";
   } catch (err) {
     if (err instanceof EasypayHttpError && err.easypayStatus === 404) {
@@ -468,14 +499,6 @@ export async function deactivateAtEasypay(id: string): Promise<StopResult> {
   }
 }
 
-/** Easypay timestamps ("2026-10-07 14:06:15", no zone) as epoch ms; null when unreadable. */
-function easypayTime(value: unknown): number | null {
-  if (typeof value !== "string") return null;
-  const iso = value.trim().replace(" ", "T");
-  const ms = Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? iso : `${iso}Z`);
-  return Number.isNaN(ms) ? null : ms;
-}
-
 /**
  * Whether `incoming` is older than the stored subscription `storedId`. Two timestamps in the
  * same format compare fine whatever their zone. Fails open (false: adopt) when either date
@@ -486,7 +509,7 @@ async function isOlderThanStored(incoming: EasypaySubscriptionResponse, storedId
   const incomingAt = easypayTime(incoming.created_at);
   if (incomingAt === null) return false;
   try {
-    const stored = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${storedId}`);
+    const stored = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${encodeURIComponent(storedId)}`);
     const storedAt = easypayTime(stored.created_at);
     return storedAt !== null && incomingAt < storedAt;
   } catch (err) {
@@ -578,6 +601,265 @@ async function adoptSubscription(
     previous,
     stop,
     fields: { easypaySubscriptionId: id, subscriptionCancelledAt: null },
+  };
+}
+
+// ─── Crediting captures ───
+
+type MemberRow = typeof users.$inferSelect;
+
+export interface CreditOutcome {
+  /** Easypay capture ids credited by this call, oldest first. */
+  credited: string[];
+  /** The paid-through date after the last of them; null when nothing was credited. */
+  expiresAt: Date | null;
+}
+
+/**
+ * Credit every capture of `subscriptionId` that Easypay reports paid and the ledger has not
+ * counted yet, one interval each: the only way Easypay money extends access. The webhook
+ * runs it on every subscription notification and the reconcile job on every live member,
+ * so a forged or replayed notification finds nothing new, and a lost one is caught later.
+ *
+ * Each capture is credited in one transaction: the member row is locked, the new expiry is
+ * computed from what the lock read, and the credit row is inserted under the unique
+ * `easypay_transaction_id`. Two notifications (or a notification and the reconcile job)
+ * racing for the same capture: one inserts, the other conflicts and changes nothing. Two
+ * captures for one member: the lock serialises them, so neither overwrites the other.
+ *
+ * Throws on a database error, so the webhook can give its claim back and have Easypay retry.
+ */
+export async function creditNewCaptures(
+  user: MemberRow,
+  subscriptionId: string,
+  subscription: EasypaySubscriptionResponse,
+  source: "webhook" | "reconcile",
+): Promise<CreditOutcome> {
+  const ledger = await db
+    .select({
+      action: paymentTransactions.action,
+      easypayTransactionId: paymentTransactions.easypayTransactionId,
+      createdAt: paymentTransactions.createdAt,
+      rawSubscription: paymentTransactions.rawSubscription,
+    })
+    .from(paymentTransactions)
+    .where(
+      and(
+        // Whatever case the id was written in: missing a legacy row here would credit its
+        // captures a second time.
+        sql`lower(${paymentTransactions.notificationId}) = ${subscriptionId.toLowerCase()}`,
+        or(isNotNull(paymentTransactions.easypayTransactionId), inArray(paymentTransactions.action, CREDIT_ACTIONS)),
+      ),
+    )
+    .limit(1000);
+  const captures = uncountedPaidCaptures(subscription, ledger);
+  if (captures.length === 0) return { credited: [], expiresAt: null };
+
+  // Money arrived, so access is extended whatever happens to the subscription ids. A
+  // capture can come before its subscription_create, so it may be the one that swaps the
+  // new subscription in; a capture on one already replaced must not swap it back.
+  const adoption = await adoptSubscription(user, subscriptionId, subscription);
+  let note: string | null = null;
+  let idFields: Partial<Extract<Adoption, { outcome: "adopt" }>["fields"]> = {};
+  if (adoption.outcome === "stale") {
+    note = `capture on replaced ${subscriptionId}`;
+  } else if (adoption.outcome === "discard") {
+    // The money is in, so access is extended, but this subscription is not the member's.
+    note = `discarded ${subscriptionId}${stopSuffix(adoption.stop)}`;
+    if (adoption.stop === "failed") {
+      console.error(
+        `[EASYPAY CREDIT] user ${user.id} paid through ${subscriptionId}, which must not charge (${adoption.reason}), but it could not be stopped`,
+      );
+    }
+  } else if (adoption.outcome === "adopt") {
+    idFields = adoption.fields;
+    if (adoption.previous) {
+      // Unlike subscription_create, a failed stop here does not fail the request: the
+      // capture must not be lost. The note marks the old id as replaced, so its next
+      // charge is recognised as stale and the stop is tried again then.
+      note = `replaced ${adoption.previous}${stopSuffix(adoption.stop)}`;
+      if (adoption.stop === "failed") {
+        console.error(
+          `[EASYPAY CREDIT] user ${user.id} now pays through ${subscriptionId}, but ${adoption.previous} could not be stopped and may charge again`,
+        );
+      }
+    }
+  }
+
+  const interval = intervalFromFrequency(subscription.frequency);
+  const amount = typeof subscription.value === "number" ? String(subscription.value) : null;
+  const currency = typeof subscription.currency === "string" ? subscription.currency : null;
+  const credited: string[] = [];
+  let firstWasActive: boolean | null = null;
+  let expiresAt: Date | null = null;
+
+  for (const capture of captures) {
+    const first = credited.length === 0;
+    const done = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({
+          subscriptionStatus: users.subscriptionStatus,
+          subscriptionExpiresAt: users.subscriptionExpiresAt,
+          subscriptionAmount: users.subscriptionAmount,
+        })
+        .from(users)
+        .where(eq(users.id, user.id))
+        .for("update");
+      if (!locked) return null;
+      // Real access, not the stored status: a lapsed member still reads "active" and is
+      // joining again, so they are "activated" and get the welcome.
+      const wasActive = hasActiveSubscription(locked);
+      const next = expiryAfterCapture(locked.subscriptionExpiresAt, interval, capture.at);
+      const won = await tx
+        .insert(paymentTransactions)
+        .values({
+          userId: user.id,
+          notificationId: subscriptionId,
+          notificationType: "subscription_capture",
+          notificationStatus: "success",
+          dedupeKey: `capture:${capture.id}`,
+          easypayTransactionId: capture.id,
+          action: wasActive ? "extended" : "activated",
+          note: first ? note : null,
+          amount: capture.paid === null ? amount : String(capture.paid),
+          currency,
+          rawPayload: { source, transactionId: capture.id },
+          rawSubscription: subscription,
+        })
+        .onConflictDoNothing()
+        .returning({ id: paymentTransactions.id });
+      if (won.length === 0) return null;
+      await tx
+        .update(users)
+        .set({
+          subscriptionStatus: "active",
+          subscriptionSource: "easypay",
+          ...(first ? idFields : {}),
+          subscriptionExpiresAt: next,
+          subscriptionAmount: amount ?? locked.subscriptionAmount,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, user.id));
+      return { wasActive, next };
+    });
+    if (!done) {
+      console.log(`[EASYPAY CREDIT] capture ${capture.id} was credited by another request meanwhile`);
+      continue;
+    }
+    if (firstWasActive === null) firstWasActive = done.wasActive;
+    credited.push(capture.id);
+    expiresAt = done.next;
+    console.log(
+      `[EASYPAY CREDIT] (${source}) user ${user.id} paid ${capture.paid ?? "?"} ${currency ?? ""} (capture ${capture.id} on ${subscriptionId}) — access through ${done.next.toISOString()}`,
+    );
+  }
+
+  if (firstWasActive === false && expiresAt) {
+    const nextPaymentAt = expiresAt;
+    sendMembershipEmail(user.email, () =>
+      buildWelcomeEmail({
+        lang: emailLanguage(user.preferredLanguage),
+        firstName: user.firstName,
+        amount: Number(amount ?? user.subscriptionAmount ?? 0),
+        interval,
+        nextPaymentAt,
+        manageUrl: membershipUrl(),
+        retreatsUrl: `${config.urls.frontend}/`,
+      }),
+    );
+  }
+  return { credited, expiresAt };
+}
+
+// ─── Reversals ───
+
+/** The fields of `GET /refund/{id}` and `GET /chargeback/{id}` we read (docs.easypay.pt). */
+interface EasypayReversalResponse {
+  id?: string;
+  /** Refunds only: success | pending | failed | waiting. A chargeback has no status. */
+  status?: string;
+  value?: number;
+  amount?: number;
+  capture?: { id?: string; payment_id?: string; payment_type?: string };
+}
+
+type ReversalCheck =
+  /** Easypay has no such refund or chargeback: the notification proves nothing. */
+  | { outcome: "not_found" }
+  /** A refund Easypay does not (yet) report as completed. */
+  | { outcome: "not_final"; status: string }
+  /** Real at Easypay, but not on a capture we can show we credited: for a human. */
+  | { outcome: "unmatched"; note: string }
+  | { outcome: "matched"; userId: number; captureId: string; subscriptionId: string; amount: string | null };
+
+/**
+ * Read a refund or chargeback back from Easypay and find the capture it reverses among
+ * the ones we credited: a credit row carrying that capture id, or a pre-2026-11-16 credit
+ * of the same subscription whose stored snapshot lists it. Only then does it count.
+ *
+ * Whether `capture.id` of a refund equals the `transactions[].id` of the subscription is
+ * not stated by the documentation; if it does not, nothing matches and every reversal is
+ * left to a human — which fails safe, since a paying member's access is never closed on a
+ * guess. THROWS on any Easypay answer other than 404, so the webhook retries.
+ */
+async function verifyReversal(kind: "refund" | "chargeback", id: string): Promise<ReversalCheck> {
+  let reversal: EasypayReversalResponse;
+  try {
+    reversal = await easypayFetch<EasypayReversalResponse>(`/${kind}/${encodeURIComponent(id)}`);
+  } catch (err) {
+    if (err instanceof EasypayHttpError && err.easypayStatus === 404) return { outcome: "not_found" };
+    throw err;
+  }
+  const status = (reversal.status ?? "").toLowerCase();
+  if (kind === "refund" && status !== "success") return { outcome: "not_final", status: status || "-" };
+
+  const captureId = typeof reversal.capture?.id === "string" ? reversal.capture.id.toLowerCase() : null;
+  if (!captureId || !EASYPAY_ID.test(captureId)) return { outcome: "unmatched", note: `${kind} ${id} names no capture` };
+  const paymentId = typeof reversal.capture?.payment_id === "string" ? reversal.capture.payment_id.toLowerCase() : null;
+
+  const rows = await db
+    .select({
+      userId: paymentTransactions.userId,
+      notificationId: paymentTransactions.notificationId,
+      action: paymentTransactions.action,
+      easypayTransactionId: paymentTransactions.easypayTransactionId,
+      rawSubscription: paymentTransactions.rawSubscription,
+    })
+    .from(paymentTransactions)
+    .where(
+      or(
+        eq(paymentTransactions.easypayTransactionId, captureId),
+        paymentId
+          ? and(
+              sql`lower(${paymentTransactions.notificationId}) = ${paymentId}`,
+              inArray(paymentTransactions.action, CREDIT_ACTIONS),
+              isNull(paymentTransactions.easypayTransactionId),
+            )
+          : undefined,
+      ),
+    )
+    .limit(1000);
+  const credit =
+    rows.find((r) => r.easypayTransactionId?.toLowerCase() === captureId) ??
+    rows.find(
+      (r) =>
+        !r.easypayTransactionId &&
+        CREDIT_ACTIONS.includes(r.action) &&
+        r.notificationId.toLowerCase() === paymentId &&
+        listCaptures(r.rawSubscription).some((c) => c.id === captureId),
+    );
+  if (!credit) return { outcome: "unmatched", note: `${kind} ${id} on capture ${captureId}, which we never credited` };
+  if (paymentId && credit.notificationId.toLowerCase() !== paymentId) {
+    return { outcome: "unmatched", note: `${kind} ${id}: capture ${captureId} was credited on ${credit.notificationId}, not ${paymentId}` };
+  }
+  if (credit.userId === null) return { outcome: "unmatched", note: `${kind} ${id} on capture ${captureId} of a deleted account` };
+  const value = typeof reversal.value === "number" ? reversal.value : reversal.amount;
+  return {
+    outcome: "matched",
+    userId: credit.userId,
+    captureId,
+    subscriptionId: credit.notificationId,
+    amount: typeof value === "number" ? String(value) : null,
   };
 }
 
@@ -890,6 +1172,19 @@ paymentRoutes.get("/checkout/:id", async (c) => {
  * Verifies by querying Easypay API, then updates user subscription.
  * In mock mode: returns 200 no-op.
  */
+// Public endpoint: bound the work an unauthenticated caller can cause. Real
+// notifications are a few hundred bytes. The limit is generous because every
+// notification comes from a handful of Easypay addresses, so a burst of renewals
+// must not be throttled.
+paymentRoutes.use(
+  "/webhook",
+  authIpLimiter({ limit: 600, windowMs: 60_000 }),
+  bodyLimit({
+    maxSize: WEBHOOK_MAX_BODY_BYTES,
+    onError: (c) => c.json({ error: "Payload too large" }, 413),
+  }),
+);
+
 paymentRoutes.post("/webhook", async (c) => {
   if (isMockMode) {
     return c.json({ received: true, mock: true });
@@ -913,6 +1208,12 @@ paymentRoutes.post("/webhook", async (c) => {
 
   if (!id) {
     return c.json({ received: true, ignored: "no id" });
+  }
+
+  // Answer 200, not 4xx: a notification we will never handle must not be retried.
+  if (!EASYPAY_ID.test(id)) {
+    console.warn("[EASYPAY WEBHOOK] ignored a notification with a malformed id");
+    return c.json({ received: true, ignored: "bad id" });
   }
 
   // Idempotency. Easypay retries notifications, and a replay must not extend anyone's
@@ -944,301 +1245,311 @@ paymentRoutes.post("/webhook", async (c) => {
       .set(fields)
       .where(eq(paymentTransactions.id, txId));
 
-  // One-off teaching purchases (Easypay "single" payments) share this endpoint. Every
-  // subscription notification type starts with "subscription"; anything else (a bare
-  // "capture", say) may be a single payment, so it is checked first. Only a payment whose
-  // own `key` is `teaching-order-<publicId>` belongs to us: everything else falls through
-  // to the subscription path below, exactly as before.
-  if (!(type ?? "").toLowerCase().startsWith("subscription")) {
-    // Give the claim back and answer 503 so Easypay retries: the claimed dedupe row would
-    // otherwise swallow the retry and the payment would wait for the buyer's polling.
-    const retryLater = async (why: string) => {
-      console.error(`[EASYPAY WEBHOOK] ${id}: ${why} — answering 503 so Easypay retries`);
-      try {
-        await db.delete(paymentTransactions).where(eq(paymentTransactions.id, txId));
-      } catch (err) {
-        // Still answer 503: Easypay retries either way, and a leftover claim only means the
-        // retry is treated as a duplicate and the buyer's polling finishes the order.
-        console.error(`[EASYPAY WEBHOOK] ${id}: could not release the dedupe row:`, err);
-      }
-      return c.json({ received: false, retry: true }, 503);
-    };
+  // Give the claim back and answer 503 so Easypay retries: the claimed dedupe row would
+  // otherwise swallow the retry and the notification would be lost for good.
+  const retryLater = async (why: string) => {
+    console.error(`[EASYPAY WEBHOOK] ${id}: ${why} — answering 503 so Easypay retries`);
     try {
-      const single = await probeSinglePayment(id);
-      let publicId = single && single.key ? (TEACHING_ORDER_KEY.exec(single.key)?.[1] ?? null) : null;
-      // Easypay sometimes omits the payment's own key. The notification's key is then only a
-      // lookup hint: it is trusted for nothing until the order's own checkout confirms it.
-      let hinted = false;
-      if (single && !single.key && typeof body.key === "string") {
-        publicId = TEACHING_ORDER_KEY.exec(body.key)?.[1] ?? null;
-        hinted = publicId !== null;
+      await db.delete(paymentTransactions).where(eq(paymentTransactions.id, txId));
+    } catch (err) {
+      // Still answer 503: Easypay retries either way, and a leftover claim only means the
+      // retry is treated as a duplicate (the reconcile job still credits any capture).
+      console.error(`[EASYPAY WEBHOOK] ${id}: could not release the dedupe row:`, err);
+    }
+    return c.json({ received: false, retry: true }, 503);
+  };
+
+  try {
+    // One-off teaching purchases (Easypay "single" payments) share this endpoint. Every
+    // subscription notification type starts with "subscription"; anything else (a bare
+    // "capture", say) may be a single payment, so it is checked first. Only a payment whose
+    // own `key` is `teaching-order-<publicId>` belongs to us: everything else falls through
+    // to the paths below, exactly as before.
+    if (!(type ?? "").toLowerCase().startsWith("subscription")) {
+      try {
+        const single = await probeSinglePayment(id);
+        let publicId = single && single.key ? (TEACHING_ORDER_KEY.exec(single.key)?.[1] ?? null) : null;
+        // Easypay sometimes omits the payment's own key. The notification's key is then only a
+        // lookup hint: it is trusted for nothing until the order's own checkout confirms it.
+        let hinted = false;
+        if (single && !single.key && typeof body.key === "string") {
+          publicId = TEACHING_ORDER_KEY.exec(body.key)?.[1] ?? null;
+          hinted = publicId !== null;
+        }
+        if (single && publicId) {
+          const order = await db.query.teachingOrders.findFirst({
+            where: eq(teachingOrders.publicId, publicId),
+          });
+          if (!order) {
+            console.error(`[EASYPAY WEBHOOK] single payment ${id} references unknown teaching order ${publicId}`);
+            await recordOutcome({ action: "teaching_ignored", note: "unknown teaching order" });
+            return c.json({ received: true });
+          }
+          if (hinted && !(await paymentBelongsToOrder(order, id))) {
+            console.error(`[EASYPAY WEBHOOK] payment ${id} is not the payment of teaching order ${order.id}; ignored`);
+            await recordOutcome({ action: "teaching_ignored", note: "payment not linked to the hinted order" });
+            return c.json({ received: true });
+          }
+          // Reads the status and amount from Easypay (never from this body) and finalizes
+          // idempotently: a duplicate or a race with the confirmation page grants once.
+          const result = await refreshOrderFromEasypay(order, single);
+          console.log(`[EASYPAY WEBHOOK] teaching order ${order.id}: ${result}`);
+          // A success notification whose payment Easypay does not yet report as paid may
+          // simply be ahead of Easypay's own state: retry. Amount mismatches, key mismatches
+          // and the like are deliberate and terminal, so they are not retried.
+          if (result === "pending" && (status ?? "").toLowerCase() === "success") {
+            return await retryLater(`order ${order.id} not yet paid at Easypay (payment_status ${single.status})`);
+          }
+          await recordOutcome({
+            userId: order.userId,
+            action: `teaching_${result}`,
+            note: `order ${order.id}, payment_status ${single.status}`,
+            amount: single.amountCents === null ? null : String(single.amountCents / 100),
+          });
+          return c.json({ received: true });
+        }
+      } catch (err) {
+        return await retryLater(`teaching branch failed (${err instanceof Error ? err.message : String(err)})`);
       }
-      if (single && publicId) {
-        const order = await db.query.teachingOrders.findFirst({
-          where: eq(teachingOrders.publicId, publicId),
-        });
-        if (!order) {
-          console.error(`[EASYPAY WEBHOOK] single payment ${id} references unknown teaching order ${publicId}`);
-          await recordOutcome({ action: "teaching_ignored", note: "unknown teaching order" });
-          return c.json({ received: true });
-        }
-        if (hinted && !(await paymentBelongsToOrder(order, id))) {
-          console.error(`[EASYPAY WEBHOOK] payment ${id} is not the payment of teaching order ${order.id}; ignored`);
-          await recordOutcome({ action: "teaching_ignored", note: "payment not linked to the hinted order" });
-          return c.json({ received: true });
-        }
-        // Reads the status and amount from Easypay (never from this body) and finalizes
-        // idempotently: a duplicate or a race with the confirmation page grants once.
-        const result = await refreshOrderFromEasypay(order, single);
-        console.log(`[EASYPAY WEBHOOK] teaching order ${order.id}: ${result}`);
-        // A success notification whose payment Easypay does not yet report as paid may
-        // simply be ahead of Easypay's own state: retry. Amount mismatches, key mismatches
-        // and the like are deliberate and terminal, so they are not retried.
-        if (result === "pending" && (status ?? "").toLowerCase() === "success") {
-          return await retryLater(`order ${order.id} not yet paid at Easypay (payment_status ${single.status})`);
-        }
-        await recordOutcome({
-          userId: order.userId,
-          action: `teaching_${result}`,
-          note: `order ${order.id}, payment_status ${single.status}`,
-          amount: single.amountCents === null ? null : String(single.amountCents / 100),
-        });
+    }
+
+    const kind = classifyNotification(type, status);
+
+    // A refund or chargeback names its own resource (Easypay's notification table: the id is
+    // the refund's, or the chargeback's), never the subscription. Access closes only when
+    // Easypay reports that resource on a capture we credited.
+    if (kind === "reversal") {
+      const t = (type ?? "").toLowerCase();
+      if (t !== "refund" && t !== "chargeback") {
+        console.error(`[EASYPAY WEBHOOK] ${type} ${id} cannot be verified automatically — recorded for a human`);
+        await recordOutcome({ action: "reversal_review", note: `${type}/${status}: not verified automatically` });
         return c.json({ received: true });
       }
-    } catch (err) {
-      return await retryLater(`teaching branch failed (${err instanceof Error ? err.message : String(err)})`);
-    }
-  }
-
-  // Never act on the request body — re-read the subscription from Easypay and trust
-  // only what Easypay itself says about it.
-  let subscription: EasypaySubscriptionResponse;
-  try {
-    subscription = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${id}`);
-  } catch (err) {
-    // Could be a notification about something that is not a subscription at all (the
-    // `id` namespace differs per resource type). Recorded, not retried: we always
-    // answer 200 so Easypay does not hammer us over something we will never handle.
-    console.error(`[EASYPAY WEBHOOK] could not verify ${id}:`, err);
-    await recordOutcome({ action: "unverified", note: String(err) });
-    return c.json({ received: true });
-  }
-
-  const amount = typeof subscription.value === "number" ? String(subscription.value) : null;
-  const currency = typeof subscription.currency === "string" ? subscription.currency : null;
-  const userId = resolveUserId(subscription);
-
-  if (userId === null) {
-    console.error(
-      `[EASYPAY WEBHOOK] cannot attribute ${id} to a user — customer.key=${JSON.stringify(subscription.customer?.key)}`,
-    );
-    await recordOutcome({
-      action: "unresolved",
-      note: "customer.key did not match user-{id}",
-      rawSubscription: subscription,
-      amount,
-      currency,
-    });
-    return c.json({ received: true });
-  }
-
-  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
-  if (!user) {
-    console.error(`[EASYPAY WEBHOOK] ${id} references unknown user ${userId}`);
-    await recordOutcome({
-      action: "unresolved",
-      note: `user ${userId} not found`,
-      rawSubscription: subscription,
-      amount,
-      currency,
-    });
-    return c.json({ received: true });
-  }
-
-  const common = { userId, rawSubscription: subscription, amount, currency };
-
-  // subscription_create is a stored card or a signed mandate, never money, so it is handled
-  // before classifyNotification and can never reach the payment branch. Access waits for the
-  // capture.
-  if ((type ?? "").toLowerCase() === "subscription_create" && (status ?? "").toLowerCase() === "success") {
-    const adoption = await adoptSubscription(user, id, subscription);
-    if (adoption.outcome === "stale") {
-      await recordOutcome({ ...common, action: "ignored", note: `create on replaced ${id}` });
+      const check = await verifyReversal(t, id);
+      if (check.outcome === "not_found") {
+        console.error(`[EASYPAY WEBHOOK] ${t} ${id} not found at Easypay — nothing changed`);
+        await recordOutcome({ action: "unverified", note: `${t} not found at Easypay (404)` });
+        return c.json({ received: true });
+      }
+      if (check.outcome === "not_final") {
+        console.warn(`[EASYPAY WEBHOOK] refund ${id} is ${check.status} at Easypay — nothing changed yet`);
+        await recordOutcome({ action: "ignored", note: `refund status ${check.status}` });
+        return c.json({ received: true });
+      }
+      if (check.outcome === "unmatched") {
+        console.error(`[EASYPAY WEBHOOK] ${check.note} — recorded for a human, access unchanged`);
+        await recordOutcome({ action: "reversal_review", note: check.note });
+        return c.json({ received: true });
+      }
+      const already = await db
+        .select({ id: paymentTransactions.id })
+        .from(paymentTransactions)
+        .where(
+          and(
+            eq(paymentTransactions.notificationId, id),
+            eq(paymentTransactions.action, "reversed"),
+            ne(paymentTransactions.id, txId),
+          ),
+        )
+        .limit(1);
+      if (already.length > 0) {
+        // A replay of a reversal already applied must not close access again after the
+        // member has paid since.
+        await recordOutcome({ userId: check.userId, action: "ignored", note: `${t} ${id} already applied` });
+        return c.json({ received: true });
+      }
+      // The money went back. Close access now rather than at the paid-through date.
+      await db
+        .update(users)
+        .set({ subscriptionStatus: "expired", updatedAt: new Date() })
+        .where(eq(users.id, check.userId));
+      await recordOutcome({
+        userId: check.userId,
+        action: "reversed",
+        note: `${t} ${id} on capture ${check.captureId} (${check.subscriptionId})`,
+        amount: check.amount,
+      });
+      console.log(`[EASYPAY WEBHOOK] ${t} ${id} on capture ${check.captureId} for user ${check.userId} — access closed`);
       return c.json({ received: true });
     }
-    // Whichever subscription had to be stopped (the old one on a card update, or the new
-    // one that must not charge): if Easypay did not confirm, it would keep charging. Give
-    // the claim back and fail, so Easypay retries this notification and the retry tries the
-    // deactivation again. Nothing on the user row has changed yet, so the retry starts clean.
-    if (adoption.outcome !== "current" && adoption.stop === "failed") {
-      console.error(
-        `[EASYPAY WEBHOOK] ${id} for user ${userId} (${adoption.outcome}) left a subscription that could not be stopped — answering 503 so Easypay retries`,
-      );
-      try {
-        await db.delete(paymentTransactions).where(eq(paymentTransactions.id, txId));
-      } catch (err) {
-        // Still answer 503: Easypay retries either way, and a leftover claim only means the
-        // retry is treated as a duplicate and the buyer's polling finishes the order.
-        console.error(`[EASYPAY WEBHOOK] ${id}: could not release the dedupe row:`, err);
+
+    // Never act on the request body — re-read the subscription from Easypay and trust
+    // only what Easypay itself says about it.
+    let subscription: EasypaySubscriptionResponse;
+    try {
+      subscription = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${encodeURIComponent(id)}`);
+    } catch (err) {
+      // Only a 404 says "this id is not a subscription we can read": the `id` namespace
+      // differs per resource type, and a notification can concern another account. That is
+      // recorded for a human and answered 200, so Easypay does not retry it forever; the
+      // reconcile job reads recent ones again in case Easypay was only behind. Anything
+      // else (5xx, 401/403, 429, a network error) leaves the answer unknown: retry.
+      if (err instanceof EasypayHttpError && err.easypayStatus === 404) {
+        console.error(`[EASYPAY WEBHOOK] ${type}/${status} for ${id}, which Easypay does not know as a subscription (404)`);
+        await recordOutcome({ action: "unverified", note: SUBSCRIPTION_NOT_FOUND_NOTE });
+        return c.json({ received: true });
       }
-      return c.json({ received: false, retry: true }, 503);
+      return await retryLater(`could not read the subscription (${err instanceof Error ? err.message : String(err)})`);
     }
-    if (adoption.outcome === "discard") {
+
+    // From here on, Easypay's own spelling of the id. The id check above accepts either
+    // case, but the ledger and the stored subscription id hold Easypay's form: an
+    // upper-case copy must not look like an unknown subscription with captures never
+    // counted, nor like a new subscription to swap in.
+    const subscriptionId =
+      typeof subscription.id === "string" && subscription.id.toLowerCase() === id.toLowerCase()
+        ? subscription.id
+        : id.toLowerCase();
+
+    const amount = typeof subscription.value === "number" ? String(subscription.value) : null;
+    const currency = typeof subscription.currency === "string" ? subscription.currency : null;
+    const userId = resolveUserId(subscription);
+
+    if (userId === null) {
+      console.error(
+        `[EASYPAY WEBHOOK] cannot attribute ${id} to a user — customer.key=${JSON.stringify(subscription.customer?.key)}`,
+      );
       await recordOutcome({
-        ...common,
-        action: adoption.reason === "cancelled" ? "replacement_cancelled" : "stale_replacement",
-        note: `discarded ${id}${stopSuffix(adoption.stop)}`,
+        action: "unresolved",
+        note: "customer.key did not match user-{id}",
+        rawSubscription: subscription,
+        amount,
+        currency,
       });
       return c.json({ received: true });
     }
-    if (adoption.outcome === "adopt") {
-      // A card update creates a fresh subscription: the old one is stopped so the member is
-      // not charged twice, and any cancellation is cleared since they are paying again.
-      await db.update(users).set({ ...adoption.fields, updatedAt: new Date() }).where(eq(users.id, userId));
-      if (adoption.previous) {
+
+    const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+    if (!user) {
+      console.error(`[EASYPAY WEBHOOK] ${id} references unknown user ${userId}`);
+      await recordOutcome({
+        action: "unresolved",
+        note: `user ${userId} not found`,
+        rawSubscription: subscription,
+        amount,
+        currency,
+      });
+      return c.json({ received: true });
+    }
+
+    const common = { userId, rawSubscription: subscription, amount, currency };
+
+    // subscription_create is a stored card or a signed mandate, never money: it decides which
+    // subscription is the member's and nothing else. Its captures are credited by their own
+    // notification, or by the reconcile job.
+    if ((type ?? "").toLowerCase() === "subscription_create" && (status ?? "").toLowerCase() === "success") {
+      const adoption = await adoptSubscription(user, subscriptionId, subscription);
+      if (adoption.outcome === "stale") {
+        await recordOutcome({ ...common, action: "ignored", note: `create on replaced ${subscriptionId}` });
+        return c.json({ received: true });
+      }
+      // Whichever subscription had to be stopped (the old one on a card update, or the new
+      // one that must not charge): if Easypay did not confirm, it would keep charging. Give
+      // the claim back and fail, so Easypay retries this notification and the retry tries the
+      // deactivation again. Nothing on the user row has changed yet, so the retry starts clean.
+      if (adoption.outcome !== "current" && adoption.stop === "failed") {
+        return await retryLater(`for user ${userId} (${adoption.outcome}) left a subscription that could not be stopped`);
+      }
+      if (adoption.outcome === "discard") {
         await recordOutcome({
           ...common,
-          action: "method_updated",
-          note: `replaced ${adoption.previous}${stopSuffix(adoption.stop)}`,
+          action: adoption.reason === "cancelled" ? "replacement_cancelled" : "stale_replacement",
+          note: `discarded ${subscriptionId}${stopSuffix(adoption.stop)}`,
         });
         return c.json({ received: true });
       }
-    }
-    await recordOutcome({ ...common, action: "tokenized" });
-    return c.json({ received: true });
-  }
-
-  const kind = classifyNotification(type, status);
-
-  if (kind === "payment") {
-    const expiresAt = nextExpiry(user.subscriptionExpiresAt, intervalFromFrequency(subscription.frequency as string | undefined));
-    // Real access, not the stored status: a lapsed member still reads "active" and is
-    // joining again, so they get the welcome.
-    const wasActive = hasActiveSubscription(user);
-
-    // Money arrived, so access is extended whatever happens to the subscription ids. A
-    // capture can come before its subscription_create, so it may be the one that swaps
-    // the new subscription in; a capture on one already replaced must not swap it back.
-    const adoption = await adoptSubscription(user, id, subscription);
-    let note: string | null = null;
-    let idFields: Partial<Extract<Adoption, { outcome: "adopt" }>["fields"]> = {};
-    if (adoption.outcome === "stale") {
-      note = `capture on replaced ${id}`;
-    } else if (adoption.outcome === "discard") {
-      // The money is in, so access is extended, but this subscription is not the member's.
-      note = `discarded ${id}${stopSuffix(adoption.stop)}`;
-      if (adoption.stop === "failed") {
-        console.error(
-          `[EASYPAY WEBHOOK] user ${userId} paid through ${id}, which must not charge (${adoption.reason}), but it could not be stopped`,
-        );
-      }
-    } else if (adoption.outcome === "adopt") {
-      idFields = adoption.fields;
-      if (adoption.previous) {
-        // Unlike subscription_create, a failed stop here does not fail the request: the
-        // capture must not be lost. The note marks the old id as replaced, so its next
-        // charge is recognised as stale and the stop is tried again then.
-        note = `replaced ${adoption.previous}${stopSuffix(adoption.stop)}`;
-        if (adoption.stop === "failed") {
-          console.error(
-            `[EASYPAY WEBHOOK] user ${userId} now pays through ${id}, but ${adoption.previous} could not be stopped and may charge again`,
-          );
+      if (adoption.outcome === "adopt") {
+        // A card update creates a fresh subscription: the old one is stopped so the member is
+        // not charged twice, and any cancellation is cleared since they are paying again.
+        await db.update(users).set({ ...adoption.fields, updatedAt: new Date() }).where(eq(users.id, userId));
+        if (adoption.previous) {
+          await recordOutcome({
+            ...common,
+            action: "method_updated",
+            note: `replaced ${adoption.previous}${stopSuffix(adoption.stop)}`,
+          });
+          return c.json({ received: true });
         }
       }
+      await recordOutcome({ ...common, action: "tokenized" });
+      return c.json({ received: true });
     }
 
-    await db
-      .update(users)
-      .set({
-        subscriptionStatus: "active",
-        subscriptionSource: "easypay",
-        ...idFields,
-        subscriptionExpiresAt: expiresAt,
-        subscriptionAmount: amount ?? user.subscriptionAmount,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userId));
+    // Whatever the body says, money is what Easypay lists as paid and not yet counted.
+    const credit = await creditNewCaptures(user, subscriptionId, subscription, "webhook");
+    if (credit.credited.length > 0) {
+      await recordOutcome({
+        ...common,
+        action: "credited",
+        note: `credited ${credit.credited.join(", ")}; notification said ${type}/${status}`,
+      });
+      return c.json({ received: true });
+    }
 
-    await recordOutcome({ ...common, action: wasActive ? "extended" : "activated", note });
-    if (!wasActive) {
-      const interval = intervalFromFrequency(subscription.frequency as string | undefined);
+    if (kind === "payment") {
+      // A success notification with nothing new at Easypay: a forgery, a replay, or a
+      // notification ahead of Easypay's own list. Nothing changes; the reconcile job picks
+      // the capture up if it appears later.
+      console.warn(
+        `[EASYPAY WEBHOOK] ${type}/${status} for user ${userId} on ${subscriptionId}, but Easypay lists no paid capture that is not already counted`,
+      );
+      await recordOutcome({ ...common, action: NO_NEW_CAPTURE, note: `notification said ${type}/${status}` });
+      return c.json({ received: true });
+    }
+
+    // Failed charge, or a type we do not recognise: change nothing. Easypay retries twice
+    // on its own, and access lapses by itself at the paid-through date plus grace.
+    // Revoking here would cut off a paying member over one transient decline.
+    if (kind === "unknown") {
+      console.warn(
+        `[EASYPAY WEBHOOK] unrecognised type/status "${type}"/"${status}" for user ${userId} — stored, no action taken`,
+      );
+    }
+    await recordOutcome({ ...common, action: "ignored", note: kind });
+    if (kind !== "payment_failed") return c.json({ received: true });
+
+    // Only while access still runs: once it has ended the grace date is in the past, and a
+    // failed rejoin charge is answered by the checkout itself, not by a "renewal failed" email.
+    const renewalFailed = !!user.subscriptionExpiresAt && hasActiveSubscription(user);
+    // A first payment that failed: nothing was charged and there is no membership (or no
+    // longer one: a lapsed member rejoining has a past expiry date). The checkout page itself
+    // said "declined" for a card, but a Direct Debit fails days later.
+    const firstPaymentFailed = !renewalFailed && !hasActiveSubscription(user) && !(await hasBeenPaidBefore(subscriptionId));
+    if (!renewalFailed && !firstPaymentFailed) return c.json({ received: true });
+
+    // Easypay sends one failed notification per retry (`retries: 2`): one email per failure
+    // episode is enough, so stay quiet if this subscription already had one lately.
+    if (await alreadyToldAboutFailure(subscriptionId, txId)) {
+      console.log(`[EASYPAY WEBHOOK] ${id} failed again within ${FAILURE_EMAIL_WINDOW_DAYS} days — no second email`);
+      return c.json({ received: true });
+    }
+
+    if (renewalFailed) {
+      const graceUntil = graceEnd(user.subscriptionExpiresAt!);
       sendMembershipEmail(user.email, () =>
-        buildWelcomeEmail({
+        buildPaymentFailedEmail({
           lang: emailLanguage(user.preferredLanguage),
           firstName: user.firstName,
-          amount: Number(amount ?? user.subscriptionAmount ?? 0),
-          interval,
-          nextPaymentAt: expiresAt,
-          manageUrl: membershipUrl(),
-          retreatsUrl: `${config.urls.frontend}/`,
+          graceUntil,
+          updateUrl: membershipUrl(),
+        }),
+      );
+    } else {
+      sendMembershipEmail(user.email, () =>
+        buildFirstPaymentFailedEmail({
+          lang: emailLanguage(user.preferredLanguage),
+          firstName: user.firstName,
+          joinUrl: membershipUrl(),
         }),
       );
     }
-    console.log(
-      `[EASYPAY WEBHOOK] user ${userId} paid ${amount ?? "?"} ${currency ?? ""} — access through ${expiresAt.toISOString()}`,
-    );
     return c.json({ received: true });
+  } catch (err) {
+    // A database write (or an Easypay read) failed after the claim: without this the claim
+    // would stay and swallow Easypay's retry. Every step above is safe to run again —
+    // captures are credited once by their id, deactivations are idempotent.
+    return await retryLater(`processing failed (${err instanceof Error ? err.message : String(err)})`);
   }
-
-  if (kind === "reversal") {
-    // The money went back. Close access now rather than at the paid-through date.
-    await db
-      .update(users)
-      .set({ subscriptionStatus: "expired", updatedAt: new Date() })
-      .where(eq(users.id, userId));
-
-    await recordOutcome({ ...common, action: "reversed", note: `${type}/${status}` });
-    console.log(`[EASYPAY WEBHOOK] ${type} for user ${userId} — access closed`);
-    return c.json({ received: true });
-  }
-
-  // Failed charge, or a type we do not recognise: change nothing. Easypay retries twice
-  // on its own, and access lapses by itself at the paid-through date plus grace.
-  // Revoking here would cut off a paying member over one transient decline.
-  if (kind === "unknown") {
-    console.warn(
-      `[EASYPAY WEBHOOK] unrecognised type/status "${type}"/"${status}" for user ${userId} — stored, no action taken`,
-    );
-  }
-  await recordOutcome({ ...common, action: "ignored", note: kind });
-  if (kind !== "payment_failed") return c.json({ received: true });
-
-  // Only while access still runs: once it has ended the grace date is in the past, and a
-  // failed rejoin charge is answered by the checkout itself, not by a "renewal failed" email.
-  const renewalFailed = !!user.subscriptionExpiresAt && hasActiveSubscription(user);
-  // A first payment that failed: nothing was charged and there is no membership (or no
-  // longer one: a lapsed member rejoining has a past expiry date). The checkout page itself
-  // said "declined" for a card, but a Direct Debit fails days later.
-  const firstPaymentFailed = !renewalFailed && !hasActiveSubscription(user) && !(await hasBeenPaidBefore(id));
-  if (!renewalFailed && !firstPaymentFailed) return c.json({ received: true });
-
-  // Easypay sends one failed notification per retry (`retries: 2`): one email per failure
-  // episode is enough, so stay quiet if this subscription already had one lately.
-  if (await alreadyToldAboutFailure(id, txId)) {
-    console.log(`[EASYPAY WEBHOOK] ${id} failed again within ${FAILURE_EMAIL_WINDOW_DAYS} days — no second email`);
-    return c.json({ received: true });
-  }
-
-  if (renewalFailed) {
-    const graceUntil = graceEnd(user.subscriptionExpiresAt!);
-    sendMembershipEmail(user.email, () =>
-      buildPaymentFailedEmail({
-        lang: emailLanguage(user.preferredLanguage),
-        firstName: user.firstName,
-        graceUntil,
-        updateUrl: membershipUrl(),
-      }),
-    );
-  } else {
-    sendMembershipEmail(user.email, () =>
-      buildFirstPaymentFailedEmail({
-        lang: emailLanguage(user.preferredLanguage),
-        firstName: user.firstName,
-        joinUrl: membershipUrl(),
-      }),
-    );
-  }
-  return c.json({ received: true });
 });
 
 /**
@@ -1271,7 +1582,7 @@ paymentRoutes.get("/membership", authMiddleware, async (c) => {
     .orderBy(desc(paymentTransactions.createdAt))
     .limit(50);
 
-  const captures = rows.filter((r) => CAPTURE_TYPES.includes(r.notificationType ?? ""));
+  const captures = rows.filter(isChargeRow);
   const processing = await isFirstPaymentProcessing(user, rows);
   const state = membershipState(user, captures[0] ?? null, processing);
 

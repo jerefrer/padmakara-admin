@@ -6,6 +6,7 @@ import { config } from "./config.ts";
 import { errorHandler } from "./lib/errors.ts";
 import { api } from "./routes/index.ts";
 import { startUsagePruning } from "./services/usage.ts";
+import { startMembershipReconcile } from "./services/membership-reconcile.ts";
 
 const app = new Hono();
 
@@ -59,6 +60,9 @@ app.notFound((c) =>
 
 // Daily activity rows are kept 13 months, then deleted
 if (process.env.NODE_ENV !== "test") startUsagePruning();
+
+// Membership captures a notification missed are credited from Easypay every hour
+if (process.env.NODE_ENV !== "test") startMembershipReconcile();
 
 export default {
   port: config.port,

@@ -7,6 +7,7 @@ vi.hoisted(() => {
 });
 
 const PUBLIC_ID = "11111111-1111-1111-1111-111111111111";
+const PAY_ID = "00000000-0000-4000-8000-0000000000d4";
 const order = {
   id: 5, publicId: PUBLIC_ID, eventId: 8, userId: 3, email: "buyer@example.com", firstName: "Ana",
   lastName: "Silva", language: "pt", amountCents: 1500, status: "pending",
@@ -66,6 +67,8 @@ const sendEmail = vi.fn(async () => {});
 vi.mock("../../src/services/email.ts", () => ({ sendEmail: (...a: unknown[]) => (sendEmail as any)(...a) }));
 
 import { testJson } from "../helpers.ts";
+import { db } from "../../src/db/index.ts";
+import { deactivateAtEasypay } from "../../src/routes/payment.ts";
 
 type Routes = Record<string, { ok: boolean; body: unknown; status?: number }>;
 function stubEasypay(routes: Routes) {
@@ -85,10 +88,10 @@ function stubEasypay(routes: Routes) {
 
 const single = (o: Record<string, unknown> = {}) => ({
   ok: true,
-  body: { id: "pay-1", key: `teaching-order-${PUBLIC_ID}`, value: 15, payment_status: "paid", method: { type: "MBW" }, ...o },
+  body: { id: "00000000-0000-4000-8000-0000000000d4", key: `teaching-order-${PUBLIC_ID}`, value: 15, payment_status: "paid", method: { type: "MBW" }, ...o },
 });
 
-const notification = { id: "pay-1", key: "txn-1", type: "capture", status: "success", date: "2026-11-03 10:00:00" };
+const notification = { id: "00000000-0000-4000-8000-0000000000d4", key: "txn-1", type: "capture", status: "success", date: "2026-11-03 10:00:00" };
 const notify = (b: Record<string, unknown> = notification) =>
   testJson("/api/payment/webhook", { method: "POST", body: JSON.stringify(b) });
 
@@ -109,7 +112,7 @@ beforeEach(() => {
 
 describe("POST /api/payment/webhook for single teaching payments", () => {
   it("should finalize the order, grant once and email once when a paid single carries our key", async () => {
-    const fetchMock = stubEasypay({ "/single/pay-1": single() });
+    const fetchMock = stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single() });
     const { status } = await notify();
     expect(status).toBe(200);
     expect(txValues).toHaveBeenCalledWith(expect.objectContaining({ userId: 3, eventId: 8, source: "purchase", orderId: 5 }));
@@ -119,7 +122,7 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
   });
 
   it("should record and ignore a single payment whose key is not a teaching order", async () => {
-    stubEasypay({ "/single/pay-1": single({ key: "something-else" }) });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single({ key: "something-else" }) });
     const { status } = await notify();
     expect(status).toBe(200);
     expect(txValues).not.toHaveBeenCalled();
@@ -137,14 +140,14 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
 
   it("should ignore a teaching key whose order does not exist", async () => {
     currentOrder = null;
-    stubEasypay({ "/single/pay-1": single() });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single() });
     expect((await notify()).status).toBe(200);
     expect(txValues).not.toHaveBeenCalled();
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("should not finalize when the paid amount differs from the order amount", async () => {
-    stubEasypay({ "/single/pay-1": single({ value: 1 }) });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single({ value: 1 }) });
     const { status } = await notify();
     expect(status).toBe(200);
     expect(txValues).not.toHaveBeenCalled();
@@ -153,7 +156,7 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
   });
 
   it("should mark the order failed and grant nothing when the payment failed", async () => {
-    stubEasypay({ "/single/pay-1": single({ payment_status: "failed" }) });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single({ payment_status: "failed" }) });
     const { status } = await notify({ ...notification, status: "failed" });
     expect(status).toBe(200);
     expect(orderSets).toContainEqual(expect.objectContaining({ status: "failed" }));
@@ -162,7 +165,7 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
   });
 
   it("should do nothing more when the same notification is delivered twice", async () => {
-    const fetchMock = stubEasypay({ "/single/pay-1": single() });
+    const fetchMock = stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single() });
     ledgerInsert = [];
     const { status, body } = await notify();
     expect(status).toBe(200);
@@ -173,37 +176,37 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
 
   it("should grant once when another caller already won the status flip", async () => {
     claimRows = [];
-    stubEasypay({ "/single/pay-1": single() });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single() });
     await notify();
     expect(txValues).not.toHaveBeenCalled();
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("should not trust the notification body: a paid body with a pending single grants nothing", async () => {
-    stubEasypay({ "/single/pay-1": single({ payment_status: "pending" }) });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single({ payment_status: "pending" }) });
     await notify();
     expect(txValues).not.toHaveBeenCalled();
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("should leave subscription notifications on the subscription path without probing /single", async () => {
-    const fetchMock = stubEasypay({ "/subscription/sub-abc": { ok: true, body: { id: "sub-abc", value: 5, customer: { key: "user-7" } } } });
+    const fetchMock = stubEasypay({ "/subscription/00000000-0000-4000-8000-0000000000a1": { ok: true, body: { id: "00000000-0000-4000-8000-0000000000a1", value: 5, customer: { key: "user-7" } } } });
     subscriptionUserFind.mockResolvedValue({ id: 7, email: "m@test.com", subscriptionStatus: "none", subscriptionExpiresAt: null });
-    await notify({ id: "sub-abc", type: "subscription_capture", status: "success", date: "d" });
+    await notify({ id: "00000000-0000-4000-8000-0000000000a1", type: "subscription_capture", status: "success", date: "d" });
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/single/"))).toBe(false);
-    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/subscription/sub-abc"))).toBe(true);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/subscription/00000000-0000-4000-8000-0000000000a1"))).toBe(true);
   });
 
   it("should fall through to the subscription path when a capture is not a single payment", async () => {
-    const fetchMock = stubEasypay({ "/subscription/sub-abc": { ok: true, body: { id: "sub-abc", value: 5, customer: { key: "user-7" } } } });
+    const fetchMock = stubEasypay({ "/subscription/00000000-0000-4000-8000-0000000000a1": { ok: true, body: { id: "00000000-0000-4000-8000-0000000000a1", value: 5, customer: { key: "user-7" } } } });
     subscriptionUserFind.mockResolvedValue({ id: 7, email: "m@test.com", subscriptionStatus: "none", subscriptionExpiresAt: null });
-    await notify({ id: "sub-abc", type: "capture", status: "success", date: "d" });
-    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/subscription/sub-abc"))).toBe(true);
+    await notify({ id: "00000000-0000-4000-8000-0000000000a1", type: "capture", status: "success", date: "d" });
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/subscription/00000000-0000-4000-8000-0000000000a1"))).toBe(true);
     expect(txValues).not.toHaveBeenCalled();
   });
 
   it("should release the dedupe row and answer 503 when the single probe gets a 5xx", async () => {
-    stubEasypay({ "/single/pay-1": { ok: false, status: 502, body: {} } });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": { ok: false, status: 502, body: {} } });
     const { status, body } = await notify();
     expect(status).toBe(503);
     expect(body).toEqual({ received: false, retry: true });
@@ -219,7 +222,7 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
   });
 
   it("should keep falling through to the subscription path when the single probe answers 404", async () => {
-    stubEasypay({ "/subscription/pay-1": { ok: true, body: { id: "pay-1", value: 5, customer: { key: "user-7" } } } });
+    stubEasypay({ "/subscription/00000000-0000-4000-8000-0000000000d4": { ok: true, body: { id: "00000000-0000-4000-8000-0000000000d4", value: 5, customer: { key: "user-7" } } } });
     subscriptionUserFind.mockResolvedValue({ id: 7, email: "m@test.com", subscriptionStatus: "none", subscriptionExpiresAt: null });
     const { status } = await notify();
     expect(status).toBe(200);
@@ -228,7 +231,7 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
 
   it("should release the dedupe row and answer 503 when the teaching branch throws", async () => {
     orderLookupThrows = true;
-    stubEasypay({ "/single/pay-1": single() });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single() });
     const { status } = await notify();
     expect(status).toBe(503);
     expect(deleteCalls).toHaveLength(1);
@@ -236,22 +239,22 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
   });
 
   it("should answer 503 for a success notification whose single is not paid yet", async () => {
-    stubEasypay({ "/single/pay-1": single({ payment_status: "pending" }) });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single({ payment_status: "pending" }) });
     const { status } = await notify();
     expect(status).toBe(503);
     expect(deleteCalls).toHaveLength(1);
   });
 
   it("should not retry an amount mismatch", async () => {
-    stubEasypay({ "/single/pay-1": single({ value: 1 }) });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single({ value: 1 }) });
     expect((await notify()).status).toBe(200);
     expect(deleteCalls).toHaveLength(0);
   });
 
   it("should use the notification key as a hint when the single has no key, then verify through the order's checkout", async () => {
     stubEasypay({
-      "/single/pay-1": single({ key: undefined }),
-      "/checkout/chk-1": { ok: true, body: { payment: { id: "pay-1" } } },
+      "/single/00000000-0000-4000-8000-0000000000d4": single({ key: undefined }),
+      "/checkout/chk-1": { ok: true, body: { payment: { id: "00000000-0000-4000-8000-0000000000d4" } } },
     });
     const { status } = await notify({ ...notification, key: `teaching-order-${PUBLIC_ID}` });
     expect(status).toBe(200);
@@ -261,8 +264,8 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
 
   it("should ignore a hinted order when its checkout names a different payment", async () => {
     stubEasypay({
-      "/single/pay-1": single({ key: undefined }),
-      "/checkout/chk-1": { ok: true, body: { payment: { id: "pay-OTHER" } } },
+      "/single/00000000-0000-4000-8000-0000000000d4": single({ key: undefined }),
+      "/checkout/chk-1": { ok: true, body: { payment: { id: "00000000-0000-4000-8000-0000000000e5" } } },
     });
     const { status } = await notify({ ...notification, key: `teaching-order-${PUBLIC_ID}` });
     expect(status).toBe(200);
@@ -273,7 +276,7 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
 
   it("should answer 503 when the hinted-order verification cannot reach Easypay", async () => {
     stubEasypay({
-      "/single/pay-1": single({ key: undefined }),
+      "/single/00000000-0000-4000-8000-0000000000d4": single({ key: undefined }),
       "/checkout/chk-1": { ok: false, status: 502, body: {} },
     });
     const { status } = await notify({ ...notification, key: `teaching-order-${PUBLIC_ID}` });
@@ -282,20 +285,61 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
   });
 
   it("should not use the hint when the single already carries a different key", async () => {
-    stubEasypay({ "/single/pay-1": single({ key: "something-else" }) });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single({ key: "something-else" }) });
     await notify({ ...notification, key: `teaching-order-${PUBLIC_ID}` });
     expect(txValues).not.toHaveBeenCalled();
   });
 
   it("should still answer 503 when releasing the dedupe row fails", async () => {
-    stubEasypay({ "/single/pay-1": { ok: false, status: 502, body: {} } });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": { ok: false, status: 502, body: {} } });
     failDelete = true;
     const { status } = await notify();
     expect(status).toBe(503);
   });
 
   it("should retry (503) on Easypay 429 from the single probe", async () => {
-    stubEasypay({ "/single/pay-1": { ok: false, status: 429, body: {} } });
+    stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": { ok: false, status: 429, body: {} } });
     expect((await notify()).status).toBe(503);
+  });
+});
+
+describe("POST /api/payment/webhook input hardening", () => {
+  it("should ignore a notification whose id is not a UUID without calling Easypay or inserting a row", async () => {
+    const fetchMock = stubEasypay({});
+    const { status, body } = await notify({ id: "../single/abc", type: "subscription_capture", status: "success", date: "d" });
+    expect(status).toBe(200);
+    expect(body).toEqual({ received: true, ignored: "bad id" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("should accept an upper-case UUID id", async () => {
+    const fetchMock = stubEasypay({ [`/single/${PAY_ID.toUpperCase()}`]: single({ id: PAY_ID.toUpperCase() }) });
+    const { status, body } = await notify({ ...notification, id: PAY_ID.toUpperCase() });
+    expect(status).toBe(200);
+    expect(body).not.toHaveProperty("ignored");
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("should percent-encode an id holding path characters when deactivating a subscription", async () => {
+    const fetchMock = stubEasypay({});
+    await deactivateAtEasypay("../single/abc");
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls).toEqual(["https://api.test.easypay.pt/2.0/subscription/..%2Fsingle%2Fabc"]);
+  });
+
+  it("should answer 413 and call nothing when the body exceeds 64 KB", async () => {
+    const fetchMock = stubEasypay({});
+    const { status } = await notify({ ...notification, padding: "x".repeat(100 * 1024) });
+    expect(status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(txValues).not.toHaveBeenCalled();
+  });
+
+  it("should still process a notification carrying a body just under the cap", async () => {
+    const fetchMock = stubEasypay({ "/single/00000000-0000-4000-8000-0000000000d4": single() });
+    const { status } = await notify({ ...notification, padding: "x".repeat(32 * 1024) });
+    expect(status).toBe(200);
+    expect(fetchMock).toHaveBeenCalled();
   });
 });
