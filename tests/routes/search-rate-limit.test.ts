@@ -13,16 +13,16 @@ vi.mock("../../src/db/index.ts", () => ({
 import { testRequest } from "../helpers.ts";
 
 describe("GET /api/search rate limit", () => {
-  it("should answer 429 once an IP exceeds 60 searches a minute", async () => {
+  it("should answer 429 once an IP exceeds 300 searches a minute", async () => {
     const statuses: number[] = [];
-    for (let i = 0; i < 62; i++) {
+    for (let i = 0; i < 302; i++) {
       const res = await testRequest("/api/search?q=bodhicitta", {
         headers: { "x-forwarded-for": "8.8.4.4" },
       });
       statuses.push(res.status);
     }
 
-    expect(statuses.slice(0, 60).every((s) => s === 200)).toBe(true);
-    expect(statuses.slice(60)).toEqual([429, 429]);
+    expect(statuses.slice(0, 300).every((s) => s === 200)).toBe(true);
+    expect(statuses.slice(300)).toEqual([429, 429]);
   });
 });

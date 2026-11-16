@@ -158,9 +158,10 @@ searchRoutes.post("/log", authIpLimiter({ limit: 60, windowMs: 60 * 1000 }), asy
  * Unauthenticated users only see public events (audience = "free-anyone").
  *
  * Each call loads every visible event with its sessions and tracks, so it is
- * rate-limited per IP; 60 a minute is far above what typing in the app sends.
+ * rate-limited per IP. Typing sends about one call per word, but everyone on one
+ * wifi (a retreat centre) shares an IP, hence 300 a minute rather than 60.
  */
-searchRoutes.get("/", authIpLimiter({ limit: 60, windowMs: 60 * 1000 }), async (c) => {
+searchRoutes.get("/", authIpLimiter({ limit: 300, windowMs: 60 * 1000 }), async (c) => {
   const q = c.req.query("q")?.trim();
   const lang = c.req.query("lang") === "pt" ? "pt" : "en";
 
