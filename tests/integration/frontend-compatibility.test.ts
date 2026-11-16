@@ -431,7 +431,6 @@ describe("Frontend Compatibility Tests", () => {
       expect(body).toHaveLength(2);
       expect(body[0]).toMatchObject({
         id: expect.any(Number),
-        device_fingerprint: "device-1",
         device_name: "iPhone 14",
         device_type: "ios",
         activated_at: expect.any(String),

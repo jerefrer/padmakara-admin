@@ -716,7 +716,6 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
     user: await formatUserForApp(user),
     device: {
       activated_at: device.activatedAt.toISOString(),
-      device_fingerprint: device.deviceFingerprint,
       device_name: device.deviceName,
       user_name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
       is_active: device.isActive,
@@ -926,6 +925,7 @@ auth.post("/device/deactivate", authMiddleware, async (c) => {
  *
  * List all active devices for the authenticated user.
  * Also used by the mobile app for token validation (if 200 → token is valid).
+ * Never includes the fingerprint: it is a credential (see /device/discover).
  */
 auth.get("/devices", authMiddleware, async (c) => {
   const authUser = getUser(c);
@@ -940,7 +940,6 @@ auth.get("/devices", authMiddleware, async (c) => {
   return c.json(
     devices.map((d) => ({
       id: d.id,
-      device_fingerprint: d.deviceFingerprint,
       device_name: d.deviceName,
       device_type: d.deviceType,
       activated_at: d.activatedAt.toISOString(),
