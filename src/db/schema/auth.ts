@@ -78,7 +78,6 @@ export const userApprovalRequests = pgTable("user_approval_requests", {
   message: text("message"),
   status: text("status").notNull().default("pending"), // pending | approved | rejected
   adminMessage: text("admin_message"),
-  deviceFingerprint: text("device_fingerprint"),
   deviceName: text("device_name"),
   deviceType: text("device_type"),
   // User's preferred language for approval communications
