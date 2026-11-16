@@ -80,6 +80,7 @@ if (process.env.NODE_ENV !== "test") startMembershipReconcile();
 
 export default {
   port: config.port,
+  hostname: config.bindHost,
   fetch: app.fetch,
   idleTimeout: 120,
 };

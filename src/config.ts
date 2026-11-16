@@ -18,6 +18,11 @@ const isProductionEnv = env("NODE_ENV", "development") === "production";
 
 export const config = {
   port: parseInt(env("PORT", "3000"), 10),
+  /**
+   * Interface the server listens on. Loopback by default: in production only Caddy
+   * should reach it. Set BIND_HOST=0.0.0.0 in dev to reach it from a phone on the LAN.
+   */
+  bindHost: env("BIND_HOST", "127.0.0.1"),
   nodeEnv: env("NODE_ENV", "development"),
   isDev: env("NODE_ENV", "development") === "development",
   e2eEnabled: env("E2E_ENABLED", "false") === "true",
