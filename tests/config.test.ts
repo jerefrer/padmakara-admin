@@ -6,15 +6,21 @@ function makeConfig(overrides: {
   jwtSecret?: string;
   readAlongWebhookSecret?: string;
   bunnyWebhookSecret?: string;
+  easypayAccountId?: string;
+  easypayApiKey?: string;
 }) {
   return {
     nodeEnv: "production",
     jwt: { secret: overrides.jwtSecret ?? "a".repeat(40) },
     readAlong: {
-      webhookSecret: overrides.readAlongWebhookSecret ?? "real-webhook-secret-xyz",
+      webhookSecret: overrides.readAlongWebhookSecret ?? "real-webhook-secret-xyz-0123456789abcdef",
     },
     bunny: {
       webhookSecret: overrides.bunnyWebhookSecret ?? "real-bunny-webhook-secret",
+    },
+    easypay: {
+      accountId: overrides.easypayAccountId ?? "easypay-account",
+      apiKey: overrides.easypayApiKey ?? "easypay-key",
     },
   };
 }
@@ -99,12 +105,65 @@ describe("validateProductionConfig", () => {
     expect(() => validateProductionConfig(cfg)).toThrow("BUNNY_WEBHOOK_SECRET is empty");
   });
 
+  it("throws when READ_ALONG_WEBHOOK_SECRET is empty", () => {
+    const cfg = makeConfig({ readAlongWebhookSecret: "" });
+    expect(() => validateProductionConfig(cfg)).toThrow("READ_ALONG_WEBHOOK_SECRET is too short");
+  });
+
+  it("throws when READ_ALONG_WEBHOOK_SECRET is shorter than 32 characters", () => {
+    const cfg = makeConfig({ readAlongWebhookSecret: "short-webhook-secret" });
+    expect(() => validateProductionConfig(cfg)).toThrow("READ_ALONG_WEBHOOK_SECRET is too short");
+  });
+
+  it("throws when EASYPAY_ACCOUNT_ID is empty", () => {
+    const cfg = makeConfig({ easypayAccountId: "" });
+    expect(() => validateProductionConfig(cfg)).toThrow("EASYPAY_ACCOUNT_ID is empty");
+  });
+
+  it("throws when EASYPAY_API_KEY is empty", () => {
+    const cfg = makeConfig({ easypayApiKey: "" });
+    expect(() => validateProductionConfig(cfg)).toThrow("EASYPAY_API_KEY is empty");
+  });
+
   it("does not throw when all secrets are strong and non-default", () => {
     const cfg = makeConfig({
       jwtSecret: "a".repeat(40),
-      readAlongWebhookSecret: "real-webhook-secret-xyz",
+      readAlongWebhookSecret: "b".repeat(32),
       bunnyWebhookSecret: "real-bunny-webhook-secret",
     });
     expect(() => validateProductionConfig(cfg)).not.toThrow();
+  });
+});
+
+describe("config.easypay.testing default", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function loadTesting(nodeEnv: string, value?: string): Promise<boolean> {
+    vi.stubEnv("NODE_ENV", nodeEnv);
+    vi.stubEnv("EASYPAY_TESTING", value);
+    if (nodeEnv === "production") {
+      vi.stubEnv("JWT_SECRET", "a".repeat(40));
+      vi.stubEnv("READ_ALONG_WEBHOOK_SECRET", "b".repeat(40));
+      vi.stubEnv("EASYPAY_ACCOUNT_ID", "account");
+      vi.stubEnv("EASYPAY_API_KEY", "key");
+    }
+    vi.resetModules();
+    const { config } = await import("../src/config.ts");
+    return config.easypay.testing;
+  }
+
+  it("should default to the live Easypay API in production", async () => {
+    expect(await loadTesting("production")).toBe(false);
+  });
+
+  it("should default to the Easypay sandbox outside production", async () => {
+    expect(await loadTesting("development")).toBe(true);
+  });
+
+  it("should honour an explicit EASYPAY_TESTING=true in production", async () => {
+    expect(await loadTesting("production", "true")).toBe(true);
   });
 });

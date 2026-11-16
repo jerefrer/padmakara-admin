@@ -1,11 +1,21 @@
 import { describe, it, expect, vi } from "vitest";
 
-/** Production without an Easypay account must fail closed, never mark orders paid. */
+/**
+ * Production without an Easypay account must fail closed, never mark orders paid.
+ * The start-up guard (validateProductionConfig) already refuses an empty
+ * EASYPAY_ACCOUNT_ID in production, so the config is valid here and mock mode is
+ * forced directly: this checks the route's own second line of defence.
+ */
 vi.hoisted(() => {
   process.env.NODE_ENV = "production";
-  process.env.EASYPAY_ACCOUNT_ID = "";
-  process.env.READ_ALONG_WEBHOOK_SECRET = "prod-like-secret-for-test";
+  process.env.EASYPAY_ACCOUNT_ID = "prod-like-account";
+  process.env.EASYPAY_API_KEY = "prod-like-key";
+  process.env.READ_ALONG_WEBHOOK_SECRET = "prod-like-secret-for-test-0123456789";
 });
+vi.mock("../../src/routes/payment.ts", async (orig) => ({
+  ...(await orig<object>()),
+  isMockMode: true,
+}));
 
 const insertValues = vi.fn();
 vi.mock("../../src/db/index.ts", () => ({
