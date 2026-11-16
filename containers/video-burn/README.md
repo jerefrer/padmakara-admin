@@ -23,6 +23,10 @@ containers/video-burn/
   bunny-client.ts       minimal reimplementation of the two Bunny Stream API
                         calls this container needs (fetch + set-thumbnail)
   webhook.ts            HMAC-signed completion webhook POST
+  safe-download.ts      SSRF-safe download of MASTER_SOURCE_URL (public
+                        addresses only, every redirect re-checked, size cap);
+                        a copy of the API's src/lib/safe-fetch.ts rules,
+                        tested from tests/services/video-burn-safe-download.test.ts
   fonts/                 the four MinionPro faces, copied from
                         padmakara-app/assets/fonts/ (Regular/It/Bold/BoldIt)
   assets/                 bundled default outro logo (padmakara-logo.png,

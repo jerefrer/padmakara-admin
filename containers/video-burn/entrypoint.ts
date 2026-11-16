@@ -25,9 +25,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
-import { createWriteStream, existsSync } from "node:fs";
-import { pipeline } from "node:stream/promises";
-import { Readable } from "node:stream";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright-core";
@@ -56,6 +54,7 @@ import { fetchVideo, setThumbnail, type BunnyConfig } from "./bunny-client.ts";
 import { postWebhook } from "./webhook.ts";
 import { DiskTracker, dirSizeBytes } from "./disk-usage.ts";
 import { resolveMasterSource, type MasterSource } from "./source.ts";
+import { safeDownloadToFile } from "./safe-download.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -128,17 +127,25 @@ async function probeFile(filePath: string): Promise<MasterParams> {
 
 // ─── URL master source (MASTER_SOURCE_URL) ──────────────────────────────
 
+/** Upper bound on a downloaded master. The job disk is 200 GiB and must hold
+ *  the master, its remux and the merged output, so anything near this would
+ *  fail anyway; the cap just stops an endless stream filling the disk. */
+const MAX_MASTER_BYTES = 100 * 1024 ** 3;
+/** Abort a download that stops sending data for this long. */
+const DOWNLOAD_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+
 /** Streams a URL straight to disk — used for the MASTER_SOURCE_URL path
  *  (the container downloads the master itself, rather than the browser
- *  having already PUT it to S3). Not unit tested: it's network I/O, same
- *  as downloadToFile/uploadFile in s3-client.ts — only resolveMasterSource
- *  (source.ts) is pure enough to test without a real fetch. */
+ *  having already PUT it to S3). The URL is admin-supplied and this job runs
+ *  inside our AWS network, so the download refuses any host that is, or
+ *  resolves or redirects to, a non-public address (the instance metadata
+ *  endpoint especially) — see safe-download.ts, tested from the backend's
+ *  tests/services/video-burn-safe-download.test.ts. */
 async function downloadUrlToFile(url: string, destPath: string): Promise<void> {
-  const res = await fetch(url);
-  if (!res.ok || !res.body) {
-    throw new Error(`Failed to download master from URL: HTTP ${res.status}`);
-  }
-  await pipeline(Readable.fromWeb(res.body as any), createWriteStream(destPath));
+  await safeDownloadToFile(url, destPath, {
+    maxBytes: MAX_MASTER_BYTES,
+    idleTimeoutMs: DOWNLOAD_IDLE_TIMEOUT_MS,
+  });
 }
 
 /** File extension for the retained-original upload key, from the URL's own
