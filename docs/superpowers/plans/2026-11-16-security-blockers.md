@@ -32,8 +32,9 @@ before the public release and is not planned in detail here.
 | 4a | Easypay webhook input hardening | `fix/easypay-webhook-input` | Sonnet | small |
 | 4b | Easypay webhook trusts the request body | `fix/easypay-webhook-trust` | Opus | large |
 
-Status 2026-11-16: tasks 1, 4a, 4b and 2 are merged into main. Task 3 starts from that
-main, so its migrations are numbered after 0070 (task 4b's).
+Status 2026-11-16: all four blockers are merged and deployed to production (API: tasks 1, 4a,
+4b, 2 and 3a with migrations 0070–0072; app: 3b merged and on the web, native at the next
+store build). Found along the way, added to the second batch below.
 
 ## Decisions needed from Jérémy
 
@@ -322,3 +323,10 @@ Not planned in detail. Model recommendation per item.
 | Dependency updates (`sharp`, AWS SDK, hono), then the rest of `bun audit` | Sonnet | run, test, report |
 | Remove tracked data files (`uploads/migrations/*.csv`, migration reports, `data/s3-inventory.json`) and check sharing on the old bucket and Drive links | Opus for the check, Sonnet for the removal | the check decides whether content is exposed |
 | Remove the dead `?auto_activate=` deep link and `/auth/auto-activate` | Sonnet | deletion, after confirming nothing emits such links |
+| A forged `subscription_create` still drives subscription adoption, which can stop a subscription at Easypay (needs the victim's subscription id): verify adoption against Easypay state | Opus | payment logic |
+| Refunds and chargebacks of one-off teaching purchases are not handled | Opus | needs a policy, then code |
+| A verified reversal closes all remaining access, even for an old capture | — | policy decision for Jérémy |
+| Caddy's `header` block overwrites the app's `Referrer-Policy: no-referrer` on the activation page: use `?Referrer-Policy` (set only when absent) | Sonnet | one-line Caddy change |
+| `user_approval_requests.device_fingerprint` is unused and may hold raw fingerprints: null or drop it | Sonnet | migration |
+| Payment routes `/membership`, `/cancel`, `/amount`, `/resume` interpolate `easypaySubscriptionId` unencoded (values come from the DB) | Sonnet | encode for consistency |
+| Delete `~/db-backups/pre-0072-device-fingerprints-2026-11-16.sql` on the server once the hashed fingerprints have run a few days: it holds raw fingerprints | — | housekeeping |
