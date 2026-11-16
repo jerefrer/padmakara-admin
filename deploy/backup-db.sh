@@ -1,49 +1,48 @@
 #!/bin/bash
 # =============================================================================
-# Padmakara Database Backup — Runs daily via cron
+# Padmakara Database Backup — runs hourly from padmakara's crontab:
+#   0 * * * * /home/padmakara/backup-db.sh >> /home/padmakara/backup.log 2>&1
 #
-# Setup:
-#   1. Install AWS CLI: sudo apt install awscli && aws configure
-#   2. Create S3 bucket: aws s3 mb s3://padmakara-pt-database-backups
-#   3. Add to crontab: crontab -e
-#      0 3 * * * /home/padmakara/backup-db.sh >> /home/padmakara/backup.log 2>&1
+# The server runs a COPY at /home/padmakara/backup-db.sh, not this file:
+# after changing it, install the copy again (see
+# docs/runbooks/server-hardening-2026-11.md). setup-server.sh embeds the same
+# text; tests/deploy/server-scripts.test.ts keeps the two identical.
 #
-# Keeps last 30 daily backups in S3.
+# Identity: the AWS profile padmakara-db-backup (IAM user padmakara-db-backup,
+# created 2026-11-16), allowed only s3:PutObject and s3:AbortMultipartUpload
+# on arn:aws:s3:::padmakara-pt-database-backups/db-backups/*. It can add
+# backups and nothing else: it cannot list, read or delete them, and since the
+# bucket is versioned a PUT over an existing key only adds a version. A
+# compromise of this server therefore cannot erase the backup history.
+#
+# Retention is therefore the bucket's job, not this script's: a lifecycle rule
+# expires current objects under db-backups/ after 30 days, and versioning plus
+# a second rule keeps noncurrent versions another 30 days.
 # =============================================================================
 set -euo pipefail
 
-# --- Configuration ---
+# Dumps hold every user's data: nothing this script creates is readable by
+# anyone but its owner.
+umask 077
+
+export AWS_PROFILE="${BACKUP_AWS_PROFILE:-padmakara-db-backup}"
+
 DB_NAME="padmakara"
 S3_BUCKET="${BACKUP_S3_BUCKET:-padmakara-pt-database-backups}"
 S3_PREFIX="db-backups"
-RETENTION_DAYS=30
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="/tmp/padmakara_${TIMESTAMP}.sql.gz"
+
+# An unpredictable name, so no other local user can pre-create or swap it.
+BACKUP_FILE="$(mktemp "${TMPDIR:-/tmp}/padmakara-backup.XXXXXXXXXX")"
+trap 'rm -f -- "$BACKUP_FILE"' EXIT
 
 echo "[$(date)] Starting database backup..."
 
-# Dump and compress
 pg_dump "$DB_NAME" | gzip > "$BACKUP_FILE"
 BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
 echo "  Backup created: ${BACKUP_SIZE}"
 
-# Upload to S3
 aws s3 cp "$BACKUP_FILE" "s3://${S3_BUCKET}/${S3_PREFIX}/${TIMESTAMP}.sql.gz" --quiet
 echo "  Uploaded to s3://${S3_BUCKET}/${S3_PREFIX}/${TIMESTAMP}.sql.gz"
-
-# Clean up local file
-rm -f "$BACKUP_FILE"
-
-# Delete old backups from S3
-CUTOFF_DATE=$(date -d "-${RETENTION_DAYS} days" +%Y%m%d 2>/dev/null || date -v-${RETENTION_DAYS}d +%Y%m%d)
-aws s3 ls "s3://${S3_BUCKET}/${S3_PREFIX}/" | while read -r line; do
-    FILENAME=$(echo "$line" | awk '{print $4}')
-    # Extract date from filename (padmakara_YYYYMMDD_HHMMSS.sql.gz → YYYYMMDD)
-    FILE_DATE=$(echo "$FILENAME" | grep -oP '\d{8}' | head -1)
-    if [ -n "$FILE_DATE" ] && [ "$FILE_DATE" -lt "$CUTOFF_DATE" ] 2>/dev/null; then
-        echo "  Deleting old backup: ${FILENAME}"
-        aws s3 rm "s3://${S3_BUCKET}/${S3_PREFIX}/${FILENAME}" --quiet
-    fi
-done
 
 echo "[$(date)] Backup complete."
