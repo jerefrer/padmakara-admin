@@ -571,7 +571,7 @@ export const pt = {
       pendingUploadFolderBody: "O evento %{code} já tem estas faixas. Retome o carregamento em vez de criar o evento outra vez.",
       // Delete dialog
       deleteTitle: "Eliminar Evento",
-      deleteConfirmMessage: "Isto irá eliminar permanentemente <strong>%{title}</strong> e todas as suas sessões e faixas. Esta ação não pode ser desfeita.",
+      deleteConfirmMessage: "Isto irá eliminar permanentemente %{title} e todas as suas sessões e faixas. Esta ação não pode ser desfeita.",
       deleteTypeConfirm: 'Escreva "delete" para confirmar',
       deleting: "A eliminar...",
       deleteEvent: "Eliminar Evento",
@@ -693,7 +693,7 @@ export const pt = {
       delete: "Eliminar Grupo",
       deleteTitle: "Eliminar Grupo de Utilizadores",
       deleteConfirmMessage:
-        "Isto irá eliminar permanentemente <strong>%{name}</strong>. Esta ação não pode ser desfeita.",
+        "Isto irá eliminar permanentemente %{name}. Esta ação não pode ser desfeita.",
       deleteHasEvents:
         "%{count} evento está associado a este grupo. |||| %{count} eventos estão associados a este grupo.",
       reassignLabel: "Reatribuir eventos e membros a (opcional)",

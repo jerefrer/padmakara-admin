@@ -20,6 +20,7 @@ import {
   FunctionField,
 } from "react-admin";
 import { TeacherImageUpload } from "../components/TeacherImageUpload";
+import { KEEP_UNSAVED_EDITS } from "../utils/formReset";
 import {
   Button,
   Dialog,
@@ -138,7 +139,7 @@ export const TeacherEdit = () => {
   const translate = useTranslate();
   return (
     <Edit>
-      <SimpleForm toolbar={<TeacherToolbar />}>
+      <SimpleForm toolbar={<TeacherToolbar />} resetOptions={KEEP_UNSAVED_EDITS}>
         <TextInput source="name" label={translate("padmakara.fields.name")} validate={required()} />
         <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} validate={required()} />
         <TeacherImageUpload />
