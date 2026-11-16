@@ -44,6 +44,15 @@ export const paymentTransactions = pgTable(
     /** `${id}:${type}:${status}:${date}` — unique, this is the idempotency guard. */
     dedupeKey: text("dedupe_key").notNull().unique(),
 
+    /**
+     * The Easypay capture this row credited (`transactions[].id` of the subscription),
+     * set only on rows that extended a membership. Unique: a capture is credited at most
+     * once, whatever notifications, replays or reconcile runs see it. Null on rows written
+     * before 2026-11-16, whose captures are recognised from their `rawSubscription`
+     * instead (see `src/services/membership-captures.ts`).
+     */
+    easypayTransactionId: text("easypay_transaction_id").unique(),
+
     amount: numeric("amount", { precision: 10, scale: 2 }),
     currency: text("currency"),
 
