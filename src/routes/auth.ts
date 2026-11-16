@@ -703,26 +703,29 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
 auth.post("/auto-activate", authIpLimiter(), async (c) => {
   const body = await c.req.json();
   const data = autoActivateSchema.parse(body);
+  const fail = () => AppError.unauthorized("Invalid or expired token");
 
-  const tokenHash = await hashToken(data.token);
+  const magicLink = await findUsableMagicLink(data.token);
+  if (!magicLink) throw fail();
 
-  const magicLink = await db.query.magicLinkTokens.findFirst({
-    where: and(
-      eq(magicLinkTokens.tokenHash, tokenHash),
-      eq(magicLinkTokens.isUsed, false),
-      gt(magicLinkTokens.expiresAt, new Date()),
-    ),
-  });
+  // Admins sign in only with the code: refuse with the same 401 as a bad
+  // token, so the answer does not reveal the role, and leave the token
+  // unused so the code from the same email still works.
+  if (await isAdminEmail(magicLink.email)) throw fail();
 
-  if (!magicLink) {
-    throw AppError.unauthorized("Invalid or expired token");
-  }
-
-  // Mark token as used
-  await db
+  // Consume atomically: of two concurrent requests only one activates.
+  const consumed = await db
     .update(magicLinkTokens)
     .set({ isUsed: true })
-    .where(eq(magicLinkTokens.id, magicLink.id));
+    .where(
+      and(
+        eq(magicLinkTokens.id, magicLink.id),
+        eq(magicLinkTokens.isUsed, false),
+        gt(magicLinkTokens.expiresAt, new Date()),
+      ),
+    )
+    .returning({ id: magicLinkTokens.id });
+  if (consumed.length === 0) throw fail();
 
   // Find the user, or create the account on a first sign-in
   const user = await accountForEmailSignIn(magicLink.email, magicLink.language);
