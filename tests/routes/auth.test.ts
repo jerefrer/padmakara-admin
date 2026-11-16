@@ -35,6 +35,7 @@ vi.mock("../../src/services/users-lookup.ts", () => ({
 import { db } from "../../src/db/index.ts";
 import { findOrCreateUserByEmail } from "../../src/services/users-lookup.ts";
 import { hashSignInCode, verifySignInCode } from "../../src/services/sign-in-code.ts";
+import { hashDeviceFingerprint } from "../../src/lib/device-fingerprint.ts";
 import { config } from "../../src/config.ts";
 import {
   hashPassword,
@@ -255,7 +256,9 @@ describe("Auth routes", () => {
       expect(body).not.toHaveProperty("email"); // no address leakage
     });
 
-    it("returns already_activated for activated device", async () => {
+    it("returns already_activated for an activated device with a current-format fingerprint", async () => {
+      // Only current-format fingerprints sign back in without email; see device-fingerprint.test.ts.
+      const currentFingerprint = "q3Jd8-ZpX_2mVwT0bL9sYc4nR7uKeA1hGfDiOjM5tWx";
       const mockUser = {
         id: 1, email: "user@test.com", firstName: "Test", lastName: "User",
         dharmaName: null, preferredLanguage: "en", role: "user",
@@ -265,8 +268,8 @@ describe("Auth routes", () => {
       };
       (db.query.users.findFirst as any).mockResolvedValue(mockUser);
       (db.query.deviceActivations.findFirst as any).mockResolvedValue({
-        id: 1, userId: 1, deviceFingerprint: devicePayload.device_fingerprint,
-        isActive: true,
+        id: 1, userId: 1, deviceFingerprint: hashDeviceFingerprint(currentFingerprint),
+        isActive: true, lastUsed: new Date(),
       });
 
       const insertChain = mockInsertChain();
@@ -276,7 +279,9 @@ describe("Auth routes", () => {
 
       const { status, body } = await testJson("/api/auth/request-magic-link", {
         method: "POST",
-        body: JSON.stringify({ email: "user@test.com", ...devicePayload }),
+        body: JSON.stringify({
+          email: "user@test.com", ...devicePayload, device_fingerprint: currentFingerprint,
+        }),
       });
 
       expect(status).toBe(200);
@@ -384,7 +389,7 @@ describe("Auth routes", () => {
       expect(body.user.email).toBe("review@padmakara.pt");
       // A device activation row was created for this fingerprint.
       expect(insertChain.values).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 7, deviceFingerprint: "review-fingerprint-1" }),
+        expect.objectContaining({ userId: 7, deviceFingerprint: hashDeviceFingerprint("review-fingerprint-1") }),
       );
     });
 
@@ -464,7 +469,7 @@ describe("Auth routes", () => {
       tokenHash: "x",
       expiresAt: future(),
       isUsed: false,
-      deviceFingerprint: "device-A",
+      deviceFingerprint: hashDeviceFingerprint("device-A"),
       deviceName: "Phone A",
       deviceType: "ios",
       language: "en",
@@ -653,7 +658,7 @@ describe("Auth routes", () => {
       tokenHash: "x",
       expiresAt: future(),
       isUsed: false,
-      deviceFingerprint: "device-link",
+      deviceFingerprint: hashDeviceFingerprint("device-link"),
       deviceName: "Phone of Ana",
       deviceType: "ios",
       language: "en",
@@ -762,7 +767,7 @@ describe("Auth routes", () => {
       expect(res.status).toBe(200);
       expect(markedUsed(upd)).toBe(true);
       expect(insertChain.values).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 5, deviceFingerprint: "device-link" }),
+        expect.objectContaining({ userId: 5, deviceFingerprint: hashDeviceFingerprint("device-link") }),
       );
       expect(html).toContain("Device Activated");
       expect(res.headers.get("cache-control")).toBe("no-store");
@@ -938,7 +943,7 @@ describe("Auth routes", () => {
         );
         expect(markedUsed(upd)).toBe(true);
         expect(insertChain.values).toHaveBeenCalledWith(
-          expect.objectContaining({ userId: 5, deviceFingerprint: "device-app" }),
+          expect.objectContaining({ userId: 5, deviceFingerprint: hashDeviceFingerprint("device-app") }),
         );
       });
     });
@@ -964,7 +969,7 @@ describe("Auth routes", () => {
       tokenHash: "x",
       expiresAt: future(),
       isUsed: false,
-      deviceFingerprint: "device-new",
+      deviceFingerprint: hashDeviceFingerprint("device-new"),
       deviceName: "New Phone",
       deviceType: "ios",
       language: "pt",

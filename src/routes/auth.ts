@@ -40,6 +40,7 @@ import {
   discoverDeviceSchema,
   autoActivateSchema,
   deactivateDeviceSchema,
+  rotateDeviceFingerprintSchema,
   requestAccountDeletionSchema,
   confirmAccountDeletionSchema,
 } from "../lib/schemas.ts";
@@ -51,6 +52,7 @@ import { isReviewLoginFor, verifyReviewCode } from "../services/review-account.t
 import { generateSignInCode, hashSignInCode } from "../services/sign-in-code.ts";
 import { claimSignInCode } from "../services/sign-in-code-claim.ts";
 import { deleteUserAccount } from "../services/account-deletion.ts";
+import { hashDeviceFingerprint, isCurrentFingerprintFormat } from "../lib/device-fingerprint.ts";
 import {
   authIpLimiter,
   authEmailLimiter,
@@ -210,8 +212,9 @@ auth.post("/login", authIpLimiter(), authEmailLimiter(), async (c) => {
  * Accounts made in the app have no password, so an admin signs in to the
  * backoffice with a 6-digit code sent by email, like in the app. The code is
  * bound to the page that asked for it through a random challenge id (stored as
- * the token's device fingerprint), so a code read off the email works nowhere
- * else. No device is activated: the backoffice only gets tokens.
+ * the token's device fingerprint, hashed like any other), so a code read off
+ * the email works nowhere else. No device is activated: the backoffice only
+ * gets tokens.
  */
 const BACKOFFICE_FINGERPRINT_PREFIX = "backoffice:";
 
@@ -239,7 +242,7 @@ auth.post("/backoffice/request-code", authIpLimiter(), authEmailLimiter(), async
     // The row's link is never sent; it only holds the code.
     tokenHash: await hashToken(generateMagicLinkToken()),
     expiresAt: magicLinkExpiresAt(),
-    deviceFingerprint: `${BACKOFFICE_FINGERPRINT_PREFIX}${challengeId}`,
+    deviceFingerprint: hashDeviceFingerprint(`${BACKOFFICE_FINGERPRINT_PREFIX}${challengeId}`),
     deviceName: "Backoffice",
     deviceType: "web",
     language: data.language,
@@ -294,11 +297,29 @@ auth.post("/backoffice/verify-code", authIpLimiter(), authEmailLimiter(), async 
 // Device-based magic link auth — used by React Native app
 // ──────────────────────────────────────────────────────
 
+/** How long an activated device may sign back in without an email (user decision, 2026-11-16). */
+const SIGN_BACK_IN_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * An activated device signs back in without email only with a fingerprint in
+ * the current format (random, kept in secure storage) and only if it was used
+ * within the last 12 months. Legacy fingerprints (weak, in plain storage) and
+ * older activations go through the email instead; they keep working everywhere
+ * else.
+ */
+function mayReturnWithoutEmail(fingerprint: string, device: { lastUsed: Date }): boolean {
+  return (
+    isCurrentFingerprintFormat(fingerprint) &&
+    device.lastUsed.getTime() > Date.now() - SIGN_BACK_IN_WINDOW_MS
+  );
+}
+
 /**
  * POST /api/auth/request-magic-link
  *
  * Step 1 of mobile auth. The app sends email + device info.
- * - If user exists & device already activated → return tokens immediately
+ * - If user exists & device already activated → return tokens immediately,
+ *   within the limits of mayReturnWithoutEmail
  * - If user exists but device not activated → send magic link email
  * - If user doesn't exist → send magic link email too; the account is created
  *   when the link or code is used (see accountForEmailSignIn)
@@ -309,6 +330,7 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
   const data = requestMagicLinkSchema.parse(body);
 
   const email = data.email.toLowerCase().trim();
+  const fingerprintHash = hashDeviceFingerprint(data.device_fingerprint);
 
   // Look up user
   const user = await db.query.users.findFirst({
@@ -329,14 +351,14 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
   const existingDevice = user
     ? await db.query.deviceActivations.findFirst({
         where: and(
-          eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
+          eq(deviceActivations.deviceFingerprint, fingerprintHash),
           eq(deviceActivations.userId, user.id),
           eq(deviceActivations.isActive, true),
         ),
       })
     : undefined;
 
-  if (user && existingDevice) {
+  if (user && existingDevice && mayReturnWithoutEmail(data.device_fingerprint, existingDevice)) {
     // Device already activated — return tokens directly
     const tokens = await generateTokensForUser(user);
 
@@ -378,7 +400,7 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
     email,
     tokenHash,
     expiresAt: magicLinkExpiresAt(),
-    deviceFingerprint: data.device_fingerprint,
+    deviceFingerprint: fingerprintHash,
     deviceName: data.device_name,
     deviceType: data.device_type,
     language: data.language ?? "en",
@@ -579,7 +601,9 @@ auth.post("/activate/:token", async (c) => {
       .where(eq(users.id, user.id));
   }
 
-  // Create or reactivate device activation
+  // Create or reactivate device activation. The token row already holds the
+  // fingerprint's hash: it is copied as it is, never hashed again.
+  // The tokens reach the app through /device/discover, once (pendingClaim).
   if (magicLink.deviceFingerprint) {
     const existingDevice = await db.query.deviceActivations.findFirst({
       where: eq(deviceActivations.deviceFingerprint, magicLink.deviceFingerprint),
@@ -597,6 +621,7 @@ auth.post("/activate/:token", async (c) => {
           lastUsed: new Date(),
           ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
           userAgent: c.req.header("user-agent") || null,
+          pendingClaim: true,
         })
         .where(eq(deviceActivations.id, existingDevice.id));
     } else {
@@ -608,6 +633,7 @@ auth.post("/activate/:token", async (c) => {
         deviceType: magicLink.deviceType || "unknown",
         ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
         userAgent: c.req.header("user-agent") || null,
+        pendingClaim: true,
       });
     }
   }
@@ -633,18 +659,29 @@ auth.post("/activate/:token", async (c) => {
  *
  * Polling endpoint. The mobile app calls this every few seconds after
  * requesting a magic link to check if the device was activated
- * (by the user clicking the link in their email).
+ * (by the user confirming the link in their email).
+ *
+ * A one-time claim: tokens only come back while the activation is
+ * `pendingClaim` (set by POST /activate/:token), and the same UPDATE ...
+ * RETURNING clears it, so of two concurrent polls only one gets tokens. Every
+ * other case is the plain `not_activated` answer: the fingerprint alone no
+ * longer turns into a session.
  */
 auth.post("/device/discover", discoverIpLimiter(), async (c) => {
   const body = await c.req.json();
   const data = discoverDeviceSchema.parse(body);
 
-  const device = await db.query.deviceActivations.findFirst({
-    where: and(
-      eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
-      eq(deviceActivations.isActive, true),
-    ),
-  });
+  const [device] = await db
+    .update(deviceActivations)
+    .set({ pendingClaim: false, lastUsed: new Date() })
+    .where(
+      and(
+        eq(deviceActivations.deviceFingerprint, hashDeviceFingerprint(data.device_fingerprint)),
+        eq(deviceActivations.isActive, true),
+        eq(deviceActivations.pendingClaim, true),
+      ),
+    )
+    .returning();
 
   if (!device) {
     return c.json({
@@ -667,12 +704,6 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
 
   const tokens = await generateTokensForUser(user);
 
-  // Update last used
-  await db
-    .update(deviceActivations)
-    .set({ lastUsed: new Date() })
-    .where(eq(deviceActivations.id, device.id));
-
   await db
     .update(users)
     .set({ lastActivity: new Date(), updatedAt: new Date() })
@@ -686,7 +717,6 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
     user: await formatUserForApp(user),
     device: {
       activated_at: device.activatedAt.toISOString(),
-      device_fingerprint: device.deviceFingerprint,
       device_name: device.deviceName,
       user_name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
       is_active: device.isActive,
@@ -868,7 +898,7 @@ auth.post("/device/deactivate", authMiddleware, async (c) => {
 
   const device = await db.query.deviceActivations.findFirst({
     where: and(
-      eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
+      eq(deviceActivations.deviceFingerprint, hashDeviceFingerprint(data.device_fingerprint)),
       eq(deviceActivations.userId, authUser.id),
     ),
   });
@@ -892,10 +922,51 @@ auth.post("/device/deactivate", authMiddleware, async (c) => {
 });
 
 /**
+ * POST /api/auth/device/rotate  { old_fingerprint, new_fingerprint }
+ *
+ * Moves the caller's active activation to a new fingerprint, so an app build
+ * that replaces a legacy fingerprint with a current-format one stays signed
+ * in. 404 when the old fingerprint is not an active activation of the caller;
+ * 409, without saying whose, when the new one is already used. Requires
+ * authentication; like /device/deactivate, it has no rate limiter.
+ */
+auth.post("/device/rotate", authMiddleware, async (c) => {
+  const authUser = getUser(c);
+  const data = rotateDeviceFingerprintSchema.parse(await c.req.json());
+  const oldHash = hashDeviceFingerprint(data.old_fingerprint);
+  const newHash = hashDeviceFingerprint(data.new_fingerprint);
+
+  const device = await db.query.deviceActivations.findFirst({
+    where: and(
+      eq(deviceActivations.deviceFingerprint, oldHash),
+      eq(deviceActivations.userId, authUser.id),
+      eq(deviceActivations.isActive, true),
+    ),
+  });
+  if (!device) throw AppError.notFound("Device not found");
+
+  if (newHash !== oldHash) {
+    const taken = await db.query.deviceActivations.findFirst({
+      where: eq(deviceActivations.deviceFingerprint, newHash),
+    });
+    if (taken) throw AppError.conflict("This device identifier cannot be used");
+
+    // A concurrent rotation to the same value fails on the unique constraint (409).
+    await db
+      .update(deviceActivations)
+      .set({ deviceFingerprint: newHash, pendingClaim: false, lastUsed: new Date() })
+      .where(eq(deviceActivations.id, device.id));
+  }
+
+  return c.json({ status: "rotated" });
+});
+
+/**
  * GET /api/auth/devices
  *
  * List all active devices for the authenticated user.
  * Also used by the mobile app for token validation (if 200 → token is valid).
+ * Never includes the fingerprint: it is a credential (see /device/discover).
  */
 auth.get("/devices", authMiddleware, async (c) => {
   const authUser = getUser(c);
@@ -910,7 +981,6 @@ auth.get("/devices", authMiddleware, async (c) => {
   return c.json(
     devices.map((d) => ({
       id: d.id,
-      device_fingerprint: d.deviceFingerprint,
       device_name: d.deviceName,
       device_type: d.deviceType,
       activated_at: d.activatedAt.toISOString(),

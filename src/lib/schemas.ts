@@ -1,9 +1,23 @@
 import { z } from "zod";
 import { AppError } from "./errors.ts";
+import { CURRENT_FINGERPRINT_FORMAT } from "./device-fingerprint.ts";
 import { HERO_FRAME_KEYS } from "../db/schema/teachers.ts";
 import { BUILTIN_CLIPS, SLIDE_ROLES } from "./slides/types.ts";
 
 // Auth
+
+/**
+ * Any device fingerprint an installed app build sends. Build 46 sends base64 of
+ * a JSON object of device info (about 170-240 characters), and in fallbacks
+ * `${platform}-${time}-${random}` (~35), `session-` + base64 JSON, or a short
+ * string hash that can be a single character, hence min(1). The max only stops
+ * oversized input; it is over four times the longest value measured.
+ */
+const deviceFingerprint = z.string().min(1).max(1024);
+
+/** The format app builds after 46 generate: 32 random bytes, base64url, no padding. */
+const currentFormatDeviceFingerprint = z.string().regex(CURRENT_FINGERPRINT_FORMAT);
+
 export const loginSchema = z.object({
   email: z.email(),
   password: z.string().min(8),
@@ -11,7 +25,7 @@ export const loginSchema = z.object({
 
 export const requestMagicLinkSchema = z.object({
   email: z.email(),
-  device_fingerprint: z.string().min(1),
+  device_fingerprint: deviceFingerprint,
   device_name: z.string().min(1),
   device_type: z.string().min(1),
   language: z.enum(["en", "pt"]).optional().default("en"),
@@ -55,7 +69,7 @@ export const passkeyRegisterVerifySchema = z.object({
 export const passkeyLoginVerifySchema = z.object({
   challengeId: z.string().uuid(),
   response: z.looseObject({}),
-  device_fingerprint: z.string().min(1),
+  device_fingerprint: deviceFingerprint,
   device_name: z.string().min(1),
   device_type: z.string().min(1),
 });
@@ -70,18 +84,23 @@ export const confirmAccountDeletionSchema = z.object({
 });
 
 export const discoverDeviceSchema = z.object({
-  device_fingerprint: z.string().min(1),
+  device_fingerprint: deviceFingerprint,
 });
 
 export const autoActivateSchema = z.object({
   token: z.string().min(1),
-  device_fingerprint: z.string().min(1),
+  device_fingerprint: deviceFingerprint,
   device_name: z.string().min(1),
   device_type: z.string().min(1),
 });
 
 export const deactivateDeviceSchema = z.object({
-  device_fingerprint: z.string().min(1),
+  device_fingerprint: deviceFingerprint,
+});
+
+export const rotateDeviceFingerprintSchema = z.object({
+  old_fingerprint: deviceFingerprint,
+  new_fingerprint: currentFormatDeviceFingerprint,
 });
 
 export const refreshTokenSchema = z.object({

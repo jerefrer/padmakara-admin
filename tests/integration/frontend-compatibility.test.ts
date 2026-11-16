@@ -97,11 +97,12 @@ describe("Frontend Compatibility Tests", () => {
     };
 
     it("should return correct response format for request-magic-link (already_activated)", async () => {
+      // Only a current-format fingerprint (app builds after 46) signs back in without email.
+      const currentFingerprint = "q3Jd8-ZpX_2mVwT0bL9sYc4nR7uKeA1hGfDiOjM5tWx";
       (db.query.users.findFirst as any).mockResolvedValue(mockUser);
       (db.query.deviceActivations.findFirst as any).mockResolvedValue({
         id: 1,
         userId: mockUser.id,
-        deviceFingerprint: devicePayload.device_fingerprint,
         isActive: true,
         activatedAt: new Date(),
         lastUsed: new Date(),
@@ -114,7 +115,7 @@ describe("Frontend Compatibility Tests", () => {
 
       const { status, body } = await testJson("/api/auth/request-magic-link", {
         method: "POST",
-        body: JSON.stringify(devicePayload),
+        body: JSON.stringify({ ...devicePayload, device_fingerprint: currentFingerprint }),
       });
 
       expect(status).toBe(200);
@@ -182,20 +183,22 @@ describe("Frontend Compatibility Tests", () => {
     });
 
     it("should handle device discovery endpoint correctly", async () => {
-      (db.query.deviceActivations.findFirst as any).mockResolvedValue({
-        id: 1,
-        userId: mockUser.id,
-        deviceFingerprint: devicePayload.device_fingerprint,
-        deviceName: devicePayload.device_name,
-        isActive: true,
-        activatedAt: new Date(),
-        lastUsed: new Date(),
-      });
       (db.query.users.findFirst as any).mockResolvedValue(mockUser);
 
       const insertChain = mockInsertChain();
       (db.insert as any).mockReturnValue(insertChain);
-      const updateChain = mockUpdateChain();
+      // The confirmed link left a claim waiting; discover takes it in its UPDATE ... RETURNING.
+      const updateChain = mockUpdateChain([
+        {
+          id: 1,
+          userId: mockUser.id,
+          deviceName: devicePayload.device_name,
+          isActive: true,
+          pendingClaim: false,
+          activatedAt: new Date(),
+          lastUsed: new Date(),
+        },
+      ]);
       (db.update as any).mockReturnValue(updateChain);
 
       const { status, body } = await testJson("/api/auth/device/discover", {
@@ -217,7 +220,6 @@ describe("Frontend Compatibility Tests", () => {
         }),
         device: expect.objectContaining({
           activated_at: expect.any(String),
-          device_fingerprint: devicePayload.device_fingerprint,
           device_name: devicePayload.device_name,
           user_name: expect.any(String),
           is_active: true,
@@ -226,7 +228,7 @@ describe("Frontend Compatibility Tests", () => {
     });
 
     it("should handle device discovery for non-activated device", async () => {
-      (db.query.deviceActivations.findFirst as any).mockResolvedValue(null);
+      (db.update as any).mockReturnValue(mockUpdateChain([]));
 
       const { status, body } = await testJson("/api/auth/device/discover", {
         method: "POST",
@@ -429,7 +431,6 @@ describe("Frontend Compatibility Tests", () => {
       expect(body).toHaveLength(2);
       expect(body[0]).toMatchObject({
         id: expect.any(Number),
-        device_fingerprint: "device-1",
         device_name: "iPhone 14",
         device_type: "ios",
         activated_at: expect.any(String),

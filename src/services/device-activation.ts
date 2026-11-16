@@ -2,8 +2,10 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users } from "../db/schema/users.ts";
 import { deviceActivations } from "../db/schema/auth.ts";
+import { hashDeviceFingerprint } from "../lib/device-fingerprint.ts";
 
 export interface DeviceInfo {
+  /** As the app sends it; only its hash is stored. */
   fingerprint: string;
   name: string;
   type: string;
@@ -28,8 +30,9 @@ export async function activateDeviceForUser(
       .where(eq(users.id, user.id));
   }
 
+  const fingerprintHash = hashDeviceFingerprint(device.fingerprint);
   const existingDevice = await db.query.deviceActivations.findFirst({
-    where: eq(deviceActivations.deviceFingerprint, device.fingerprint),
+    where: eq(deviceActivations.deviceFingerprint, fingerprintHash),
   });
 
   if (existingDevice) {
@@ -43,12 +46,14 @@ export async function activateDeviceForUser(
         lastUsed: new Date(),
         ipAddress: device.ipAddress,
         userAgent: device.userAgent,
+        // This sign-in hands its tokens over directly: nothing is left for discover.
+        pendingClaim: false,
       })
       .where(eq(deviceActivations.id, existingDevice.id));
   } else {
     await db.insert(deviceActivations).values({
       userId: user.id,
-      deviceFingerprint: device.fingerprint,
+      deviceFingerprint: fingerprintHash,
       deviceName: device.name,
       deviceType: device.type,
       ipAddress: device.ipAddress,

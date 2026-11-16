@@ -65,6 +65,9 @@ export const deviceActivations = pgTable("device_activations", {
   userAgent: text("user_agent"),
   activatedAt: timestamp("activated_at", { withTimezone: true }).defaultNow().notNull(),
   lastUsed: timestamp("last_used", { withTimezone: true }).defaultNow().notNull(),
+  // Set when a magic link confirmed in a browser activates this device; the
+  // app's next /device/discover poll takes the tokens and clears it, once.
+  pendingClaim: boolean("pending_claim").notNull().default(false),
 });
 
 export const userApprovalRequests = pgTable("user_approval_requests", {
