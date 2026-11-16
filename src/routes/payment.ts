@@ -40,6 +40,9 @@ const EASYPAY_API_BASE = config.easypay.testing
 /** Largest webhook body accepted; a real Easypay notification is far smaller. */
 const WEBHOOK_MAX_BODY_BYTES = 64 * 1024;
 
+/** Easypay resource ids (subscription, single payment, checkout): checked against every id stored in production on 2026-11-16 (54 of 54). */
+const EASYPAY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const EASYPAY_CHECKOUT_SDK = "https://cdn.easypay.pt/checkout/2.9.1/";
 
 export const isMockMode = !config.easypay.accountId;
@@ -896,10 +899,12 @@ paymentRoutes.get("/checkout/:id", async (c) => {
  * In mock mode: returns 200 no-op.
  */
 // Public endpoint: bound the work an unauthenticated caller can cause. Real
-// notifications are a few hundred bytes.
+// notifications are a few hundred bytes. The limit is generous because every
+// notification comes from a handful of Easypay addresses, so a burst of renewals
+// must not be throttled.
 paymentRoutes.use(
   "/webhook",
-  authIpLimiter({ limit: 120, windowMs: 60_000 }),
+  authIpLimiter({ limit: 600, windowMs: 60_000 }),
   bodyLimit({
     maxSize: WEBHOOK_MAX_BODY_BYTES,
     onError: (c) => c.json({ error: "Payload too large" }, 413),
@@ -929,6 +934,12 @@ paymentRoutes.post("/webhook", async (c) => {
 
   if (!id) {
     return c.json({ received: true, ignored: "no id" });
+  }
+
+  // Answer 200, not 4xx: a notification we will never handle must not be retried.
+  if (!EASYPAY_ID.test(id)) {
+    console.warn("[EASYPAY WEBHOOK] ignored a notification with a malformed id");
+    return c.json({ received: true, ignored: "bad id" });
   }
 
   // Idempotency. Easypay retries notifications, and a replay must not extend anyone's
