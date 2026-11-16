@@ -233,6 +233,7 @@ users → bookmarks → tracks (track position bookmarks)
 - `POST /api/auth/register` - Create new user account
 - `POST /api/auth/login` - Login with email/password, returns JWT token
 - `GET /api/auth/me` - Get current user profile (authenticated)
+- `GET /api/auth/activate/:token` - The emailed magic link: renders a confirmation page and changes nothing (mail scanners fetch links too); its button `POST`s to the same URL, which consumes the token atomically and activates the device. For admin/superadmin accounts neither verb activates: the page tells them to use the code
 - `POST /api/auth/verify-code` - Sign in with the 6-digit code from the magic-link email (same device that requested it, 5 attempts per token, generic 401 on any failure)
 - `POST /api/auth/passkeys/register/options` and `/register/verify` - Add a passkey (authenticated; `{ challengeId, options }` then `{ challengeId, response, name? }`)
 - `POST /api/auth/passkeys/login/options` and `/login/verify` - Sign in with a passkey (public, IP rate-limited; same success shape as `/review-login`, every failure is the same 401 `Passkey sign-in failed`)

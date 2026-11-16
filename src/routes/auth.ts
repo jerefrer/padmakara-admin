@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { eq, and, gt } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users, userGroupMemberships } from "../db/schema/users.ts";
@@ -28,6 +28,7 @@ import {
   buildBackofficeCodeEmail,
 } from "../services/email.ts";
 import { AppError } from "../lib/errors.ts";
+import { escapeHtml, type Lang } from "../services/email-template.ts";
 import {
   loginSchema,
   requestMagicLinkSchema,
@@ -412,52 +413,162 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
   return c.json(response);
 });
 
+type MagicLinkToken = typeof magicLinkTokens.$inferSelect;
+
+/** `?lang=` first, then the language stored on the token, then English. */
+function activationLang(queryLang: string | undefined, token: MagicLinkToken | undefined): Lang {
+  return (queryLang || token?.language || "en") === "pt" ? "pt" : "en";
+}
+
+/** The unused, unexpired token behind a link, or undefined. */
+async function findUsableMagicLink(token: string): Promise<MagicLinkToken | undefined> {
+  const now = new Date();
+  const magicLink = await db.query.magicLinkTokens.findFirst({
+    where: and(
+      eq(magicLinkTokens.tokenHash, await hashToken(token)),
+      eq(magicLinkTokens.isUsed, false),
+      gt(magicLinkTokens.expiresAt, now),
+    ),
+  });
+  // The query already filters; re-check so a bug there cannot widen the match.
+  if (!magicLink || magicLink.isUsed || magicLink.expiresAt <= now) return undefined;
+  return magicLink;
+}
+
+/**
+ * An admin token opens the whole backoffice API, so for admin and superadmin
+ * accounts the emailed link never activates a device: only the code, typed on
+ * the device that asked for it, signs them in.
+ */
+async function isAdminEmail(email: string): Promise<boolean> {
+  const user = await db.query.users.findFirst({ where: eq(users.email, email) });
+  return !!user && (user.role === "admin" || user.role === "superadmin");
+}
+
+/** The page carries a live sign-in link: never cache it, never leak its URL. */
+function activationResponse(c: Context, page: ActivationPage) {
+  c.header("Cache-Control", "no-store");
+  c.header("Referrer-Policy", "no-referrer");
+  c.header(
+    "Content-Security-Policy",
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  );
+  return c.html(renderActivationPage(page));
+}
+
+function invalidLinkPage(lang: Lang): ActivationPage {
+  return {
+    lang,
+    kind: "error",
+    title: lang === "pt" ? "Link Inválido" : "Invalid Link",
+    message: lang === "pt"
+      ? "Este link é inválido ou já expirou. Por favor solicite um novo link na aplicação."
+      : "This link is invalid or has expired. Please request a new link in the app.",
+  };
+}
+
+function useCodeInsteadPage(lang: Lang): ActivationPage {
+  return {
+    lang,
+    kind: "info",
+    title: lang === "pt" ? "Por favor use o código" : "Please use the code",
+    message: lang === "pt"
+      ? "Nesta conta, o link não pode ser usado para entrar. Introduza o código de 6 dígitos do mesmo email na aplicação ou no site."
+      : "For this account, the link cannot be used to sign in. Please enter the 6-digit code from the same email in the app or on the website.",
+  };
+}
+
+const DEVICE_TYPE_LABELS: Record<string, Record<Lang, string>> = {
+  ios: { en: "iPhone or iPad", pt: "iPhone ou iPad" },
+  android: { en: "Android", pt: "Android" },
+  web: { en: "web browser", pt: "navegador de internet" },
+};
+
+function confirmSignInPage(lang: Lang, magicLink: MagicLinkToken, action: string): ActivationPage {
+  const typeLabel = DEVICE_TYPE_LABELS[magicLink.deviceType ?? ""]?.[lang];
+  const type = typeLabel ? ` (${typeLabel})` : "";
+  const name = magicLink.deviceName?.trim();
+  const device = lang === "pt"
+    ? (name ? `O dispositivo “${name}”${type}` : `Um dispositivo${type}`)
+    : (name ? `The device “${name}”${type}` : `A device${type}`);
+  return {
+    lang,
+    kind: "confirm",
+    title: lang === "pt" ? "Entrar na Padmakara?" : "Sign in to Padmakara?",
+    message: lang === "pt"
+      ? `${device} está a pedir para entrar na Padmakara com o email ${magicLink.email}.`
+      : `${device} is asking to sign in to Padmakara with the email ${magicLink.email}.`,
+    confirm: {
+      action,
+      button: lang === "pt" ? "Sim, entrar" : "Yes, sign me in",
+      note: lang === "pt"
+        ? "Se não pediu para entrar, basta fechar esta página."
+        : "If you did not ask to sign in, simply close this page.",
+    },
+  };
+}
+
 /**
  * GET /api/auth/activate/:token
  *
- * Called when user clicks the magic link in their email (opens in browser).
- * Validates token, creates DeviceActivation, renders HTML success page.
- * The mobile app discovers this activation via the /device/discover endpoint.
+ * Opened from the magic link in the email. Changes nothing: mail scanners and
+ * link previews fetch this URL too, so it only renders a page asking the person
+ * to confirm, whose button POSTs back to the same URL.
  */
 auth.get("/activate/:token", async (c) => {
   const token = c.req.param("token");
-  const tokenHash = await hashToken(token);
+  const magicLink = await findUsableMagicLink(token);
+  const lang = activationLang(c.req.query("lang"), magicLink);
 
-  // Find valid, unused token
-  const magicLink = await db.query.magicLinkTokens.findFirst({
-    where: and(
-      eq(magicLinkTokens.tokenHash, tokenHash),
-      eq(magicLinkTokens.isUsed, false),
-      gt(magicLinkTokens.expiresAt, new Date()),
-    ),
-  });
+  if (!magicLink) return activationResponse(c, invalidLinkPage(lang));
+  if (await isAdminEmail(magicLink.email)) return activationResponse(c, useCodeInsteadPage(lang));
 
-  // Use query param first, then token language, then default to English
-  const lang = c.req.query("lang") || magicLink?.language || "en";
+  const action = `/api/auth/activate/${encodeURIComponent(token)}?lang=${lang}`;
+  return activationResponse(c, confirmSignInPage(lang, magicLink, action));
+});
 
-  if (!magicLink) {
-    const title = lang === "pt" ? "Link Inválido" : "Invalid Link";
-    const message = lang === "pt"
-      ? "Este link é inválido ou já expirou. Por favor solicite um novo link na aplicação."
-      : "This link is invalid or has expired. Please request a new link in the app.";
-    return c.html(renderActivationPage(title, message, false));
-  }
+/**
+ * POST /api/auth/activate/:token
+ *
+ * The confirmation page's button. Consumes the token, creates the account on a
+ * first sign-in, activates the device stored with the token and renders the
+ * success page. The mobile app discovers this activation via /device/discover.
+ */
+auth.post("/activate/:token", async (c) => {
+  const token = c.req.param("token");
+  const magicLink = await findUsableMagicLink(token);
+  const lang = activationLang(c.req.query("lang"), magicLink);
 
-  // Mark token as used
-  await db
+  if (!magicLink) return activationResponse(c, invalidLinkPage(lang));
+  // Left unused, so the code from the same email still works.
+  if (await isAdminEmail(magicLink.email)) return activationResponse(c, useCodeInsteadPage(lang));
+
+  // Consume atomically: of two concurrent confirmations only one activates.
+  const consumed = await db
     .update(magicLinkTokens)
     .set({ isUsed: true })
-    .where(eq(magicLinkTokens.id, magicLink.id));
+    .where(
+      and(
+        eq(magicLinkTokens.id, magicLink.id),
+        eq(magicLinkTokens.isUsed, false),
+        gt(magicLinkTokens.expiresAt, new Date()),
+      ),
+    )
+    .returning({ id: magicLinkTokens.id });
+  if (consumed.length === 0) return activationResponse(c, invalidLinkPage(lang));
 
   // Find the user, or create the account on a first sign-in
   const user = await accountForEmailSignIn(magicLink.email, magicLink.language);
 
   if (!user) {
-    const title = lang === "pt" ? "Conta Não Encontrada" : "Account Not Found";
-    const message = lang === "pt"
-      ? "Não foi possível encontrar a sua conta. Por favor contacte o suporte."
-      : "Your account could not be found. Please contact support.";
-    return c.html(renderActivationPage(title, message, false));
+    return activationResponse(c, {
+      lang,
+      kind: "error",
+      title: lang === "pt" ? "Conta Não Encontrada" : "Account Not Found",
+      message: lang === "pt"
+        ? "Não foi possível encontrar a sua conta. Por favor contacte o suporte."
+        : "Your account could not be found. Please contact support.",
+    });
   }
 
   // Mark user as verified
@@ -507,11 +618,14 @@ auth.get("/activate/:token", async (c) => {
     .set({ lastActivity: new Date(), updatedAt: new Date() })
     .where(eq(users.id, user.id));
 
-  const title = lang === "pt" ? "Dispositivo Ativado" : "Device Activated";
-  const message = lang === "pt"
-    ? "O seu dispositivo foi ativado com sucesso! Pode voltar à aplicação."
-    : "Your device has been activated successfully! You can return to the app.";
-  return c.html(renderActivationPage(title, message, true));
+  return activationResponse(c, {
+    lang,
+    kind: "success",
+    title: lang === "pt" ? "Dispositivo Ativado" : "Device Activated",
+    message: lang === "pt"
+      ? "O seu dispositivo foi ativado com sucesso! Pode voltar à aplicação."
+      : "Your device has been activated successfully! You can return to the app.",
+  });
 });
 
 /**
@@ -589,26 +703,29 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
 auth.post("/auto-activate", authIpLimiter(), async (c) => {
   const body = await c.req.json();
   const data = autoActivateSchema.parse(body);
+  const fail = () => AppError.unauthorized("Invalid or expired token");
 
-  const tokenHash = await hashToken(data.token);
+  const magicLink = await findUsableMagicLink(data.token);
+  if (!magicLink) throw fail();
 
-  const magicLink = await db.query.magicLinkTokens.findFirst({
-    where: and(
-      eq(magicLinkTokens.tokenHash, tokenHash),
-      eq(magicLinkTokens.isUsed, false),
-      gt(magicLinkTokens.expiresAt, new Date()),
-    ),
-  });
+  // Admins sign in only with the code: refuse with the same 401 as a bad
+  // token, so the answer does not reveal the role, and leave the token
+  // unused so the code from the same email still works.
+  if (await isAdminEmail(magicLink.email)) throw fail();
 
-  if (!magicLink) {
-    throw AppError.unauthorized("Invalid or expired token");
-  }
-
-  // Mark token as used
-  await db
+  // Consume atomically: of two concurrent requests only one activates.
+  const consumed = await db
     .update(magicLinkTokens)
     .set({ isUsed: true })
-    .where(eq(magicLinkTokens.id, magicLink.id));
+    .where(
+      and(
+        eq(magicLinkTokens.id, magicLink.id),
+        eq(magicLinkTokens.isUsed, false),
+        gt(magicLinkTokens.expiresAt, new Date()),
+      ),
+    )
+    .returning({ id: magicLinkTokens.id });
+  if (consumed.length === 0) throw fail();
 
   // Find the user, or create the account on a first sign-in
   const user = await accountForEmailSignIn(magicLink.email, magicLink.language);
@@ -1078,22 +1195,47 @@ auth.get("/me", authMiddleware, async (c) => {
 // HTML rendering for activation page
 // ──────────────────────────────────────────────────────
 
-function renderActivationPage(title: string, message: string, success: boolean): string {
-  const bgColor = success ? "#f0fdf4" : "#fef2f2";
-  const iconColor = success ? "#16a34a" : "#dc2626";
-  const icon = success ? "&#10003;" : "&#10007;";
+interface ActivationPage {
+  lang: Lang;
+  kind: "success" | "error" | "info" | "confirm";
+  title: string;
+  message: string;
+  /** Only on the confirmation page: the form that activates the device. */
+  confirm?: { action: string; button: string; note: string };
+}
+
+const ACTIVATION_PAGE_LOOK: Record<ActivationPage["kind"], { bg: string; iconColor: string; icon: string }> = {
+  success: { bg: "#f0fdf4", iconColor: "#16a34a", icon: "&#10003;" },
+  error: { bg: "#fef2f2", iconColor: "#dc2626", icon: "&#10007;" },
+  info: { bg: "#f5f5f5", iconColor: "#666", icon: "i" },
+  // No icon: the sentence and the button are the whole page.
+  confirm: { bg: "#f0fdf4", iconColor: "#16a34a", icon: "" },
+};
+
+/** Every value is escaped: the device name and type come from the client. */
+function renderActivationPage(page: ActivationPage): string {
+  const look = ACTIVATION_PAGE_LOOK[page.kind];
+  const iconHtml = look.icon ? `<div class="icon">${look.icon}</div>\n    ` : "";
+  const confirmHtml = page.confirm
+    ? `
+    <form method="post" action="${escapeHtml(page.confirm.action)}">
+      <button type="submit">${escapeHtml(page.confirm.button)}</button>
+    </form>
+    <p class="note">${escapeHtml(page.confirm.note)}</p>`
+    : "";
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${page.lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} - Padmakara</title>
+  <meta name="robots" content="noindex">
+  <title>${escapeHtml(page.title)} - Padmakara</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: ${bgColor};
+      background: ${look.bg};
       display: flex;
       align-items: center;
       justify-content: center;
@@ -1113,7 +1255,7 @@ function renderActivationPage(title: string, message: string, success: boolean):
       width: 64px;
       height: 64px;
       border-radius: 50%;
-      background: ${iconColor};
+      background: ${look.iconColor};
       color: white;
       font-size: 32px;
       line-height: 64px;
@@ -1121,13 +1263,27 @@ function renderActivationPage(title: string, message: string, success: boolean):
     }
     h1 { font-size: 24px; color: #1a1a1a; margin-bottom: 12px; }
     p { font-size: 16px; color: #666; line-height: 1.5; }
+    form { margin: 28px 0 20px; }
+    button {
+      width: 100%;
+      min-height: 56px;
+      padding: 16px 24px;
+      border: none;
+      border-radius: 12px;
+      background: ${look.iconColor};
+      color: white;
+      font: inherit;
+      font-size: 20px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:focus-visible { outline: 3px solid #1a1a1a; outline-offset: 3px; }
   </style>
 </head>
 <body>
   <div class="card">
-    <div class="icon">${icon}</div>
-    <h1>${title}</h1>
-    <p>${message}</p>
+    ${iconHtml}<h1>${escapeHtml(page.title)}</h1>
+    <p>${escapeHtml(page.message)}</p>${confirmHtml}
   </div>
 </body>
 </html>`;
