@@ -1029,6 +1029,48 @@ describe("the webhook credits captures Easypay reports, never the notification b
     expect(deleteCalls).toEqual([]);
     expect(ledgerUpdate()).toMatchObject({ action: "unverified", note: expect.stringContaining("404") });
   });
+
+  describe("reconcile job", () => {
+    it("should not count again a capture the webhook already credited", async () => {
+      const { reconcileMemberships } = await import("../../src/services/membership-reconcile.ts");
+      stubEasypay(paidSubscription());
+      await notify({ id: SUB, type: "subscription_capture", status: "success", date: "2026-11-16 10:00:00" });
+      expect(creditRows()).toHaveLength(1);
+      // From here the ledger answers like Postgres would: the member list, and the credit row.
+      selectResolver = ({ sql }) =>
+        sql.includes('"users"')
+          ? [{ id: 7, easypaySubscriptionId: SUB }]
+          : creditRows().map((r) => ({ ...r, createdAt: new Date() }));
+
+      const result = await reconcileMemberships();
+
+      expect(result.credited).toBe(0);
+      expect(creditRows()).toHaveLength(1);
+      expect(usersUpdates().filter((u) => u.subscriptionExpiresAt)).toHaveLength(1);
+    });
+
+    it("should credit a paid capture whose notification never arrived", async () => {
+      const { reconcileMemberships } = await import("../../src/services/membership-reconcile.ts");
+      stubEasypay(paidSubscription());
+      selectResolver = ({ sql }) => (sql.includes('"users"') ? [{ id: 7, easypaySubscriptionId: SUB }] : []);
+
+      const result = await reconcileMemberships();
+
+      expect(result.credited).toBe(1);
+      expect(creditRows()).toEqual([expect.objectContaining({ userId: 7, easypayTransactionId: CAPTURE_1 })]);
+    });
+
+    it("should credit nothing from a subscription Easypay attributes to another user", async () => {
+      const { reconcileMemberships } = await import("../../src/services/membership-reconcile.ts");
+      stubEasypay(paidSubscription({ customer: { key: "user-8" } }));
+      selectResolver = ({ sql }) => (sql.includes('"users"') ? [{ id: 7, easypaySubscriptionId: SUB }] : []);
+
+      const result = await reconcileMemberships();
+
+      expect(result.credited).toBe(0);
+      expect(creditRows()).toEqual([]);
+    });
+  });
 });
 
 describe("membership emails from the webhook", () => {
