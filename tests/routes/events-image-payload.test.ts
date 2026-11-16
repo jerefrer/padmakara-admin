@@ -39,6 +39,8 @@ const photo = {
 const event = (over: Record<string, unknown> = {}) => ({
   id: 9,
   status: "published",
+  // Public, so a guest gets the content of the featured event
+  audience: { slug: "free-anyone" },
   eventTeachers: [],
   eventRetreatGroups: [],
   videos: [],
