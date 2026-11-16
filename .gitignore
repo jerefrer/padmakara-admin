@@ -50,3 +50,18 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Claude
 .claude/worktrees/
+
+# Local data and one-off migration outputs: never tracked. They held a Wix
+# export with direct links to the legacy bucket, and inventories of it.
+# uploads/ itself must exist: the systemd unit names it in ReadWritePaths.
+# Anchored with a leading slash: src/data/ is source code.
+/uploads/*
+!/uploads/.gitkeep
+/data/
+/migration-report.html
+/migration-report.json
+/migration-state.json
+/bilingual-completeness-*.json
+/bucket-tree-preview.txt
+/track-count-analysis.json
+/test-api.html
