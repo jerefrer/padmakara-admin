@@ -291,6 +291,15 @@ describe("first payment in flight", () => {
     expect(body.state).toBe("processing");
   });
 
+  it("should keep processing when a newer subscription_create was not acted on", async () => {
+    // A create Easypay does not report as just created (forged, or replayed) is recorded
+    // only; it must not end the Direct Debit's "processing" state either.
+    const create = { notificationType: "subscription_create", notificationId: "sub-8", action: "create_not_adopted", note: "Easypay gives no created_at", amount: "5.00", createdAt: ago(0.5) };
+    ledgerRows = [create, checkout(1)];
+    const { body } = await getMembership();
+    expect(body.state).toBe("processing");
+  });
+
   it("should not report processing when the checkout row is older than 14 days", async () => {
     ledgerRows = [checkout(20)];
     const { body } = await getMembership();

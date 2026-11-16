@@ -250,15 +250,25 @@ interface LedgerRow {
  */
 const NO_NEW_CAPTURE = "no_new_capture";
 
+/**
+ * Ledger action of a subscription_create whose subscription Easypay does not report as one
+ * just created and live (see `adoptionRefusal`): recorded for a human, skipped by the read
+ * model for the same reason as {@link NO_NEW_CAPTURE}.
+ */
+const CREATE_NOT_ADOPTED = "create_not_adopted";
+
+/** Ledger actions that only record what was received and say nothing about a payment. */
+const RECORD_ONLY_ACTIONS = new Set([NO_NEW_CAPTURE, CREATE_NOT_ADOPTED]);
+
 /** Note on an `unverified` row whose subscription Easypay answered 404 for; the reconcile job reads these again. */
 export const SUBSCRIPTION_NOT_FOUND_NOTE = "subscription not found at Easypay (404)";
 
 /** A capture-type row that describes a charge attempt (not one only recorded for a human). */
 const isChargeRow = (r: { notificationType: string | null; action: string }) =>
-  CAPTURE_TYPES.includes(r.notificationType ?? "") && r.action !== NO_NEW_CAPTURE;
+  CAPTURE_TYPES.includes(r.notificationType ?? "") && !RECORD_ONLY_ACTIONS.has(r.action);
 
 const newestProgressRow = <T extends { notificationType: string | null; action: string }>(rows: T[]): T | undefined =>
-  rows.find((r) => PROGRESS_TYPES.includes(r.notificationType ?? "") && r.action !== NO_NEW_CAPTURE);
+  rows.find((r) => PROGRESS_TYPES.includes(r.notificationType ?? "") && !RECORD_ONLY_ACTIONS.has(r.action));
 
 const isRecent = (at: Date) => Date.now() - at.getTime() <= FIRST_PAYMENT_WINDOW_MS;
 
@@ -504,8 +514,17 @@ export async function deactivateAtEasypay(id: string): Promise<StopResult> {
  * same format compare fine whatever their zone. Fails open (false: adopt) when either date
  * is missing or the stored one cannot be read, since keeping a card update out is worse than
  * the rare out-of-order pair this guards against.
+ *
+ * `strict` (subscription_create, where no money vouches for the incoming subscription): only
+ * a 404 on the stored one counts as "gone, adopt"; any other failed read THROWS, so the
+ * webhook answers 503 and Easypay retries instead of the stored subscription being stopped
+ * on a comparison that was never made.
  */
-async function isOlderThanStored(incoming: EasypaySubscriptionResponse, storedId: string): Promise<boolean> {
+async function isOlderThanStored(
+  incoming: EasypaySubscriptionResponse,
+  storedId: string,
+  strict = false,
+): Promise<boolean> {
   const incomingAt = easypayTime(incoming.created_at);
   if (incomingAt === null) return false;
   try {
@@ -513,9 +532,43 @@ async function isOlderThanStored(incoming: EasypaySubscriptionResponse, storedId
     const storedAt = easypayTime(stored.created_at);
     return storedAt !== null && incomingAt < storedAt;
   } catch (err) {
+    if (strict && !(err instanceof EasypayHttpError && err.easypayStatus === 404)) throw err;
     console.error(`[EASYPAY WEBHOOK] could not read stored subscription ${storedId} to compare ages:`, err);
     return false;
   }
+}
+
+/**
+ * How long after Easypay created a subscription its subscription_create may still make it the
+ * member's. A real one arrives within a minute of the card being stored; the margin covers
+ * Easypay's retries and our own 503s. Past it, a subscription is adopted only by a paid capture.
+ */
+const CREATE_ADOPTION_WINDOW_MS = 72 * 60 * 60 * 1000;
+/** Tolerated clock difference for a `created_at` slightly ahead of ours. */
+const CREATED_AT_SKEW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Why a subscription_create must not drive adoption, judged only on what Easypay reports about
+ * the subscription (never on the notification body): null when Easypay says it was created
+ * within {@link CREATE_ADOPTION_WINDOW_MS} and its payment method is not inactive.
+ *
+ * A subscription_create carries no money, so the body's `type` and `status` are no evidence
+ * that a card was just stored. Without this, anyone holding one of a member's subscription
+ * ids could post a create for it: an old one would be swapped in and the live one stopped, or
+ * (for a cancelled member) the one posted would be stopped. With it, the most a forged or
+ * replayed create can do is what the real notification of a subscription Easypay created in
+ * the last few days would do anyway.
+ */
+function adoptionRefusal(subscription: EasypaySubscriptionResponse, now: Date = new Date()): string | null {
+  const methodStatus = typeof subscription.method?.status === "string" ? subscription.method.status.toLowerCase() : "";
+  if (methodStatus === "inactive") return "Easypay reports its payment method inactive";
+  const createdAt = easypayTime(subscription.created_at);
+  if (createdAt === null) return "Easypay gives no created_at";
+  if (createdAt > now.getTime() + CREATED_AT_SKEW_MS) return `created_at ${String(subscription.created_at)} is in the future`;
+  if (now.getTime() - createdAt > CREATE_ADOPTION_WINDOW_MS) {
+    return `created ${String(subscription.created_at)}, more than ${CREATE_ADOPTION_WINDOW_MS / 3_600_000} h ago`;
+  }
+  return null;
 }
 
 type Adoption =
@@ -548,6 +601,9 @@ type Adoption =
  *
  * Writes nothing to the user row: the caller does, so a caller that must fail (and have
  * Easypay retry) can still do so with the user untouched.
+ *
+ * `strict` is for subscription_create (see {@link isOlderThanStored}); the capture path is
+ * vouched for by money Easypay lists on `id` and keeps failing open.
  */
 async function adoptSubscription(
   user: {
@@ -559,6 +615,7 @@ async function adoptSubscription(
   },
   id: string,
   incoming: EasypaySubscriptionResponse,
+  { strict = false }: { strict?: boolean } = {},
 ): Promise<Adoption> {
   const previous = user.easypaySubscriptionId ?? null;
   if (previous === id) return { outcome: "current" };
@@ -590,7 +647,7 @@ async function adoptSubscription(
   const needsStop = hasRealPrevious && !user.subscriptionCancelledAt;
 
   // Two card updates can complete in either order; the newer card is the one to keep.
-  if (needsStop && (await isOlderThanStored(incoming, previous))) {
+  if (needsStop && (await isOlderThanStored(incoming, previous, strict))) {
     console.error(`[EASYPAY WEBHOOK] ${id} is older than user ${user.id}'s stored ${previous} — stopping ${id}`);
     return { outcome: "discard", reason: "older", stop: await deactivateAtEasypay(id) };
   }
@@ -1438,7 +1495,19 @@ paymentRoutes.post("/webhook", async (c) => {
     // subscription is the member's and nothing else. Its captures are credited by their own
     // notification, or by the reconcile job.
     if ((type ?? "").toLowerCase() === "subscription_create" && (status ?? "").toLowerCase() === "success") {
-      const adoption = await adoptSubscription(user, subscriptionId, subscription);
+      // The body's type/status only say "look"; whether this subscription may replace (or be
+      // stopped in favour of) the stored one is decided on Easypay's own record of it.
+      if (subscriptionId !== user.easypaySubscriptionId) {
+        const refusal = adoptionRefusal(subscription);
+        if (refusal) {
+          console.error(
+            `[EASYPAY WEBHOOK] subscription_create for ${subscriptionId} (user ${userId}) not acted on: ${refusal} — nothing stopped, stored id kept`,
+          );
+          await recordOutcome({ ...common, action: CREATE_NOT_ADOPTED, note: refusal });
+          return c.json({ received: true });
+        }
+      }
+      const adoption = await adoptSubscription(user, subscriptionId, subscription, { strict: true });
       if (adoption.outcome === "stale") {
         await recordOutcome({ ...common, action: "ignored", note: `create on replaced ${subscriptionId}` });
         return c.json({ received: true });
