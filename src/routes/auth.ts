@@ -584,6 +584,7 @@ auth.post("/activate/:token", async (c) => {
 
   // Create or reactivate device activation. The token row already holds the
   // fingerprint's hash: it is copied as it is, never hashed again.
+  // The tokens reach the app through /device/discover, once (pendingClaim).
   if (magicLink.deviceFingerprint) {
     const existingDevice = await db.query.deviceActivations.findFirst({
       where: eq(deviceActivations.deviceFingerprint, magicLink.deviceFingerprint),
@@ -601,6 +602,7 @@ auth.post("/activate/:token", async (c) => {
           lastUsed: new Date(),
           ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
           userAgent: c.req.header("user-agent") || null,
+          pendingClaim: true,
         })
         .where(eq(deviceActivations.id, existingDevice.id));
     } else {
@@ -612,6 +614,7 @@ auth.post("/activate/:token", async (c) => {
         deviceType: magicLink.deviceType || "unknown",
         ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
         userAgent: c.req.header("user-agent") || null,
+        pendingClaim: true,
       });
     }
   }
@@ -637,18 +640,29 @@ auth.post("/activate/:token", async (c) => {
  *
  * Polling endpoint. The mobile app calls this every few seconds after
  * requesting a magic link to check if the device was activated
- * (by the user clicking the link in their email).
+ * (by the user confirming the link in their email).
+ *
+ * A one-time claim: tokens only come back while the activation is
+ * `pendingClaim` (set by POST /activate/:token), and the same UPDATE ...
+ * RETURNING clears it, so of two concurrent polls only one gets tokens. Every
+ * other case is the plain `not_activated` answer: the fingerprint alone no
+ * longer turns into a session.
  */
 auth.post("/device/discover", discoverIpLimiter(), async (c) => {
   const body = await c.req.json();
   const data = discoverDeviceSchema.parse(body);
 
-  const device = await db.query.deviceActivations.findFirst({
-    where: and(
-      eq(deviceActivations.deviceFingerprint, hashDeviceFingerprint(data.device_fingerprint)),
-      eq(deviceActivations.isActive, true),
-    ),
-  });
+  const [device] = await db
+    .update(deviceActivations)
+    .set({ pendingClaim: false, lastUsed: new Date() })
+    .where(
+      and(
+        eq(deviceActivations.deviceFingerprint, hashDeviceFingerprint(data.device_fingerprint)),
+        eq(deviceActivations.isActive, true),
+        eq(deviceActivations.pendingClaim, true),
+      ),
+    )
+    .returning();
 
   if (!device) {
     return c.json({
@@ -670,12 +684,6 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
   }
 
   const tokens = await generateTokensForUser(user);
-
-  // Update last used
-  await db
-    .update(deviceActivations)
-    .set({ lastUsed: new Date() })
-    .where(eq(deviceActivations.id, device.id));
 
   await db
     .update(users)
