@@ -304,6 +304,32 @@ backoffice.
 
 ---
 
+## Second batch — status 2026-11-16 evening
+
+Merged and deployed the same day (API, admin, web app; native at the next store
+build): admin delete stops Easypay, admin/superadmin separation, audience checks on
+bookmarks/progress/featured, admin XSS, SSRF helper (API side), forged
+subscription_create, teaching refunds, encoded ids, test routes off outside tests,
+startup guards, body limits, search rate limit, loopback bind, no Postgres detail,
+unused fingerprint column dropped (0073), auto-activate removed (API and app), HSTS,
+report-only CSP (img-src widened after a browser check), Referrer-Policy, env files
+600, backups through a put-only IAM user with a lifecycle rule, the API user's
+rights on padmakara backups removed, legacy data files untracked, dependency updates
+(no high/critical left), typecheck clean in the API and the app.
+
+Still open, waiting on Jérémy:
+- The legacy bucket `padmakara-pt` is publicly readable (325 known URLs, about
+  128 GB: retreat ZIPs, transcripts, a "Do not share" draft). Make it private or
+  delete it; the old Wix site may still link to it.
+- Removing `NOPASSWD: /usr/bin/cp` (runbook step B) is not applied: tibetan-course's
+  deploy on the same server and user also uses `sudo cp` for its unit and Caddy file.
+- Membership reversal policy (options A/B/C in the payment follow-up report).
+- Purging the untracked data files from git history.
+- Rebuild and push the video-burn image (its SSRF guard) once Docker is running.
+- Switch the CSP to enforcing after a signed-in pass (video, PDF, admin).
+- Delete `~/db-backups/pre-0072-device-fingerprints-2026-11-16.sql` on the server
+  after a few days.
+
 ## Second batch — before the public release
 
 Not planned in detail. Model recommendation per item.
