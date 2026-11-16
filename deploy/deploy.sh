@@ -56,8 +56,9 @@ cd "$APP_DIR" && git fetch origin main && git reset --hard origin/main
 # --- Install systemd service if missing ---
 if [ ! -f /etc/systemd/system/padmakara-api.service ]; then
     echo "[setup] Installing systemd service..."
-    sudo cp "$API_DIR/deploy/padmakara-api.service" /etc/systemd/system/padmakara-api.service
-    sudo systemctl daemon-reload
+    # padmakara-install-config is the only install padmakara may run as root
+    # (no `sudo cp`): it checks the unit and runs daemon-reload itself.
+    sudo /usr/local/sbin/padmakara-install-config unit
     sudo systemctl enable padmakara-api
 fi
 
@@ -73,12 +74,13 @@ fi
 
 if [ ! -f /etc/caddy/Caddyfile ] || ! grep -q '^import /etc/caddy/sites' /etc/caddy/Caddyfile; then
     echo "[setup] Installing the shared Caddy entry point..."
-    sudo cp "$API_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
+    sudo /usr/local/sbin/padmakara-install-config entry
 fi
 
 if ! diff -q "$API_DIR/deploy/padmakara-api.caddy" /etc/caddy/sites/padmakara-api.caddy > /dev/null 2>&1; then
     echo "[setup] Updating this application's vhost..."
-    sudo cp "$API_DIR/deploy/padmakara-api.caddy" /etc/caddy/sites/padmakara-api.caddy
+    # Validates the file as the caddy user before installing it.
+    sudo /usr/local/sbin/padmakara-install-config site
     # reload, not restart: other applications are served by this same Caddy and
     # have no reason to drop a connection because this one changed.
     sudo systemctl reload caddy
@@ -109,8 +111,19 @@ if [ ! -f "$API_DIR/.env" ]; then
     echo ""
     echo "Then re-run the deploy script."
     cp "$API_DIR/.env.example" "$API_DIR/.env"
+    chmod 600 "$API_DIR/.env"
     exit 1
 fi
+
+# The API .env holds the database password and every secret the API uses:
+# owner-only, re-applied on each deploy in case an editor or a copy widened it.
+# The systemd unit reads it as padmakara, so 600 is enough. The app's env
+# files hold only EXPO_PUBLIC_* values today, but nothing stops a secret
+# landing there later.
+chmod 600 "$API_DIR/.env"
+for f in "$APP_DIR/.env" "$APP_DIR/.env.local"; do
+    if [ -f "$f" ]; then chmod 600 "$f"; fi
+done
 
 # --- Check for missing env vars ---
 echo "[2/7] Checking for missing env vars..."

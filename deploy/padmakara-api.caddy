@@ -37,7 +37,13 @@ api.padmakara.pt {
 	header {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
-		Referrer-Policy "strict-origin-when-cross-origin"
+		# `?` sets the field only when the response does not already carry it.
+		# Without it Caddy overwrote the application's own value, which is how
+		# the activation page's `Referrer-Policy: no-referrer` (it must not leak
+		# the token in its URL to anything it loads) became
+		# strict-origin-when-cross-origin. Note that `?` moves this field into
+		# its own deferred handler; the other lines here still overwrite.
+		?Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
 	}
 
@@ -68,6 +74,28 @@ admin.padmakara.pt {
 	header {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "SAMEORIGIN"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# REPORT-ONLY for now: the browser logs violations to the console and
+		# blocks nothing. Switch the header name to Content-Security-Policy once
+		# the console has been checked in a browser on every admin screen
+		# (event edit with uploads, video preview, slide editor, teachers).
+		#
+		# What each source is for, and where it was found:
+		#   style-src 'unsafe-inline'  MUI/emotion injects <style> at runtime
+		#   fonts.googleapis.com       admin/index.html stylesheet (EB Garamond, Inter)
+		#   fonts.gstatic.com          the font files that stylesheet points to
+		#   img-src https:             teacher photoUrl may be any external URL
+		#                              (admin/src/resources/teachers.tsx)
+		#   padmakara-pt-app.s3...,    presigned GET/PUT and multipart uploads
+		#   *.r2.cloudflarestorage.com (src/services/s3.ts: AWS by default, R2 when
+		#                              S3_ENDPOINT is set — both listed until prod
+		#                              is confirmed, then drop the unused one)
+		#   video.bunnycdn.com         Bunny TUS uploads (src/services/bunny.ts)
+		#   *.b-cdn.net                Bunny Stream HLS and thumbnails
+		#                              (BUNNY_STREAM_CDN_HOSTNAME, vz-*.b-cdn.net)
+		#   iframe.mediadelivery.net   Bunny embed player (src/services/bunny.ts)
+		#   blob:                      hls.js worker, local previews of picked files
+		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https://padmakara-pt-app.s3.eu-west-3.amazonaws.com https://*.r2.cloudflarestorage.com https://*.b-cdn.net; connect-src 'self' https://padmakara-pt-app.s3.eu-west-3.amazonaws.com https://*.r2.cloudflarestorage.com https://video.bunnycdn.com https://*.b-cdn.net; frame-src 'self' blob: https://iframe.mediadelivery.net; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 		-Server
 	}
 
@@ -88,6 +116,38 @@ app.padmakara.pt {
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "SAMEORIGIN"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# REPORT-ONLY for now: the browser logs violations to the console and
+		# blocks nothing. Switch the header name to Content-Security-Policy once
+		# the console has been checked in a browser on: sign-in (code and
+		# passkey), a teaching with audio, video and a transcript, a publication
+		# PDF, and the membership checkout (card, MB WAY, Multibanco).
+		#
+		# What each source is for, and where it was found (padmakara-app):
+		#   sha256-67fh...           the one inline script of the Expo static
+		#                            export: globalThis.__EXPO_ROUTER_HYDRATE__=true;
+		#                            (recompute if an Expo upgrade changes it)
+		#   'wasm-unsafe-eval'       pdf.js decoders (wasmUrl in PDFViewerWebImpl.tsx)
+		#   cdn.easypay.pt           checkout SDK 2.9.1
+		#                            (components/membership/EasypayCheckout.web.tsx)
+		#   pay.easypay.pt           the iframe that SDK opens (originUrl in the SDK;
+		#                            pay.sandbox.easypay.pt is the testing one, not listed)
+		#   cdn.jsdelivr.net         pdf.js worker, wasm, cmaps, standard fonts,
+		#                            pinned pdfjs-dist (PDFViewerWebImpl.tsx)
+		#   style-src 'unsafe-inline' react-native-web and the Easypay SDK inject styles
+		#   api.padmakara.pt         EXPO_PUBLIC_API_URL (deploy.sh)
+		#   padmakara-pt-app.s3...,  presigned images, audio, PDFs
+		#   *.r2.cloudflarestorage.com (src/services/s3.ts: AWS by default, R2 when
+		#                            S3_ENDPOINT is set — both listed until prod is
+		#                            confirmed, then drop the unused one)
+		#   *.b-cdn.net              Bunny Stream HLS and thumbnails (hls.js,
+		#                            components/WebHlsVideo.web.tsx)
+		#   iframe.mediadelivery.net Bunny embed player, the fallback (services/retreatService.ts)
+		#   o4510993302618112.ingest.de.sentry.io  Sentry DSN in app.config.ts
+		#   blob:                    hls.js and pdf.js workers, PDFs and audio fetched
+		#                            then shown from object URLs
+		#   fonts                    bundled by Expo (EB Garamond, icon fonts): 'self'
+		Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'sha256-67fhrP0+BkBqmgGGXTtgiVO/9EQs3QruYNU/7fnRkI8=' 'wasm-unsafe-eval' https://cdn.easypay.pt https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; font-src 'self' data: https://cdn.jsdelivr.net; img-src 'self' data: blob: https://padmakara-pt-app.s3.eu-west-3.amazonaws.com https://*.r2.cloudflarestorage.com https://*.b-cdn.net; media-src 'self' blob: https://padmakara-pt-app.s3.eu-west-3.amazonaws.com https://*.r2.cloudflarestorage.com https://*.b-cdn.net; connect-src 'self' https://api.padmakara.pt https://padmakara-pt-app.s3.eu-west-3.amazonaws.com https://*.r2.cloudflarestorage.com https://*.b-cdn.net https://cdn.jsdelivr.net https://o4510993302618112.ingest.de.sentry.io; frame-src 'self' blob: https://pay.easypay.pt https://iframe.mediadelivery.net; worker-src 'self' blob: https://cdn.jsdelivr.net; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 		-Server
 	}
 
