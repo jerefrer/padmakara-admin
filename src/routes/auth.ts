@@ -51,7 +51,7 @@ import { isReviewLoginFor, verifyReviewCode } from "../services/review-account.t
 import { generateSignInCode, hashSignInCode } from "../services/sign-in-code.ts";
 import { claimSignInCode } from "../services/sign-in-code-claim.ts";
 import { deleteUserAccount } from "../services/account-deletion.ts";
-import { hashDeviceFingerprint } from "../lib/device-fingerprint.ts";
+import { hashDeviceFingerprint, isCurrentFingerprintFormat } from "../lib/device-fingerprint.ts";
 import {
   authIpLimiter,
   authEmailLimiter,
@@ -296,11 +296,29 @@ auth.post("/backoffice/verify-code", authIpLimiter(), authEmailLimiter(), async 
 // Device-based magic link auth — used by React Native app
 // ──────────────────────────────────────────────────────
 
+/** How long an activated device may sign back in without an email (user decision, 2026-11-16). */
+const SIGN_BACK_IN_WINDOW_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * An activated device signs back in without email only with a fingerprint in
+ * the current format (random, kept in secure storage) and only if it was used
+ * within the last 12 months. Legacy fingerprints (weak, in plain storage) and
+ * older activations go through the email instead; they keep working everywhere
+ * else.
+ */
+function mayReturnWithoutEmail(fingerprint: string, device: { lastUsed: Date }): boolean {
+  return (
+    isCurrentFingerprintFormat(fingerprint) &&
+    device.lastUsed.getTime() > Date.now() - SIGN_BACK_IN_WINDOW_MS
+  );
+}
+
 /**
  * POST /api/auth/request-magic-link
  *
  * Step 1 of mobile auth. The app sends email + device info.
- * - If user exists & device already activated → return tokens immediately
+ * - If user exists & device already activated → return tokens immediately,
+ *   within the limits of mayReturnWithoutEmail
  * - If user exists but device not activated → send magic link email
  * - If user doesn't exist → send magic link email too; the account is created
  *   when the link or code is used (see accountForEmailSignIn)
@@ -339,7 +357,7 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
       })
     : undefined;
 
-  if (user && existingDevice) {
+  if (user && existingDevice && mayReturnWithoutEmail(data.device_fingerprint, existingDevice)) {
     // Device already activated — return tokens directly
     const tokens = await generateTokensForUser(user);
 

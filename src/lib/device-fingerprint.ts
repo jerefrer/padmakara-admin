@@ -17,8 +17,8 @@ export function hashDeviceFingerprint(fingerprint: string): string {
  * object of device info (over 100 characters), `${platform}-${time}-${random}`
  * or a short string hash, none of which can match.
  */
-const CURRENT_FORMAT = /^[A-Za-z0-9_-]{43}$/;
+export const CURRENT_FINGERPRINT_FORMAT = /^[A-Za-z0-9_-]{43}$/;
 
 export function isCurrentFingerprintFormat(fingerprint: string): boolean {
-  return CURRENT_FORMAT.test(fingerprint);
+  return CURRENT_FINGERPRINT_FORMAT.test(fingerprint);
 }

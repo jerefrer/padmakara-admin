@@ -97,11 +97,12 @@ describe("Frontend Compatibility Tests", () => {
     };
 
     it("should return correct response format for request-magic-link (already_activated)", async () => {
+      // Only a current-format fingerprint (app builds after 46) signs back in without email.
+      const currentFingerprint = "q3Jd8-ZpX_2mVwT0bL9sYc4nR7uKeA1hGfDiOjM5tWx";
       (db.query.users.findFirst as any).mockResolvedValue(mockUser);
       (db.query.deviceActivations.findFirst as any).mockResolvedValue({
         id: 1,
         userId: mockUser.id,
-        deviceFingerprint: devicePayload.device_fingerprint,
         isActive: true,
         activatedAt: new Date(),
         lastUsed: new Date(),
@@ -114,7 +115,7 @@ describe("Frontend Compatibility Tests", () => {
 
       const { status, body } = await testJson("/api/auth/request-magic-link", {
         method: "POST",
-        body: JSON.stringify(devicePayload),
+        body: JSON.stringify({ ...devicePayload, device_fingerprint: currentFingerprint }),
       });
 
       expect(status).toBe(200);

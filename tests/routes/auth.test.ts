@@ -256,7 +256,9 @@ describe("Auth routes", () => {
       expect(body).not.toHaveProperty("email"); // no address leakage
     });
 
-    it("returns already_activated for activated device", async () => {
+    it("returns already_activated for an activated device with a current-format fingerprint", async () => {
+      // Only current-format fingerprints sign back in without email; see device-fingerprint.test.ts.
+      const currentFingerprint = "q3Jd8-ZpX_2mVwT0bL9sYc4nR7uKeA1hGfDiOjM5tWx";
       const mockUser = {
         id: 1, email: "user@test.com", firstName: "Test", lastName: "User",
         dharmaName: null, preferredLanguage: "en", role: "user",
@@ -266,8 +268,8 @@ describe("Auth routes", () => {
       };
       (db.query.users.findFirst as any).mockResolvedValue(mockUser);
       (db.query.deviceActivations.findFirst as any).mockResolvedValue({
-        id: 1, userId: 1, deviceFingerprint: devicePayload.device_fingerprint,
-        isActive: true,
+        id: 1, userId: 1, deviceFingerprint: hashDeviceFingerprint(currentFingerprint),
+        isActive: true, lastUsed: new Date(),
       });
 
       const insertChain = mockInsertChain();
@@ -277,7 +279,9 @@ describe("Auth routes", () => {
 
       const { status, body } = await testJson("/api/auth/request-magic-link", {
         method: "POST",
-        body: JSON.stringify({ email: "user@test.com", ...devicePayload }),
+        body: JSON.stringify({
+          email: "user@test.com", ...devicePayload, device_fingerprint: currentFingerprint,
+        }),
       });
 
       expect(status).toBe(200);
