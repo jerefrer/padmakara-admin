@@ -140,6 +140,35 @@ export function parseHeroFrameOverridesField(
   return Object.keys(parsed).length > 0 ? parsed : null;
 }
 
+/**
+ * Image columns of teachers and retreat groups on a PUT. The image editors own them and write them
+ * through their own upload routes. The edit forms send back the whole record they loaded, which is
+ * stale once an image was re-framed or replaced elsewhere (another tab, another admin): the old
+ * framing would overwrite the new one, and an old S3 key would delete the current image. So a PUT
+ * never takes the framing, and takes an image key only as null, to remove that image.
+ */
+const IMAGE_EDITOR_FIELDS = {
+  avatarS3Key: true,
+  heroS3Key: true,
+  heroFocalX: true,
+  heroFocalY: true,
+  heroScale: true,
+  heroFrameOverrides: true,
+} as const;
+
+/** null removes the image; anything else is an echo of the loaded record and is dropped. */
+const removedImageKey = z
+  .unknown()
+  .transform((value) => (value === null ? null : undefined))
+  .optional();
+
+function withoutKeptImageKeys<T extends { avatarS3Key?: null; heroS3Key?: null }>(data: T): T {
+  const out = { ...data };
+  if (out.avatarS3Key === undefined) delete out.avatarS3Key;
+  if (out.heroS3Key === undefined) delete out.heroS3Key;
+  return out;
+}
+
 // Teachers
 export const createTeacherSchema = z.object({
   name: z.string().min(1).max(200),
@@ -154,7 +183,11 @@ export const createTeacherSchema = z.object({
   heroFrameOverrides: heroFrameOverridesSchema.optional().nullable(),
 });
 
-export const updateTeacherSchema = createTeacherSchema.partial();
+export const updateTeacherSchema = createTeacherSchema
+  .omit(IMAGE_EDITOR_FIELDS)
+  .partial()
+  .extend({ avatarS3Key: removedImageKey, heroS3Key: removedImageKey })
+  .transform(withoutKeptImageKeys);
 
 // Places
 export const createPlaceSchema = z.object({
@@ -190,7 +223,11 @@ export const createRetreatGroupSchema = z.object({
   displayOrder: z.number().int().min(0).optional().default(0),
 });
 
-export const updateRetreatGroupSchema = createRetreatGroupSchema.partial();
+export const updateRetreatGroupSchema = createRetreatGroupSchema
+  .omit(IMAGE_EDITOR_FIELDS)
+  .partial()
+  .extend({ avatarS3Key: removedImageKey, heroS3Key: removedImageKey })
+  .transform(withoutKeptImageKeys);
 
 // Event Types
 export const createEventTypeSchema = z.object({

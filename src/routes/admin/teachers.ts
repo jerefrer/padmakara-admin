@@ -266,8 +266,8 @@ teacherRoutes.put("/:id", async (c) => {
   if (dropHeroOriginal) {
     Object.assign(updateData, { heroOriginalS3Key: null, heroCrop: null, heroGrayscale: false });
   }
-  // A different hero image has a different crop: the per-layout framing no longer applies.
-  if (data.heroS3Key !== undefined && data.heroFrameOverrides === undefined) {
+  // Removing the hero removes its per-layout framing (a PUT only takes a key as null, see the schema).
+  if (data.heroS3Key !== undefined) {
     updateData.heroFrameOverrides = null;
   }
 

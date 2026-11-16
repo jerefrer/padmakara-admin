@@ -528,16 +528,47 @@ describe.each([
     expect(status).toBe(400);
   });
 
-  it("should accept overrides on update", async () => {
-    const { status } = await putJson(`/api/admin/${kind}/${id}`, { heroFrameOverrides: OVERRIDES });
+  // The edit form sends the whole record it loaded. Saved after the hero was re-framed elsewhere
+  // (another tab, another admin), it carries the old framing and the old S3 keys.
+  it("should ignore the framing sent with a form save", async () => {
+    const { status } = await putJson(`/api/admin/${kind}/${id}`, {
+      heroFocalX: 10,
+      heroFocalY: 20,
+      heroScale: 100,
+      heroFrameOverrides: OVERRIDES,
+    });
     expect(status).toBe(200);
-    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ heroFrameOverrides: OVERRIDES }));
+    const written = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(written).not.toHaveProperty("heroFocalX");
+    expect(written).not.toHaveProperty("heroFocalY");
+    expect(written).not.toHaveProperty("heroScale");
+    expect(written).not.toHaveProperty("heroFrameOverrides");
   });
 
-  it("should clear the overrides when the hero image is replaced through update", async () => {
-    mockFindFirst.mockResolvedValue({ id, heroS3Key: "old.webp", heroOriginalS3Key: null });
-    const { status } = await putJson(`/api/admin/${kind}/${id}`, { heroS3Key: "new.webp" });
+  it("should not delete or replace the current images when a form save sends their old keys back", async () => {
+    mockFindFirst.mockResolvedValue({
+      id,
+      avatarS3Key: "avatar-new.webp",
+      heroS3Key: "hero-new.webp",
+      heroOriginalS3Key: "hero-original.jpg",
+    });
+    const { status } = await putJson(`/api/admin/${kind}/${id}`, {
+      avatarS3Key: "avatar-old.webp",
+      heroS3Key: "hero-old.webp",
+    });
     expect(status).toBe(200);
-    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ heroFrameOverrides: null }));
+    expect(mockDeleteObject).not.toHaveBeenCalled();
+    const written = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(written).not.toHaveProperty("avatarS3Key");
+    expect(written).not.toHaveProperty("heroS3Key");
+    expect(written).not.toHaveProperty("heroOriginalS3Key");
+  });
+
+  it("should clear the overrides when the hero is removed through update", async () => {
+    mockFindFirst.mockResolvedValue({ id, heroS3Key: "hero.webp", heroOriginalS3Key: null });
+    const { status } = await putJson(`/api/admin/${kind}/${id}`, { heroS3Key: null });
+    expect(status).toBe(200);
+    expect(mockDeleteObject).toHaveBeenCalledWith("hero.webp");
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ heroS3Key: null, heroFrameOverrides: null }));
   });
 });
