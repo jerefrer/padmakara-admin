@@ -58,6 +58,19 @@ vi.mock("../../../src/services/video-burn.ts", () => ({
   submitVideoBurnJob: vi.fn(() => Promise.resolve({ jobId: "batch-job-1" })),
 }));
 
+// import-url resolves the source host before handing it on. No real DNS in
+// tests: every name resolves to a public address unless listed here.
+const dnsOverrides = new Map<string, string[]>();
+vi.mock("node:dns/promises", () => {
+  const lookup = vi.fn(async (hostname: string) =>
+    (dnsOverrides.get(hostname) ?? ["93.184.216.34"]).map((address) => ({
+      address,
+      family: address.includes(":") ? 6 : 4,
+    })),
+  );
+  return { lookup, default: { lookup } };
+});
+
 import { db } from "../../../src/db/index.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
 import { generatePresignedDownloadUrl } from "../../../src/services/s3.ts";
@@ -705,6 +718,55 @@ describe("POST /api/admin/videos/import-url", () => {
     expect(status).toBe(404);
     expect(mockFetchVideo).not.toHaveBeenCalled();
     expect(mockSubmitVideoBurnJob).not.toHaveBeenCalled();
+  });
+
+  // SSRF: the burn container downloads MASTER_SOURCE_URL and uploads the bytes
+  // to S3, where the admin can read them back. A URL reaching our own network
+  // must be refused here, before any job is queued.
+  describe("refuses a source URL that reaches a non-public address", () => {
+    beforeEach(() => dnsOverrides.clear());
+
+    const importWithSlides = async (url: string) => {
+      const token = await adminToken();
+      return testJson("/api/admin/videos/import-url", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ eventId: 7, url, slides: validDoc() }),
+      });
+    };
+
+    it.each([
+      ["the metadata endpoint", "http://169.254.169.254/latest/meta-data/iam/security-credentials/"],
+      ["an IPv4-mapped IPv6 metadata literal", "http://[::ffff:169.254.169.254]/latest/"],
+      ["an IPv6 ULA literal", "https://[fd00::1]/v.mp4"],
+      ["a CGNAT literal", "https://100.64.0.1/v.mp4"],
+      ["loopback", "http://127.0.0.1:3000/api/admin/users"],
+    ])("should refuse %s without queueing a burn", async (_label, url) => {
+      const { status, body } = await importWithSlides(url);
+      expect(status).toBe(400);
+      expect(body.code).toBe("URL_NOT_PUBLIC");
+      expect(mockSubmitVideoBurnJob).not.toHaveBeenCalled();
+      expect(mockValues).not.toHaveBeenCalled();
+    });
+
+    it("should refuse a DNS name that resolves to a private address", async () => {
+      dnsOverrides.set("videos.attacker.example", ["10.0.0.7"]);
+      const { status, body } = await importWithSlides("https://videos.attacker.example/v.mp4");
+      expect(status).toBe(400);
+      expect(body.code).toBe("URL_NOT_PUBLIC");
+      expect(mockSubmitVideoBurnJob).not.toHaveBeenCalled();
+    });
+
+    it("should refuse the same URL on the direct-to-Bunny path", async () => {
+      const token = await adminToken();
+      const { status } = await testJson("/api/admin/videos/import-url", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ eventId: 7, url: "http://169.254.169.254/latest/" }),
+      });
+      expect(status).toBe(400);
+      expect(mockFetchVideo).not.toHaveBeenCalled();
+    });
   });
 
   it("rejects a malformed slide document with a validation error", async () => {

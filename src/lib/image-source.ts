@@ -1,5 +1,6 @@
 import { getObjectBytes } from "../services/s3.ts";
 import { AppError } from "./errors.ts";
+import { safeFetch, SafeFetchError } from "./safe-fetch.ts";
 
 /**
  * Serving an existing avatar/hero back to the admin UI so it can be
@@ -18,35 +19,17 @@ export interface ImageSource {
   contentType: string;
 }
 
-/** Hosts we refuse to fetch server-side (SSRF guard, see below). */
-const BLOCKED_HOSTNAMES = new Set(["localhost", "0.0.0.0", "[::1]", "::1"]);
-
-const PRIVATE_IPV4 =
-  /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
-
 /**
- * The URLs we fetch come from our own database and are only writable by
- * admins, but they are still data rather than code — so keep the server from
- * being turned into a proxy onto the internal network.
+ * The legacy URLs we fetch come from our own database and are only writable
+ * by admins, but they are still data rather than code — so the fetch goes
+ * through safeFetch (./safe-fetch.ts), which refuses anything that is, or
+ * resolves or redirects to, a non-public address. Plain http stays allowed:
+ * some legacy values inherited from the Django site may still be http, and
+ * it is the address checks, not the scheme, that stop SSRF.
  */
-export function assertFetchableUrl(raw: string): URL {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw AppError.badRequest("Stored image URL is not a valid URL", "INVALID_IMAGE_URL");
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw AppError.badRequest("Stored image URL is not http(s)", "INVALID_IMAGE_URL");
-  }
-  const host = url.hostname.toLowerCase();
-  if (BLOCKED_HOSTNAMES.has(host) || host.endsWith(".local") || PRIVATE_IPV4.test(host)) {
-    throw AppError.badRequest("Stored image URL points at a private host", "INVALID_IMAGE_URL");
-  }
-  return url;
-}
-
 const FETCH_TIMEOUT_MS = 15_000;
+/** Far above any real avatar/logo; stops a hostile host streaming forever. */
+export const MAX_IMAGE_SOURCE_BYTES = 20 * 1024 * 1024;
 
 /**
  * Resolve an image to raw bytes, preferring our own storage and falling back
@@ -61,22 +44,21 @@ export async function loadImageSource(source: {
   }
 
   if (source.fallbackUrl) {
-    const url = assertFetchableUrl(source.fallbackUrl);
-    const res = await fetch(url, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      throw new AppError(
-        502,
-        `Could not fetch source image (HTTP ${res.status})`,
-        "IMAGE_SOURCE_UNAVAILABLE",
-      );
+    try {
+      const res = await safeFetch(source.fallbackUrl, {
+        allowHttp: true,
+        timeoutMs: FETCH_TIMEOUT_MS,
+        maxBytes: MAX_IMAGE_SOURCE_BYTES,
+        acceptContentType: (type) => type.startsWith("image/"),
+      });
+      return { body: res.body, contentType: res.contentType };
+    } catch (err) {
+      if (err instanceof SafeFetchError && err.reason === "blocked") {
+        throw AppError.badRequest(`Stored image URL refused: ${err.message}`, "INVALID_IMAGE_URL");
+      }
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new AppError(502, `Could not fetch source image (${detail})`, "IMAGE_SOURCE_UNAVAILABLE");
     }
-    return {
-      body: new Uint8Array(await res.arrayBuffer()),
-      contentType: res.headers.get("content-type") || "application/octet-stream",
-    };
   }
 
   throw AppError.notFound("No image to edit");

@@ -76,6 +76,13 @@ vi.mock("../../../src/services/s3.ts", () => ({
   ),
 }));
 
+// import-url resolves the source host (SSRF guard). No real DNS in tests:
+// every name resolves to a public address.
+vi.mock("node:dns/promises", () => {
+  const lookup = vi.fn(async () => [{ address: "93.184.216.34", family: 4 }]);
+  return { lookup, default: { lookup } };
+});
+
 import { db } from "../../../src/db/index.ts";
 import { deleteVideo, fetchVideo } from "../../../src/services/bunny.ts";
 import { generatePresignedDownloadUrl } from "../../../src/services/s3.ts";
