@@ -57,8 +57,13 @@ export const paymentTransactions = pgTable(
     currency: text("currency"),
 
     /**
-     * What we did about it: "activated" | "extended" | "reversed" | "ignored"
-     * | "unresolved" (could not attribute to a user) | "unverified" (Easypay lookup failed).
+     * What we did about it. Credit rows (one per Easypay capture, `easypayTransactionId`
+     * set): "activated" | "extended". Notification rows: "credited" (its read of Easypay
+     * credited captures) | "no_new_capture" (the body claimed a payment Easypay does not
+     * list) | "reversed" | "reversal_review" (a refund or chargeback we could not tie to a
+     * capture we credited: for a human) | "ignored" | "tokenized" | "method_updated"
+     * | "unresolved" (could not attribute to a user) | "unverified" (Easypay answered 404).
+     * Rows before 2026-11-16 used "activated" / "extended" on the notification row itself.
      */
     action: text("action").notNull(),
     /** Free-text reason, mainly for the non-happy paths. */

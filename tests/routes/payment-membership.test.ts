@@ -283,6 +283,14 @@ describe("first payment in flight", () => {
     expect(body.state).toBe("none");
   });
 
+  it("should keep processing when the newer capture notification found nothing paid at Easypay", async () => {
+    // A "success" body with no capture behind it (forged, or ahead of Easypay) says nothing
+    // about the Direct Debit at the bank: the member must not be invited to pay again.
+    ledgerRows = [capture(0.5, "no_new_capture", "notification said subscription_capture/success"), checkout(1)];
+    const { body } = await getMembership();
+    expect(body.state).toBe("processing");
+  });
+
   it("should not report processing when the checkout row is older than 14 days", async () => {
     ledgerRows = [checkout(20)];
     const { body } = await getMembership();
