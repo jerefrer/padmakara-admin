@@ -137,7 +137,10 @@ async function main(): Promise<void> {
   const members: MemberRow[] = [];
   const ledger: LedgerRow[] = [];
   try {
-    await client.begin("read only", async (sql) => {
+    await client.begin("read only", async (tx) => {
+      // postgres.js's TransactionSql type drops the tagged-template call signature (a typing
+      // gap only): at run time `tx` is callable exactly like `client`.
+      const sql = tx as unknown as postgres.Sql;
       const userRows = await sql<
         { id: number; subscription_source: string | null; subscription_status: string; easypay_subscription_id: string | null; subscription_expires_at: Date | null }[]
       >`
@@ -156,12 +159,12 @@ async function main(): Promise<void> {
         });
       }
       // easypay_transaction_id does not exist before migration 0070: read it only if it does.
-      const [{ has_column }] = await sql<{ has_column: boolean }[]>`
+      const columnCheck = await sql<{ has_column: boolean }[]>`
         SELECT EXISTS (
           SELECT 1 FROM information_schema.columns
           WHERE table_name = 'payment_transactions' AND column_name = 'easypay_transaction_id'
         ) AS has_column`;
-      const rows = has_column
+      const rows = columnCheck[0]?.has_column
         ? await sql<{ id: number; user_id: number | null; notification_id: string; action: string; easypay_transaction_id: string | null; raw_subscription: unknown; created_at: Date }[]>`
             SELECT id, user_id, notification_id, action, easypay_transaction_id, raw_subscription, created_at
             FROM payment_transactions ORDER BY id`
