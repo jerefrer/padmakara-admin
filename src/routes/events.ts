@@ -202,7 +202,7 @@ eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
  * Admins/superadmins who send a JWT also see draft events.
  */
 eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseInt((c.req.param("id") ?? ""), 10);
   const user = getOptionalUser(c);
 
   const event = await db.query.events.findFirst({
