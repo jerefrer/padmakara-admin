@@ -82,7 +82,7 @@ function insertChain() {
 function updateChain(returned: unknown[] = [{ id: 1 }]) {
   const set = vi.fn();
   const returning = vi.fn().mockResolvedValue(returned);
-  const where = vi.fn(() => Object.assign(Promise.resolve(undefined), { returning }));
+  const where = vi.fn((_condition: unknown) => Object.assign(Promise.resolve(undefined), { returning }));
   set.mockReturnValue({ where });
   return { set, where, returning };
 }
