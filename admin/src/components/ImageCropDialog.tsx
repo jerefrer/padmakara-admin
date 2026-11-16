@@ -225,10 +225,10 @@ export function ImageCropDialog(props: Props) {
                   maxZoom={4}
                   objectFit="cover"
                   onCropChange={setCrop}
-                  onZoomChange={(z) => {
-                    cropTouchedRef.current = true;
-                    setZoom(z);
-                  }}
+                  // Not a sign of a user change: the cropper also calls this itself when it restores
+                  // initialCroppedAreaPixels, and then reports in-between crops while the dialog lays
+                  // out. User zooms (wheel, pinch, keys) go through onInteractionStart, the slider below.
+                  onZoomChange={setZoom}
                   onInteractionStart={() => {
                     cropTouchedRef.current = true;
                   }}
