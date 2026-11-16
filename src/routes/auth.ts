@@ -51,6 +51,7 @@ import { isReviewLoginFor, verifyReviewCode } from "../services/review-account.t
 import { generateSignInCode, hashSignInCode } from "../services/sign-in-code.ts";
 import { claimSignInCode } from "../services/sign-in-code-claim.ts";
 import { deleteUserAccount } from "../services/account-deletion.ts";
+import { hashDeviceFingerprint } from "../lib/device-fingerprint.ts";
 import {
   authIpLimiter,
   authEmailLimiter,
@@ -210,8 +211,9 @@ auth.post("/login", authIpLimiter(), authEmailLimiter(), async (c) => {
  * Accounts made in the app have no password, so an admin signs in to the
  * backoffice with a 6-digit code sent by email, like in the app. The code is
  * bound to the page that asked for it through a random challenge id (stored as
- * the token's device fingerprint), so a code read off the email works nowhere
- * else. No device is activated: the backoffice only gets tokens.
+ * the token's device fingerprint, hashed like any other), so a code read off
+ * the email works nowhere else. No device is activated: the backoffice only
+ * gets tokens.
  */
 const BACKOFFICE_FINGERPRINT_PREFIX = "backoffice:";
 
@@ -239,7 +241,7 @@ auth.post("/backoffice/request-code", authIpLimiter(), authEmailLimiter(), async
     // The row's link is never sent; it only holds the code.
     tokenHash: await hashToken(generateMagicLinkToken()),
     expiresAt: magicLinkExpiresAt(),
-    deviceFingerprint: `${BACKOFFICE_FINGERPRINT_PREFIX}${challengeId}`,
+    deviceFingerprint: hashDeviceFingerprint(`${BACKOFFICE_FINGERPRINT_PREFIX}${challengeId}`),
     deviceName: "Backoffice",
     deviceType: "web",
     language: data.language,
@@ -309,6 +311,7 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
   const data = requestMagicLinkSchema.parse(body);
 
   const email = data.email.toLowerCase().trim();
+  const fingerprintHash = hashDeviceFingerprint(data.device_fingerprint);
 
   // Look up user
   const user = await db.query.users.findFirst({
@@ -329,7 +332,7 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
   const existingDevice = user
     ? await db.query.deviceActivations.findFirst({
         where: and(
-          eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
+          eq(deviceActivations.deviceFingerprint, fingerprintHash),
           eq(deviceActivations.userId, user.id),
           eq(deviceActivations.isActive, true),
         ),
@@ -378,7 +381,7 @@ auth.post("/request-magic-link", authIpLimiter(), authEmailLimiter(), async (c) 
     email,
     tokenHash,
     expiresAt: magicLinkExpiresAt(),
-    deviceFingerprint: data.device_fingerprint,
+    deviceFingerprint: fingerprintHash,
     deviceName: data.device_name,
     deviceType: data.device_type,
     language: data.language ?? "en",
@@ -579,7 +582,8 @@ auth.post("/activate/:token", async (c) => {
       .where(eq(users.id, user.id));
   }
 
-  // Create or reactivate device activation
+  // Create or reactivate device activation. The token row already holds the
+  // fingerprint's hash: it is copied as it is, never hashed again.
   if (magicLink.deviceFingerprint) {
     const existingDevice = await db.query.deviceActivations.findFirst({
       where: eq(deviceActivations.deviceFingerprint, magicLink.deviceFingerprint),
@@ -641,7 +645,7 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
 
   const device = await db.query.deviceActivations.findFirst({
     where: and(
-      eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
+      eq(deviceActivations.deviceFingerprint, hashDeviceFingerprint(data.device_fingerprint)),
       eq(deviceActivations.isActive, true),
     ),
   });
@@ -868,7 +872,7 @@ auth.post("/device/deactivate", authMiddleware, async (c) => {
 
   const device = await db.query.deviceActivations.findFirst({
     where: and(
-      eq(deviceActivations.deviceFingerprint, data.device_fingerprint),
+      eq(deviceActivations.deviceFingerprint, hashDeviceFingerprint(data.device_fingerprint)),
       eq(deviceActivations.userId, authUser.id),
     ),
   });

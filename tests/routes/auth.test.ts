@@ -35,6 +35,7 @@ vi.mock("../../src/services/users-lookup.ts", () => ({
 import { db } from "../../src/db/index.ts";
 import { findOrCreateUserByEmail } from "../../src/services/users-lookup.ts";
 import { hashSignInCode, verifySignInCode } from "../../src/services/sign-in-code.ts";
+import { hashDeviceFingerprint } from "../../src/lib/device-fingerprint.ts";
 import { config } from "../../src/config.ts";
 import {
   hashPassword,
@@ -384,7 +385,7 @@ describe("Auth routes", () => {
       expect(body.user.email).toBe("review@padmakara.pt");
       // A device activation row was created for this fingerprint.
       expect(insertChain.values).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 7, deviceFingerprint: "review-fingerprint-1" }),
+        expect.objectContaining({ userId: 7, deviceFingerprint: hashDeviceFingerprint("review-fingerprint-1") }),
       );
     });
 
@@ -464,7 +465,7 @@ describe("Auth routes", () => {
       tokenHash: "x",
       expiresAt: future(),
       isUsed: false,
-      deviceFingerprint: "device-A",
+      deviceFingerprint: hashDeviceFingerprint("device-A"),
       deviceName: "Phone A",
       deviceType: "ios",
       language: "en",
@@ -653,7 +654,7 @@ describe("Auth routes", () => {
       tokenHash: "x",
       expiresAt: future(),
       isUsed: false,
-      deviceFingerprint: "device-link",
+      deviceFingerprint: hashDeviceFingerprint("device-link"),
       deviceName: "Phone of Ana",
       deviceType: "ios",
       language: "en",
@@ -762,7 +763,7 @@ describe("Auth routes", () => {
       expect(res.status).toBe(200);
       expect(markedUsed(upd)).toBe(true);
       expect(insertChain.values).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 5, deviceFingerprint: "device-link" }),
+        expect.objectContaining({ userId: 5, deviceFingerprint: hashDeviceFingerprint("device-link") }),
       );
       expect(html).toContain("Device Activated");
       expect(res.headers.get("cache-control")).toBe("no-store");
@@ -938,7 +939,7 @@ describe("Auth routes", () => {
         );
         expect(markedUsed(upd)).toBe(true);
         expect(insertChain.values).toHaveBeenCalledWith(
-          expect.objectContaining({ userId: 5, deviceFingerprint: "device-app" }),
+          expect.objectContaining({ userId: 5, deviceFingerprint: hashDeviceFingerprint("device-app") }),
         );
       });
     });
@@ -964,7 +965,7 @@ describe("Auth routes", () => {
       tokenHash: "x",
       expiresAt: future(),
       isUsed: false,
-      deviceFingerprint: "device-new",
+      deviceFingerprint: hashDeviceFingerprint("device-new"),
       deviceName: "New Phone",
       deviceType: "ios",
       language: "pt",

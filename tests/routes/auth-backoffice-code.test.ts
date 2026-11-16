@@ -22,6 +22,7 @@ vi.mock("../../src/services/email.ts", () => ({
 import { db } from "../../src/db/index.ts";
 import { sendEmail, buildBackofficeCodeEmail } from "../../src/services/email.ts";
 import { hashSignInCode, verifySignInCode } from "../../src/services/sign-in-code.ts";
+import { hashDeviceFingerprint } from "../../src/lib/device-fingerprint.ts";
 
 const admin = {
   id: 10, email: "sofia@test.com", firstName: "Sofia", lastName: "C",
@@ -72,7 +73,7 @@ describe("backoffice sign-in by emailed code", () => {
       const values = insert.values.mock.calls[0]![0];
       const code = (buildBackofficeCodeEmail as any).mock.calls[0][0];
       expect(values.email).toBe("sofia@test.com");
-      expect(values.deviceFingerprint).toBe(`backoffice:${body.challengeId}`);
+      expect(values.deviceFingerprint).toBe(hashDeviceFingerprint(`backoffice:${body.challengeId}`));
       expect(verifySignInCode(code, values.codeHash)).toBe(true);
       expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "sofia@test.com" }));
       expect(JSON.stringify(body)).not.toContain(code);
@@ -103,7 +104,7 @@ describe("backoffice sign-in by emailed code", () => {
     const row = (over: Record<string, unknown> = {}) => ({
       id: 11, email: "sofia@test.com", tokenHash: "x",
       expiresAt: new Date(Date.now() + 3600_000), isUsed: false,
-      deviceFingerprint: `backoffice:${"c".repeat(43)}`,
+      deviceFingerprint: hashDeviceFingerprint(`backoffice:${"c".repeat(43)}`),
       language: "en", codeHash: hashSignInCode("123456"), codeAttempts: 0,
       ...over,
     });

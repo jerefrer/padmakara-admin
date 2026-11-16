@@ -2,12 +2,14 @@ import { eq, and, gt, lt, isNotNull, inArray, sql } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { magicLinkTokens } from "../db/schema/auth.ts";
 import { verifySignInCode, MAX_CODE_ATTEMPTS } from "./sign-in-code.ts";
+import { hashDeviceFingerprint } from "../lib/device-fingerprint.ts";
 
 type MagicLinkToken = typeof magicLinkTokens.$inferSelect;
 
 /**
  * Find the unused, unexpired token sent to `email` for `deviceFingerprint`
- * whose code is `code`, and consume it. A wrong code counts one attempt on
+ * whose code is `code`, and consume it. `deviceFingerprint` is the raw value
+ * the client sends; rows hold its hash. A wrong code counts one attempt on
  * every candidate; a token stops accepting codes at MAX_CODE_ATTEMPTS. Returns
  * null on any failure, so callers can answer every case with the same error.
  */
@@ -17,10 +19,11 @@ export async function claimSignInCode(
   code: string,
 ): Promise<MagicLinkToken | null> {
   const now = new Date();
+  const fingerprintHash = hashDeviceFingerprint(deviceFingerprint);
   const rows = await db.query.magicLinkTokens.findMany({
     where: and(
       eq(magicLinkTokens.email, email),
-      eq(magicLinkTokens.deviceFingerprint, deviceFingerprint),
+      eq(magicLinkTokens.deviceFingerprint, fingerprintHash),
       eq(magicLinkTokens.isUsed, false),
       gt(magicLinkTokens.expiresAt, now),
       isNotNull(magicLinkTokens.codeHash),
@@ -34,7 +37,7 @@ export async function claimSignInCode(
       r.expiresAt > now &&
       r.codeHash !== null &&
       r.codeAttempts < MAX_CODE_ATTEMPTS &&
-      r.deviceFingerprint === deviceFingerprint,
+      r.deviceFingerprint === fingerprintHash,
   );
 
   // Check every candidate (no early exit) so timing does not depend on which row matched.
