@@ -51,6 +51,7 @@ export async function issueMat(args: {
   const ttl = args.ttlSeconds ?? DEFAULT_TTL_SECONDS;
   const expiresAt = Math.floor(Date.now() / 1000) + ttl;
   const token = await new jose.SignJWT({
+    type: "media",
     sub: String(args.userId),
     svid: args.videoId,
     gid: args.bunnyVideoId,
@@ -65,6 +66,8 @@ export async function issueMat(args: {
 export async function verifyMat(token: string): Promise<MatPayload | null> {
   try {
     const { payload } = await jose.jwtVerify(token, SECRET);
+    // MATs issued before the `type` claim have none; anything else typed is not a MAT.
+    if (payload.type !== undefined && payload.type !== "media") return null;
     if (
       typeof payload.svid !== "number" ||
       typeof payload.gid !== "string" ||

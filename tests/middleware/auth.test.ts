@@ -21,6 +21,7 @@ import { adminMiddleware } from "../../src/middleware/admin.ts";
 import { createAccessToken, createRefreshToken } from "../../src/services/auth.ts";
 import { AppError, errorHandler } from "../../src/lib/errors.ts";
 import { config } from "../../src/config.ts";
+import { issueMat } from "../../src/services/media-access.ts";
 
 const SECRET = new TextEncoder().encode(config.jwt.secret);
 
@@ -168,6 +169,42 @@ describe("authMiddleware", () => {
   });
 });
 
+describe("media tokens and legacy tokens presented as access tokens", () => {
+  it("should return 401 when a media token is sent as a Bearer token", async () => {
+    const { token } = await issueMat({ userId: 42, videoId: 1, bunnyVideoId: "guid" });
+
+    const { status } = await call("/protected", `Bearer ${token}`);
+
+    expect(status).toBe(401);
+  });
+
+  it("should not treat a user-0 media token as a signed-in user when auth is optional", async () => {
+    const { token } = await issueMat({ userId: 0, videoId: 1, bunnyVideoId: "guid" });
+
+    const { status, body } = await call("/optional", `Bearer ${token}`);
+
+    expect(status).toBe(200);
+    expect(body.user).toBeNull();
+  });
+
+  it("should still accept a legacy access token that has no type claim", async () => {
+    const legacy = await signWith({ email: "seeker@test.com", role: "user" }, { exp: "1h" });
+
+    const { status, body } = await call("/protected", `Bearer ${legacy}`);
+
+    expect(status).toBe(200);
+    expect(body.user).toEqual({ id: 7, email: "seeker@test.com", role: "user" });
+  });
+
+  it("should return 401 when a token has a type-less payload without email or role", async () => {
+    const bare = await signWith({}, { exp: "1h" });
+
+    const { status } = await call("/protected", `Bearer ${bare}`);
+
+    expect(status).toBe(401);
+  });
+});
+
 describe("optionalAuthMiddleware", () => {
   it("should resolve the user from a valid token", async () => {
     const { status, body } = await call("/optional", `Bearer ${await accessToken("admin", 3)}`);
@@ -248,12 +285,12 @@ describe("adminMiddleware", () => {
     expect(status).toBe(403);
   });
 
-  it("should return 403 for a validly signed token that carries no role", async () => {
+  it("should return 401 for a validly signed token that carries no role", async () => {
     const noRole = await signWith({ email: "seeker@test.com" }, { exp: "1h" });
 
     const { status } = await call("/admin", `Bearer ${noRole}`);
 
-    expect(status).toBe(403);
+    expect(status).toBe(401);
   });
 
   it("should return 401 (not 403) when the token is invalid", async () => {

@@ -9,6 +9,14 @@ export interface AuthUser {
   role: string;
 }
 
+/** Builds the request user from a verified payload, or null when a required claim is missing. */
+function userFromPayload(payload: { sub?: string; email?: string; role?: string }): AuthUser | null {
+  if (!payload.sub || !payload.email || !payload.role) return null;
+  const id = parseInt(payload.sub, 10);
+  if (Number.isNaN(id)) return null;
+  return { id, email: payload.email, role: payload.role };
+}
+
 /**
  * Middleware that verifies the JWT access token from the Authorization header.
  * Sets c.set("user", ...) on success.
@@ -22,11 +30,8 @@ export async function authMiddleware(c: Context, next: Next) {
   const token = authHeader.slice(7);
   try {
     const payload = await verifyAccessToken(token);
-    const user: AuthUser = {
-      id: parseInt(payload.sub!, 10),
-      email: payload.email!,
-      role: payload.role!,
-    };
+    const user = userFromPayload(payload);
+    if (!user) throw new Error("token is missing sub, email or role");
     c.set("user", user);
     markActive(user.id);
     await next();
@@ -52,13 +57,11 @@ export async function optionalAuthMiddleware(c: Context, next: Next) {
   if (rawToken) {
     try {
       const payload = await verifyAccessToken(rawToken);
-      const user: AuthUser = {
-        id: parseInt(payload.sub!, 10),
-        email: payload.email!,
-        role: payload.role!,
-      };
-      c.set("user", user);
-      markActive(user.id);
+      const user = userFromPayload(payload);
+      if (user) {
+        c.set("user", user);
+        markActive(user.id);
+      }
     } catch {
       // Invalid token — treat as unauthenticated
     }

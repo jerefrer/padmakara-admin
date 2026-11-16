@@ -1,13 +1,17 @@
 import { describe, it, expect } from "vitest";
+import * as jose from "jose";
 import {
   hashPassword,
   verifyPassword,
   createAccessToken,
   createRefreshToken,
   verifyToken,
+  verifyAccessToken,
   generateMagicLinkToken,
   hashToken,
 } from "../../src/services/auth.ts";
+import { issueMat, verifyMat } from "../../src/services/media-access.ts";
+import { config } from "../../src/config.ts";
 
 describe("Password hashing", () => {
   it("hashes and verifies a password", async () => {
@@ -86,5 +90,64 @@ describe("Magic link tokens", () => {
     const hash1 = await hashToken("token-a");
     const hash2 = await hashToken("token-b");
     expect(hash1).not.toBe(hash2);
+  });
+});
+
+describe("verifyAccessToken", () => {
+  const testPayload = { sub: 1, email: "test@example.com", role: "user" };
+
+  it("should accept a freshly issued access token and stamp it type access", async () => {
+    const token = await createAccessToken(testPayload);
+    const payload = await verifyAccessToken(token);
+    expect(payload.type).toBe("access");
+  });
+
+  it("should reject a refresh token", async () => {
+    const token = await createRefreshToken(testPayload);
+    await expect(verifyAccessToken(token)).rejects.toThrow();
+  });
+
+  it("should reject a media token", async () => {
+    const { token } = await issueMat({ userId: 42, videoId: 1, bunnyVideoId: "guid" });
+    await expect(verifyAccessToken(token)).rejects.toThrow();
+  });
+
+  it("should accept a legacy token without type that carries email and role", async () => {
+    const secret = new TextEncoder().encode(config.jwt.secret);
+    const legacy = await new jose.SignJWT({ email: "a@b.c", role: "user" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("5")
+      .setExpirationTime("1h")
+      .sign(secret);
+    await expect(verifyAccessToken(legacy)).resolves.toMatchObject({ sub: "5" });
+  });
+});
+
+describe("verifyMat", () => {
+  it("should accept a media token", async () => {
+    const { token } = await issueMat({ userId: 42, videoId: 1, bunnyVideoId: "guid" });
+    expect(await verifyMat(token)).toMatchObject({ sub: 42, svid: 1, gid: "guid" });
+  });
+
+  it("should accept an in-flight media token without a type claim", async () => {
+    const secret = new TextEncoder().encode(config.jwt.secret);
+    const old = await new jose.SignJWT({ svid: 1, gid: "guid" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("42")
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(secret);
+    expect(await verifyMat(old)).toMatchObject({ sub: 42, svid: 1 });
+  });
+
+  it("should reject an access token even when it carries svid and gid", async () => {
+    const secret = new TextEncoder().encode(config.jwt.secret);
+    const sneaky = await new jose.SignJWT({ type: "access", svid: 1, gid: "guid", email: "a@b.c", role: "user" })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject("42")
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(secret);
+    expect(await verifyMat(sneaky)).toBeNull();
   });
 });
