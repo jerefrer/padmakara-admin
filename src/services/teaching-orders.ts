@@ -96,6 +96,46 @@ export async function finalizeOrder(
   return "finalized";
 }
 
+export type ReverseResult = { outcome: "reversed"; grantRemoved: boolean } | { outcome: "already" };
+
+/**
+ * The money of a paid order went back (a refund or chargeback the caller has verified at
+ * Easypay): mark the order refunded and take away the access that purchase gave. Only the
+ * grant this order created goes (`source = purchase`, `order_id` = this order): a free claim
+ * or a grant given by hand for the same teaching is never touched.
+ *
+ * Idempotent and safe to race: the flip is a single UPDATE ... WHERE status = 'paid', so one
+ * caller wins and only that caller removes the grant; the flip and the removal share one
+ * transaction. A refunded order is not finalizable again (see FINALIZABLE_STATUSES), so a
+ * later read of the same payment cannot grant it back.
+ */
+export async function reverseTeachingOrder(orderId: number): Promise<ReverseResult> {
+  const result = await db.transaction(async (tx) => {
+    const flipped = await tx
+      .update(teachingOrders)
+      .set({ status: "refunded" })
+      .where(and(eq(teachingOrders.id, orderId), eq(teachingOrders.status, "paid")))
+      .returning({ userId: teachingOrders.userId });
+    if (flipped.length === 0) return null;
+    const removed = await tx
+      .delete(eventAccessGrants)
+      .where(and(eq(eventAccessGrants.orderId, orderId), eq(eventAccessGrants.source, "purchase")))
+      .returning({ userId: eventAccessGrants.userId });
+    return { userId: flipped[0]?.userId ?? null, removed: removed.length > 0 };
+  });
+  if (!result) return { outcome: "already" };
+
+  // Past the commit: a failed bump must not fail the notification, or Easypay retries into "already".
+  if (result.removed && result.userId !== null) {
+    try {
+      await bumpUserAccessVersion(result.userId);
+    } catch (err) {
+      console.error(`[TEACHINGS] could not bump access version for user ${result.userId}:`, err);
+    }
+  }
+  return { outcome: "reversed", grantRemoved: result.removed };
+}
+
 /** Best-effort "your recordings" email for an order or a free claim: never throws. */
 export async function sendTeachingAvailableEmail(
   order: Pick<TeachingOrder, "eventId" | "email" | "firstName" | "language"> & { id?: number },

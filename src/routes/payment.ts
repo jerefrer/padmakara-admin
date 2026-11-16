@@ -37,6 +37,7 @@ import {
   probeSinglePayment,
   paymentBelongsToOrder,
   refreshOrderFromEasypay,
+  reverseTeachingOrder,
 } from "../services/teaching-orders.ts";
 
 const EASYPAY_API_BASE = config.easypay.testing
@@ -847,12 +848,74 @@ type ReversalCheck =
   | { outcome: "not_final"; status: string }
   /** Real at Easypay, but not on a capture we can show we credited: for a human. */
   | { outcome: "unmatched"; note: string }
-  | { outcome: "matched"; userId: number; captureId: string; subscriptionId: string; amount: string | null };
+  | { outcome: "matched"; userId: number; captureId: string; subscriptionId: string; amount: string | null }
+  /**
+   * The full amount of a teaching order's payment went back. `orderStatus` is "paid", or
+   * "refunded" when an earlier notification already applied it.
+   */
+  | {
+      outcome: "matched_teaching";
+      orderId: number;
+      orderStatus: string;
+      userId: number | null;
+      paymentId: string;
+      amount: string;
+    };
 
 /**
- * Read a refund or chargeback back from Easypay and find the capture it reverses among
- * the ones we credited: a credit row carrying that capture id, or a pre-2026-11-16 credit
- * of the same subscription whose stored snapshot lists it. Only then does it count.
+ * A refund or chargeback that Easypay reports on a one-off ("single") payment: it counts
+ * only when the payment is that of a teaching order we recorded as paid (`easypay_payment_id`
+ * is set by `finalizeOrder` from Easypay's own read), and only for the full order amount. A
+ * partial reversal, or one on an order we never recorded as paid, is left to a human.
+ * Null when no teaching order has that payment.
+ */
+async function matchTeachingReversal(
+  kind: "refund" | "chargeback",
+  id: string,
+  reversal: EasypayReversalResponse,
+  paymentId: string | null,
+): Promise<ReversalCheck | null> {
+  if (!paymentId) return null;
+  const [order] = await db
+    .select({
+      id: teachingOrders.id,
+      userId: teachingOrders.userId,
+      status: teachingOrders.status,
+      amountCents: teachingOrders.amountCents,
+    })
+    .from(teachingOrders)
+    .where(sql`lower(${teachingOrders.easypayPaymentId}) = ${paymentId}`)
+    .limit(1);
+  if (!order) return null;
+  if (order.status !== "paid" && order.status !== "refunded") {
+    return { outcome: "unmatched", note: `${kind} ${id} on order ${order.id}, which is ${order.status}, not paid` };
+  }
+  const value = typeof reversal.value === "number" ? reversal.value : reversal.amount;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return { outcome: "unmatched", note: `${kind} ${id} on order ${order.id} names no amount` };
+  }
+  if (Math.round(value * 100) < order.amountCents) {
+    return {
+      outcome: "unmatched",
+      note: `partial ${kind} ${id} on order ${order.id}: ${value} of ${order.amountCents / 100}`,
+    };
+  }
+  return {
+    outcome: "matched_teaching",
+    orderId: order.id,
+    orderStatus: order.status,
+    userId: order.userId,
+    paymentId,
+    amount: String(value),
+  };
+}
+
+/**
+ * Read a refund or chargeback back from Easypay and find what it reverses. A membership
+ * capture counts when it is among the ones we credited: a credit row carrying that capture
+ * id, or a pre-2026-11-16 credit of the same subscription whose stored snapshot lists it. A
+ * one-off payment counts when it is a paid teaching order's (see `matchTeachingReversal`).
+ * Easypay's `capture.payment_type` decides which of the two is looked at; without it, both.
  *
  * Whether `capture.id` of a refund equals the `transactions[].id` of the subscription is
  * not stated by the documentation; if it does not, nothing matches and every reversal is
@@ -873,6 +936,16 @@ async function verifyReversal(kind: "refund" | "chargeback", id: string): Promis
   const captureId = typeof reversal.capture?.id === "string" ? reversal.capture.id.toLowerCase() : null;
   if (!captureId || !EASYPAY_ID.test(captureId)) return { outcome: "unmatched", note: `${kind} ${id} names no capture` };
   const paymentId = typeof reversal.capture?.payment_id === "string" ? reversal.capture.payment_id.toLowerCase() : null;
+  // SINGLE | FREQUENT | SUBSCRIPTION per the documentation; absent, both kinds are tried.
+  const paymentType = typeof reversal.capture?.payment_type === "string" ? reversal.capture.payment_type.toLowerCase() : null;
+  if (paymentType === "single") {
+    return (
+      (await matchTeachingReversal(kind, id, reversal, paymentId)) ?? {
+        outcome: "unmatched",
+        note: `${kind} ${id} on payment ${paymentId ?? "-"}, which is no teaching order of ours`,
+      }
+    );
+  }
 
   const rows = await db
     .select({
@@ -905,7 +978,11 @@ async function verifyReversal(kind: "refund" | "chargeback", id: string): Promis
         r.notificationId.toLowerCase() === paymentId &&
         listCaptures(r.rawSubscription).some((c) => c.id === captureId),
     );
-  if (!credit) return { outcome: "unmatched", note: `${kind} ${id} on capture ${captureId}, which we never credited` };
+  if (!credit) {
+    const teaching = paymentType === null ? await matchTeachingReversal(kind, id, reversal, paymentId) : null;
+    if (teaching) return teaching;
+    return { outcome: "unmatched", note: `${kind} ${id} on capture ${captureId}, which we never credited` };
+  }
   if (paymentId && credit.notificationId.toLowerCase() !== paymentId) {
     return { outcome: "unmatched", note: `${kind} ${id}: capture ${captureId} was credited on ${credit.notificationId}, not ${paymentId}` };
   }
@@ -1396,6 +1473,23 @@ paymentRoutes.post("/webhook", async (c) => {
       if (check.outcome === "unmatched") {
         console.error(`[EASYPAY WEBHOOK] ${check.note} — recorded for a human, access unchanged`);
         await recordOutcome({ action: "reversal_review", note: check.note });
+        return c.json({ received: true });
+      }
+      if (check.outcome === "matched_teaching") {
+        const where = `${t} ${id} on order ${check.orderId} (payment ${check.paymentId})`;
+        const reversed = check.orderStatus === "paid" ? await reverseTeachingOrder(check.orderId) : null;
+        if (!reversed || reversed.outcome === "already") {
+          // A replay, or a race with another copy of this notification: applied once already.
+          await recordOutcome({ userId: check.userId, action: "ignored", note: `${where} already applied` });
+          return c.json({ received: true });
+        }
+        await recordOutcome({
+          userId: check.userId,
+          action: "teaching_reversed",
+          note: `${where}; ${reversed.grantRemoved ? "purchase access removed" : "no purchase grant to remove"}`,
+          amount: check.amount,
+        });
+        console.log(`[EASYPAY WEBHOOK] ${where} — order refunded, purchase access removed: ${reversed.grantRemoved}`);
         return c.json({ received: true });
       }
       const already = await db

@@ -15,7 +15,8 @@ import { events } from "./retreats.ts";
 /**
  * One-off purchase (or free claim) of a single teaching. `publicId` is what
  * appears in URLs; the serial id never leaves the server.
- * status: pending | paid | failed | expired | cancelled
+ * status: pending | paid | failed | expired | cancelled | refunded (a verified refund or
+ * chargeback; its purchase grant was removed)
  */
 export const teachingOrders = pgTable(
   "teaching_orders",
