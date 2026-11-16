@@ -60,8 +60,10 @@ api.route("/teachers", teacherRoutes);
 api.route("/teachings", teachingRoutes);
 api.route("/sync", syncRoutes);
 
-// Test-only routes — never mounted in production
-if (config.nodeEnv !== "production") {
+// Test-only routes: they mint a token for any user id and role. Mounted only for the
+// test suites (NODE_ENV=test) or an explicit E2E_ENABLED=true, never in production
+// whatever the flag says, and not on a dev or staging server left at the defaults.
+if (config.nodeEnv !== "production" && (config.nodeEnv === "test" || config.e2eEnabled)) {
   api.route("/test", testRoutes);
 }
 
