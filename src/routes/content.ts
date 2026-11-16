@@ -16,7 +16,7 @@ import {
 } from "../lib/schemas.ts";
 import { AppError } from "../lib/errors.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
-import { checkEventAccess, eventStatusOpenTo } from "../services/access.ts";
+import { checkEventAccess, eventStatusOpenTo, filterAccessibleEvents, type AccessCheckOptions } from "../services/access.ts";
 import {
   applyContentVisibility,
   applyTrackReadAlongVisibility,
@@ -34,6 +34,75 @@ import { z } from "zod";
 const contentRoutes = new Hono();
 
 contentRoutes.use("*", authMiddleware);
+
+// --- Access to the event behind a row ---
+//
+// Progress and bookmarks belong to the user, but they point at an event's content and
+// their responses carry the event's metadata and track rows. So the full event access
+// rule (status AND audience, `checkEventAccess`) applies: a caller outside the audience
+// can neither write a row nor read one back. Rows saved while the caller still had
+// access (subscription lapsed, group removed) stay in the database and come back in
+// the lists once access returns.
+
+interface EventForRow {
+  id: number;
+  status: string;
+  audience?: { slug: string } | null;
+  audienceId?: number | null;
+  includedInMembership?: boolean | null;
+}
+
+/** The caller as the access service needs it: the subscription state is not in the token. */
+async function loadUserForAccess(userId: number) {
+  const fullUser = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!fullUser) throw AppError.unauthorized("User not found");
+  return {
+    id: fullUser.id,
+    role: fullUser.role,
+    subscriptionStatus: fullUser.subscriptionStatus,
+    subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
+  };
+}
+
+/**
+ * 404 (as if the item did not exist, like a draft) unless the caller may open the
+ * event's content. Every denial is a 404 so a write never confirms that a restricted
+ * event or track exists.
+ */
+async function assertEventOpen(
+  { id: userId, role }: { id: number; role: string },
+  event: EventForRow | null | undefined,
+  notFoundMessage: string,
+): Promise<void> {
+  if (!event) throw AppError.notFound(notFoundMessage);
+  // The status gate needs no user lookup: a draft or forthcoming event stops here.
+  if (!eventStatusOpenTo(role).includes(event.status)) throw AppError.notFound(notFoundMessage);
+  const access = await checkEventAccess(await loadUserForAccess(userId), event);
+  if (!access.allowed) throw AppError.notFound(notFoundMessage);
+}
+
+/**
+ * Ids of the events, among those behind a list of rows, that the caller may open.
+ * `listing` judges them as the event list does (a forthcoming event is announced).
+ */
+async function openEventIds(
+  userId: number,
+  rowEvents: Array<EventForRow | null | undefined>,
+  opts: AccessCheckOptions = {},
+): Promise<Set<number>> {
+  const unique = new Map<number, EventForRow>();
+  for (const event of rowEvents) if (event) unique.set(event.id, event);
+  if (unique.size === 0) return new Set();
+  const open = await filterAccessibleEvents(await loadUserForAccess(userId), [...unique.values()], {
+    listing: opts.listing,
+  });
+  return new Set(open.map((event) => event.id));
+}
+
+/** The audience is loaded for the access check only: drop it to keep the payload's shape. */
+function dropAudience(event: unknown): void {
+  if (event && typeof event === "object") delete (event as { audience?: unknown }).audience;
+}
 
 // --- Progress ---
 
@@ -68,24 +137,23 @@ contentRoutes.post("/progress", async (c) => {
   // legacy orphan tries to sync; the client still sees the marker and
   // cleans up its local entry so it stops retrying.
   //
-  // We also load session→event here so we can check the event's status
-  // below — draft events must be invisible to non-admin users.
+  // We also load session→event here so we can check the event's access
+  // below — draft events and events outside the caller's audience must be
+  // invisible to them.
   const trackExists = await db.query.tracks.findFirst({
     where: eq(tracks.id, data.trackId),
-    with: { session: { with: { event: true } } },
+    with: { session: { with: { event: { with: { audience: true } } } } },
   });
   if (!trackExists) {
     return c.json({ skipped: true, reason: "unknown_track", trackId: data.trackId });
   }
 
-  // Draft/forthcoming status guard (content, not listing): non-admin callers must not be able to record
-  // progress on tracks that belong to a draft event (that would leak that
-  // the event exists). Treat it the same as a missing track (`skipped` would
-  // be confusing for a draft — 404 is cleaner and matches the GET behaviour).
-  const eventStatus = trackExists.session?.event?.status;
-  if (!eventStatus || !eventStatusOpenTo(user.role).includes(eventStatus)) {
-    throw AppError.notFound("Track not found");
-  }
+  // Access guard (content, not listing): callers must not be able to record
+  // progress on tracks of a draft/forthcoming event (that would leak that the
+  // event exists) nor of an event outside their audience. Treat it the same as
+  // a missing track (`skipped` would be confusing for a draft — 404 is cleaner
+  // and matches the GET behaviour).
+  await assertEventOpen(user, trackExists.session?.event, "Track not found");
   // Same for a track whose audio is hidden (a regular user must not know it exists)
   assertAudioVisible(trackExists.session?.event, user.role, "Track not found");
 
@@ -177,16 +245,18 @@ contentRoutes.get("/last-played", async (c) => {
         with: {
           session: {
             with: {
-              event: true,
+              event: { with: { audience: true } },
             },
           },
         },
       },
     },
   });
+  // A track of an event the caller can no longer open is skipped too.
+  const openIds = await openEventIds(user.id, recent.map((r) => r.track?.session?.event));
   const row = recent.find((r) => {
     const event = r.track?.session?.event;
-    return !event || mediaVisibleTo(event, user.role).audio;
+    return !!event && openIds.has(event.id) && mediaVisibleTo(event, user.role).audio;
   });
 
   if (!row) {
@@ -196,6 +266,7 @@ contentRoutes.get("/last-played", async (c) => {
   // The embedded event carries the themes; the track carries the read-along
   applyTrackReadAlongVisibility(row.track, row.track?.session?.event, user.role);
   applyContentVisibility(row.track?.session?.event, user.role);
+  dropAudience(row.track?.session?.event);
 
   return c.json({
     trackId: row.trackId,
@@ -339,12 +410,17 @@ contentRoutes.get("/bookmarks", async (c) => {
   const rows = await db.query.bookmarks.findMany({
     where: eq(bookmarks.userId, user.id),
     orderBy: (b, { desc }) => [desc(b.createdAt)],
-    with: { track: { with: { session: { with: { event: true } } } } },
+    with: { track: { with: { session: { with: { event: { with: { audience: true } } } } } } },
   });
   // Keep the payload shape (the bare track): the event is loaded only to apply the
-  // audio visibility rule, and bookmarks on a track whose audio is hidden are not listed.
+  // access and audio visibility rules. Bookmarks on a track of an event the caller can
+  // no longer open, or whose audio is hidden, stay saved but are not listed.
+  const openIds = await openEventIds(user.id, rows.map((r) => r.track?.session?.event));
   const data = rows
-    .filter((r) => mediaVisibleTo(r.track?.session?.event ?? {}, user.role).audio)
+    .filter((r) => {
+      const event = r.track?.session?.event;
+      return !!event && openIds.has(event.id) && mediaVisibleTo(event, user.role).audio;
+    })
     .map(({ track, ...bookmark }) => {
       if (!track) return { ...bookmark, track };
       const { session: _session, ...bareTrack } = track;
@@ -358,6 +434,15 @@ contentRoutes.post("/bookmarks", async (c) => {
   const user = getUser(c);
   const body = await c.req.json();
   const data = createBookmarkSchema.parse(body);
+
+  // Same guard as progress: a missing track, a track of an event the caller may not
+  // open, or one whose audio is hidden are all a 404.
+  const track = await db.query.tracks.findFirst({
+    where: eq(tracks.id, data.trackId),
+    with: { session: { with: { event: { with: { audience: true } } } } },
+  });
+  await assertEventOpen(user, track?.session?.event, "Track not found");
+  assertAudioVisible(track?.session?.event, user.role, "Track not found");
 
   const [bookmark] = await db
     .insert(bookmarks)
@@ -401,11 +486,16 @@ const eventBookmarkWith = {
 
 contentRoutes.get("/event-bookmarks", async (c) => {
   const user = getUser(c);
-  const rows = await db.query.eventBookmarks.findMany({
+  const allRows = await db.query.eventBookmarks.findMany({
     where: eq(eventBookmarks.userId, user.id),
     orderBy: (b, { desc }) => [desc(b.createdAt)],
     with: eventBookmarkWith,
   });
+
+  // Saved events the caller can no longer open stay saved but are not listed. Judged
+  // as the event list does: a forthcoming event is announced, without its content.
+  const openIds = await openEventIds(user.id, allRows.map((r) => r.event), { listing: true });
+  const rows = allRows.filter((r) => r.event && openIds.has(r.event.id));
 
   // Enrich teacher/group avatars with presigned URLs so the bookmarks tab
   // can render the same event card the events list uses.
@@ -424,15 +514,15 @@ contentRoutes.post("/event-bookmarks", async (c) => {
   const body = await c.req.json();
   const data = createEventBookmarkSchema.parse(body);
 
-  // Draft-event status guard: verify the event exists and is visible to the
-  // caller before inserting. A non-admin must not be able to bookmark a draft
-  // event — doing so would confirm the event's existence to the client.
+  // Access guard: verify the event exists and the caller may open it before
+  // inserting. A non-admin must not be able to bookmark a draft event — doing so
+  // would confirm the event's existence to the client — nor an event outside
+  // their audience, whose metadata the read-back below would return.
   const event = await db.query.events.findFirst({
     where: eq(events.id, data.eventId),
+    with: { audience: true },
   });
-  if (!event || !eventStatusOpenTo(user.role).includes(event.status)) {
-    throw AppError.notFound("Event not found");
-  }
+  await assertEventOpen(user, event, "Event not found");
 
   // Idempotent: re-bookmarking the same event returns the existing row.
   const [row] = await db
@@ -495,6 +585,7 @@ const trackBookmarkWith = {
         with: {
           event: {
             with: {
+              audience: true,
               eventTeachers: { with: { teacher: true } },
               eventRetreatGroups: { with: { retreatGroup: true } },
               eventOrganizers: eventOrganizersWith,
@@ -514,10 +605,13 @@ contentRoutes.get("/track-bookmarks", async (c) => {
     with: trackBookmarkWith,
   });
 
-  // Bookmarks on a track whose audio is hidden stay saved but are not listed.
-  const rows = allRows.filter((r) =>
-    mediaVisibleTo((r.track as any)?.session?.event ?? {}, user.role).audio,
-  );
+  // Bookmarks on a track of an event the caller can no longer open, or whose audio
+  // is hidden, stay saved but are not listed.
+  const openIds = await openEventIds(user.id, allRows.map((r) => r.track?.session?.event));
+  const rows = allRows.filter((r) => {
+    const event = r.track?.session?.event;
+    return !!event && openIds.has(event.id) && mediaVisibleTo(event, user.role).audio;
+  });
 
   // Enrich teacher avatars on the embedded events so cards in the bookmarks
   // list look the same as elsewhere.
@@ -527,6 +621,7 @@ contentRoutes.get("/track-bookmarks", async (c) => {
   for (const row of rows) {
     const event = (row.track as any)?.session?.event;
     applyTrackReadAlongVisibility(row.track, event, user.role);
+    dropAudience(event);
   }
   for (const event of events) applyContentVisibility(event, user.role);
   await resolveEventsTeacherUrls(events);
@@ -542,19 +637,17 @@ contentRoutes.post("/track-bookmarks", async (c) => {
   const body = await c.req.json();
   const data = createTrackBookmarkSchema.parse(body);
 
-  // Draft-event status guard: load the track's parent event status before
-  // inserting. The `trackBookmarkWith` join already loads session→event on
-  // the read-back path, but we need the status check to happen BEFORE the
-  // insert so a non-admin cannot confirm a draft event's existence via FK
-  // success/failure. A missing track or a draft-event track both return 404.
+  // Access guard: load the track's parent event before inserting. The
+  // `trackBookmarkWith` join already loads session→event on the read-back path,
+  // but the check must happen BEFORE the insert so a caller cannot confirm a
+  // draft or restricted event's existence via FK success/failure, nor get its
+  // metadata back. A missing track, a draft-event track and a track outside the
+  // caller's audience all return 404.
   const trackForGuard = await db.query.tracks.findFirst({
     where: eq(tracks.id, data.trackId),
-    with: { session: { with: { event: true } } },
+    with: { session: { with: { event: { with: { audience: true } } } } },
   });
-  const guardStatus = trackForGuard?.session?.event?.status;
-  if (!guardStatus || !eventStatusOpenTo(user.role).includes(guardStatus)) {
-    throw AppError.notFound("Track not found");
-  }
+  await assertEventOpen(user, trackForGuard?.session?.event, "Track not found");
   assertAudioVisible(trackForGuard?.session?.event, user.role, "Track not found");
 
   const [row] = await db
@@ -580,6 +673,7 @@ contentRoutes.post("/track-bookmarks", async (c) => {
 
   const event = (existing.track as any)?.session?.event;
   if (event) {
+    dropAudience(event);
     await resolveEventTeacherUrls(event);
     await resolveEventGroupUrls(event);
     await resolveEventImageUrls(event);
@@ -615,6 +709,7 @@ const videoBookmarkWith = {
     with: {
       event: {
         with: {
+          audience: true,
           eventTeachers: { with: { teacher: true } },
           eventRetreatGroups: { with: { retreatGroup: true } },
           eventOrganizers: eventOrganizersWith,
@@ -631,7 +726,10 @@ async function enrichVideoBookmarkEvents(
   const evts = rows
     .map((r) => (r.video as any)?.event)
     .filter(Boolean);
-  for (const event of evts) applyContentVisibility(event, role);
+  for (const event of evts) {
+    applyContentVisibility(event, role);
+    dropAudience(event);
+  }
   await resolveEventsTeacherUrls(evts);
   await resolveEventsGroupUrls(evts);
   await resolveEventsImageUrls(evts);
@@ -645,10 +743,13 @@ contentRoutes.get("/video-bookmarks", async (c) => {
     orderBy: (b, { desc }) => [desc(b.createdAt)],
     with: videoBookmarkWith,
   });
-  // Bookmarks on a video that is hidden stay saved but are not listed.
-  const rows = allRows.filter((r) =>
-    mediaVisibleTo((r.video as any)?.event ?? {}, user.role).video,
-  );
+  // Bookmarks on a video of an event the caller can no longer open, or whose video
+  // is hidden, stay saved but are not listed.
+  const openIds = await openEventIds(user.id, allRows.map((r) => r.video?.event));
+  const rows = allRows.filter((r) => {
+    const event = r.video?.event;
+    return !!event && openIds.has(event.id) && mediaVisibleTo(event, user.role).video;
+  });
   await enrichVideoBookmarkEvents(rows, user.role);
   return c.json(rows);
 });

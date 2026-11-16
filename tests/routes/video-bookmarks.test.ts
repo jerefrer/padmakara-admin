@@ -32,6 +32,8 @@ vi.mock("../../src/db/index.ts", () => ({
       eventVideos: { findFirst: (...args: any[]) => mockEventVideoFindFirst(...args) },
       users: { findFirst: (...args: any[]) => mockUserFindFirst(...args) },
     },
+    // The caller's access grants, loaded by the list access check: none
+    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
     insert: () => ({
       values: (v: any) => {
         mockInsertValues(v);
@@ -74,6 +76,8 @@ function makeBookmark(overrides: Record<string, any> = {}) {
       event: {
         id: 42,
         titleEn: "Spring Retreat 2024",
+        status: "published",
+        audience: { slug: "free-anyone" },
         eventTeachers: [],
         eventRetreatGroups: [],
         eventOrganizers: [],
@@ -113,6 +117,7 @@ describe("Video bookmarks routes", () => {
     });
 
     it("returns the user's bookmarks with video and event", async () => {
+      mockUserFindFirst.mockResolvedValueOnce(activeUser());
       mockFindMany.mockResolvedValueOnce([makeBookmark()]);
       const { status, body } = await testJson("/api/content/video-bookmarks", {
         headers: await authHeader(),

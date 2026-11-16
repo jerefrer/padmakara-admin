@@ -454,6 +454,11 @@ describe("GET /api/search — hidden media", () => {
 });
 
 describe("content routes — hidden media", () => {
+  // The access check loads the caller (the events here are public)
+  beforeEach(() => {
+    mockDb.query.users.findFirst.mockResolvedValue(userRow("user"));
+  });
+
   it("should leave out track bookmarks of an event whose audio is hidden", async () => {
     mockDb.query.trackBookmarks.findMany.mockResolvedValueOnce([
       { id: 1, track: { id: 100, session: { id: 10, event: makeEvent(AUDIO_HIDDEN) } } },

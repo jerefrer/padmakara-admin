@@ -451,6 +451,11 @@ describe("GET /api/search — hidden topics", () => {
 });
 
 describe("content routes — events embedded in user data", () => {
+  // The access check loads the caller (the events here are public)
+  beforeEach(() => {
+    mockDb.query.users.findFirst.mockResolvedValue(userRow("user"));
+  });
+
   it("should null the themes of the event in GET /api/content/last-played when topics are hidden", async () => {
     mockDb.query.userProgress.findMany.mockResolvedValueOnce([
       {
@@ -483,6 +488,7 @@ describe("content routes — events embedded in user data", () => {
       },
     ]);
 
+    mockDb.query.users.findFirst.mockResolvedValue(userRow("admin"));
     const { body } = await testJson("/api/content/last-played", { headers: await auth("admin") });
 
     expect(body.event.mainThemesEn).toBe("Compassion");

@@ -14,6 +14,7 @@ const {
   mockTrackBookmarkFindFirst,
   mockInsertReturning,
   mockUpdateReturning,
+  mockUserFindFirst,
 } = vi.hoisted(() => {
   return {
     mockProgressFindFirst: vi.fn(),
@@ -24,12 +25,17 @@ const {
     mockTrackBookmarkFindFirst: vi.fn(),
     mockInsertReturning: vi.fn(),
     mockUpdateReturning: vi.fn(),
+    mockUserFindFirst: vi.fn(),
   };
 });
 
 vi.mock("../../src/db/index.ts", () => ({
   db: {
     query: {
+      // The caller as the access check loads it
+      users: {
+        findFirst: (...args: any[]) => mockUserFindFirst(...args),
+      },
       userProgress: {
         findFirst: (...args: any[]) => mockProgressFindFirst(...args),
         findMany: (...args: any[]) => mockProgressFindMany(...args),
@@ -47,6 +53,8 @@ vi.mock("../../src/db/index.ts", () => ({
         findFirst: (...args: any[]) => mockTrackBookmarkFindFirst(...args),
       },
     },
+    // The caller's access grants, loaded by the list access check: none
+    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
     insert: () => ({
       values: () => ({
         returning: () => mockInsertReturning(),
@@ -77,6 +85,9 @@ vi.mock("../../src/lib/group-utils.ts", () => ({
 
 import { createAccessToken } from "../../src/services/auth.ts";
 
+const REGULAR_USER = { id: 1, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null };
+const ADMIN_USER = { id: 2, role: "admin", subscriptionStatus: "none", subscriptionExpiresAt: null };
+
 async function authHeader() {
   const token = await createAccessToken({
     sub: 1,
@@ -100,6 +111,7 @@ async function adminAuthHeader() {
 describe("Content progress routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUserFindFirst.mockResolvedValue(REGULAR_USER);
   });
 
   describe("POST /api/content/progress", () => {
@@ -115,7 +127,7 @@ describe("Content progress routes", () => {
       // Track fixture includes session→event so the draft status guard passes.
       mockTrackFindFirst.mockResolvedValueOnce({
         id: 42,
-        session: { event: { status: "published" } },
+        session: { event: { id: 99, status: "published", audience: { slug: "free-anyone" } } },
       });
       mockProgressFindFirst.mockResolvedValueOnce(null);
       mockInsertReturning.mockResolvedValueOnce([{
@@ -147,7 +159,7 @@ describe("Content progress routes", () => {
       // Track fixture includes session→event so the draft status guard passes.
       mockTrackFindFirst.mockResolvedValueOnce({
         id: 42,
-        session: { event: { status: "published" } },
+        session: { event: { id: 99, status: "published", audience: { slug: "free-anyone" } } },
       });
       mockProgressFindFirst.mockResolvedValueOnce({
         id: 1,
@@ -284,7 +296,7 @@ describe("Content progress routes", () => {
           session: {
             id: 7,
             name: "Morning",
-            event: { id: 99, titleEn: "Spring Retreat" },
+            event: { id: 99, titleEn: "Spring Retreat", status: "published", audience: { slug: "free-anyone" } },
           },
         },
       }]);
@@ -361,13 +373,14 @@ describe("Content progress routes", () => {
 
 // ─── Draft event visibility — write endpoint guards ───────────────────────────
 //
-// Three POST endpoints bypass checkEventAccess (they are write-only paths that
-// the normal event-access gate does not cover). This describe block verifies
-// that each one refuses non-admin callers when the target event is in draft.
+// Three POST endpoints write rows outside the event routes. This describe block
+// verifies that each one refuses non-admin callers when the target event is in
+// draft; the audience half of the check is in content-audience.test.ts.
 
 describe("content write endpoints — draft guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUserFindFirst.mockResolvedValue(REGULAR_USER);
   });
 
   // ── POST /api/content/event-bookmarks ──────────────────────────────────────
@@ -389,6 +402,7 @@ describe("content write endpoints — draft guard", () => {
 
   it("allows an admin to bookmark a draft event", async () => {
     // Arrange: same draft event; admin caller.
+    mockUserFindFirst.mockResolvedValue(ADMIN_USER);
     // The guard must pass, insert fires, then findFirst returns the bookmark row.
     mockEventFindFirst.mockResolvedValueOnce({ id: 42, status: "draft" });
     mockInsertReturning.mockResolvedValueOnce([
@@ -443,6 +457,7 @@ describe("content write endpoints — draft guard", () => {
 
   it("allows an admin to post progress on a draft event's track", async () => {
     // Arrange: same draft-event track; admin caller — guard must pass.
+    mockUserFindFirst.mockResolvedValue(ADMIN_USER);
     mockTrackFindFirst.mockResolvedValueOnce({
       id: 7,
       session: { event: { status: "draft" } },
@@ -494,6 +509,7 @@ describe("content write endpoints — draft guard", () => {
 
   it("allows an admin to bookmark a track from a draft event", async () => {
     // Arrange: same draft-event track; admin caller — guard must pass.
+    mockUserFindFirst.mockResolvedValue(ADMIN_USER);
     mockTrackFindFirst.mockResolvedValueOnce({
       id: 7,
       session: { event: { status: "draft" } },

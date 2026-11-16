@@ -15,6 +15,11 @@ const mockDeleteReturning = vi.fn();
 vi.mock("../../src/db/index.ts", () => ({
   db: {
     query: {
+      // The caller as the access check loads it: a signed-in account, no membership
+      users: {
+        findFirst: () =>
+          Promise.resolve({ id: 1, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null }),
+      },
       tracks: {
         // Used by the draft-status guard in POST /track-bookmarks.
         findFirst: (...args: any[]) => mockTrackFindFirst(...args),
@@ -24,6 +29,8 @@ vi.mock("../../src/db/index.ts", () => ({
         findFirst: (...args: any[]) => mockFindFirst(...args),
       },
     },
+    // The caller's access grants, loaded by the list access check: none
+    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
     insert: () => ({
       values: () => ({
         onConflictDoNothing: () => ({
@@ -70,6 +77,8 @@ function makeTrack(overrides: Record<string, any> = {}) {
         titlePt: null,
         startDate: "2024-04-15",
         endDate: "2024-04-20",
+        status: "published",
+        audience: { slug: "free-anyone" },
         eventTeachers: [],
         eventRetreatGroups: [],
       },
@@ -156,7 +165,7 @@ describe("Track bookmarks routes", () => {
       // first — return a track whose event is published so the guard passes.
       mockTrackFindFirst.mockResolvedValueOnce({
         id: 7,
-        session: { event: { status: "published" } },
+        session: { event: { id: 42, status: "published", audience: { slug: "free-anyone" } } },
       });
       mockInsertReturning.mockResolvedValueOnce([
         { id: 1, userId: 1, trackId: 7, createdAt: new Date() },
@@ -176,7 +185,7 @@ describe("Track bookmarks routes", () => {
       // Guard passes (published event), then onConflictDoNothing → no row from insert.
       mockTrackFindFirst.mockResolvedValueOnce({
         id: 7,
-        session: { event: { status: "published" } },
+        session: { event: { id: 42, status: "published", audience: { slug: "free-anyone" } } },
       });
       mockInsertReturning.mockResolvedValueOnce([]);
       mockFindFirst.mockResolvedValueOnce(makeBookmark());
