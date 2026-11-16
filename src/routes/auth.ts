@@ -40,6 +40,7 @@ import {
   discoverDeviceSchema,
   autoActivateSchema,
   deactivateDeviceSchema,
+  rotateDeviceFingerprintSchema,
   requestAccountDeletionSchema,
   confirmAccountDeletionSchema,
 } from "../lib/schemas.ts";
@@ -918,6 +919,46 @@ auth.post("/device/deactivate", authMiddleware, async (c) => {
     status: "deactivated",
     message: "Device has been deactivated",
   });
+});
+
+/**
+ * POST /api/auth/device/rotate  { old_fingerprint, new_fingerprint }
+ *
+ * Moves the caller's active activation to a new fingerprint, so an app build
+ * that replaces a legacy fingerprint with a current-format one stays signed
+ * in. 404 when the old fingerprint is not an active activation of the caller;
+ * 409, without saying whose, when the new one is already used. Requires
+ * authentication; like /device/deactivate, it has no rate limiter.
+ */
+auth.post("/device/rotate", authMiddleware, async (c) => {
+  const authUser = getUser(c);
+  const data = rotateDeviceFingerprintSchema.parse(await c.req.json());
+  const oldHash = hashDeviceFingerprint(data.old_fingerprint);
+  const newHash = hashDeviceFingerprint(data.new_fingerprint);
+
+  const device = await db.query.deviceActivations.findFirst({
+    where: and(
+      eq(deviceActivations.deviceFingerprint, oldHash),
+      eq(deviceActivations.userId, authUser.id),
+      eq(deviceActivations.isActive, true),
+    ),
+  });
+  if (!device) throw AppError.notFound("Device not found");
+
+  if (newHash !== oldHash) {
+    const taken = await db.query.deviceActivations.findFirst({
+      where: eq(deviceActivations.deviceFingerprint, newHash),
+    });
+    if (taken) throw AppError.conflict("This device identifier cannot be used");
+
+    // A concurrent rotation to the same value fails on the unique constraint (409).
+    await db
+      .update(deviceActivations)
+      .set({ deviceFingerprint: newHash, pendingClaim: false, lastUsed: new Date() })
+      .where(eq(deviceActivations.id, device.id));
+  }
+
+  return c.json({ status: "rotated" });
 });
 
 /**

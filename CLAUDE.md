@@ -239,6 +239,7 @@ users → bookmarks → tracks (track position bookmarks)
 - `POST /api/auth/passkeys/login/options` and `/login/verify` - Sign in with a passkey (public, IP rate-limited; same success shape as `/review-login`, every failure is the same 401 `Passkey sign-in failed`)
 - `GET /api/auth/passkeys` - List the caller's passkeys (authenticated)
 - `DELETE /api/auth/passkeys/:id` - Remove one of the caller's passkeys (204; 404 if missing or not theirs)
+- `POST /api/auth/device/rotate` - Move the caller's active device activation to a new fingerprint (authenticated; `{ old_fingerprint, new_fingerprint }`, the new one 43 chars of base64url; 200 `{ status: "rotated" }`, 404 if the old one is not the caller's active device, 409 if the new one is taken). Device fingerprints are credentials: stored as SHA-256 hex, never returned by the API.
 
 ### Events & Sessions
 
