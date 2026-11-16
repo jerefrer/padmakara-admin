@@ -19,6 +19,7 @@ import { transcripts } from "../../db/schema/transcripts.ts";
 import { eventFiles } from "../../db/schema/event-files.ts";
 import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
+import { EVENT_REVIEWED_PAIRS, keepApprovals, unflagsAny } from "../../lib/reviewed-flags.ts";
 import { resolveSaleSettings, MIN_PRICE_CENTS } from "../../lib/sale-settings.ts";
 import { isPaidAudience } from "../../services/access.ts";
 import { audiences } from "../../db/schema/audiences.ts";
@@ -488,6 +489,12 @@ eventRoutes.put("/:id", async (c) => {
     if (bodyKeys.has(key)) {
       filteredEventData[key] = value;
     }
+  }
+
+  // An approval is only withdrawn by new text (see lib/reviewed-flags.ts): the
+  // edit form sends every flag, so a form opened before an approval would undo it.
+  if (unflagsAny(filteredEventData, EVENT_REVIEWED_PAIRS)) {
+    keepApprovals(filteredEventData, await db.query.events.findFirst({ where: eq(events.id, id) }), EVENT_REVIEWED_PAIRS);
   }
 
   // Sale mode and price are validated together; a paid event needs a price >= 100 cents.
