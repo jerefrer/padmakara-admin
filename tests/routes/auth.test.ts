@@ -638,6 +638,236 @@ describe("Auth routes", () => {
     });
   });
 
+  describe("magic link confirmation step", () => {
+    const regularUser = {
+      id: 5, email: "user@test.com", firstName: "Ana", lastName: "Silva",
+      dharmaName: null, preferredLanguage: "en", role: "user",
+      isActive: true, isVerified: true,
+      subscriptionStatus: "none", subscriptionSource: null, subscriptionExpiresAt: null,
+      lastActivity: null, createdAt: new Date(),
+    };
+    const future = () => new Date(Date.now() + 60 * 60 * 1000);
+    const tokenRow = (over: Record<string, unknown> = {}) => ({
+      id: 31,
+      email: "user@test.com",
+      tokenHash: "x",
+      expiresAt: future(),
+      isUsed: false,
+      deviceFingerprint: "device-link",
+      deviceName: "Phone of Ana",
+      deviceType: "ios",
+      language: "en",
+      codeHash: hashSignInCode("246810"),
+      codeAttempts: 0,
+      ...over,
+    });
+    // update() chain whose where() is awaitable AND offers returning()
+    function mockUpdateWithReturning(returned: any[] = [{ id: 31 }]) {
+      const set = vi.fn();
+      const where = vi.fn(() =>
+        Object.assign(Promise.resolve(undefined), {
+          returning: vi.fn().mockResolvedValue(returned),
+        }),
+      );
+      set.mockReturnValue({ where });
+      return { set, where };
+    }
+    async function open(path: string, init: RequestInit = {}) {
+      const { testRequest } = await import("../helpers.ts");
+      const res = await testRequest(path, init);
+      return { res, html: await res.text() };
+    }
+    const confirm = (path: string) =>
+      open(path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Origin: "http://localhost",
+        },
+        body: "",
+      });
+    const markedUsed = (upd: { set: ReturnType<typeof vi.fn> }) =>
+      upd.set.mock.calls.some(([v]) => v && (v as { isUsed?: boolean }).isUsed === true);
+
+    let upd: ReturnType<typeof mockUpdateWithReturning>;
+    let insertChain: ReturnType<typeof mockInsertChain>;
+
+    beforeEach(() => {
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(tokenRow());
+      (db.query.users.findFirst as any).mockResolvedValue(regularUser);
+      (db.query.deviceActivations.findFirst as any).mockResolvedValue(null);
+      upd = mockUpdateWithReturning();
+      (db.update as any).mockReturnValue(upd);
+      insertChain = mockInsertChain();
+      (db.insert as any).mockReturnValue(insertChain);
+    });
+
+    it("should leave the token unused and activate nothing when the link is opened (GET)", async () => {
+      const { res, html } = await open("/api/auth/activate/sometoken");
+
+      expect(res.status).toBe(200);
+      expect(markedUsed(upd)).toBe(false);
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(html).toContain('method="post"');
+    });
+
+    it("should name the device and the email on the confirmation page", async () => {
+      const { html } = await open("/api/auth/activate/sometoken");
+
+      expect(html).toContain("Phone of Ana");
+      expect(html).toContain("user@test.com");
+      expect(html).toContain("If you did not ask to sign in, simply close this page.");
+      expect(html).not.toMatch(/subscri/i);
+    });
+
+    it("should post the confirmation form back to the same link, language included", async () => {
+      const { html } = await open("/api/auth/activate/sometoken?lang=pt");
+
+      expect(html).toContain('action="/api/auth/activate/sometoken?lang=pt"');
+    });
+
+    it("should send no-store and no-referrer on the confirmation page", async () => {
+      const { res } = await open("/api/auth/activate/sometoken");
+
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    });
+
+    it("should escape a device name and type that contain markup", async () => {
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(
+        tokenRow({ deviceName: "<script>alert(1)</script>", deviceType: '"><img src=x>' }),
+      );
+
+      const { html } = await open("/api/auth/activate/sometoken");
+
+      expect(html).not.toContain("<script>alert(1)</script>");
+      expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+      expect(html).not.toContain("<img src=x>");
+    });
+
+    it("should show the confirmation page in Portuguese from ?lang= then the token language", async () => {
+      const byQuery = await open("/api/auth/activate/sometoken?lang=pt");
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(tokenRow({ language: "pt" }));
+      const byToken = await open("/api/auth/activate/sometoken");
+
+      for (const { html } of [byQuery, byToken]) {
+        expect(html).toContain("Se não pediu para entrar, basta fechar esta página.");
+        expect(html).toContain('lang="pt"');
+      }
+    });
+
+    it("should activate the device and mark the token used when the button is pressed (POST)", async () => {
+      const { res, html } = await confirm("/api/auth/activate/sometoken");
+
+      expect(res.status).toBe(200);
+      expect(markedUsed(upd)).toBe(true);
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 5, deviceFingerprint: "device-link" }),
+      );
+      expect(html).toContain("Device Activated");
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    });
+
+    it("should show the invalid-link page on a second POST", async () => {
+      await confirm("/api/auth/activate/sometoken");
+      // The row is now used: the lookup filters it out.
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(null);
+      vi.clearAllMocks();
+      (db.update as any).mockReturnValue(upd);
+
+      const { html } = await confirm("/api/auth/activate/sometoken");
+
+      expect(html).toContain("Invalid Link");
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it("should activate nothing when another request consumed the token first", async () => {
+      upd = mockUpdateWithReturning([]);
+      (db.update as any).mockReturnValue(upd);
+
+      const { html } = await confirm("/api/auth/activate/sometoken");
+
+      expect(html).toContain("Invalid Link");
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it("should show the invalid-link page for an unknown token on both verbs", async () => {
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(null);
+
+      for (const { html } of [
+        await open("/api/auth/activate/nope"),
+        await confirm("/api/auth/activate/nope"),
+      ]) {
+        expect(html).toContain("Invalid Link");
+      }
+      expect(markedUsed(upd)).toBe(false);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it("should show the invalid-link page for an expired token on both verbs", async () => {
+      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(
+        tokenRow({ expiresAt: new Date(Date.now() - 1000) }),
+      );
+
+      for (const { html } of [
+        await open("/api/auth/activate/old"),
+        await confirm("/api/auth/activate/old"),
+      ]) {
+        expect(html).toContain("Invalid Link");
+      }
+      expect(markedUsed(upd)).toBe(false);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    describe("admin accounts", () => {
+      for (const role of ["admin", "superadmin"]) {
+        it(`should activate nothing and leave the token unused for a ${role} on GET and POST`, async () => {
+          (db.query.users.findFirst as any).mockResolvedValue({ ...regularUser, role });
+
+          const viaGet = await open("/api/auth/activate/sometoken");
+          const viaPost = await confirm("/api/auth/activate/sometoken");
+
+          for (const { html } of [viaGet, viaPost]) {
+            expect(html).not.toContain('method="post"');
+            expect(html).toContain("6-digit code");
+          }
+          expect(markedUsed(upd)).toBe(false);
+          expect(db.insert).not.toHaveBeenCalled();
+        });
+      }
+
+      it("should tell an admin to use the code in Portuguese", async () => {
+        (db.query.users.findFirst as any).mockResolvedValue({ ...regularUser, role: "admin" });
+
+        const { html } = await open("/api/auth/activate/sometoken?lang=pt");
+
+        expect(html).toContain("código de 6 dígitos");
+      });
+
+      it("should still sign an admin in with the code from the same email", async () => {
+        const admin = { ...regularUser, role: "admin" };
+        (db.query.users.findFirst as any).mockResolvedValue(admin);
+        (db.query.magicLinkTokens.findMany as any).mockResolvedValue([tokenRow()]);
+        await open("/api/auth/activate/sometoken");
+        await confirm("/api/auth/activate/sometoken");
+
+        const { status, body } = await testJson("/api/auth/verify-code", {
+          method: "POST",
+          body: JSON.stringify({
+            email: "user@test.com",
+            code: "246810",
+            device_fingerprint: "device-link",
+            device_name: "Phone of Ana",
+            device_type: "ios",
+          }),
+        });
+
+        expect(status).toBe(200);
+        expect(body.access_token).toBeDefined();
+      });
+    });
+  });
+
   describe("account created on first email sign-in", () => {
     const devicePayload = {
       device_fingerprint: "device-new",
@@ -762,13 +992,16 @@ describe("Auth routes", () => {
       expect(findOrCreateUserByEmail).not.toHaveBeenCalled();
     });
 
-    it("should create the account when the link from a first email is opened", async () => {
+    it("should create the account when the link from a first email is confirmed", async () => {
       (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(tokenRow());
-      (db.query.users.findFirst as any).mockResolvedValueOnce(null).mockResolvedValue(newUser);
-      (db.update as any).mockReturnValue(mockUpdateChain());
+      (db.query.users.findFirst as any)
+        .mockResolvedValueOnce(null) // admin check: no account yet
+        .mockResolvedValueOnce(null) // account lookup after the token is consumed
+        .mockResolvedValue(newUser); // the account just created
+      (db.update as any).mockReturnValue(mockUpdateWithReturning());
       const { testRequest } = await import("../helpers.ts");
 
-      const res = await testRequest("/api/auth/activate/sometoken");
+      const res = await testRequest("/api/auth/activate/sometoken", { method: "POST" });
 
       expect(await res.text()).toContain("Dispositivo Ativado");
       expect(findOrCreateUserByEmail).toHaveBeenCalledWith({ email: "new@test.com", language: "pt" });
