@@ -34,6 +34,9 @@ mockDb.select.mockReturnValue({
 
 const eventWith = (tracks: unknown[], teacher: Record<string, unknown> | null) => ({
   id: 1,
+  // Public, so a guest gets the content of the featured event
+  status: "published",
+  audience: { slug: "free-anyone" },
   eventTeachers: teacher ? [{ teacher }] : [],
   eventRetreatGroups: [],
   videos: [],

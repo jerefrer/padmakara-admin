@@ -15,8 +15,13 @@ const mockDeleteReturning = vi.fn();
 vi.mock("../../src/db/index.ts", () => ({
   db: {
     query: {
+      // The caller as the access check loads it: a signed-in account, no membership
+      users: {
+        findFirst: () =>
+          Promise.resolve({ id: 1, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null }),
+      },
       events: {
-        // Used by the draft-status guard in POST /event-bookmarks.
+        // Used by the access guard in POST /event-bookmarks.
         findFirst: (...args: any[]) => mockEventFindFirst(...args),
       },
       eventBookmarks: {
@@ -24,6 +29,8 @@ vi.mock("../../src/db/index.ts", () => ({
         findFirst: (...args: any[]) => mockFindFirst(...args),
       },
     },
+    // The caller's access grants, loaded by the list access check: none
+    select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
     insert: () => ({
       values: () => ({
         onConflictDoNothing: () => ({
@@ -63,7 +70,7 @@ function makeEvent(overrides: Record<string, any> = {}) {
     eventTeachers: [],
     eventRetreatGroups: [],
     eventPlaces: [],
-    audience: null,
+    audience: { slug: "free-anyone" },
     eventType: null,
     ...overrides,
   };
@@ -146,7 +153,7 @@ describe("Event bookmarks routes", () => {
     it("creates a new bookmark and returns 201", async () => {
       // The draft-status guard calls db.query.events.findFirst first — return
       // a published event so the guard passes, then the insert + read-back fires.
-      mockEventFindFirst.mockResolvedValueOnce({ id: 42, status: "published" });
+      mockEventFindFirst.mockResolvedValueOnce({ id: 42, status: "published", audience: { slug: "free-anyone" } });
       mockInsertReturning.mockResolvedValueOnce([{ id: 1, userId: 1, eventId: 42, createdAt: new Date() }]);
       mockFindFirst.mockResolvedValueOnce(makeBookmark());
 
@@ -163,7 +170,7 @@ describe("Event bookmarks routes", () => {
 
     it("is idempotent: returns existing bookmark with 200 when already bookmarked", async () => {
       // Guard passes (published event), then onConflictDoNothing → no row from insert.
-      mockEventFindFirst.mockResolvedValueOnce({ id: 42, status: "published" });
+      mockEventFindFirst.mockResolvedValueOnce({ id: 42, status: "published", audience: { slug: "free-anyone" } });
       // onConflictDoNothing → no row returned from insert
       mockInsertReturning.mockResolvedValueOnce([]);
       mockFindFirst.mockResolvedValueOnce(makeBookmark());

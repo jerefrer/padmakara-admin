@@ -235,9 +235,27 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
 });
 
 /**
+ * Reduce an event payload to its announcement, in place: the content fields are
+ * emptied the way `applyContentVisibility` does for a forthcoming event (sessions and
+ * their tracks, videos, transcripts, files, linked publications, themes, bibliography).
+ */
+function stripToAnnouncement(event: Record<string, unknown>): void {
+  for (const field of ["sessions", "videos", "transcripts", "eventFiles", "eventPublications", "relatedPublications"]) {
+    if (field in event) event[field] = [];
+  }
+  for (const field of ["mainThemesEn", "mainThemesPt", "sessionThemesEn", "sessionThemesPt", "bibliography", "bibliographyPt"]) {
+    if (field in event) event[field] = null;
+  }
+}
+
+/**
  * GET /api/events/featured - Get the currently featured event (optional auth)
  * Returns the event with the most recent featuredAt timestamp.
  * Admins/superadmins who send a JWT also see draft featured events.
+ *
+ * The home screen highlights it for everyone, guests included, so the event is always
+ * returned; but its content only goes to callers its audience lets in. Anyone else gets
+ * the announcement (metadata, teachers, image) and opens the event to see how to get in.
  */
 eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
   const user = getOptionalUser(c);
@@ -254,6 +272,21 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
   if (!event) {
     return c.json(null);
   }
+
+  // The subscription state is not in the token: load it for a signed-in caller
+  const fullUser = user ? await db.query.users.findFirst({ where: eq(users.id, user.id) }) : null;
+  const access = await checkEventAccess(
+    fullUser
+      ? {
+          id: fullUser.id,
+          role: fullUser.role,
+          subscriptionStatus: fullUser.subscriptionStatus,
+          subscriptionExpiresAt: fullUser.subscriptionExpiresAt,
+        }
+      : null,
+    event,
+  );
+  if (!access.allowed) stripToAnnouncement(event as Record<string, unknown>);
 
   applyContentVisibility(event, user?.role);
 
