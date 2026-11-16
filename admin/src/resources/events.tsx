@@ -60,6 +60,7 @@ import { useParams } from "react-router-dom";
 
 import { TrackDropZone } from "../components/TrackDropZone";
 import { EventEditActions } from "../components/EventEditActions";
+import { EmphasizedMessage } from "../components/EmphasizedMessage";
 import { TrackAnalysisDropZone } from "../components/TrackAnalysisDropZone";
 import { NamingConventionsButton } from "../components/NamingConventionsButton";
 import { AnalysisReport } from "../components/AnalysisReport";
@@ -5031,7 +5032,7 @@ const DeleteConfirmDialog = ({
     <Dialog open={open} onClose={deleting ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ fontWeight: 700, color: "error.main" }}>{translate("padmakara.events.deleteTitle")}</DialogTitle>
       <DialogContent>
-        <Typography sx={{ mb: 2 }} dangerouslySetInnerHTML={{ __html: translate("padmakara.events.deleteConfirmMessage", { title: eventTitle }) }} />
+        <EmphasizedMessage sx={{ mb: 2 }} messageKey="padmakara.events.deleteConfirmMessage" placeholder="title" value={eventTitle} />
         <MuiTextField
           label={translate("padmakara.events.deleteTypeConfirm")}
           value={confirmText}

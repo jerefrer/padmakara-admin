@@ -373,7 +373,7 @@ export const en = {
       pendingUploadFolderBody: "Event %{code} already has these tracks. Resume its upload instead of creating the event again.",
       // Delete dialog
       deleteTitle: "Delete Event",
-      deleteConfirmMessage: "This will permanently delete <strong>%{title}</strong> and all its sessions and tracks. This action cannot be undone.",
+      deleteConfirmMessage: "This will permanently delete %{title} and all its sessions and tracks. This action cannot be undone.",
       deleteTypeConfirm: 'Type "delete" to confirm',
       deleting: "Deleting...",
       deleteEvent: "Delete Event",
@@ -495,7 +495,7 @@ export const en = {
       delete: "Delete Group",
       deleteTitle: "Delete User Group",
       deleteConfirmMessage:
-        "This will permanently delete <strong>%{name}</strong>. This action cannot be undone.",
+        "This will permanently delete %{name}. This action cannot be undone.",
       deleteHasEvents:
         "%{count} event is attached to this group. |||| %{count} events are attached to this group.",
       reassignLabel: "Reassign events and members to (optional)",
