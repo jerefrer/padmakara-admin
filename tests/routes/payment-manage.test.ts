@@ -381,3 +381,17 @@ describe("POST /api/payment/cancel", () => {
     expect(status).toBe(200);
   });
 });
+
+describe("Easypay paths built from the stored subscription id", () => {
+  it("should percent-encode the stored subscription id in every Easypay call of /amount", async () => {
+    // Values come from our own database, so this is consistency with every other call site,
+    // not a reachable injection: a stored id must never be able to change the path.
+    (db.query.users.findFirst as any).mockResolvedValue(member({ easypaySubscriptionId: "../single/abc" }));
+    const { status } = await post("amount", { amount: 15 });
+    expect(status).toBe(200);
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://api.test.easypay.pt/2.0/subscription/..%2Fsingle%2Fabc",
+      "https://api.test.easypay.pt/2.0/subscription/..%2Fsingle%2Fabc",
+    ]);
+  });
+});

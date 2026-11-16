@@ -1766,7 +1766,7 @@ paymentRoutes.get("/membership", authMiddleware, async (c) => {
   const subId = user.easypaySubscriptionId;
   if (user.subscriptionSource === "easypay" && subId && !subId.startsWith("mock_")) {
     try {
-      const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
+      const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${encodeURIComponent(subId)}`);
       interval = sub.frequency ? intervalFromFrequency(sub.frequency) : null;
       const kind = methodKind(sub.method?.type);
       if (kind) {
@@ -1873,7 +1873,7 @@ paymentRoutes.post("/cancel", authMiddleware, async (c) => {
   }
 
   // Stop future charges at Easypay.
-  await easypayFetch(`/subscription/${user.easypaySubscriptionId}`, {
+  await easypayFetch(`/subscription/${encodeURIComponent(user.easypaySubscriptionId)}`, {
     method: "PATCH",
     body: JSON.stringify({ status: "inactive" }),
   });
@@ -1921,11 +1921,11 @@ paymentRoutes.post("/amount", authMiddleware, async (c) => {
   }
 
   const body = await c.req.json().catch(() => ({}));
-  const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
+  const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${encodeURIComponent(subId)}`);
   const parsed = parseContribution(body?.amount, intervalFromFrequency(sub.frequency));
   if (!parsed.ok) throw AppError.badRequest(parsed.error, "INVALID_CONTRIBUTION");
 
-  await easypayFetch(`/subscription/${subId}`, {
+  await easypayFetch(`/subscription/${encodeURIComponent(subId)}`, {
     method: "PATCH",
     body: JSON.stringify({ value: parsed.amount }),
   });
@@ -1951,12 +1951,12 @@ paymentRoutes.post("/resume", authMiddleware, async (c) => {
     throw AppError.badRequest("Your membership has ended. Please join again.", "ACCESS_ENDED");
   }
 
-  const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
+  const sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${encodeURIComponent(subId)}`);
   // Inside the grace window the paid-through date is already past; Easypay needs a future start.
   const soonest = new Date(Date.now() + 5 * 60 * 1000);
   const restart =
     user.subscriptionExpiresAt && user.subscriptionExpiresAt > soonest ? user.subscriptionExpiresAt : soonest;
-  await easypayFetch(`/subscription/${subId}`, {
+  await easypayFetch(`/subscription/${encodeURIComponent(subId)}`, {
     method: "PATCH",
     body: JSON.stringify({
       status: "active",
@@ -1994,7 +1994,7 @@ paymentRoutes.post("/update-method", authMiddleware, async (c) => {
   // answer there is no checkout.
   let sub: EasypaySubscriptionResponse | null = null;
   try {
-    sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${subId}`);
+    sub = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${encodeURIComponent(subId)}`);
   } catch (err) {
     console.error(`[UPDATE-METHOD] could not read Easypay subscription ${subId}:`, err);
   }
