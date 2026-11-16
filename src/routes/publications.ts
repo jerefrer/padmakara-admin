@@ -127,7 +127,7 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
  * Returns { url: string, expiresIn: 3600 }.
  */
 publicationRoutes.get("/:id/pdf", optionalAuthMiddleware, async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
+  const id = parseInt((c.req.param("id") ?? ""), 10);
   if (isNaN(id)) {
     throw AppError.badRequest("Invalid publication ID");
   }
