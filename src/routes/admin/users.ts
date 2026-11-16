@@ -7,6 +7,7 @@ import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { isReviewAccountEmail } from "../../services/review-account.ts";
 import { bumpUserAccessVersion } from "../../services/sync-versions.ts";
+import { deleteUserAccount } from "../../services/account-deletion.ts";
 import {
   listUserEventGrants,
   listUserPublications,
@@ -150,14 +151,14 @@ userRoutes.put("/:id", async (c) => {
   });
 });
 
+/**
+ * Same deletion as the member's own: a live Easypay subscription is stopped first (502
+ * and nothing deleted when Easypay cannot be reached), payment records are detached and
+ * anonymised rather than deleted. Answers `{ id, email }`, which react-admin expects.
+ */
 userRoutes.delete("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
-  const [user] = await db.delete(users).where(eq(users.id, id)).returning({
-    id: users.id,
-    email: users.email,
-  });
-  if (!user) throw AppError.notFound("User not found");
-  return c.json(user);
+  return c.json(await deleteUserAccount(id));
 });
 
 export { userRoutes };

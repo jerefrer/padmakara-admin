@@ -41,7 +41,7 @@ import { deactivateAtEasypay } from "../routes/payment.ts";
  *  - Admins cannot delete themselves this way (409), so the last admin cannot lock
  *    everyone out.
  */
-export async function deleteUserAccount(userId: number): Promise<void> {
+export async function deleteUserAccount(userId: number): Promise<{ id: number; email: string }> {
   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
   if (!user) throw AppError.notFound("User not found");
 
@@ -109,6 +109,7 @@ export async function deleteUserAccount(userId: number): Promise<void> {
 
     await tx.delete(users).where(eq(users.id, userId));
   });
+  return { id: user.id, email };
 }
 
 /**
