@@ -498,6 +498,20 @@
       "when": 1814406400000,
       "tag": "0070_payment_transaction_capture_id",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1814492800000,
+      "tag": "0071_device_pending_claim",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1814579200000,
+      "tag": "0072_hash_device_fingerprints",
+      "breakpoints": true
     }
   ]
 }
