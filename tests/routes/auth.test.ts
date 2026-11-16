@@ -872,80 +872,20 @@ describe("Auth routes", () => {
       });
     });
 
-    describe("POST /api/auth/auto-activate", () => {
-      const appDevice = {
-        device_fingerprint: "device-app",
-        device_name: "Phone of Ana",
-        device_type: "ios",
-      };
-      const autoActivate = () =>
-        testJson("/api/auth/auto-activate", {
-          method: "POST",
-          body: JSON.stringify({ token: "sometoken", ...appDevice }),
-        });
-
-      for (const role of ["admin", "superadmin"]) {
-        it(`should refuse a ${role}'s link token with the generic 401 and leave it unused`, async () => {
-          (db.query.users.findFirst as any).mockResolvedValue({ ...regularUser, role });
-
-          const { status, body } = await autoActivate();
-
-          expect(status).toBe(401);
-          expect(body.error).toBe("Invalid or expired token");
-          expect(body.access_token).toBeUndefined();
-          expect(markedUsed(upd)).toBe(false);
-          // Neither a device activation nor a refresh token was stored.
-          expect(db.insert).not.toHaveBeenCalled();
-        });
-      }
-
-      it("should still sign an admin in with the code after the token was refused", async () => {
-        (db.query.users.findFirst as any).mockResolvedValue({ ...regularUser, role: "admin" });
-        (db.query.magicLinkTokens.findMany as any).mockResolvedValue([tokenRow()]);
-        await autoActivate();
-
-        const { status, body } = await testJson("/api/auth/verify-code", {
-          method: "POST",
-          body: JSON.stringify({
-            email: "user@test.com",
-            code: "246810",
-            device_fingerprint: "device-link",
-            device_name: "Phone of Ana",
-            device_type: "ios",
-          }),
-        });
-
-        expect(status).toBe(200);
-        expect(body.access_token).toBeDefined();
+    // The server never sends `?auto_activate=` links: emails point at
+    // /api/auth/activate/:token. The in-app redemption endpoint is gone.
+    it("should not offer the removed auto-activate endpoint", async () => {
+      const { status } = await testJson("/api/auth/auto-activate", {
+        method: "POST",
+        body: JSON.stringify({
+          token: "sometoken",
+          device_fingerprint: "device-app",
+          device_name: "Phone of Ana",
+          device_type: "ios",
+        }),
       });
 
-      it("should answer the generic 401 and activate nothing when another request consumed the token first", async () => {
-        upd = mockUpdateWithReturning([]);
-        (db.update as any).mockReturnValue(upd);
-
-        const { status, body } = await autoActivate();
-
-        expect(status).toBe(401);
-        expect(body.error).toBe("Invalid or expired token");
-        expect(db.insert).not.toHaveBeenCalled();
-      });
-
-      it("should activate a regular user's device with the unchanged response shape", async () => {
-        const { status, body } = await autoActivate();
-
-        expect(status).toBe(200);
-        expect(Object.keys(body).sort()).toEqual(
-          ["access_token", "device_activation", "refresh_token", "status", "user"],
-        );
-        expect(body.status).toBe("device_activated");
-        expect(Object.keys(body.device_activation).sort()).toEqual(
-          ["activated_at", "device_name", "device_type"],
-        );
-        expect(markedUsed(upd)).toBe(true);
-        expect(insertChain.values).toHaveBeenCalledWith(
-          expect.objectContaining({ userId: 5, deviceFingerprint: hashDeviceFingerprint("device-app") }),
-        );
-      });
+      expect(status).toBe(404);
     });
   });
 
@@ -1088,35 +1028,15 @@ describe("Auth routes", () => {
       expect(findOrCreateUserByEmail).toHaveBeenCalledWith({ email: "new@test.com", language: "pt" });
     });
 
-    it("should create the account when a first link is activated in the app", async () => {
-      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(tokenRow());
-      (db.query.users.findFirst as any)
-        .mockResolvedValueOnce(null) // admin check: no account yet
-        .mockResolvedValueOnce(null) // account lookup after the token is consumed
-        .mockResolvedValue(newUser); // the account just created
-      (db.update as any).mockReturnValue(mockUpdateWithReturning());
-
-      const { status, body } = await testJson("/api/auth/auto-activate", {
-        method: "POST",
-        body: JSON.stringify({ token: "sometoken", ...devicePayload }),
-      });
-
-      expect(status).toBe(200);
-      expect(body.status).toBe("device_activated");
-      expect(findOrCreateUserByEmail).toHaveBeenCalled();
-    });
-
     it("should refuse a link for an account deactivated after the email was sent", async () => {
       (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(tokenRow());
       (db.query.users.findFirst as any).mockResolvedValue({ ...newUser, isActive: false });
       (db.update as any).mockReturnValue(mockUpdateWithReturning());
+      const { testRequest } = await import("../helpers.ts");
 
-      const { status } = await testJson("/api/auth/auto-activate", {
-        method: "POST",
-        body: JSON.stringify({ token: "sometoken", ...devicePayload }),
-      });
+      const res = await testRequest("/api/auth/activate/sometoken", { method: "POST" });
 
-      expect(status).toBe(401);
+      expect(await res.text()).not.toContain("Dispositivo Ativado");
       expect(findOrCreateUserByEmail).not.toHaveBeenCalled();
     });
 

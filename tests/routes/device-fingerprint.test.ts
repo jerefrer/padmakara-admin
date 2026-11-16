@@ -175,12 +175,12 @@ describe("device fingerprint as a credential", () => {
       expect(params).not.toContain(NEW_FP);
     });
 
-    it("should store the hash when a device is activated in the app", async () => {
-      (db.query.magicLinkTokens.findFirst as any).mockResolvedValue(linkRow());
+    it("should store the hash when a device is activated with the emailed code", async () => {
+      (db.query.magicLinkTokens.findMany as any).mockResolvedValue([linkRow()]);
 
-      const { status } = await testJson("/api/auth/auto-activate", {
+      const { status } = await testJson("/api/auth/verify-code", {
         method: "POST",
-        body: JSON.stringify({ token: "sometoken", ...deviceBody(NEW_FP) }),
+        body: JSON.stringify({ email: "ana@test.com", code: "246810", ...deviceBody(NEW_FP) }),
       });
 
       expect(status).toBe(200);
