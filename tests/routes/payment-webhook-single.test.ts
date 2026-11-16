@@ -299,3 +299,28 @@ describe("POST /api/payment/webhook for single teaching payments", () => {
     expect((await notify()).status).toBe(503);
   });
 });
+
+describe("POST /api/payment/webhook input hardening", () => {
+  it("should percent-encode the notification id in the Easypay subscription path when it holds path characters", async () => {
+    const fetchMock = stubEasypay({});
+    await notify({ id: "../single/abc", type: "subscription_capture", status: "success", date: "d" });
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls).toContain("https://api.test.easypay.pt/2.0/subscription/..%2Fsingle%2Fabc");
+    expect(urls.some((u) => u.includes("/subscription/../"))).toBe(false);
+  });
+
+  it("should answer 413 and call nothing when the body exceeds 64 KB", async () => {
+    const fetchMock = stubEasypay({});
+    const { status } = await notify({ ...notification, padding: "x".repeat(100 * 1024) });
+    expect(status).toBe(413);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(txValues).not.toHaveBeenCalled();
+  });
+
+  it("should still process a notification carrying a body just under the cap", async () => {
+    const fetchMock = stubEasypay({ "/single/pay-1": single() });
+    const { status } = await notify({ ...notification, padding: "x".repeat(32 * 1024) });
+    expect(status).toBe(200);
+    expect(fetchMock).toHaveBeenCalled();
+  });
+});

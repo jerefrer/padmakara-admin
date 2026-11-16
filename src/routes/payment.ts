@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { eq, and, inArray, desc, gte, ne } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users } from "../db/schema/users.ts";
@@ -15,6 +16,7 @@ import {
   emailLanguage,
 } from "../services/membership-emails.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
+import { authIpLimiter } from "../middleware/rate-limit.ts";
 import {
   parseContribution,
   frequencyFor,
@@ -34,6 +36,9 @@ import {
 const EASYPAY_API_BASE = config.easypay.testing
   ? "https://api.test.easypay.pt/2.0"
   : "https://api.prod.easypay.pt/2.0";
+
+/** Largest webhook body accepted; a real Easypay notification is far smaller. */
+const WEBHOOK_MAX_BODY_BYTES = 64 * 1024;
 
 const EASYPAY_CHECKOUT_SDK = "https://cdn.easypay.pt/checkout/2.9.1/";
 
@@ -454,7 +459,7 @@ async function wasReplaced(userId: number, id: string): Promise<boolean> {
 
 export async function deactivateAtEasypay(id: string): Promise<StopResult> {
   try {
-    await easypayFetch(`/subscription/${id}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) });
+    await easypayFetch(`/subscription/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ status: "inactive" }) });
     return "stopped";
   } catch (err) {
     if (err instanceof EasypayHttpError && err.easypayStatus === 404) {
@@ -486,7 +491,7 @@ async function isOlderThanStored(incoming: EasypaySubscriptionResponse, storedId
   const incomingAt = easypayTime(incoming.created_at);
   if (incomingAt === null) return false;
   try {
-    const stored = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${storedId}`);
+    const stored = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${encodeURIComponent(storedId)}`);
     const storedAt = easypayTime(stored.created_at);
     return storedAt !== null && incomingAt < storedAt;
   } catch (err) {
@@ -890,6 +895,17 @@ paymentRoutes.get("/checkout/:id", async (c) => {
  * Verifies by querying Easypay API, then updates user subscription.
  * In mock mode: returns 200 no-op.
  */
+// Public endpoint: bound the work an unauthenticated caller can cause. Real
+// notifications are a few hundred bytes.
+paymentRoutes.use(
+  "/webhook",
+  authIpLimiter({ limit: 120, windowMs: 60_000 }),
+  bodyLimit({
+    maxSize: WEBHOOK_MAX_BODY_BYTES,
+    onError: (c) => c.json({ error: "Payload too large" }, 413),
+  }),
+);
+
 paymentRoutes.post("/webhook", async (c) => {
   if (isMockMode) {
     return c.json({ received: true, mock: true });
@@ -1014,7 +1030,7 @@ paymentRoutes.post("/webhook", async (c) => {
   // only what Easypay itself says about it.
   let subscription: EasypaySubscriptionResponse;
   try {
-    subscription = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${id}`);
+    subscription = await easypayFetch<EasypaySubscriptionResponse>(`/subscription/${encodeURIComponent(id)}`);
   } catch (err) {
     // Could be a notification about something that is not a subscription at all (the
     // `id` namespace differs per resource type). Recorded, not retried: we always
