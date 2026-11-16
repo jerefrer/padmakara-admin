@@ -16,9 +16,13 @@ import { AppError } from "../lib/errors.ts";
  *     `confirm=t`, which skips the interstitial for link-shared files.
  *     Undocumented but stable in practice.
  *
- * Any other http(s) URL is passed through untouched — the server never
- * fetches it itself (Bunny does), so there is no SSRF surface here beyond
- * the Drive metadata call to googleapis.com.
+ * Any other http(s) URL is passed through untouched. Nothing in this file
+ * fetches it (the only request made here is the Drive metadata call to the
+ * fixed googleapis.com host), but the result IS downloaded later: by Bunny,
+ * or — when slides are attached — by our own burn container inside AWS. The
+ * import route therefore checks the resolved URL with validatePublicUrl
+ * (src/lib/safe-fetch.ts) before handing it on, and the container re-checks
+ * every hop of its download (containers/video-burn/safe-download.ts).
  */
 
 export interface ResolvedVideoSource {
