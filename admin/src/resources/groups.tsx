@@ -36,6 +36,7 @@ import { GroupImageUpload } from "../components/GroupImageUpload";
 import { BatchMembersCard } from "../components/BatchMembersCard";
 import { EmphasizedMessage } from "../components/EmphasizedMessage";
 import { authFetch } from "../utils/authFetch";
+import { KEEP_UNSAVED_EDITS } from "../utils/formReset";
 
 const API_URL = "/api/admin";
 
@@ -120,7 +121,7 @@ export const GroupEdit = () => {
   const translate = useTranslate();
   return (
     <Edit>
-      <SimpleForm toolbar={<EditToolbar />}>
+      <SimpleForm toolbar={<EditToolbar />} resetOptions={KEEP_UNSAVED_EDITS}>
         <TextInput source="nameEn" label={translate("padmakara.fields.nameEn")} validate={required()} />
         <TextInput source="namePt" label={translate("padmakara.fields.namePt")} />
         <TextInput source="abbreviation" label={translate("padmakara.fields.abbreviation")} />
