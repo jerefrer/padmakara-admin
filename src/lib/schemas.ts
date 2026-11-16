@@ -87,13 +87,6 @@ export const discoverDeviceSchema = z.object({
   device_fingerprint: deviceFingerprint,
 });
 
-export const autoActivateSchema = z.object({
-  token: z.string().min(1),
-  device_fingerprint: deviceFingerprint,
-  device_name: z.string().min(1),
-  device_type: z.string().min(1),
-});
-
 export const deactivateDeviceSchema = z.object({
   device_fingerprint: deviceFingerprint,
 });

@@ -12,8 +12,8 @@ import { transcripts } from "../db/schema/transcripts.ts";
 import { retreatGroups } from "../db/schema/retreat-groups.ts";
 
 /**
- * Test-only routes. Mounted by routes/index.ts ONLY when NODE_ENV !== "production".
- * Never available in production.
+ * Test-only routes. Mounted by routes/index.ts ONLY when NODE_ENV=test or
+ * E2E_ENABLED=true. Never available in production.
  */
 const testRoutes = new Hono();
 

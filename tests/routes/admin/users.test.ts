@@ -54,12 +54,20 @@ vi.mock("../../../src/services/sync-versions.ts", () => ({
   bumpVersions: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("../../../src/services/account-deletion.ts", () => ({
+  deleteUserAccount: vi.fn(),
+}));
+
+import { deleteUserAccount } from "../../../src/services/account-deletion.ts";
 import { bumpUserAccessVersion } from "../../../src/services/sync-versions.ts";
 import { replaceUserAttendance, replaceUserGroups } from "../../../src/services/user-access.ts";
 import { db } from "../../../src/db/index.ts";
 import { createAccessToken } from "../../../src/services/auth.ts";
 import { Hono } from "hono";
 import { userRoutes } from "../../../src/routes/admin/users.ts";
+import { authMiddleware } from "../../../src/middleware/auth.ts";
+import { adminMiddleware } from "../../../src/middleware/admin.ts";
+import { errorHandler } from "../../../src/lib/errors.ts";
 
 async function adminToken() {
   return createAccessToken({ sub: 1, email: "admin@test.com", role: "admin" });
@@ -67,7 +75,9 @@ async function adminToken() {
 
 function buildApp() {
   const app = new Hono();
+  app.use("*", authMiddleware, adminMiddleware);
   app.route("/admin/users", userRoutes);
+  app.onError(errorHandler);
   return app;
 }
 
@@ -169,7 +179,7 @@ describe("PUT /admin/users/:id — bumpUserAccessVersion", () => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ role: "admin" }),
+        body: JSON.stringify({ firstName: "Test" }),
       },
     );
 
@@ -217,5 +227,166 @@ describe("PUT /admin/users/:id — bumpUserAccessVersion", () => {
 
     expect(res.status).not.toBe(200);
     expect(replaceUserGroups).not.toHaveBeenCalled();
+  });
+});
+
+describe("DELETE /admin/users/:id", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const remove = async (id: number) =>
+    buildApp().request(`/admin/users/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${await adminToken()}` },
+    });
+
+  it("should delete through the account deletion service so a live subscription is stopped", async () => {
+    (db.query.users.findFirst as any).mockResolvedValueOnce({ id: 5, email: "member@test.com", role: "user" });
+    (deleteUserAccount as any).mockResolvedValueOnce({ id: 5, email: "member@test.com" });
+
+    const res = await remove(5);
+
+    expect(res.status).toBe(200);
+    expect(deleteUserAccount).toHaveBeenCalledWith(5, { allowStaff: false });
+    expect(db.delete).not.toHaveBeenCalled();
+    expect(await res.json()).toEqual({ id: 5, email: "member@test.com" });
+  });
+
+  it("should keep the account when the service refuses to delete it", async () => {
+    (db.query.users.findFirst as any).mockResolvedValueOnce({ id: 5, email: "member@test.com", role: "user" });
+    const { AppError } = await import("../../../src/lib/errors.ts");
+    (deleteUserAccount as any).mockRejectedValueOnce(new AppError(502, "Easypay down", "PAYMENT_CANCEL_FAILED"));
+
+    const res = await remove(5);
+
+    expect(res.status).toBe(502);
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+});
+
+// The route reads the target account first, then (only for a sensitive change) the
+// caller's own row, so the mocks below are queued in that order.
+describe("admin vs superadmin separation", () => {
+  const member = { id: 5, email: "member@test.com", role: "user", isActive: true };
+  const otherAdmin = { id: 6, email: "other@test.com", role: "admin", isActive: true };
+  const plainAdmin = { id: 1, email: "admin@test.com", role: "admin", isActive: true };
+  const superadmin = { id: 1, email: "admin@test.com", role: "superadmin", isActive: true };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (db.query.users.findFirst as any).mockReset();
+    (db.query.users.findFirst as any).mockResolvedValue(null);
+    const where = vi.fn(() => ({ returning: vi.fn(() => Promise.resolve([{ id: 5, email: "x@test.com" }])) }));
+    (db.update as any).mockReturnValue({ set: vi.fn(() => ({ where })) });
+  });
+
+  const tokenAs = (role: string) => createAccessToken({ sub: 1, email: "admin@test.com", role });
+  const rows = (...found: unknown[]) => {
+    for (const row of found) (db.query.users.findFirst as any).mockResolvedValueOnce(row);
+  };
+  const put = async (id: number, body: unknown, role = "admin") =>
+    buildApp().request(`/admin/users/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${await tokenAs(role)}` },
+      body: JSON.stringify(body),
+    });
+  const remove = async (id: number, role = "admin") =>
+    buildApp().request(`/admin/users/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${await tokenAs(role)}` },
+    });
+
+  it("should refuse a plain admin changing a user's role", async () => {
+    rows(member, plainAdmin);
+
+    const res = await put(5, { role: "admin" });
+
+    expect(res.status).toBe(403);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("should let a superadmin change a user's role", async () => {
+    rows(member, superadmin);
+
+    const res = await put(5, { role: "admin" }, "superadmin");
+
+    expect(res.status).toBe(200);
+  });
+
+  it("should refuse a superadmin token whose account was demoted in the database", async () => {
+    rows(member, plainAdmin);
+
+    const res = await put(5, { role: "admin" }, "superadmin");
+
+    expect(res.status).toBe(403);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("should refuse a plain admin deactivating another admin", async () => {
+    rows(otherAdmin, plainAdmin);
+
+    const res = await put(6, { isActive: false });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("should let a plain admin deactivate a member", async () => {
+    rows(member);
+
+    const res = await put(5, { isActive: false });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("should let a plain admin save a full form that leaves role and sign-in unchanged", async () => {
+    rows(otherAdmin);
+
+    const res = await put(6, { role: "admin", isActive: true, firstName: "Ana" });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("should refuse anyone changing their own role", async () => {
+    rows(superadmin, superadmin);
+
+    const res = await put(1, { role: "user" }, "superadmin");
+
+    expect(res.status).toBe(403);
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("should refuse anyone deactivating themselves", async () => {
+    rows(superadmin, superadmin);
+
+    const res = await put(1, { isActive: false }, "superadmin");
+
+    expect(res.status).toBe(403);
+  });
+
+  it("should refuse anyone deleting themselves", async () => {
+    rows(superadmin, superadmin);
+
+    const res = await remove(1, "superadmin");
+
+    expect(res.status).toBe(403);
+    expect(deleteUserAccount).not.toHaveBeenCalled();
+  });
+
+  it("should refuse a plain admin deleting an admin account", async () => {
+    rows(otherAdmin, plainAdmin);
+
+    const res = await remove(6);
+
+    expect(res.status).toBe(403);
+    expect(deleteUserAccount).not.toHaveBeenCalled();
+  });
+
+  it("should let a superadmin delete an admin account", async () => {
+    rows(otherAdmin, superadmin);
+    (deleteUserAccount as any).mockResolvedValueOnce({ id: 6, email: "other@test.com" });
+
+    const res = await remove(6, "superadmin");
+
+    expect(res.status).toBe(200);
+    expect(deleteUserAccount).toHaveBeenCalledWith(6, { allowStaff: true });
   });
 });

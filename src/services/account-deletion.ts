@@ -39,13 +39,17 @@ import { deactivateAtEasypay } from "../routes/payment.ts";
  *    cannot be reached the deletion is refused (502) rather than leaving a card
  *    charging a member who no longer exists. Retrying is safe.
  *  - Admins cannot delete themselves this way (409), so the last admin cannot lock
- *    everyone out.
+ *    everyone out. `allowStaff` lifts this for the backoffice route, which only sets
+ *    it after checking that a superadmin is deleting someone other than themselves.
  */
-export async function deleteUserAccount(userId: number): Promise<void> {
+export async function deleteUserAccount(
+  userId: number,
+  options: { allowStaff?: boolean } = {},
+): Promise<{ id: number; email: string }> {
   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
   if (!user) throw AppError.notFound("User not found");
 
-  if (user.role === "admin" || user.role === "superadmin") {
+  if (!options.allowStaff && (user.role === "admin" || user.role === "superadmin")) {
     throw new AppError(
       409,
       "Admin accounts cannot be deleted from the app. Ask another administrator.",
@@ -109,6 +113,7 @@ export async function deleteUserAccount(userId: number): Promise<void> {
 
     await tx.delete(users).where(eq(users.id, userId));
   });
+  return { id: user.id, email };
 }
 
 /**

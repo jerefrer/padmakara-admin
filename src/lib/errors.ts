@@ -64,14 +64,16 @@ export function errorHandler(err: Error, c: Context) {
     );
   }
 
-  // Handle Postgres unique constraint violations (code 23505)
+  // Handle Postgres unique constraint violations (code 23505). Postgres's `detail`
+  // echoes the conflicting value (an email, a token hash), so it is never sent; the
+  // constraint name is logged instead.
   const pgError = (err as any).cause ?? err;
   if (pgError?.code === "23505") {
+    console.warn("Unique constraint violation:", pgError.constraint ?? pgError.constraint_name);
     return c.json(
       {
         error: "A record with this value already exists",
         code: "CONFLICT",
-        detail: pgError.detail,
       },
       409,
     );

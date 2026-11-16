@@ -38,7 +38,6 @@ import {
   backofficeCodeVerifySchema,
   refreshTokenSchema,
   discoverDeviceSchema,
-  autoActivateSchema,
   deactivateDeviceSchema,
   rotateDeviceFingerprintSchema,
   requestAccountDeletionSchema,
@@ -720,69 +719,6 @@ auth.post("/device/discover", discoverIpLimiter(), async (c) => {
       device_name: device.deviceName,
       user_name: [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email,
       is_active: device.isActive,
-    },
-  });
-});
-
-/**
- * POST /api/auth/auto-activate
- *
- * Auto-activate a device using a magic link token directly
- * (for deep link / in-app activation flow).
- */
-auth.post("/auto-activate", authIpLimiter(), async (c) => {
-  const body = await c.req.json();
-  const data = autoActivateSchema.parse(body);
-  const fail = () => AppError.unauthorized("Invalid or expired token");
-
-  const magicLink = await findUsableMagicLink(data.token);
-  if (!magicLink) throw fail();
-
-  // Admins sign in only with the code: refuse with the same 401 as a bad
-  // token, so the answer does not reveal the role, and leave the token
-  // unused so the code from the same email still works.
-  if (await isAdminEmail(magicLink.email)) throw fail();
-
-  // Consume atomically: of two concurrent requests only one activates.
-  const consumed = await db
-    .update(magicLinkTokens)
-    .set({ isUsed: true })
-    .where(
-      and(
-        eq(magicLinkTokens.id, magicLink.id),
-        eq(magicLinkTokens.isUsed, false),
-        gt(magicLinkTokens.expiresAt, new Date()),
-      ),
-    )
-    .returning({ id: magicLinkTokens.id });
-  if (consumed.length === 0) throw fail();
-
-  // Find the user, or create the account on a first sign-in
-  const user = await accountForEmailSignIn(magicLink.email, magicLink.language);
-
-  if (!user) {
-    throw AppError.unauthorized("Account not found or deactivated");
-  }
-
-  await activateDeviceForUser(user, {
-    fingerprint: data.device_fingerprint,
-    name: data.device_name,
-    type: data.device_type,
-    ipAddress: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
-    userAgent: c.req.header("user-agent") || null,
-  });
-
-  const tokens = await generateTokensForUser(user);
-
-  return c.json({
-    status: "device_activated",
-    access_token: tokens.accessToken,
-    refresh_token: tokens.refreshToken,
-    user: await formatUserForApp(user),
-    device_activation: {
-      device_name: data.device_name,
-      device_type: data.device_type,
-      activated_at: new Date().toISOString(),
     },
   });
 });

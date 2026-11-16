@@ -14,9 +14,15 @@ function splitList(value: string): string[] {
 }
 
 const isDevEnv = env("NODE_ENV", "development") === "development";
+const isProductionEnv = env("NODE_ENV", "development") === "production";
 
 export const config = {
   port: parseInt(env("PORT", "3000"), 10),
+  /**
+   * Interface the server listens on. Loopback by default: in production only Caddy
+   * should reach it. Set BIND_HOST=0.0.0.0 in dev to reach it from a phone on the LAN.
+   */
+  bindHost: env("BIND_HOST", "127.0.0.1"),
   nodeEnv: env("NODE_ENV", "development"),
   isDev: env("NODE_ENV", "development") === "development",
   e2eEnabled: env("E2E_ENABLED", "false") === "true",
@@ -66,7 +72,9 @@ export const config = {
   easypay: {
     accountId: env("EASYPAY_ACCOUNT_ID", ""),
     apiKey: env("EASYPAY_API_KEY", ""),
-    testing: env("EASYPAY_TESTING", "true") === "true",
+    // Sandbox by default, except in production, where forgetting the variable must
+    // not silently send real members to the test API.
+    testing: env("EASYPAY_TESTING", isProductionEnv ? "false" : "true") === "true",
   },
 
   teachings: {
@@ -179,11 +187,13 @@ type ProductionConfigInput = {
   jwt: { secret: string };
   readAlong: { webhookSecret: string };
   bunny: { webhookSecret: string };
+  easypay: { accountId: string; apiKey: string };
 };
 
 const KNOWN_DEV_JWT_SECRET = "dev-secret-change-in-production";
 const KNOWN_DEV_WEBHOOK_SECRET = "dev-webhook-secret";
 const MIN_JWT_SECRET_LENGTH = 32;
+const MIN_WEBHOOK_SECRET_LENGTH = 32;
 
 export function validateProductionConfig(cfg: ProductionConfigInput): void {
   if (cfg.jwt.secret === KNOWN_DEV_JWT_SECRET) {
@@ -204,10 +214,32 @@ export function validateProductionConfig(cfg: ProductionConfigInput): void {
         "Set a strong, unique READ_ALONG_WEBHOOK_SECRET before starting in production."
     );
   }
+  // The read-along, subtitle and video-burn webhooks are HMAC-signed with this key:
+  // an empty or short key lets anyone forge their callbacks.
+  if (cfg.readAlong.webhookSecret.length < MIN_WEBHOOK_SECRET_LENGTH) {
+    throw new Error(
+      `FATAL: READ_ALONG_WEBHOOK_SECRET is too short (${cfg.readAlong.webhookSecret.length} chars). ` +
+        `Production requires at least ${MIN_WEBHOOK_SECRET_LENGTH} characters.`
+    );
+  }
   if (cfg.bunny.webhookSecret === "") {
     throw new Error(
       "FATAL: BUNNY_WEBHOOK_SECRET is empty. " +
         "Set a non-empty BUNNY_WEBHOOK_SECRET before starting in production."
+    );
+  }
+  // Without Easypay credentials the payment code runs in mock mode, which grants
+  // memberships and teachings without any payment.
+  if (cfg.easypay.accountId === "") {
+    throw new Error(
+      "FATAL: EASYPAY_ACCOUNT_ID is empty, which would run payments in mock mode. " +
+        "Set EASYPAY_ACCOUNT_ID before starting in production."
+    );
+  }
+  if (cfg.easypay.apiKey === "") {
+    throw new Error(
+      "FATAL: EASYPAY_API_KEY is empty, which would run payments in mock mode. " +
+        "Set EASYPAY_API_KEY before starting in production."
     );
   }
 }

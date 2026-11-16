@@ -512,6 +512,13 @@
       "when": 1814579200000,
       "tag": "0072_hash_device_fingerprints",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1814665600000,
+      "tag": "0073_drop_approval_request_fingerprint",
+      "breakpoints": true
     }
   ]
 }

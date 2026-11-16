@@ -447,6 +447,7 @@ export const en = {
     users: {
       roleUser: "User",
       roleAdmin: "Admin",
+      roleSuperadmin: "Superadmin",
       langEn: "English",
       langPt: "Portuguese",
       subscription: "Subscription",

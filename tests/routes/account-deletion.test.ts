@@ -49,6 +49,7 @@ import { passkeyCredentials, webauthnChallenges } from "../../src/db/schema/pass
 import { createAccessToken, hashToken } from "../../src/services/auth.ts";
 import { sendEmail, buildAccountDeletionEmail } from "../../src/services/email.ts";
 import { testJson } from "../helpers.ts";
+import { deleteUserAccount } from "../../src/services/account-deletion.ts";
 
 const member = (over: Record<string, unknown> = {}) => ({
   id: 7,
@@ -196,6 +197,17 @@ describe("account deletion", () => {
       expect(status).toBe(409);
       expect(body.code).toBe("ADMIN_ACCOUNT");
       expect(db.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("deleteUserAccount with allowStaff", () => {
+    it("should delete an admin account and return its id and email", async () => {
+      (db.query.users.findFirst as any).mockResolvedValue(member({ role: "admin" }));
+
+      const result = await deleteUserAccount(7, { allowStaff: true });
+
+      expect(result).toEqual({ id: 7, email: "member@test.com" });
+      expect(deletedTables()).toContain(users);
     });
   });
 

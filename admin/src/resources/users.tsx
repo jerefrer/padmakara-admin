@@ -18,6 +18,8 @@ import {
   useRedirect,
   useTranslate,
   useRecordContext,
+  useGetIdentity,
+  usePermissions,
   FunctionField,
 } from "react-admin";
 import { Typography, Divider, Box, Button, Stack } from "@mui/material";
@@ -55,18 +57,74 @@ export const UserList = () => {
 
 const EditReviewWarning = () => <ReviewAccountWarning record={useRecordContext() as any} />;
 
+/**
+ * What the signed-in admin may change on this account; mirrors the API rules
+ * (src/routes/admin/users.ts), which enforce them. Roles, and sign-in or deletion of
+ * an admin account, are superadmin-only; nobody changes or deletes their own account.
+ */
+const useAccountControls = () => {
+  const record = useRecordContext();
+  const { permissions } = usePermissions();
+  const { identity } = useGetIdentity();
+  const isSuperadmin = permissions === "superadmin";
+  const isSelf = record != null && identity != null && String(record.id) === String(identity.id);
+  const isStaff = record?.role === "admin" || record?.role === "superadmin";
+  return {
+    isSuperadmin,
+    canChangeRole: isSuperadmin && !isSelf,
+    canChangeSignIn: !isSelf && (isSuperadmin || !isStaff),
+    canDelete: !isSelf && (isSuperadmin || !isStaff),
+  };
+};
+
 /** Cancel leaves without saving; the unsaved-changes warning covers a dirty form. */
 const UserEditToolbar = () => {
   const translate = useTranslate();
   const redirect = useRedirect();
+  const { canDelete } = useAccountControls();
   return (
     <Toolbar sx={{ justifyContent: "space-between" }}>
       <Stack direction="row" spacing={1}>
         <SaveButton />
         <Button onClick={() => redirect("list", "users")}>{translate("ra.action.cancel")}</Button>
       </Stack>
-      <DeleteButton />
+      {canDelete && <DeleteButton />}
     </Toolbar>
+  );
+};
+
+const RoleInput = () => {
+  const translate = useTranslate();
+  const { isSuperadmin, canChangeRole } = useAccountControls();
+  const record = useRecordContext();
+  const choices = [
+    { id: "user", name: translate("padmakara.users.roleUser") },
+    { id: "admin", name: translate("padmakara.users.roleAdmin") },
+  ];
+  if (isSuperadmin || record?.role === "superadmin") {
+    choices.push({ id: "superadmin", name: translate("padmakara.users.roleSuperadmin") });
+  }
+  return (
+    <SelectInput
+      source="role"
+      label={translate("padmakara.fields.role")}
+      choices={choices}
+      disabled={!canChangeRole}
+      sx={{ flex: 1 }}
+    />
+  );
+};
+
+const SignInInput = () => {
+  const translate = useTranslate();
+  const { canChangeSignIn } = useAccountControls();
+  return (
+    <BooleanInput
+      source="isActive"
+      label={translate("padmakara.users.canSignIn")}
+      helperText={translate("padmakara.users.canSignInHelp")}
+      disabled={!canChangeSignIn}
+    />
   );
 };
 
@@ -92,15 +150,7 @@ export const UserEdit = () => {
 
         {/* ─── Settings ─────────────────────────────── */}
         <Stack direction="row" spacing={2} sx={{ width: "100%" }}>
-          <SelectInput
-            source="role"
-            label={translate("padmakara.fields.role")}
-            choices={[
-              { id: "user", name: translate("padmakara.users.roleUser") },
-              { id: "admin", name: translate("padmakara.users.roleAdmin") },
-            ]}
-            sx={{ flex: 1 }}
-          />
+          <RoleInput />
           <SelectInput
             source="preferredLanguage"
             label={translate("padmakara.fields.preferredLanguage")}
@@ -112,11 +162,7 @@ export const UserEdit = () => {
           />
         </Stack>
         <Stack direction="row" spacing={4}>
-          <BooleanInput
-            source="isActive"
-            label={translate("padmakara.users.canSignIn")}
-            helperText={translate("padmakara.users.canSignInHelp")}
-          />
+          <SignInInput />
           {/* Set by the first sign-in; the API does not accept changing it. */}
           <BooleanInput
             source="isVerified"

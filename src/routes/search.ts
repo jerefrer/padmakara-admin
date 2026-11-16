@@ -156,8 +156,11 @@ searchRoutes.post("/log", authIpLimiter({ limit: 60, windowMs: 60 * 1000 }), asy
  * Full-text search across events, sessions, tracks, and teachers.
  * Works for both authenticated and unauthenticated users.
  * Unauthenticated users only see public events (audience = "free-anyone").
+ *
+ * Each call loads every visible event with its sessions and tracks, so it is
+ * rate-limited per IP; 60 a minute is far above what typing in the app sends.
  */
-searchRoutes.get("/", async (c) => {
+searchRoutes.get("/", authIpLimiter({ limit: 60, windowMs: 60 * 1000 }), async (c) => {
   const q = c.req.query("q")?.trim();
   const lang = c.req.query("lang") === "pt" ? "pt" : "en";
 

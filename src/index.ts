@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
@@ -28,6 +29,19 @@ app.use(
     ],
     credentials: true,
   }),
+);
+// Bound how much a request body can make the server buffer. Public routes only ever
+// receive small JSON (webhooks, progress, sign-in); the payment webhook sets a
+// tighter limit of its own. Admin routes take image and CSV uploads, so they get a
+// larger cap; audio, video and PDFs never pass through here (presigned to storage).
+const PUBLIC_BODY_LIMIT_BYTES = 1024 * 1024;
+const ADMIN_BODY_LIMIT_BYTES = 50 * 1024 * 1024;
+const tooLarge = (c: Context) =>
+  c.json({ error: "Request body too large", code: "PAYLOAD_TOO_LARGE" }, 413);
+const publicBodyLimit = bodyLimit({ maxSize: PUBLIC_BODY_LIMIT_BYTES, onError: tooLarge });
+const adminBodyLimit = bodyLimit({ maxSize: ADMIN_BODY_LIMIT_BYTES, onError: tooLarge });
+app.use("/api/*", (c, next) =>
+  c.req.path.startsWith("/api/admin/") ? adminBodyLimit(c, next) : publicBodyLimit(c, next),
 );
 // Strip trailing slashes by forwarding internally (no redirect).
 // React Native on iOS doesn't reliably follow 308 redirects for POST,
@@ -66,6 +80,7 @@ if (process.env.NODE_ENV !== "test") startMembershipReconcile();
 
 export default {
   port: config.port,
+  hostname: config.bindHost,
   fetch: app.fetch,
   idleTimeout: 120,
 };

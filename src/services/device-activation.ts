@@ -16,8 +16,8 @@ export interface DeviceInfo {
 /**
  * Activate a device for a user, exactly as a clicked magic link does: mark the
  * user verified, create the device activation or reactivate (and re-assign) an
- * existing one, and refresh the user's last activity. Shared by
- * `/auto-activate` and `/review-login`.
+ * existing one, and refresh the user's last activity. Shared by the in-app
+ * sign-in routes (`/verify-code`, `/review-login`).
  */
 export async function activateDeviceForUser(
   user: { id: number; isVerified: boolean },
