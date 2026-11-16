@@ -138,6 +138,45 @@ describe("ImageCropDialog re-opening a saved hero", () => {
     expect(document.body.textContent).toContain("frame adjustments were reset");
   });
 
+  describe("for a hero saved before originals were kept (no saved crop)", () => {
+    const DEFAULT_CROP: Area = { x: 0, y: 0, width: 3000, height: 1688 };
+
+    const openWithoutCrop = (initialFrameOverrides: HeroFrameOverrides) => {
+      const onSave = vi.fn<(params: HeroSaveParams) => void>();
+      act(() =>
+        root.render(
+          <ImageCropDialog
+            mode="hero"
+            open
+            image={new File(["x"], "hero.jpg", { type: "image/jpeg" })}
+            onClose={() => {}}
+            onSave={onSave}
+            initialFocal={{ x: 30, y: 40 }}
+            initialFrameOverrides={initialFrameOverrides}
+          />,
+        ),
+      );
+      return onSave;
+    };
+
+    it("should save the saved overrides back when saving without changes", async () => {
+      const onSave = openWithoutCrop(SAVED_OVERRIDES);
+      expect(lastPreview()?.overrides).toEqual(SAVED_OVERRIDES);
+      await save();
+      expect(onSave.mock.calls[0]?.[0]).toMatchObject({ frameOverrides: SAVED_OVERRIDES, cropAreaPixels: DEFAULT_CROP });
+    });
+
+    it("should drop the overrides when the user moves the crop away from the one it opened on", () => {
+      openWithoutCrop(SAVED_OVERRIDES);
+      act(() => {
+        cropper.current?.onInteractionStart?.();
+        cropper.current?.onCropAreaChange?.({ x: 0, y: 0, width: 50, height: 50 }, { ...DEFAULT_CROP, width: 1500, height: 844 });
+      });
+      expect(lastPreview()?.overrides).toEqual({});
+      expect(document.body.textContent).toContain("frame adjustments were reset");
+    });
+  });
+
   it("should start frames without an override from the saved focal point", async () => {
     const onSave = open(undefined);
     expect(lastPreview()?.overrides).toEqual({});
