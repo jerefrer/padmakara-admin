@@ -54,6 +54,14 @@ const EVENT = {
   titlePt: "Retiro de primavera",
   titleEnReviewed: true,
   titlePtReviewed: true,
+  mainThemesEn: "Old",
+  mainThemesPt: "Antigo",
+  sessionThemesEn: "Old",
+  sessionThemesPt: "Antigo",
+  mainThemesEnReviewed: true,
+  mainThemesPtReviewed: true,
+  sessionThemesEnReviewed: true,
+  sessionThemesPtReviewed: true,
   status: "draft",
   sessions: [
     {
@@ -142,5 +150,36 @@ describe("EventEdit AI apply and approvals", () => {
       titlePt: "Retiro de primavera sobre o refúgio",
       titlePtReviewed: false,
     });
+  });
+
+  it("should leave AI-written main and session themes pending approval when the event is saved", async () => {
+    const { update } = await open();
+    await apply({
+      event: {
+        mainThemesEn: "Refuge and bodhicitta",
+        mainThemesPt: "Refúgio e bodhicitta",
+        sessionThemesEn: "Day by day",
+        sessionThemesPt: "Dia a dia",
+      },
+    });
+    await clickSave();
+
+    const [sent] = dataSentTo(update, "events");
+    expect(sent).toMatchObject({
+      mainThemesEnReviewed: false,
+      mainThemesPtReviewed: false,
+      sessionThemesEnReviewed: false,
+      sessionThemesPtReviewed: false,
+    });
+  });
+
+  it("should not touch the theme flags when the AI wrote no theme", async () => {
+    const { update } = await open();
+    await apply({ event: { titleEn: "Spring retreat on refuge" } });
+    await clickSave();
+
+    const [sent] = dataSentTo(update, "events");
+    expect(sent).not.toHaveProperty("mainThemesEnReviewed");
+    expect(sent).not.toHaveProperty("sessionThemesPtReviewed");
   });
 });
