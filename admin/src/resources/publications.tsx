@@ -22,6 +22,8 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { useFormContext } from "react-hook-form";
 import { authFetch } from "../utils/authFetch";
 import { PublicationPdfActions } from "../components/PublicationPdfActions";
+import { AuthorsInput } from "../components/AuthorsInput";
+import { useAuthorSuggestions } from "../components/useAuthorSuggestions";
 import {
   Create,
   Datagrid,
@@ -66,13 +68,6 @@ const LANGUAGE_CHOICES = [
   { id: "fr", name: "padmakara.publications.langFr" },
   { id: "tib", name: "padmakara.publications.langTib" },
 ];
-
-
-interface TeacherOption {
-  id: number;
-  name: string;
-  abbreviation: string;
-}
 
 // ─── Shared Components ─────────────────────────────────────────────────────
 
@@ -254,23 +249,6 @@ function CoverPreview({
       )}
     </Box>
   );
-}
-
-function useTeachers() {
-  const dataProvider = useDataProvider();
-  const [teachers, setTeachers] = useState<TeacherOption[]>([]);
-
-  useEffect(() => {
-    dataProvider
-      .getList<TeacherOption>("teachers", {
-        pagination: { page: 1, perPage: 500 },
-        sort: { field: "name", order: "ASC" },
-        filter: {},
-      })
-      .then(({ data }) => setTeachers(data));
-  }, [dataProvider]);
-
-  return teachers;
 }
 
 // ─── Audience + who gets access ──────────────────────────────────────────────
@@ -603,6 +581,23 @@ function AudienceChip() {
   const [locale] = useLocaleState();
   if (!record) return null;
   return <Chip label={audienceName(record, locale)} size="small" variant="outlined" />;
+}
+
+/** Edit-page wrapper: reads and writes the authors on the form. */
+function AuthorsFormInput() {
+  const translate = useTranslate();
+  const { watch, setValue } = useFormContext();
+  const suggestions = useAuthorSuggestions();
+  return (
+    <AuthorsInput
+      value={(watch("authors") as string[] | undefined) ?? []}
+      onChange={(authors) => setValue("authors", authors, { shouldDirty: true })}
+      suggestions={suggestions}
+      label={translate("padmakara.publications.authors")}
+      placeholder={translate("padmakara.publications.authorsPlaceholder")}
+      helperText={translate("padmakara.publications.authorsHelper")}
+    />
+  );
 }
 
 /** Edit-page wrapper: reads and writes the audience and its access fields on the form. */
@@ -979,14 +974,7 @@ export const PublicationEdit = () => {
             <TextInput source="title" label="padmakara.events.title" validate={required()} fullWidth />
             <TextInput source="subtitle" label="padmakara.publications.subtitle" fullWidth />
             <TextInput source="description" label="padmakara.fields.description" multiline rows={3} fullWidth />
-            <TextInput
-              source="authors"
-              label="padmakara.publications.authors"
-              format={(v: string[]) => (v || []).join(", ")}
-              parse={(v: string) => v.split(",").map((s: string) => s.trim()).filter(Boolean)}
-              fullWidth
-              helperText={translate("padmakara.publications.authorsHelper")}
-            />
+            <AuthorsFormInput />
             <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-start" }}>
               <SelectInput source="language" label="padmakara.publications.language" choices={LANGUAGE_CHOICES} validate={required()} />
               <DateInput source="publicationDate" label="padmakara.publications.publicationDate" />
@@ -1041,16 +1029,11 @@ export const PublicationCreate = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  const allTeachers = useTeachers();
+  const authorSuggestions = useAuthorSuggestions();
 
   const handleAudienceChange = useCallback(
     (next: AccessChange) => setDefaultValues((prev) => ({ ...prev, ...next })),
     [],
-  );
-
-  // Build author suggestions from teachers + extracted authors
-  const authorSuggestions = allTeachers.map(
-    (t) => `${t.name} (${t.abbreviation})`,
   );
 
   const handleFile = async (file: File | undefined) => {
@@ -1286,31 +1269,16 @@ export const PublicationCreate = () => {
               />
 
               {/* Authors */}
-              <Autocomplete
-                multiple
-                freeSolo
-                options={authorSuggestions}
+              <AuthorsInput
                 value={selectedAuthors}
-                onChange={(_, v) => {
-                  setSelectedAuthors(v as string[]);
-                  setDefaultValues((prev) => ({ ...prev, authors: v }));
+                onChange={(authors) => {
+                  setSelectedAuthors(authors);
+                  setDefaultValues((prev) => ({ ...prev, authors }));
                 }}
-                renderTags={(value, getTagProps) =>
-                  value.map((option, index) => {
-                    const { key, ...rest } = getTagProps({ index });
-                    return (
-                      <Chip key={key} label={option} size="small" {...rest} />
-                    );
-                  })
-                }
-                renderInput={(params) => (
-                  <MuiTextField
-                    {...params}
-                    label={translate("padmakara.publications.authors")}
-                    placeholder={translate("padmakara.publications.authorsPlaceholder")}
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
-                )}
+                suggestions={authorSuggestions}
+                label={translate("padmakara.publications.authors")}
+                placeholder={translate("padmakara.publications.authorsPlaceholder")}
+                helperText={translate("padmakara.publications.authorsHelper")}
               />
 
               {/* Language, Date, Access, Status */}

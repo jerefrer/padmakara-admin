@@ -16,6 +16,7 @@ import { AppError } from "../../lib/errors.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows, type SortTarget } from "./helpers.ts";
 import { generatePresignedPdfUrl, generatePresignedDownloadUrl, generatePresignedUploadUrl, putObject } from "../../services/s3.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
+import { distinctAuthorNames } from "../../services/publication-authors.ts";
 
 /**
  * Generate a cover image from the first page of a PDF.
@@ -452,6 +453,15 @@ Return ONLY the JSON object, no markdown fences, no explanation.`,
     coverImageS3Key,
     coverImageUrl,
   });
+});
+
+/**
+ * GET /authors — The distinct author names used across publications, with how
+ * many publications carry each: the suggestions of the authors field.
+ */
+publicationRoutes.get("/authors", async (c) => {
+  const rows = await db.select({ authors: publications.authors }).from(publications);
+  return c.json(distinctAuthorNames(rows));
 });
 
 /**
