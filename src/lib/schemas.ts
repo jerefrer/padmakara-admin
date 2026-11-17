@@ -242,7 +242,10 @@ export const createEventTypeSchema = z.object({
   displayOrder: z.number().int().min(0).optional().default(0),
 });
 
-export const updateEventTypeSchema = createEventTypeSchema.partial();
+export const updateEventTypeSchema = createEventTypeSchema.partial().extend({
+  // .partial() keeps the create default, which would move the type to the top of the list on every PUT that omits it.
+  displayOrder: createEventTypeSchema.shape.displayOrder.removeDefault(),
+});
 
 // Audiences
 export const createAudienceSchema = z.object({
@@ -252,7 +255,10 @@ export const createAudienceSchema = z.object({
   displayOrder: z.number().int().min(0).optional().default(0),
 });
 
-export const updateAudienceSchema = createAudienceSchema.partial();
+export const updateAudienceSchema = createAudienceSchema.partial().extend({
+  // .partial() keeps the create default, which would move the audience to the top of the list on every PUT that omits it.
+  displayOrder: createAudienceSchema.shape.displayOrder.removeDefault(),
+});
 
 // Publications
 
@@ -284,7 +290,15 @@ export const createPublicationSchema = z.object({
   status: z.enum(PUBLICATION_STATUSES).optional(),
 });
 
-export const updatePublicationSchema = createPublicationSchema.partial();
+export const updatePublicationSchema = createPublicationSchema.partial().extend({
+  // .partial() keeps the create defaults, which would wipe the authors and reset the language
+  // (and the links) of every PUT that omits them.
+  authors: createPublicationSchema.shape.authors.removeDefault(),
+  language: createPublicationSchema.shape.language.removeDefault(),
+  eventIds: createPublicationSchema.shape.eventIds.removeDefault(),
+  retreatGroupIds: createPublicationSchema.shape.retreatGroupIds.removeDefault(),
+  accessUserIds: createPublicationSchema.shape.accessUserIds.removeDefault(),
+});
 
 // Events (formerly Retreats)
 export const createEventSchema = z.object({
@@ -344,6 +358,13 @@ export const createEventSchema = z.object({
 });
 
 export const updateEventSchema = createEventSchema.partial().extend({
+  // .partial() keeps the create defaults, which would reset the status and empty the links on a PUT that omits them.
+  status: createEventSchema.shape.status.removeDefault(),
+  teacherIds: createEventSchema.shape.teacherIds.removeDefault(),
+  groupIds: createEventSchema.shape.groupIds.removeDefault(),
+  placeIds: createEventSchema.shape.placeIds.removeDefault(),
+  organizerIds: createEventSchema.shape.organizerIds.removeDefault(),
+  publicationIds: createEventSchema.shape.publicationIds.removeDefault(),
   // Back-office-only notes, stored apart from the event row (event_internal_notes).
   internalNotes: z.string().max(20000).optional(),
 });
