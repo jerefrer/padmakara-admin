@@ -2659,12 +2659,14 @@ export const EventCreate = () => {
    * a `WeakMap` — stays stable across the update.
    */
   const handleAiApply = useCallback((result: AiAssistResult) => {
+    // AI-written event and session titles wait for an admin's approval, like
+    // the track titles below.
     if (result.event) {
       setForm((f) => ({
         ...f,
         ...result.event,
-        titleEnReviewed: result.event!.titleEn !== undefined ? true : f.titleEnReviewed,
-        titlePtReviewed: result.event!.titlePt !== undefined ? true : f.titlePtReviewed,
+        titleEnReviewed: result.event!.titleEn !== undefined ? false : f.titleEnReviewed,
+        titlePtReviewed: result.event!.titlePt !== undefined ? false : f.titlePtReviewed,
         mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? true : f.mainThemesEnReviewed,
         mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? true : f.mainThemesPtReviewed,
         sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? true : f.sessionThemesEnReviewed,
@@ -2682,8 +2684,8 @@ export const EventCreate = () => {
           ...s,
           titleEn: nextTitleEn,
           titlePt: nextTitlePt,
-          titleEnReviewed: sSug?.titleEn !== undefined ? true : s.titleEnReviewed,
-          titlePtReviewed: sSug?.titlePt !== undefined ? true : s.titlePtReviewed,
+          titleEnReviewed: sSug?.titleEn !== undefined ? false : s.titleEnReviewed,
+          titlePtReviewed: sSug?.titlePt !== undefined ? false : s.titlePtReviewed,
           tracks: s.tracks.map((tk) => {
             const tSug = trackById.get(fileKey(tk.file));
             if (!tSug) return tk;
@@ -3788,25 +3790,26 @@ export const EventEdit = () => {
    */
   const handleAiApply = useCallback(async (result: AiAssistResult) => {
     // Event fields → staged into form; persisted when the admin clicks Save.
+    // AI-written titles wait for an admin's approval, like track and video titles.
     if (result.event) {
       setForm((f) => ({
         ...f,
         ...result.event,
-        titleEnReviewed: result.event!.titleEn !== undefined ? true : f.titleEnReviewed,
-        titlePtReviewed: result.event!.titlePt !== undefined ? true : f.titlePtReviewed,
+        titleEnReviewed: result.event!.titleEn !== undefined ? false : f.titleEnReviewed,
+        titlePtReviewed: result.event!.titlePt !== undefined ? false : f.titlePtReviewed,
         mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? true : f.mainThemesEnReviewed,
         mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? true : f.mainThemesPtReviewed,
         sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? true : f.sessionThemesEnReviewed,
         sessionThemesPtReviewed: result.event!.sessionThemesPt !== undefined ? true : f.sessionThemesPtReviewed,
       }));
     }
-    // Session titles → immediate persist via the existing handler.
+    // Session titles → immediate persist via the existing handler, pending approval.
     for (const s of result.sessions) {
       const idx = sessions.findIndex((x) => String(x.id) === s.rowKey);
       if (idx < 0) continue;
       const patch: Record<string, unknown> = {};
-      if (s.titleEn !== undefined) { patch.titleEn = s.titleEn; patch.titleEnReviewed = true; }
-      if (s.titlePt !== undefined) { patch.titlePt = s.titlePt; patch.titlePtReviewed = true; }
+      if (s.titleEn !== undefined) { patch.titleEn = s.titleEn; patch.titleEnReviewed = false; }
+      if (s.titlePt !== undefined) { patch.titlePt = s.titlePt; patch.titlePtReviewed = false; }
       if (Object.keys(patch).length) await handleSessionTitleChange(idx, patch, { silent: true });
     }
     // Videos → immediate persist via PATCH, the same endpoint

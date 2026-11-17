@@ -119,3 +119,25 @@ describe("session title editor and changes made elsewhere", () => {
     expect(sentPatch()).toEqual({ titlePtReviewed: true });
   });
 });
+
+describe("session header and AI-written titles", () => {
+  const chips = () =>
+    [...container.querySelectorAll(".MuiChip-root")].filter((el) => el.textContent === "padmakara.events.aiChipLabel");
+
+  it("should show the approve chip next to a session title awaiting approval", () => {
+    render(SESSION);
+    expect(chips()).toHaveLength(1);
+  });
+
+  it("should approve the title from the header chip without opening the editor", () => {
+    render(SESSION);
+    act(() => (chips()[0] as HTMLElement).click());
+    expect(sentPatch()).toEqual({ titlePtReviewed: true });
+    expect(englishInput()).toBeNull();
+  });
+
+  it("should show no chip when both titles are approved", () => {
+    render({ ...SESSION, titlePtReviewed: true } as InferredSession);
+    expect(chips()).toHaveLength(0);
+  });
+});

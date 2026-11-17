@@ -506,24 +506,38 @@ const SessionCard = ({
           </Box>
         ) : (
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography
-              variant="body2"
-              noWrap
-              title={translate("padmakara.tracks.clickToEdit")}
-              onClick={(e) => {
-                e.stopPropagation();
-                openTitleEditor();
+            {/* Same display as the track and video rows: an AI-written title
+                that nobody has approved yet carries the approve chip. */}
+            <TitlePair
+              titleEn={session.titleEn}
+              titlePt={session.titlePt}
+              fallback={session.titleEn}
+              titleEnReviewed={session.titleEnReviewed ?? true}
+              titlePtReviewed={session.titlePtReviewed ?? true}
+              onMarkReviewed={(lang) => onTitleChange(lang === "en" ? { titleEnReviewed: true } : { titlePtReviewed: true })}
+              primaryProps={{
+                title: translate("padmakara.tracks.clickToEdit"),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  openTitleEditor();
+                },
+                sx: {
+                  fontWeight: 600,
+                  display: "inline-block",
+                  maxWidth: "100%",
+                  verticalAlign: "middle",
+                  ...clickToEditSx,
+                },
               }}
-              sx={{
-                fontWeight: 600,
-                display: "inline-block",
-                maxWidth: "100%",
-                verticalAlign: "middle",
-                ...clickToEditSx,
+              secondaryProps={{
+                title: translate("padmakara.tracks.clickToEdit"),
+                onClick: (e) => {
+                  e.stopPropagation();
+                  openTitleEditor();
+                },
+                sx: { cursor: "pointer" },
               }}
-            >
-              {session.titleEn}
-            </Typography>
+            />
           </Box>
         )}
 
