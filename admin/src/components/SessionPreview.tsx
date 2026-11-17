@@ -838,6 +838,11 @@ const TrackRow = ({
     };
   };
   const [editValues, setEditValues] = useState(seedFromTrack);
+  // What the editor opened with: a save sends only the fields changed since.
+  // Comparing with the live `track` instead made any newer value (an approval
+  // that landed while the editor was open) look like an edit, and the save
+  // wrote the editor's older value back over it (event 928, 2026-11-16).
+  const openedWithRef = useRef(editValues);
   const [speakerPickerOpen, setSpeakerPickerOpen] = useState(false);
   // Set once the editor's outcome is decided (save, cancel or navigate) so a
   // trailing blur event can't double-commit or clobber the next row's state.
@@ -855,7 +860,9 @@ const TrackRow = ({
 
   useEffect(() => {
     if (editing) {
-      setEditValues(seedFromTrack());
+      const seed = seedFromTrack();
+      openedWithRef.current = seed;
+      setEditValues(seed);
       doneRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -890,29 +897,34 @@ const TrackRow = ({
     </>
   );
 
-  const isDirty = () => {
-    const seed = seedFromTrack();
-    return (
-      editValues.titleEn !== seed.titleEn ||
-      editValues.titlePt !== seed.titlePt ||
-      editValues.titleEnReviewed !== seed.titleEnReviewed ||
-      editValues.titlePtReviewed !== seed.titlePtReviewed ||
-      editValues.speaker !== seed.speaker ||
-      editValues.isPractice !== seed.isPractice ||
-      editValues.isTranslation !== seed.isTranslation ||
-      editValues.languages.join(",") !== seed.languages.join(",")
-    );
+  /** The fields edited since the editor opened, as an update. */
+  const changedFields = (): Partial<ParsedTrack> => {
+    const seed = openedWithRef.current;
+    const changes: Partial<ParsedTrack> = {};
+    if (editValues.titleEn !== seed.titleEn) changes.titleEn = editValues.titleEn;
+    if (editValues.titlePt !== seed.titlePt) changes.titlePt = editValues.titlePt;
+    if (editValues.titleEnReviewed !== seed.titleEnReviewed) changes.titleEnReviewed = editValues.titleEnReviewed;
+    if (editValues.titlePtReviewed !== seed.titlePtReviewed) changes.titlePtReviewed = editValues.titlePtReviewed;
+    if (editValues.speaker !== seed.speaker) changes.speaker = editValues.speaker;
+    if (editValues.isPractice !== seed.isPractice) changes.isPractice = editValues.isPractice;
+    if (editValues.isTranslation !== seed.isTranslation) changes.isTranslation = editValues.isTranslation;
+    if (editValues.languages.join(",") !== seed.languages.join(",")) {
+      changes.languages = editValues.languages;
+      changes.originalLanguage = editValues.languages[0] || "en";
+    }
+    return changes;
   };
 
   const commit = () => {
     if (doneRef.current) return;
     doneRef.current = true;
-    if (onTrackUpdate && track.id && isDirty()) {
+    const changes = changedFields();
+    if (onTrackUpdate && track.id && Object.keys(changes).length > 0) {
       onTrackUpdate(track.id, {
-        ...editValues,
-        // Emptied so the app serves the Portuguese title just edited.
-        ...(hideEnglishTitle ? { titleEn: "", titleEnReviewed: true } : {}),
-        originalLanguage: editValues.languages[0] || "en",
+        ...changes,
+        // The English copy is emptied so the app serves the Portuguese title,
+        // which may itself be that copy moved over (see seedFromTrack).
+        ...(hideEnglishTitle ? { titlePt: editValues.titlePt, titleEn: "", titleEnReviewed: true } : {}),
       }).catch((error) => console.error("Failed to update track:", error));
     }
   };
