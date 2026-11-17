@@ -19,6 +19,7 @@ import { syncRoutes } from "./sync.ts";
 import { teacherRoutes } from "./teachers.ts";
 import { teacherArtworkRoutes } from "./teacher-artwork.ts";
 import { teachingRoutes } from "./teachings.ts";
+import { cspReportRoutes } from "./csp-report.ts";
 import { testRoutes } from "./test.ts";
 
 const api = new Hono();
@@ -26,6 +27,9 @@ const api = new Hono();
 // Auth (public endpoints)
 api.route("/auth", auth);
 api.route("/auth/passkeys", passkeyRoutes);
+
+// CSP violation reports from browsers (public, rate-limited, size-capped)
+api.route("/csp-report", cspReportRoutes);
 
 // Webhooks (public, HMAC-authenticated)
 api.route("/webhooks", webhookRoutes);

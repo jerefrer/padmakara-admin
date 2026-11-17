@@ -519,6 +519,13 @@
       "when": 1814665600000,
       "tag": "0073_drop_approval_request_fingerprint",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1814752000000,
+      "tag": "0074_csp_reports",
+      "breakpoints": true
     }
   ]
 }

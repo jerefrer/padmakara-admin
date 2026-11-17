@@ -133,3 +133,7 @@ export { passkeyCredentials, webauthnChallenges } from "./passkeys.ts";
 
 // Usage statistics (server-side totals + daily activity)
 export { usageDaily, userActiveDays } from "./usage.ts";
+
+// Content-Security-Policy violation reports (deduplicated)
+export { cspReports } from "./csp-reports.ts";
+export type { CspReport } from "./csp-reports.ts";
