@@ -102,6 +102,7 @@ import { detailsSummary, readAlongTrackCount, topicsSummary, transcriptionSummar
 import { TranscriptDropZone, type TranscriptUploadState } from "../components/TranscriptDropZone";
 import { EventPhotoSection } from "../components/EventPhotoSection";
 import { DocumentsSection, type PendingDocument } from "../components/DocumentsSection";
+import { hasUnsavedCreateWork, useLeaveGuard } from "../utils/useLeaveGuard";
 import { AiAssistPanel, type AiAssistResult } from "../components/AiAssistPanel";
 import {
   SessionTrackTable,
@@ -2388,6 +2389,11 @@ export const EventCreate = () => {
     { language: string; s3Key: string; originalFilename: string; fileSizeBytes: number }[]
   >([]);
   const pendingDocumentsRef = useRef<PendingDocument[]>([]);
+  // The refs above do not re-render; this mirrors "a document is queued" for the leave guard.
+  const [pendingDocumentCount, setPendingDocumentCount] = useState(0);
+  // Set once the event row exists: nothing left to lose, so leaving is no longer blocked.
+  const [eventCreated, setEventCreated] = useState(false);
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
 
   // AI analysis state
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -2641,6 +2647,7 @@ export const EventCreate = () => {
   /** Create-flow document uploads (no event id yet) — queue for handleSave. */
   const handlePendingDocumentUpload = useCallback((doc: PendingDocument) => {
     pendingDocumentsRef.current.push(doc);
+    setPendingDocumentCount(pendingDocumentsRef.current.length);
   }, []);
 
   /**
@@ -2750,6 +2757,8 @@ export const EventCreate = () => {
           groupIds: selectedGroups.map((g) => g.id),
         },
       });
+      // The event exists from here on; a leave warning would only block the redirects below.
+      setEventCreated(true);
 
       // Any transcripts/documents dropped before Save only had an eventCode
       // to upload against — persist their DB rows now that a real id exists.
@@ -2909,11 +2918,33 @@ export const EventCreate = () => {
 
   const hasFolder = sessions.length > 0;
   const showForm = hasFolder || withoutFiles;
+  const trackTotal = sessions.reduce((n, s) => n + s.tracks.length, 0);
+
+  // Nothing is uploaded or created until Create event runs, so a loaded
+  // folder or a filled form is lost on leave. Arm the guard until it exists.
+  const unsavedWork =
+    !eventCreated &&
+    hasUnsavedCreateWork({
+      hasFolder,
+      formChanged: JSON.stringify(form) !== JSON.stringify(EMPTY_FORM),
+      selectionCount:
+        selectedTeachers.length + selectedPlaces.length + selectedOrganizers.length +
+        selectedGroups.length + (selectedEventType ? 1 : 0) + (selectedAudience ? 1 : 0),
+      transcriptCount: transcriptUploads.length,
+      documentCount: pendingDocumentCount,
+    });
+  useLeaveGuard(unsavedWork);
+  // The admin runs on react-admin's hash router (not a data router), which has
+  // no navigation blocker, so the page's own exit buttons ask first.
+  const leavePage = () => {
+    if (unsavedWork) setConfirmLeaveOpen(true);
+    else redirect("list", "events");
+  };
 
   return (
     <Box sx={{ px: 3, pb: 6 }}>
       <Title title={translate("padmakara.events.newEvent")} />
-      <PageHeader title={translate("padmakara.events.newEvent")} backLabel={translate("padmakara.events.back")} onBack={() => redirect("list", "events")} />
+      <PageHeader title={translate("padmakara.events.newEvent")} backLabel={translate("padmakara.events.back")} onBack={leavePage} />
 
       {!showForm && (
         <Paper sx={{ p: 3 }}>
@@ -3089,21 +3120,44 @@ export const EventCreate = () => {
             />
           )}
 
-          {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
-          <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2 }}>
-            <Button variant="outlined" onClick={() => redirect("list", "events")} disabled={saving}>
-              {translate("padmakara.events.cancel")}
-            </Button>
-            <Button
-              variant="contained"
-              size="large"
-              startIcon={<SaveIcon />}
-              onClick={handleSave}
-              disabled={saving || !form.eventCode || !form.titleEn}
-              sx={{ px: 4, py: 1.2, fontSize: "0.95rem" }}
-            >
-              {saving ? translate("padmakara.events.saving") : translate("padmakara.events.createEvent")}
-            </Button>
+          {/* Sticky so Create event stays in view however long the track table is. */}
+          <Box
+            sx={{
+              position: "sticky",
+              bottom: 0,
+              zIndex: (t) => t.zIndex.appBar - 1,
+              mx: -3,
+              px: 3,
+              py: 1.5,
+              bgcolor: "background.paper",
+              borderTop: 1,
+              borderColor: "divider",
+              boxShadow: 3,
+            }}
+          >
+            {saving && <LinearProgress sx={{ mb: 1.5, borderRadius: 1 }} />}
+            <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+              {hasFolder && !eventCreated && (
+                <Typography variant="body2" sx={{ color: "text.secondary", flex: "1 1 16rem" }}>
+                  {translate("padmakara.events.readyNotUploaded", { smart_count: trackTotal })}
+                </Typography>
+              )}
+              <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <Button variant="outlined" onClick={leavePage} disabled={saving}>
+                  {translate("padmakara.events.cancel")}
+                </Button>
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<SaveIcon />}
+                  onClick={handleSave}
+                  disabled={saving || !form.eventCode || !form.titleEn}
+                  sx={{ px: 4, py: 1.2, fontSize: "0.95rem" }}
+                >
+                  {saving ? translate("padmakara.events.saving") : translate("padmakara.events.createEvent")}
+                </Button>
+              </Box>
+            </Box>
           </Box>
         </>
       )}
@@ -3134,6 +3188,27 @@ export const EventCreate = () => {
           onResume={() => redirect("edit", "events", incompleteUpload.eventId)}
         />
       )}
+
+      <Dialog open={confirmLeaveOpen} onClose={() => setConfirmLeaveOpen(false)}>
+        <DialogTitle>{translate("padmakara.events.leaveTitle")}</DialogTitle>
+        <DialogContent>
+          <Typography>{translate("padmakara.events.leaveBody")}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button autoFocus onClick={() => setConfirmLeaveOpen(false)}>
+            {translate("padmakara.events.leaveStay")}
+          </Button>
+          <Button
+            color="error"
+            onClick={() => {
+              setConfirmLeaveOpen(false);
+              redirect("list", "events");
+            }}
+          >
+            {translate("padmakara.events.leaveDiscard")}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
