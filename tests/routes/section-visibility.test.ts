@@ -145,7 +145,7 @@ describe("GET /api/events/:id", () => {
 
     expect(body.eventFiles).toEqual([]);
     expect(body.relatedPublications).toEqual([]);
-    expect(body.eventPublications).toEqual([]);
+    expect(body).not.toHaveProperty("eventPublications");
     expect(body.transcripts).toHaveLength(1);
   });
 

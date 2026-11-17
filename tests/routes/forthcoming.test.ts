@@ -140,7 +140,7 @@ describe("GET /api/events/:id for a forthcoming event", () => {
     expect(body.videos).toEqual([]);
     expect(body.transcripts).toEqual([]);
     expect(body.eventFiles).toEqual([]);
-    expect(body.eventPublications).toEqual([]);
+    expect(body).not.toHaveProperty("eventPublications");
     expect(body.relatedPublications).toEqual([]);
     expect(body.mainThemesEn).toBeNull();
     expect(body.sessionThemesEn).toBeNull();

@@ -116,7 +116,6 @@ const eventWith = {
   eventRetreatGroups: { with: { retreatGroup: true } },
   eventPlaces: { with: { place: true } },
   eventOrganizers: eventOrganizersWith,
-  eventPublications: { with: { publication: true } },
   videos: {
     orderBy: (v: any, { asc }: any) => [asc(v.position)],
   },
@@ -597,7 +596,9 @@ eventRoutes.get("/:id", async (c) => {
 
   const event = await db.query.events.findFirst({
     where: eq(events.id, id),
-    with: eventWithSessions,
+    // The direct publication links feed `relatedPublications` below; they never leave
+    // the server as raw rows (they carry the S3 keys of texts the caller may not open)
+    with: { ...eventWithSessions, eventPublications: { with: { publication: true } } },
   });
 
   if (!event) {
@@ -659,7 +660,8 @@ eventRoutes.get("/:id", async (c) => {
   await resolveEventImageUrls(event);
   applyEventVideoThumbnails(event);
   applyEventOrganizers(event);
-  return c.json({ ...event, relatedPublications: relatedPubsWithUrls });
+  const { eventPublications: _rawLinks, ...clientEvent } = event;
+  return c.json({ ...clientEvent, relatedPublications: relatedPubsWithUrls });
 });
 
 /**

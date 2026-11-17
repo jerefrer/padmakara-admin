@@ -899,3 +899,67 @@ describe("GET /api/events/:id/preview", () => {
     expect(status).toBe(404);
   });
 });
+
+// ─── Publication rows never reach the client ─────────────────────────────────
+
+describe("event payloads — raw publication links", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const lockedLink = {
+    eventId: 42,
+    publicationId: 9,
+    publication: {
+      id: 9,
+      title: "Locked secret text",
+      subtitle: null,
+      audienceId: 99,
+      status: "published",
+      pdfS3Key: "publications/locked-secret.pdf",
+      coverImageS3Key: "publications/locked-secret-cover.jpg",
+    },
+  };
+
+  it("should not return eventPublications or publication S3 keys on the event detail of a non-admin", async () => {
+    // Arrange: the caller may not open the linked publication
+    mockDb.query.events.findFirst.mockResolvedValueOnce({
+      ...draftPublicEvent,
+      status: "published",
+      eventPublications: [lockedLink],
+    });
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow("user"));
+    mockOpenablePublications.mockResolvedValueOnce(new Set<number>());
+
+    // Act
+    const { body } = await testJson("/api/events/42", { headers: await bearerToken("user") });
+
+    // Assert
+    expect(body).not.toHaveProperty("eventPublications");
+    const text = JSON.stringify(body);
+    expect(text).not.toContain("locked-secret");
+    expect(text).not.toContain("Locked secret text");
+    expect(body.relatedPublications).toEqual([]);
+  });
+
+  it("should not load the raw publication links for the list, public and featured queries", async () => {
+    // Arrange
+    mockDb.query.events.findMany.mockResolvedValue([]);
+    mockDb.query.events.findFirst.mockResolvedValue(null);
+    mockDb.query.audiences.findFirst.mockResolvedValue({ id: 1, slug: "free-anyone" });
+    mockDb.query.users.findFirst.mockResolvedValue(makeUserRow("user"));
+
+    // Act
+    await testJson("/api/events", { headers: await bearerToken("user") });
+    await testJson("/api/events/public");
+    await testJson("/api/events/public/42");
+    await testJson("/api/events/featured");
+
+    // Assert
+    const queries = [...mockDb.query.events.findMany.mock.calls, ...mockDb.query.events.findFirst.mock.calls];
+    expect(queries.length).toBeGreaterThanOrEqual(4);
+    for (const [query] of queries) {
+      expect(Object.keys((query as { with?: Record<string, unknown> }).with ?? {})).not.toContain("eventPublications");
+    }
+  });
+});
