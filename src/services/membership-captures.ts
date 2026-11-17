@@ -24,12 +24,22 @@
  *    code missed before its last credit is never credited automatically (the dry run
  *    lists such captures for a human).
  */
-import { addInterval, type MembershipInterval } from "./membership.ts";
+import { addInterval, subtractInterval, type MembershipInterval } from "./membership.ts";
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Ledger actions that extended a membership. */
 export const CREDIT_ACTIONS = ["activated", "extended"];
+
+/** Ledger action of a completed refund of a credited capture: one interval taken off. */
+export const REFUND_APPLIED = "refund_interval_removed";
+/** Ledger action of a chargeback on a credited capture: access closed, subscription stopped. */
+export const CHARGEBACK_APPLIED = "chargeback_closed";
+/**
+ * Ledger actions of a membership reversal already applied, under the refund's or the
+ * chargeback's own id. "reversed" is what the code before 2026-11-17 wrote.
+ */
+export const REVERSAL_APPLIED_ACTIONS = ["reversed", REFUND_APPLIED, CHARGEBACK_APPLIED];
 
 export interface EasypayCapture {
   id: string;
@@ -137,4 +147,21 @@ export function expiryAfterCapture(
   const paidAt = captureAt === null ? now.getTime() : Math.min(captureAt, now.getTime());
   const base = current && current.getTime() > paidAt ? current : new Date(paidAt);
   return addInterval(base, interval);
+}
+
+/**
+ * The paid-through date after a completed refund of one credited capture: one interval
+ * earlier, but never before the capture's own time `captureAt`, and never later than
+ * `current`.
+ *
+ * The floor: crediting counts a capture's interval from the later of the paid-through date
+ * and the capture time (`expiryAfterCapture`), so whatever access ran before the capture was
+ * paid for by something else (earlier captures, an admin grant) and is not this refund's to
+ * take. Taking back the most recent capture lands exactly on the date it started from, or on
+ * the capture date for a member who had lapsed. An older capture removes one interval from
+ * the end all the same: paid time is a count of intervals, not a list of dated slots.
+ */
+export function expiryAfterRefund(current: Date, interval: MembershipInterval, captureAt: number): Date {
+  const removed = subtractInterval(current, interval).getTime();
+  return new Date(Math.min(current.getTime(), Math.max(removed, captureAt)));
 }

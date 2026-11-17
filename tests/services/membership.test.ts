@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  parseContribution, frequencyFor, intervalFromFrequency, addInterval, nextExpiry, easypayDateTime,
+  parseContribution, frequencyFor, intervalFromFrequency, addInterval, subtractInterval, nextExpiry, easypayDateTime,
 } from "../../src/services/membership.ts";
 
 describe("parseContribution", () => {
@@ -44,6 +44,22 @@ describe("intervals", () => {
     expect(addInterval(d, "month").toISOString()).toBe("2026-11-07T12:00:00.000Z");
     expect(addInterval(d, "year").toISOString()).toBe("2027-10-07T12:00:00.000Z");
     expect(d.toISOString()).toBe("2026-10-07T12:00:00.000Z");
+  });
+});
+
+describe("subtractInterval", () => {
+  it("should take one month or one year off without mutating the input", () => {
+    const d = new Date("2026-10-07T12:00:00Z");
+    expect(subtractInterval(d, "month").toISOString()).toBe("2026-09-07T12:00:00.000Z");
+    expect(subtractInterval(d, "year").toISOString()).toBe("2025-10-07T12:00:00.000Z");
+    expect(d.toISOString()).toBe("2026-10-07T12:00:00.000Z");
+  });
+  it("should land on the last day of a shorter month instead of rolling into the next one", () => {
+    expect(subtractInterval(new Date("2026-03-31T08:00:00Z"), "month").toISOString()).toBe("2026-02-28T08:00:00.000Z");
+    expect(subtractInterval(new Date("2028-02-29T08:00:00Z"), "year").toISOString()).toBe("2027-02-28T08:00:00.000Z");
+  });
+  it("should cross a year boundary", () => {
+    expect(subtractInterval(new Date("2027-01-15T00:00:00Z"), "month").toISOString()).toBe("2026-12-15T00:00:00.000Z");
   });
 });
 

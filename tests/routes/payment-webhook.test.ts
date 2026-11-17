@@ -412,7 +412,7 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
     expect(usersUpdate()).toBeNull();
   });
 
-  it("closes access on a chargeback Easypay reports on a capture we credited", async () => {
+  it("closes access and stops the subscription on a chargeback Easypay reports on a capture we credited", async () => {
     const CHARGEBACK = "00000000-0000-4000-8000-0000000000cb";
     stubEasypayPaths({
       [`/chargeback/${CHARGEBACK}`]: {
@@ -430,7 +430,8 @@ describe("POST /api/payment/webhook (real Easypay)", () => {
 
     expect(status).toBe(200);
     expect(usersUpdate()).toMatchObject({ subscriptionStatus: "expired" });
-    expect(ledgerUpdate()).toMatchObject({ userId: 7, action: "reversed" });
+    expect(patchedUrls()).toEqual([expect.stringContaining("/subscription/00000000-0000-4000-8000-0000000000a1")]);
+    expect(ledgerUpdate()).toMatchObject({ userId: 7, action: "chargeback_closed" });
   });
 
   it("records but does not act on a notification Easypay cannot confirm", async () => {
@@ -1090,7 +1091,7 @@ describe("the webhook credits captures Easypay reports, never the notification b
     expect(ledgerUpdate()).toMatchObject({ action: "reversal_review" });
   });
 
-  it("should close access on a successful refund of a capture we credited", async () => {
+  it("should take the interval back, down to the capture's date, on a successful refund of a capture we credited", async () => {
     const REFUND = "00000000-0000-4000-8000-0000000000f2";
     stubEasypayPaths({
       [`/refund/${REFUND}`]: { id: REFUND, status: "success", value: 5, capture: { id: CAPTURE_1, payment_id: SUB, payment_type: "subscription" } },
@@ -1102,8 +1103,11 @@ describe("the webhook credits captures Easypay reports, never the notification b
 
     await notify({ id: REFUND, type: "refund", status: "success", date: "2026-11-16 10:00:00" });
 
+    // Paid through 10 days from now by a capture made just now: one month back would be
+    // before the capture, so the date stops at the capture and access ends.
     expect(usersUpdate()).toMatchObject({ subscriptionStatus: "expired" });
-    expect(ledgerUpdate()).toMatchObject({ userId: 7, action: "reversed" });
+    expect(patchedUrls()).toEqual([]);
+    expect(ledgerUpdate()).toMatchObject({ userId: 7, action: "refund_interval_removed" });
   });
 
   it("should leave access open while Easypay reports the refund as still pending", async () => {
@@ -1272,6 +1276,23 @@ describe("membership emails from the webhook", () => {
     await notify(capture);
     expect(creditRows()).toEqual([expect.objectContaining({ action: "activated" })]);
     expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not welcome again a member whose access a refund on the same subscription ended", async () => {
+    // A refund took back the last interval and access lapsed; the subscription kept running
+    // at Easypay, so its next capture restores access. That is not someone joining.
+    (db.query.users.findFirst as any).mockResolvedValue({
+      id: 7, email: "member@test.com", firstName: "Ana", preferredLanguage: "en",
+      subscriptionStatus: "expired", subscriptionExpiresAt: new Date(Date.now() - 2 * 86_400_000), subscriptionAmount: "5",
+    });
+    selectResolver = ({ params }) =>
+      params.includes("refund_interval_removed")
+        ? [{ id: 50 }]
+        : [];
+    stubEasypay(paidSubscription());
+    await notify(capture);
+    expect(creditRows()).toEqual([expect.objectContaining({ action: "activated" })]);
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("should send the first-payment-failed email once, and not the renewal one, when there is no expiry date", async () => {
