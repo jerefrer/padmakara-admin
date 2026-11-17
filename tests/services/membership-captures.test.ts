@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   countedCaptures,
   expiryAfterCapture,
+  expiryAfterRefund,
   isPaidCapture,
   listCaptures,
   uncountedPaidCaptures,
@@ -111,5 +112,28 @@ describe("expiryAfterCapture", () => {
 
   it("should count from now when the capture time is unknown", () => {
     expect(expiryAfterCapture(null, "month", null, now)).toEqual(new Date("2026-12-16T12:00:00Z"));
+  });
+});
+
+describe("expiryAfterRefund", () => {
+  it("should take one interval off the paid-through date", () => {
+    expect(expiryAfterRefund(new Date("2027-01-15T00:00:00Z"), "month", Date.parse("2026-11-10T00:00:00Z"))).toEqual(
+      new Date("2026-12-15T00:00:00Z"),
+    );
+    expect(expiryAfterRefund(new Date("2027-11-15T00:00:00Z"), "year", Date.parse("2026-11-10T00:00:00Z"))).toEqual(
+      new Date("2026-11-15T00:00:00Z"),
+    );
+  });
+
+  it("should stop at the refunded capture's own date", () => {
+    expect(expiryAfterRefund(new Date("2026-11-20T00:00:00Z"), "month", Date.parse("2026-11-10T00:00:00Z"))).toEqual(
+      new Date("2026-11-10T00:00:00Z"),
+    );
+  });
+
+  it("should never move the date later than it was", () => {
+    expect(expiryAfterRefund(new Date("2026-11-01T00:00:00Z"), "month", Date.parse("2026-11-10T00:00:00Z"))).toEqual(
+      new Date("2026-11-01T00:00:00Z"),
+    );
   });
 });

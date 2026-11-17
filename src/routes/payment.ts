@@ -26,9 +26,13 @@ import {
   type MembershipInterval,
 } from "../services/membership.ts";
 import {
+  CHARGEBACK_APPLIED,
   CREDIT_ACTIONS,
+  REFUND_APPLIED,
+  REVERSAL_APPLIED_ACTIONS,
   easypayTime,
   expiryAfterCapture,
+  expiryAfterRefund,
   listCaptures,
   uncountedPaidCaptures,
 } from "../services/membership-captures.ts";
@@ -98,8 +102,8 @@ export interface EasypaySubscriptionResponse {
  * The body is unauthenticated, so its `type` and `status` are hints and nothing more:
  * they decide which Easypay resource to read and what to log, never whether money
  * arrived or went back. Access is extended from the captures Easypay lists on the
- * subscription (`creditNewCaptures`) and closed only on a refund or chargeback that
- * Easypay itself reports on a capture we credited (`verifyReversal`). The one thing a
+ * subscription (`creditNewCaptures`) and shortened or closed only on a refund or chargeback
+ * that Easypay itself reports on a capture we credited (`verifyReversal`). The one thing a
  * hint still drives on its own is the "payment failed" email and page state, which
  * change no access.
  */
@@ -412,7 +416,7 @@ function methodKind(type: unknown): "card" | "direct_debit" | null {
 function historyOutcome(action: string, note: string | null): "paid" | "failed" | "refunded" | null {
   if (action === "activated" || action === "extended") return "paid";
   if (action === "ignored" && note === "payment_failed") return "failed";
-  if (action === "reversed") return "refunded";
+  if (action === "reversed" || action === REFUND_APPLIED || action === CHARGEBACK_APPLIED) return "refunded";
   return null;
 }
 
@@ -664,6 +668,32 @@ async function adoptSubscription(
 
 // ─── Crediting captures ───
 
+/**
+ * Whether a refund on `subscriptionId` was applied to this member (its ledger note names the
+ * subscription). Such a member's subscription kept running at Easypay, so a capture that
+ * restores their access is the same membership carrying on, not someone joining: no welcome.
+ * A read failure answers false, which only means the welcome is sent as it was before.
+ */
+async function refundEndedAccessOn(userId: number, subscriptionId: string): Promise<boolean> {
+  try {
+    const rows = await db
+      .select({ id: paymentTransactions.id })
+      .from(paymentTransactions)
+      .where(
+        and(
+          eq(paymentTransactions.userId, userId),
+          eq(paymentTransactions.action, REFUND_APPLIED),
+          sql`${paymentTransactions.note} ilike ${`%(${subscriptionId.toLowerCase()})%`}`,
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  } catch (err) {
+    console.error(`[EASYPAY CREDIT] could not read the refunds of ${subscriptionId}:`, err);
+    return false;
+  }
+}
+
 type MemberRow = typeof users.$inferSelect;
 
 export interface CreditOutcome {
@@ -812,7 +842,7 @@ export async function creditNewCaptures(
     );
   }
 
-  if (firstWasActive === false && expiresAt) {
+  if (firstWasActive === false && expiresAt && !(await refundEndedAccessOn(user.id, subscriptionId))) {
     const nextPaymentAt = expiresAt;
     sendMembershipEmail(user.email, () =>
       buildWelcomeEmail({
@@ -848,7 +878,17 @@ type ReversalCheck =
   | { outcome: "not_final"; status: string }
   /** Real at Easypay, but not on a capture we can show we credited: for a human. */
   | { outcome: "unmatched"; note: string }
-  | { outcome: "matched"; userId: number; captureId: string; subscriptionId: string; amount: string | null }
+  | {
+      outcome: "matched";
+      userId: number;
+      captureId: string;
+      subscriptionId: string;
+      amount: string | null;
+      /** The interval that capture was credited for: the frequency of the subscription as stored with the credit. */
+      interval: MembershipInterval;
+      /** Epoch ms of the capture: as Easypay listed it in the stored snapshot, else when we credited it. */
+      captureAt: number;
+    }
   /**
    * The full amount of a teaching order's payment went back. `orderStatus` is "paid", or
    * "refunded" when an earlier notification already applied it.
@@ -954,6 +994,7 @@ async function verifyReversal(kind: "refund" | "chargeback", id: string): Promis
       action: paymentTransactions.action,
       easypayTransactionId: paymentTransactions.easypayTransactionId,
       rawSubscription: paymentTransactions.rawSubscription,
+      createdAt: paymentTransactions.createdAt,
     })
     .from(paymentTransactions)
     .where(
@@ -988,13 +1029,41 @@ async function verifyReversal(kind: "refund" | "chargeback", id: string): Promis
   }
   if (credit.userId === null) return { outcome: "unmatched", note: `${kind} ${id} on capture ${captureId} of a deleted account` };
   const value = typeof reversal.value === "number" ? reversal.value : reversal.amount;
+  // raw_subscription is the Easypay subscription read when the capture was credited (jsonb).
+  const snapshot = credit.rawSubscription as EasypaySubscriptionResponse | null;
   return {
     outcome: "matched",
     userId: credit.userId,
     captureId,
     subscriptionId: credit.notificationId,
     amount: typeof value === "number" ? String(value) : null,
+    interval: intervalFromFrequency(snapshot?.frequency),
+    captureAt: listCaptures(snapshot).find((c) => c.id === captureId)?.at ?? new Date(credit.createdAt).getTime(),
   };
+}
+
+/**
+ * Rows showing reversal `id` (a refund's or a chargeback's own id) already applied by
+ * another notification than `txId`.
+ */
+function alreadyAppliedCondition(id: string, txId: number) {
+  return and(
+    sql`lower(${paymentTransactions.notificationId}) = ${id.toLowerCase()}`,
+    inArray(paymentTransactions.action, REVERSAL_APPLIED_ACTIONS),
+    ne(paymentTransactions.id, txId),
+  );
+}
+
+/**
+ * The Easypay subscriptions a chargeback stops, lower-cased: the one the disputed capture was
+ * paid through and the member's current one (they differ after a card update). Mock ids have
+ * nothing at Easypay to stop.
+ */
+function subscriptionsToStop(captureSubscription: string, stored: string | null): string[] {
+  const ids = [captureSubscription, stored]
+    .filter((x): x is string => typeof x === "string" && x !== "" && !x.startsWith("mock_"))
+    .map((x) => x.toLowerCase());
+  return [...new Set(ids)];
 }
 
 // ─── Routes ───
@@ -1450,7 +1519,7 @@ paymentRoutes.post("/webhook", async (c) => {
     const kind = classifyNotification(type, status);
 
     // A refund or chargeback names its own resource (Easypay's notification table: the id is
-    // the refund's, or the chargeback's), never the subscription. Access closes only when
+    // the refund's, or the chargeback's), never the subscription. Access changes only when
     // Easypay reports that resource on a capture we credited.
     if (kind === "reversal") {
       const t = (type ?? "").toLowerCase();
@@ -1492,35 +1561,91 @@ paymentRoutes.post("/webhook", async (c) => {
         console.log(`[EASYPAY WEBHOOK] ${where} — order refunded, purchase access removed: ${reversed.grantRemoved}`);
         return c.json({ received: true });
       }
-      const already = await db
-        .select({ id: paymentTransactions.id })
-        .from(paymentTransactions)
-        .where(
-          and(
-            eq(paymentTransactions.notificationId, id),
-            eq(paymentTransactions.action, "reversed"),
-            ne(paymentTransactions.id, txId),
-          ),
-        )
-        .limit(1);
-      if (already.length > 0) {
-        // A replay of a reversal already applied must not close access again after the
-        // member has paid since.
-        await recordOutcome({ userId: check.userId, action: "ignored", note: `${t} ${id} already applied` });
+      // A capture we credited went back. A refund takes back that capture's interval; a
+      // chargeback ends the membership (DECISIONS.md, 2026-11-17).
+      const where = `${t} ${id} on capture ${check.captureId} (${check.subscriptionId})`;
+      const applied = alreadyAppliedCondition(id, txId);
+
+      // A replay of a reversal already applied changes nothing, and stops nothing again.
+      if ((await db.select({ id: paymentTransactions.id }).from(paymentTransactions).where(applied).limit(1)).length > 0) {
+        await recordOutcome({ userId: check.userId, action: "ignored", note: `${where} already applied` });
         return c.json({ received: true });
       }
-      // The money went back. Close access now rather than at the paid-through date.
-      await db
-        .update(users)
-        .set({ subscriptionStatus: "expired", updatedAt: new Date() })
-        .where(eq(users.id, check.userId));
-      await recordOutcome({
-        userId: check.userId,
-        action: "reversed",
-        note: `${t} ${id} on capture ${check.captureId} (${check.subscriptionId})`,
-        amount: check.amount,
+
+      let stopped: string[] = [];
+      if (t === "chargeback") {
+        const member = await db.query.users.findFirst({ where: eq(users.id, check.userId) });
+        stopped = subscriptionsToStop(check.subscriptionId, member?.easypaySubscriptionId ?? null);
+        // Stopped before anything is written: if Easypay does not confirm, the claim is given
+        // back and nothing is applied, so Easypay's retry starts clean and tries again.
+        for (const sid of stopped) {
+          if ((await deactivateAtEasypay(sid)) === "failed") {
+            return await retryLater(`${where}: subscription ${sid} could not be stopped`);
+          }
+        }
+      }
+
+      // The member row is locked so a capture credited meanwhile, or a second copy of this
+      // notification, is serialised with this write; the replay check is made again under it.
+      const result = await db.transaction(async (tx) => {
+        const [locked] = await tx
+          .select({
+            subscriptionStatus: users.subscriptionStatus,
+            subscriptionExpiresAt: users.subscriptionExpiresAt,
+            subscriptionCancelledAt: users.subscriptionCancelledAt,
+            easypaySubscriptionId: users.easypaySubscriptionId,
+          })
+          .from(users)
+          .where(eq(users.id, check.userId))
+          .for("update");
+        if (!locked) return { outcome: "review", note: `${where}: user ${check.userId} not found` } as const;
+        if ((await tx.select({ id: paymentTransactions.id }).from(paymentTransactions).where(applied).limit(1)).length > 0) {
+          return { outcome: "already" } as const;
+        }
+        const now = new Date();
+        const from = locked.subscriptionExpiresAt;
+        let set: Partial<typeof users.$inferInsert>;
+        let action: string;
+        let note: string;
+        if (t === "chargeback") {
+          const current = locked.easypaySubscriptionId;
+          if (current && !current.startsWith("mock_") && !stopped.includes(current.toLowerCase())) {
+            // A card update swapped the subscription after the stop above: throw, so the claim
+            // is given back and the retry stops the new one too.
+            throw new Error(`stored subscription changed to ${current} while ${where} was applied`);
+          }
+          set = {
+            subscriptionStatus: "expired",
+            subscriptionExpiresAt: now,
+            subscriptionCancelledAt: locked.subscriptionCancelledAt ?? now,
+          };
+          action = CHARGEBACK_APPLIED;
+          note = `${where}; paid through ${from?.toISOString() ?? "-"} -> ${now.toISOString()}; stopped ${stopped.join(", ")}`;
+        } else {
+          if (!from) {
+            return { outcome: "review", note: `${where}: the member has no paid-through date to take an interval from` } as const;
+          }
+          const to = expiryAfterRefund(from, check.interval, check.captureAt);
+          set = { subscriptionExpiresAt: to, ...(to <= now ? { subscriptionStatus: "expired" } : {}) };
+          action = REFUND_APPLIED;
+          note = `${where}; one ${check.interval} removed, paid through ${from.toISOString()} -> ${to.toISOString()}`;
+        }
+        await tx.update(users).set({ ...set, updatedAt: now }).where(eq(users.id, check.userId));
+        await tx
+          .update(paymentTransactions)
+          .set({ userId: check.userId, action, note, amount: check.amount })
+          .where(eq(paymentTransactions.id, txId));
+        return { outcome: "applied", note } as const;
       });
-      console.log(`[EASYPAY WEBHOOK] ${t} ${id} on capture ${check.captureId} for user ${check.userId} — access closed`);
+
+      if (result.outcome === "already") {
+        await recordOutcome({ userId: check.userId, action: "ignored", note: `${where} already applied` });
+      } else if (result.outcome === "review") {
+        console.error(`[EASYPAY WEBHOOK] ${result.note} — recorded for a human, access unchanged`);
+        await recordOutcome({ userId: check.userId, action: "reversal_review", note: result.note });
+      } else {
+        console.log(`[EASYPAY WEBHOOK] user ${check.userId}: ${result.note}`);
+      }
       return c.json({ received: true });
     }
 

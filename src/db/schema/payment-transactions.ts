@@ -60,8 +60,10 @@ export const paymentTransactions = pgTable(
      * What we did about it. Credit rows (one per Easypay capture, `easypayTransactionId`
      * set): "activated" | "extended". Notification rows: "credited" (its read of Easypay
      * credited captures) | "no_new_capture" (the body claimed a payment Easypay does not
-     * list) | "reversed" | "reversal_review" (a refund or chargeback we could not tie to a
-     * capture we credited: for a human) | "ignored" | "tokenized" | "method_updated"
+     * list) | "refund_interval_removed" (a refund of a credited capture: one interval taken
+     * off) | "chargeback_closed" (access closed, subscription stopped) | "reversed" (either,
+     * before 2026-11-17: access closed) | "reversal_review" (a refund or chargeback we could
+     * not tie to a capture we credited: for a human) | "ignored" | "tokenized" | "method_updated"
      * | "create_not_adopted" (a subscription_create Easypay does not report as just created)
      * | "unresolved" (could not attribute to a user) | "unverified" (Easypay answered 404).
      * Rows before 2026-11-16 used "activated" / "extended" on the notification row itself.

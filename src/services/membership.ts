@@ -45,6 +45,22 @@ export function addInterval(date: Date, interval: MembershipInterval): Date {
 }
 
 /**
+ * One month or one year earlier, in UTC. A day the target month does not have becomes that
+ * month's last day (31 March minus a month is 28 February), so a refund never takes back
+ * more than one calendar interval.
+ */
+export function subtractInterval(date: Date, interval: MembershipInterval): Date {
+  const d = new Date(date);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  if (interval === "year") d.setUTCFullYear(d.getUTCFullYear() - 1);
+  else d.setUTCMonth(d.getUTCMonth() - 1);
+  const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, lastDay));
+  return d;
+}
+
+/**
  * Extend from the later of now and the current paid-through date: an early renewal
  * must not shorten the paid period, a late one must not swallow the days it was late.
  */
