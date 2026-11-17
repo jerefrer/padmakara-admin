@@ -6,6 +6,7 @@ import { sessions } from "../../db/schema/sessions.ts";
 import { events } from "../../db/schema/retreats.ts";
 import { bulkUpdateTracksSchema, createTrackSchema, updateTrackSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
+import { TITLE_REVIEWED_PAIRS, keepApprovals, unflagsAny } from "../../lib/reviewed-flags.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
 import { buildConventionFilename } from "../../services/track-filename.ts";
@@ -223,6 +224,10 @@ trackRoutes.put("/:id", async (c) => {
   const data: Record<string, unknown> = { updatedAt: new Date() };
   for (const [key, val] of Object.entries(parsed)) {
     if (val !== undefined) data[key] = val;
+  }
+  // An approval is only withdrawn by new title text (see lib/reviewed-flags.ts).
+  if (unflagsAny(data, TITLE_REVIEWED_PAIRS)) {
+    keepApprovals(data, await db.query.tracks.findFirst({ where: eq(tracks.id, id) }), TITLE_REVIEWED_PAIRS);
   }
   // A new audio file invalidates the old details; they are re-read below.
   let fileChanged = false;

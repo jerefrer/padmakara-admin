@@ -21,6 +21,7 @@ import { copySlidesForSession } from "../../lib/slides/copy.ts";
 import { mergeIntroSubtitleCues } from "../../lib/slides/intro-subtitles.ts";
 import { withIntroSubtitlesForVideo } from "../../services/intro-subtitles.ts";
 import { AppError } from "../../lib/errors.ts";
+import { TITLE_REVIEWED_PAIRS, keepApprovals, unflagsAny } from "../../lib/reviewed-flags.ts";
 import { submitVideoBurnJob } from "../../services/video-burn.ts";
 import { fetchSlideTemplateMetadata, generateDefaultSlides } from "../../services/slide-metadata.ts";
 import { parsePagination, listResponse, countRows } from "./helpers.ts";
@@ -469,6 +470,10 @@ videoRoutes.patch("/:id", async (c) => {
   const data: Record<string, unknown> = { updatedAt: new Date() };
   for (const [key, val] of Object.entries(parsed)) {
     if (val !== undefined) data[key] = val;
+  }
+  // An approval is only withdrawn by new title text (see lib/reviewed-flags.ts).
+  if (unflagsAny(data, TITLE_REVIEWED_PAIRS)) {
+    keepApprovals(data, await db.query.eventVideos.findFirst({ where: eq(eventVideos.id, id) }), TITLE_REVIEWED_PAIRS);
   }
   if (parsed.sessionId != null) {
     // Choosing a session also dates a video that has no date of its own.

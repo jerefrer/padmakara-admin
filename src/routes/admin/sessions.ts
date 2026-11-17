@@ -5,6 +5,7 @@ import { sessions } from "../../db/schema/sessions.ts";
 import { events } from "../../db/schema/retreats.ts";
 import { createSessionSchema, sessionTrackOrderSchema, updateSessionSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
+import { TITLE_REVIEWED_PAIRS, keepApprovals, unflagsAny } from "../../lib/reviewed-flags.ts";
 import { parsePagination, buildOrderBy, listResponse, countRows } from "./helpers.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 import { renumberEventSessions } from "../../services/session-order.ts";
@@ -82,7 +83,11 @@ sessionRoutes.post("/", async (c) => {
 sessionRoutes.put("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const body = await c.req.json();
-  const data = updateSessionSchema.parse(body);
+  const data: Record<string, unknown> = updateSessionSchema.parse(body);
+  // An approval is only withdrawn by new title text (see lib/reviewed-flags.ts).
+  if (unflagsAny(data, TITLE_REVIEWED_PAIRS)) {
+    keepApprovals(data, await db.query.sessions.findFirst({ where: eq(sessions.id, id) }), TITLE_REVIEWED_PAIRS);
+  }
 
   const [updated] = await db
     .update(sessions)
