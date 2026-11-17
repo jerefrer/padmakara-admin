@@ -270,6 +270,12 @@ users → bookmarks → tracks (track position bookmarks)
 - `GET /api/content/bookmarks` - Get user's bookmarks
 - `POST /api/content/bookmarks` - Create bookmark at track position
 
+### Publications
+
+- `GET /api/publications` - Publications the caller can open (optional auth), each with its `status`. Drafts are listed to admins only; a `forthcoming` one is listed to the people its audience lets in (see `services/publication-status.ts`)
+- `GET /api/publications/:id/pdf` - Presigned PDF URL. Draft: 404 to non-admins. Forthcoming: 403 `PUBLICATION_FORTHCOMING` to non-admins its audience lets in
+- `GET /api/admin/publications/authors` - Distinct author names used across publications, with counts (the admin authors field's suggestions)
+
 ## Key Features & Implementation Patterns
 
 ### 1. Authentication & Authorization
