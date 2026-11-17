@@ -24,6 +24,7 @@ import {
   ReferenceArrayInput,
   AutocompleteArrayInput,
   SearchInput,
+  useBlocker,
 } from "react-admin";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
@@ -2393,7 +2394,8 @@ export const EventCreate = () => {
   const [pendingDocumentCount, setPendingDocumentCount] = useState(0);
   // Set once the event row exists: nothing left to lose, so leaving is no longer blocked.
   const [eventCreated, setEventCreated] = useState(false);
-  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+  // Read by the navigation blocker, which runs before a re-render after Save.
+  const unsavedWorkRef = useRef(false);
 
   // AI analysis state
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -2758,6 +2760,7 @@ export const EventCreate = () => {
         },
       });
       // The event exists from here on; a leave warning would only block the redirects below.
+      unsavedWorkRef.current = false;
       setEventCreated(true);
 
       // Any transcripts/documents dropped before Save only had an eventCode
@@ -2934,12 +2937,14 @@ export const EventCreate = () => {
       documentCount: pendingDocumentCount,
     });
   useLeaveGuard(unsavedWork);
-  // The admin runs on react-admin's hash router (not a data router), which has
-  // no navigation blocker, so the page's own exit buttons ask first.
-  const leavePage = () => {
-    if (unsavedWork) setConfirmLeaveOpen(true);
-    else redirect("list", "events");
-  };
+  unsavedWorkRef.current = unsavedWork;
+  // react-admin's default hash router is a data router, so in-app navigation
+  // (menu, back button, Cancel) can be held until the admin confirms.
+  const leaveBlocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      unsavedWorkRef.current && currentLocation.pathname !== nextLocation.pathname,
+  );
+  const leavePage = () => redirect("list", "events");
 
   return (
     <Box sx={{ px: 3, pb: 6 }}>
@@ -3189,22 +3194,16 @@ export const EventCreate = () => {
         />
       )}
 
-      <Dialog open={confirmLeaveOpen} onClose={() => setConfirmLeaveOpen(false)}>
+      <Dialog open={leaveBlocker.state === "blocked"} onClose={() => leaveBlocker.reset?.()}>
         <DialogTitle>{translate("padmakara.events.leaveTitle")}</DialogTitle>
         <DialogContent>
           <Typography>{translate("padmakara.events.leaveBody")}</Typography>
         </DialogContent>
         <DialogActions>
-          <Button autoFocus onClick={() => setConfirmLeaveOpen(false)}>
+          <Button autoFocus onClick={() => leaveBlocker.reset?.()}>
             {translate("padmakara.events.leaveStay")}
           </Button>
-          <Button
-            color="error"
-            onClick={() => {
-              setConfirmLeaveOpen(false);
-              redirect("list", "events");
-            }}
-          >
+          <Button color="error" onClick={() => leaveBlocker.proceed?.()}>
             {translate("padmakara.events.leaveDiscard")}
           </Button>
         </DialogActions>

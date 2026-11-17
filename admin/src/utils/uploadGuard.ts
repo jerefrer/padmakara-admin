@@ -38,8 +38,8 @@ export function holdUploadGuard(id: string): () => void {
 /**
  * Asks the browser to confirm before the tab is closed or reloaded (the
  * browser shows its own text). Returns a release function (idempotent).
- * In-app navigation is not covered: the admin runs on a plain hash router,
- * which has no navigation blocker, so pages guard their own exit buttons.
+ * In-app navigation is not covered here: pages that need it hold it with
+ * react-admin's useBlocker.
  */
 export function holdLeavePrompt(): () => void {
   let released = false;
