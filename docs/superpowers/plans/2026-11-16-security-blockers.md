@@ -319,14 +319,18 @@ rights on padmakara backups removed, legacy data files untracked, dependency upd
 
 Still open, waiting on Jérémy:
 - The legacy bucket `padmakara-pt` is publicly readable (325 known URLs, about
-  128 GB: retreat ZIPs, transcripts, a "Do not share" draft). Make it private or
-  delete it; the old Wix site may still link to it.
-- Removing `NOPASSWD: /usr/bin/cp` (runbook step B) is not applied: tibetan-course's
-  deploy on the same server and user also uses `sudo cp` for its unit and Caddy file.
-- Membership reversal policy (options A/B/C in the payment follow-up report).
+  128 GB: retreat ZIPs, transcripts, a "Do not share" draft). User decision
+  (2026-11-17): left public while the old Wix site is live; revisit when it stops.
+- User decision (2026-11-17): keep `NOPASSWD: /usr/bin/cp` (runbook step B not
+  applied). root and padmakara accept the same SSH key, so the sudo rule adds no
+  real boundary, and tibetan-course's deploy relies on it.
+- Membership reversal policy: decided and deployed 2026-11-17 (refund removes one
+  interval, chargeback closes access and stops the subscription; see DECISIONS.md).
 - Purging the untracked data files from git history.
-- Rebuild and push the video-burn image (its SSRF guard) once Docker is running.
-- Switch the CSP to enforcing after a signed-in pass (video, PDF, admin).
+- Rebuild and push the video-burn image (its SSRF guard). It has always been built
+  locally with Docker; a CodeBuild arm64 project like read-along's is proposed.
+- Switch the CSP to enforcing once real reports show no legitimate violation:
+  report-uri collection deployed 2026-11-17 (`src/scripts/csp-report-summary.ts`).
 - Delete `~/db-backups/pre-0072-device-fingerprints-2026-11-16.sql` on the server
   after a few days.
 
