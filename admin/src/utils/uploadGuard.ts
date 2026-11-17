@@ -25,16 +25,32 @@ export function holdUploadGuard(id: string): () => void {
     // Web Locks unavailable or blocked: the beforeunload guard still applies.
   }
 
-  const onBeforeUnload = (e: BeforeUnloadEvent) => {
-    e.preventDefault();
-    e.returnValue = "";
-  };
-  if (typeof window !== "undefined") window.addEventListener("beforeunload", onBeforeUnload);
+  const releasePrompt = holdLeavePrompt();
 
   return () => {
     if (released) return;
     released = true;
     releaseLock?.();
+    releasePrompt();
+  };
+}
+
+/**
+ * Asks the browser to confirm before the tab is closed or reloaded (the
+ * browser shows its own text). Returns a release function (idempotent).
+ * In-app navigation is not covered: the admin runs on a plain hash router,
+ * which has no navigation blocker, so pages guard their own exit buttons.
+ */
+export function holdLeavePrompt(): () => void {
+  let released = false;
+  const onBeforeUnload = (e: BeforeUnloadEvent) => {
+    e.preventDefault();
+    e.returnValue = "";
+  };
+  if (typeof window !== "undefined") window.addEventListener("beforeunload", onBeforeUnload);
+  return () => {
+    if (released) return;
+    released = true;
     if (typeof window !== "undefined") window.removeEventListener("beforeunload", onBeforeUnload);
   };
 }

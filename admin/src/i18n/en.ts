@@ -333,6 +333,11 @@ export const en = {
       // Buttons
       newEvent: "New Event",
       createEvent: "Create Event",
+      readyNotUploaded: "%{smart_count} track ready, not uploaded yet. Click Create Event to upload. |||| %{smart_count} tracks ready, not uploaded yet. Click Create Event to upload.",
+      leaveTitle: "Leave without creating the event?",
+      leaveBody: "Nothing has been uploaded or created yet. If you leave now, the folder and everything you filled in will be lost.",
+      leaveStay: "Stay",
+      leaveDiscard: "Leave and discard",
       saveChanges: "Save",
       saveAndClose: "Save & close",
       saving: "Saving...",

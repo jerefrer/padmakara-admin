@@ -531,6 +531,11 @@ export const pt = {
       // Buttons
       newEvent: "Novo Evento",
       createEvent: "Criar Evento",
+      readyNotUploaded: "%{smart_count} faixa pronta, ainda sem carregar. Clique em Criar Evento para carregar. |||| %{smart_count} faixas prontas, ainda sem carregar. Clique em Criar Evento para carregar.",
+      leaveTitle: "Sair sem criar o evento?",
+      leaveBody: "Ainda nada foi carregado nem criado. Se sair agora, a pasta e tudo o que preencheu serão perdidos.",
+      leaveStay: "Ficar",
+      leaveDiscard: "Sair e descartar",
       saveChanges: "Guardar",
       saveAndClose: "Guardar e fechar",
       saving: "A guardar...",
