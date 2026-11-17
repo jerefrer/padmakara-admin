@@ -327,8 +327,9 @@ Still open, waiting on Jérémy:
 - Membership reversal policy: decided and deployed 2026-11-17 (refund removes one
   interval, chargeback closes access and stops the subscription; see DECISIONS.md).
 - Purging the untracked data files from git history.
-- Rebuild and push the video-burn image (its SSRF guard). It has always been built
-  locally with Docker; a CodeBuild arm64 project like read-along's is proposed.
+- Video-burn image with its SSRF guard: rebuilt and pushed 2026-11-17 by the new
+  CodeBuild project (`containers/video-burn/build-on-aws.sh`); first real burn
+  still to watch.
 - Switch the CSP to enforcing once real reports show no legitimate violation:
   report-uri collection deployed 2026-11-17 (`src/scripts/csp-report-summary.ts`).
 - Delete `~/db-backups/pre-0072-device-fingerprints-2026-11-16.sql` on the server
