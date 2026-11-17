@@ -48,6 +48,7 @@ vi.mock("../../src/services/s3.ts", () => ({
 
 import { db } from "../../src/db/index.ts";
 import { createAccessToken } from "../../src/services/auth.ts";
+import { generatePresignedDownloadUrl } from "../../src/services/s3.ts";
 
 const mockSelect = (db as any)._mockSelect as ReturnType<typeof vi.fn>;
 const mockFrom = (db as any)._mockFrom as ReturnType<typeof vi.fn>;
@@ -338,5 +339,156 @@ describe("GET /api/publications/:id/pdf", () => {
   it("should return 400 for an invalid publication ID", async () => {
     const { status } = await testJson("/api/publications/abc/pdf");
     expect(status).toBe(400);
+  });
+});
+
+// ─── Status: Draft / Forthcoming / Published ─────────────────────────────
+
+async function adminToken() {
+  const token = await createAccessToken({ sub: 2, email: "admin@test.com", role: "admin" });
+  return { Authorization: `Bearer ${token}` };
+}
+
+describe("GET /api/publications — status", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSelect.mockImplementation(() => ({ from: mockFrom }));
+  });
+
+  it("should never list a draft to a non-admin, even one whose audience lets them in", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication(), makePublication({ id: 4, status: "draft" })]));
+    canOpen(1, 4);
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    expect(body.publications.map((p: any) => p.id)).toEqual([1]);
+  });
+
+  it("should not hand a draft to the access decision for a non-admin", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication(), makeMemberPublication({ status: "draft" })]));
+    canOpen(1);
+
+    const { body } = await testJson("/api/publications");
+
+    expect(mockOpenable).toHaveBeenCalledWith(null, [expect.objectContaining({ id: 1 })]);
+    // A members-only draft is no reason to invite anyone to join.
+    expect(body.hasHiddenPublications).toBe(false);
+  });
+
+  it("should list a forthcoming publication with its status so the app can show it as upcoming", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ id: 6, status: "forthcoming" })]));
+    canOpen(6);
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    expect(body.publications).toEqual([expect.objectContaining({ id: 6, status: "forthcoming" })]);
+  });
+
+  it("should not list a forthcoming publication to someone its audience keeps out", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makeRetreatPublication({ status: "forthcoming" })]));
+    canOpen();
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    expect(body.publications).toEqual([]);
+  });
+
+  it("should list a published publication as before, with its status", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication()]));
+    canOpen(1);
+
+    const { body } = await testJson("/api/publications");
+
+    expect(body.publications).toEqual([expect.objectContaining({ id: 1, status: "published" })]);
+  });
+
+  it("should list drafts and forthcoming publications to an admin", async () => {
+    mockFrom.mockReturnValueOnce(
+      chainable([
+        makePublication(),
+        makePublication({ id: 4, status: "draft" }),
+        makePublication({ id: 6, status: "forthcoming" }),
+      ]),
+    );
+    canOpen(1, 4, 6);
+
+    const { body } = await testJson("/api/publications", { headers: await adminToken() });
+
+    expect(body.publications.map((p: any) => p.id).sort()).toEqual([1, 4, 6]);
+  });
+
+  it("should never list an unknown status, even to an admin", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ id: 4, status: "archived" })]));
+    canOpen(4);
+
+    const { body } = await testJson("/api/publications", { headers: await adminToken() });
+
+    expect(body.publications).toEqual([]);
+  });
+});
+
+describe("GET /api/publications/:id/pdf — status", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSelect.mockImplementation(() => ({ from: mockFrom }));
+  });
+
+  it("should answer 404 for a draft to a non-admin, without signing a URL", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ status: "draft" })]));
+    canOpen(1);
+
+    const { status } = await testJson("/api/publications/1/pdf", { headers: await userToken() });
+
+    expect(status).toBe(404);
+    expect(generatePresignedDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it("should refuse the file of a forthcoming publication to a caller its audience lets in", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ status: "forthcoming" })]));
+    canOpen(1);
+
+    const { status, body } = await testJson("/api/publications/1/pdf", { headers: await userToken() });
+
+    expect(status).toBe(403);
+    expect(body.code).toBe("PUBLICATION_FORTHCOMING");
+    expect(generatePresignedDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it("should refuse the file of a forthcoming public publication to a signed-out visitor", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ status: "forthcoming" })]));
+    canOpen(1);
+
+    const { status, body } = await testJson("/api/publications/1/pdf");
+
+    expect(status).toBe(403);
+    expect(body.code).toBe("PUBLICATION_FORTHCOMING");
+  });
+
+  it("should keep a forthcoming restricted publication a 404 for a caller not on its list", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ id: 5, audienceId: 13, status: "forthcoming" })]));
+    canOpen();
+
+    const { status } = await testJson("/api/publications/5/pdf", { headers: await userToken() });
+
+    expect(status).toBe(404);
+  });
+
+  it("should serve a published publication as before", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication()]));
+    canOpen(1);
+
+    const { status, body } = await testJson("/api/publications/1/pdf");
+
+    expect(status).toBe(200);
+    expect(body.url).toBe("https://s3.example.com/signed-url");
+  });
+
+  it.each(["draft", "forthcoming"])("should serve a %s publication to an admin", async (status) => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ status })]));
+    canOpen(1);
+
+    const res = await testJson("/api/publications/1/pdf", { headers: await adminToken() });
+
+    expect(res.status).toBe(200);
   });
 });

@@ -282,3 +282,23 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Why:** A refund is Padmakara giving one payment back (wrong amount, double charge, goodwill); it should cost the member exactly what that payment bought. The capture-date floor follows from how crediting counts (`expiryAfterCapture` starts each interval at the later of the paid-through date and the capture time): access before the capture was paid by something else and is not this refund's to take. A chargeback is a dispute; the relationship ends, and the member can join again through a fresh checkout.
 **Trade-offs:** A refund of an older capture removes one interval from the end, not the period that capture covered: paid time is counted, not mapped to dates. A member who paid on 1 January and 1 February and is refunded the January capture keeps access through 1 February — one month, which is what they paid for net. A partial refund still removes a whole interval (no prorating rule exists). If the member's source has since become admin or cash, the interval is still taken off that date (bounded by the capture-date floor). A refund that ends access leaves the Easypay subscription running, so its next scheduled capture restores access (by design, and without a welcome). A chargeback applies only once Easypay confirms the stop; until then Easypay keeps retrying and access stays open.
 **Revisit if:** the Board wants partial refunds prorated, refunds that also stop the subscription, or a chargeback won by Padmakara to restore access automatically (today that is a manual admin change).
+
+---
+
+## 2026-11-17 — Publication status: existing texts published, new ones start as drafts
+
+**Chosen:** Publications use the `status` column that has existed since migration 0010 (`text NOT NULL DEFAULT 'draft'`), with the event rule mirrored in `services/publication-status.ts`: `draft` is listed and opened by admins only; `forthcoming` is listed (list, event page) to the people its audience lets in, carrying `status`, but `GET /api/publications/:id/pdf` answers 403 `PUBLICATION_FORTHCOMING` to non-admins; `published` behaves as before. Any other value is neither listed nor opened, admins included. Migration 0075 sets every existing row to `published`; the column default stays `draft`, and the admin create form starts on Draft.
+**Alternatives:** (a) Change the column default to `published`: keeps today's upload-and-it-is-live flow, but defeats the workflow André asked for. (b) 404 for a forthcoming PDF, as event content does: the app could not tell "not yet" from "gone". (c) Keep the status rule inside `openablePublications`: several route tests mock that module wholesale, and events keep status and audience separate too.
+**Why:** Nothing ever wrote or read the column, so every live publication holds the default `draft`; turning the rule on without the data fix would have hidden the whole catalogue. Draft-first gives admins room to prepare a text before anyone sees it.
+**Trade-offs:** A text uploaded and saved without touching the selector stays invisible in the app until set to Published. Until the app knows `status`, a forthcoming text shows as a normal entry whose tap fails silently (the app logs the 403 and shows nothing).
+**Revisit if:** admins find draft-first gets in the way, or the app ships forthcoming support (then nothing to change here).
+
+---
+
+## 2026-11-17 — Publication authors stay a text[] column, picked as chips
+
+**Chosen:** Keep `publications.authors text[]` (one element per author, no separator to escape). The admin edits it as one chip per author, suggested from the distinct names already used (`GET /api/admin/publications/authors`) plus the teachers; a typed name that differs from a suggestion only by case or diacritics takes the existing spelling.
+**Alternatives:** (a) An `authors` table with a join: real identity per author, but a schema migration, a data split and app response changes for a list of a few dozen names. (b) Snap to the teachers table only: authors include figures (Buda Śākyamuni, Mañjuśrī) who are not teachers.
+**Why:** The storage was never the problem: the edit page turned the array into a comma-joined text field that re-parsed on every keystroke and swallowed the separator.
+**Trade-offs:** Variants already stored stay until an admin fixes them (the suggestions list shows both spellings). Two different people with one spelling are one name.
+**Revisit if:** authors need their own page or biography in the app.

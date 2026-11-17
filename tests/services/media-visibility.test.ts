@@ -153,7 +153,7 @@ function makeFullEvent(flags: Record<string, boolean> = {}) {
     videos: [{ id: 5 }],
     transcripts: [{ id: 9 }],
     eventFiles: [{ id: 7 }],
-    eventPublications: [{ publication: { id: 3 } }],
+    eventPublications: [{ publication: { id: 3, status: "published" } }],
     relatedPublications: [{ id: 3 }],
   };
 }
@@ -233,6 +233,25 @@ describe("applyContentVisibility", () => {
     expect(() =>
       applyContentVisibility({ transcriptsPublished: false, textsPublished: false }, "user"),
     ).not.toThrow();
+  });
+
+  const withLinkedStatuses = () => ({
+    ...makeFullEvent(),
+    eventPublications: ["published", "draft", "forthcoming", "archived"].map((status, i) => ({
+      publication: { id: i + 1, status },
+    })),
+  });
+
+  it("should drop the links to draft publications for a non-admin", () => {
+    const event = withLinkedStatuses();
+    applyContentVisibility(event, "user");
+    expect(event.eventPublications.map((ep) => ep.publication.id)).toEqual([1, 3]);
+  });
+
+  it("should keep the links to draft publications for an admin", () => {
+    const event = withLinkedStatuses();
+    applyContentVisibility(event, "admin");
+    expect(event.eventPublications.map((ep) => ep.publication.id)).toEqual([1, 2, 3]);
   });
 });
 

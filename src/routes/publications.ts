@@ -15,6 +15,10 @@ import {
   openablePublications,
   publicationAudienceSlugs,
 } from "../services/publication-access.ts";
+import {
+  publicationStatusOpenTo,
+  publicationStatusVisibleTo,
+} from "../services/publication-status.ts";
 
 export const publicationRoutes = new Hono();
 
@@ -37,7 +41,9 @@ function pdfFingerprint(pdfS3Key: string): string {
  *   language: filter by language
  *
  * Each publication is listed only to callers who can open it: see
- * services/publication-access.ts for the rule per audience.
+ * services/publication-access.ts for the rule per audience. Drafts are listed
+ * to admins only; a forthcoming publication is listed (its `status` lets the
+ * app show it as upcoming) but its PDF is refused: see services/publication-status.ts.
  */
 publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
   const sort = c.req.query("sort") || "title";
@@ -46,12 +52,14 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
   const authUser = getOptionalUser(c);
 
   // Fetch all publications
-  const allPublished = await db
+  const allPublications = await db
     .select()
     .from(publications);
 
+  const visibleStatuses = publicationStatusVisibleTo(authUser?.role);
+  let filtered = allPublications.filter((p) => visibleStatuses.includes(p.status));
+
   // Filter by language if requested
-  let filtered = allPublished;
   if (language) {
     filtered = filtered.filter((p) => p.language === language);
   }
@@ -110,6 +118,7 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
         coverImageUrl,
         fileSizeBytes: p.fileSizeBytes,
         updatedAt: p.updatedAt,
+        status: p.status,
       };
     }),
   );
@@ -123,6 +132,10 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
  * Public publications: open to anyone (auth not required).
  * Every other audience: see services/publication-access.ts. An unknown
  * audience is refused.
+ *
+ * Status: a draft is a 404 to non-admins. A forthcoming publication is refused
+ * with 403 PUBLICATION_FORTHCOMING to the callers its audience lets in (the
+ * others get the same answer as for a published one), admins excepted.
  *
  * Returns { url: string, expiresIn: 3600 }.
  */
@@ -139,7 +152,7 @@ publicationRoutes.get("/:id/pdf", optionalAuthMiddleware, async (c) => {
     .from(publications)
     .where(eq(publications.id, id));
 
-  if (!publication) {
+  if (!publication || !publicationStatusVisibleTo(authUser?.role).includes(publication.status)) {
     throw AppError.notFound("Publication not found");
   }
 
@@ -156,6 +169,12 @@ publicationRoutes.get("/:id/pdf", optionalAuthMiddleware, async (c) => {
       throw AppError.unauthorized();
     }
     throw AppError.forbidden("This publication is not open to your account");
+  }
+
+  // Announced, not available yet: checked after the audience so a caller
+  // kept out learns no more than for a published text.
+  if (!publicationStatusOpenTo(authUser?.role).includes(publication.status)) {
+    throw new AppError(403, "This publication is not available yet", "PUBLICATION_FORTHCOMING");
   }
 
   const url = await generatePresignedDownloadUrl(publication.pdfS3Key, 3600);

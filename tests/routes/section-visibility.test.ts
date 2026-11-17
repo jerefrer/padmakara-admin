@@ -62,7 +62,7 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
     eventRetreatGroups: [],
     eventPlaces: [],
     eventPublications: [
-      { publication: { id: 3, title: "Pub", subtitle: null, coverImageS3Key: null } },
+      { publication: { id: 3, title: "Pub", subtitle: null, coverImageS3Key: null, status: "published" } },
     ],
     eventOrganizers: [],
     transcripts: [{ id: 9 }],
