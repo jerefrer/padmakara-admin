@@ -2675,7 +2675,7 @@ export const EventCreate = () => {
    * a `WeakMap` — stays stable across the update.
    */
   const handleAiApply = useCallback((result: AiAssistResult) => {
-    // AI-written event and session titles wait for an admin's approval, like
+    // AI-written event and session titles and themes wait for an admin's approval, like
     // the track titles below.
     if (result.event) {
       setForm((f) => ({
@@ -2683,10 +2683,10 @@ export const EventCreate = () => {
         ...result.event,
         titleEnReviewed: result.event!.titleEn !== undefined ? false : f.titleEnReviewed,
         titlePtReviewed: result.event!.titlePt !== undefined ? false : f.titlePtReviewed,
-        mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? true : f.mainThemesEnReviewed,
-        mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? true : f.mainThemesPtReviewed,
-        sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? true : f.sessionThemesEnReviewed,
-        sessionThemesPtReviewed: result.event!.sessionThemesPt !== undefined ? true : f.sessionThemesPtReviewed,
+        mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? false : f.mainThemesEnReviewed,
+        mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? false : f.mainThemesPtReviewed,
+        sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? false : f.sessionThemesEnReviewed,
+        sessionThemesPtReviewed: result.event!.sessionThemesPt !== undefined ? false : f.sessionThemesPtReviewed,
       }));
     }
     const sessById = new Map(result.sessions.map((s) => [s.rowKey, s]));
@@ -3814,17 +3814,17 @@ export const EventEdit = () => {
    */
   const handleAiApply = useCallback(async (result: AiAssistResult) => {
     // Event fields → staged into form; persisted when the admin clicks Save.
-    // AI-written titles wait for an admin's approval, like track and video titles.
+    // AI-written titles and themes wait for an admin's approval, like track and video titles.
     if (result.event) {
       setForm((f) => ({
         ...f,
         ...result.event,
         titleEnReviewed: result.event!.titleEn !== undefined ? false : f.titleEnReviewed,
         titlePtReviewed: result.event!.titlePt !== undefined ? false : f.titlePtReviewed,
-        mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? true : f.mainThemesEnReviewed,
-        mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? true : f.mainThemesPtReviewed,
-        sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? true : f.sessionThemesEnReviewed,
-        sessionThemesPtReviewed: result.event!.sessionThemesPt !== undefined ? true : f.sessionThemesPtReviewed,
+        mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? false : f.mainThemesEnReviewed,
+        mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? false : f.mainThemesPtReviewed,
+        sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? false : f.sessionThemesEnReviewed,
+        sessionThemesPtReviewed: result.event!.sessionThemesPt !== undefined ? false : f.sessionThemesPtReviewed,
       }));
     }
     // Session titles → immediate persist via the existing handler, pending approval.
