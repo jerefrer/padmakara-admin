@@ -164,6 +164,7 @@ import {
 import type { AnalysisResult, ScannedFile, TrackCorrection } from "../utils/analyzeFolder";
 import { needsTitle } from "../utils/trackTitles";
 import { formatBytes } from "../utils/fileInfo";
+import { changedFields } from "../utils/changedFields";
 
 /** Convert a human-readable date ("April 17") or ISO date to YYYY-MM-DD using event year */
 const MONTH_MAP: Record<string, string> = {
@@ -873,6 +874,21 @@ const REVIEWED_KEY: Partial<Record<keyof EventFormData, keyof EventFormData>> = 
   bibliography: "bibliographyEnReviewed",
   bibliographyPt: "bibliographyPtReviewed",
 };
+
+/**
+ * The fields of the event update `now` that changed since `saved`. A text sent
+ * carries its reviewed flag along: on its own, new AI text with a flag that
+ * did not change in this form would land under an approval another admin
+ * gave meanwhile.
+ */
+function eventChangesSince(saved: Record<string, unknown>, now: Record<string, unknown>): Record<string, unknown> {
+  const changes = changedFields(saved, now);
+  const pairs: Array<[string, string]> = [["eventCode", "eventCodeReviewed"], ...(Object.entries(REVIEWED_KEY) as Array<[string, string]>)];
+  for (const [text, flag] of pairs) {
+    if (text in changes && flag in now) changes[flag] = now[flag];
+  }
+  return changes;
+}
 
 const EVENT_TYPE_COLORS = [
   "#9B1B1B", "#E57373", "#4DB6AC", "#FFB74D", "#7986CB",
@@ -2659,12 +2675,14 @@ export const EventCreate = () => {
    * a `WeakMap` — stays stable across the update.
    */
   const handleAiApply = useCallback((result: AiAssistResult) => {
+    // AI-written event and session titles wait for an admin's approval, like
+    // the track titles below.
     if (result.event) {
       setForm((f) => ({
         ...f,
         ...result.event,
-        titleEnReviewed: result.event!.titleEn !== undefined ? true : f.titleEnReviewed,
-        titlePtReviewed: result.event!.titlePt !== undefined ? true : f.titlePtReviewed,
+        titleEnReviewed: result.event!.titleEn !== undefined ? false : f.titleEnReviewed,
+        titlePtReviewed: result.event!.titlePt !== undefined ? false : f.titlePtReviewed,
         mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? true : f.mainThemesEnReviewed,
         mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? true : f.mainThemesPtReviewed,
         sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? true : f.sessionThemesEnReviewed,
@@ -2682,8 +2700,8 @@ export const EventCreate = () => {
           ...s,
           titleEn: nextTitleEn,
           titlePt: nextTitlePt,
-          titleEnReviewed: sSug?.titleEn !== undefined ? true : s.titleEnReviewed,
-          titlePtReviewed: sSug?.titlePt !== undefined ? true : s.titlePtReviewed,
+          titleEnReviewed: sSug?.titleEn !== undefined ? false : s.titleEnReviewed,
+          titlePtReviewed: sSug?.titlePt !== undefined ? false : s.titlePtReviewed,
           tracks: s.tracks.map((tk) => {
             const tSug = trackById.get(fileKey(tk.file));
             if (!tSug) return tk;
@@ -3497,6 +3515,14 @@ export const EventEdit = () => {
   );
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  // The event as this page last loaded or saved it, in the shape Save sends.
+  // Save writes only the fields changed since: the page fetches the event once,
+  // so sending every field let a tab opened before another admin's edit write
+  // its older copy back over that edit.
+  const savedRef = useRef<Record<string, unknown> | null>(null);
+  const markSaved = useCallback((fields: Record<string, unknown>) => {
+    if (savedRef.current) savedRef.current = { ...savedRef.current, ...fields };
+  }, []);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressData | null>(null);
@@ -3788,25 +3814,26 @@ export const EventEdit = () => {
    */
   const handleAiApply = useCallback(async (result: AiAssistResult) => {
     // Event fields → staged into form; persisted when the admin clicks Save.
+    // AI-written titles wait for an admin's approval, like track and video titles.
     if (result.event) {
       setForm((f) => ({
         ...f,
         ...result.event,
-        titleEnReviewed: result.event!.titleEn !== undefined ? true : f.titleEnReviewed,
-        titlePtReviewed: result.event!.titlePt !== undefined ? true : f.titlePtReviewed,
+        titleEnReviewed: result.event!.titleEn !== undefined ? false : f.titleEnReviewed,
+        titlePtReviewed: result.event!.titlePt !== undefined ? false : f.titlePtReviewed,
         mainThemesEnReviewed: result.event!.mainThemesEn !== undefined ? true : f.mainThemesEnReviewed,
         mainThemesPtReviewed: result.event!.mainThemesPt !== undefined ? true : f.mainThemesPtReviewed,
         sessionThemesEnReviewed: result.event!.sessionThemesEn !== undefined ? true : f.sessionThemesEnReviewed,
         sessionThemesPtReviewed: result.event!.sessionThemesPt !== undefined ? true : f.sessionThemesPtReviewed,
       }));
     }
-    // Session titles → immediate persist via the existing handler.
+    // Session titles → immediate persist via the existing handler, pending approval.
     for (const s of result.sessions) {
       const idx = sessions.findIndex((x) => String(x.id) === s.rowKey);
       if (idx < 0) continue;
       const patch: Record<string, unknown> = {};
-      if (s.titleEn !== undefined) { patch.titleEn = s.titleEn; patch.titleEnReviewed = true; }
-      if (s.titlePt !== undefined) { patch.titlePt = s.titlePt; patch.titlePtReviewed = true; }
+      if (s.titleEn !== undefined) { patch.titleEn = s.titleEn; patch.titleEnReviewed = false; }
+      if (s.titlePt !== undefined) { patch.titlePt = s.titlePt; patch.titlePtReviewed = false; }
       if (Object.keys(patch).length) await handleSessionTitleChange(idx, patch, { silent: true });
     }
     // Videos → immediate persist via PATCH, the same endpoint
@@ -4700,6 +4727,7 @@ export const EventEdit = () => {
         data: { status: newStatus, ...chosen },
         previousData: event,
       });
+      markSaved({ status: newStatus, ...chosen });
       if (chosen) setForm((prev) => ({ ...prev, ...chosen }));
       notify("padmakara.events.statusChanged", {
         type: "success",
@@ -4731,7 +4759,7 @@ export const EventEdit = () => {
     } catch (error: any) {
       notify("padmakara.events.notifyFailed", { type: "error", messageArgs: { message: error.message } });
     }
-  }, [id, dataProvider, event, notify, translate]);
+  }, [id, dataProvider, event, notify, translate, markSaved]);
 
   // Like the Draft / Published toggle, the "show in app" tick boxes save as soon as they are clicked.
   const handleMediaVisibilityChange = useCallback(async (key: SectionVisibilityKey, value: boolean) => {
@@ -4739,6 +4767,7 @@ export const EventEdit = () => {
     setForm((prev) => ({ ...prev, [key]: value }));
     try {
       await saveMediaVisibility(dataProvider, id, event, key, value);
+      markSaved({ [key]: value });
       const media = translate(SECTION_LABEL_KEYS[key]);
       notify(value ? "padmakara.events.mediaNowVisible" : "padmakara.events.mediaNowHidden", {
         type: "success",
@@ -4749,7 +4778,41 @@ export const EventEdit = () => {
       setForm((prev) => ({ ...prev, [key]: !value }));
       notify(apiErrorMessageKey(error), { type: "error", messageArgs: { message: error.message } });
     }
-  }, [id, dataProvider, event, notify, translate]);
+  }, [id, dataProvider, event, notify, translate, markSaved]);
+
+  /** The whole event as Save writes it: the form plus the pickers, in the API's shape. */
+  const buildEventUpdate = (): Record<string, unknown> => ({
+    ...form,
+    // The highlight only moves through POST /events/:id/feature.
+    featuredAt: undefined,
+    // "Every member" is now an audience choice; the old flag is never set.
+    includedInMembership: false,
+    startDate: form.startDate || null,
+    endDate: form.endDate || null,
+    bibliography: form.bibliography.trim() || null,
+    bibliographyPt: form.bibliographyPt.trim() || null,
+    eventTypeId: selectedEventType?.id ?? null,
+    audienceId: selectedAudience?.id ?? null,
+    teacherIds: selectedTeachers.map((t) => ({
+      id: t.id,
+      role: form.guestTeacherIds.includes(t.id) ? ("guest" as const) : ("teacher" as const),
+    })),
+    placeIds: selectedPlaces.map((p) => p.id),
+    organizerIds: selectedOrganizers.map((o) => o.id),
+    groupIds: selectedGroups.map((g) => g.id),
+  });
+
+  // Record what the form loaded with, once every picker is filled (the same
+  // render that sets `initialized`).
+  useEffect(() => {
+    if (!initialized || savedRef.current) return;
+    savedRef.current = {
+      ...buildEventUpdate(),
+      // The update always clears this legacy flag: a loaded `true` is a change to send.
+      includedInMembership: form.includedInMembership,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialized]);
 
   /** Save the event; `close` leaves for the list afterwards, otherwise the page
    *  and its form state stay as they are. */
@@ -4764,30 +4827,12 @@ export const EventEdit = () => {
     }
     setSaving(true);
     try {
-      await dataProvider.update("events", {
-        id: id!,
-        data: {
-          ...form,
-          // The highlight only moves through POST /events/:id/feature.
-          featuredAt: undefined,
-          // "Every member" is now an audience choice; the old flag is never set.
-          includedInMembership: false,
-          startDate: form.startDate || null,
-          endDate: form.endDate || null,
-          bibliography: form.bibliography.trim() || null,
-          bibliographyPt: form.bibliographyPt.trim() || null,
-          eventTypeId: selectedEventType?.id ?? null,
-          audienceId: selectedAudience?.id ?? null,
-          teacherIds: selectedTeachers.map((t) => ({
-            id: t.id,
-            role: form.guestTeacherIds.includes(t.id) ? ("guest" as const) : ("teacher" as const),
-          })),
-          placeIds: selectedPlaces.map((p) => p.id),
-          organizerIds: selectedOrganizers.map((o) => o.id),
-          groupIds: selectedGroups.map((g) => g.id),
-        },
-        previousData: event,
-      });
+      const whole = buildEventUpdate();
+      const data = savedRef.current ? eventChangesSince(savedRef.current, whole) : whole;
+      if (Object.keys(data).length > 0) {
+        await dataProvider.update("events", { id: id!, data, previousData: event });
+      }
+      savedRef.current = whole;
       notify(translate("padmakara.events.updatedSuccess"), { type: "success" });
       if (close) redirect("list", "events");
     } catch (error: any) {

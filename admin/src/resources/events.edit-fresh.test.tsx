@@ -129,9 +129,8 @@ describe("EventEdit form initialisation", () => {
     await flush();
 
     // Assert: a blank value here would delete the notes row on the server.
-    expect(update).toHaveBeenCalledWith(
-      "events",
-      expect.objectContaining({ data: expect.objectContaining({ internalNotes: SAVED_NOTES }) }),
-    );
+    // (Save sends only what was changed in the form, so the notes are not sent at all.)
+    const sentNotes = update.mock.calls.map(([, params]) => (params as { data: Record<string, unknown> }).data);
+    expect(sentNotes.every((data) => !("internalNotes" in data) || data.internalNotes === SAVED_NOTES)).toBe(true);
   });
 });
