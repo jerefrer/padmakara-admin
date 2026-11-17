@@ -94,7 +94,7 @@ export interface ImageSetUploadProps {
   resource: "groups" | "events";
   /** The record; defaults to the react-admin record context. */
   record?: Record<string, unknown>;
-  /** Show the separate square avatar editor. Events derive the avatar from the hero instead. */
+  /** Show the separate round avatar editor. Events derive the avatar from the hero instead. */
   showAvatar?: boolean;
   heroTitle?: string;
   heroDropLabel?: string;
@@ -323,7 +323,7 @@ export function ImageSetUpload({
       {showAvatar && (
       <Box>
         <Typography variant="subtitle2" gutterBottom>
-          Avatar (small thumbnail, square)
+          Avatar (small thumbnail, circular crop)
         </Typography>
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
           <Box
@@ -337,7 +337,7 @@ export function ImageSetUpload({
             sx={{
               width: 120,
               height: 120,
-              borderRadius: 2,
+              borderRadius: "50%",
               overflow: "hidden",
               bgcolor: avatarDragOver ? "#f3d9d9" : "#e5e7eb",
               border: avatarDragOver ? "2px dashed #9b1b1b" : "2px dashed transparent",
@@ -401,7 +401,7 @@ export function ImageSetUpload({
               {savingAvatar ? "Uploading..." : hasAvatar ? "Replace Avatar" : "Upload Avatar"}
             </Button>
             <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
-              {hasAvatar ? "Click image to adjust, or drag & drop a new one" : "Or drag & drop onto the box"}
+              {hasAvatar ? "Click image to adjust, or drag & drop a new one" : "Or drag & drop onto the circle"}
             </Typography>
             <input
               ref={avatarInputRef}
