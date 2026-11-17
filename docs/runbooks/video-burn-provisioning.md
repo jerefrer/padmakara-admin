@@ -40,6 +40,13 @@ job queue by default, and only needs its own job **definition**.
 
 ## 1. Build and push the image to ECR
 
+**Usual route since 2026-11-17: build on AWS, no Docker needed.** Commit, then
+`AWS_PROFILE=padmakara ./containers/video-burn/build-on-aws.sh`. It zips the
+committed HEAD, runs the CodeBuild project `padmakara-video-burn-build`
+(ARM_CONTAINER, so the image stays linux/arm64; role `codebuild-video-burn-role`,
+push rights on this repository only) and pushes `:latest` plus `:<commit>`.
+The local Docker route below still works.
+
 ```bash
 # One-time: create the repository if it doesn't exist yet.
 aws ecr create-repository --repository-name padmakara-video-burn --region eu-west-3

@@ -10,7 +10,9 @@
 # See README.md in this directory for the full build/test/push workflow and
 # docs/runbooks/video-burn-provisioning.md for the one-time AWS setup.
 
-FROM node:22-bookworm-slim
+# Docker Hub's official node image, pulled through its ECR Public mirror:
+# CodeBuild's shared IPs hit Docker Hub's anonymous pull limit.
+FROM public.ecr.aws/docker/library/node:22-bookworm-slim
 
 # ffmpeg: encodes slide segments and does the final concat.
 # chromium: headless-screenshots the shared HTML slide renderer.
