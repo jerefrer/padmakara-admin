@@ -3,6 +3,7 @@ import { AppError } from "./errors.ts";
 import { CURRENT_FINGERPRINT_FORMAT } from "./device-fingerprint.ts";
 import { HERO_FRAME_KEYS } from "../db/schema/teachers.ts";
 import { BUILTIN_CLIPS, SLIDE_ROLES } from "./slides/types.ts";
+import { PUBLICATION_STATUSES } from "../services/publication-status.ts";
 
 // Auth
 
@@ -275,6 +276,12 @@ export const createPublicationSchema = z.object({
   retreatGroupIds: z.array(z.number().int()).optional().default([]),
   /** Users granted a hidden publication (received initiation, on request, restricted). */
   accessUserIds: z.array(z.number().int()).optional().default([]),
+  /**
+   * Draft (admins only), forthcoming (announced, PDF refused) or published; see
+   * services/publication-status.ts. No default here: the column's 'draft'
+   * applies on create, and an edit that does not send it keeps the stored one.
+   */
+  status: z.enum(PUBLICATION_STATUSES).optional(),
 });
 
 export const updatePublicationSchema = createPublicationSchema.partial();

@@ -1451,6 +1451,13 @@ export const pt = {
       importedSuccessfullyWithEvent: "Importado com sucesso como evento #%{id} (abra-o na lista de Eventos).",
     },
     publications: {
+      status: "Estado",
+      statusDraft: "Rascunho",
+      statusForthcoming: "Em breve",
+      statusPublished: "Publicada",
+      statusHelperDraft: "Em preparação: só os administradores a veem.",
+      statusHelperForthcoming: "Anunciada na aplicação às pessoas que o nível de acesso deixa entrar; o PDF ainda não pode ser aberto.",
+      statusHelperPublished: "Na aplicação, aberta pelas pessoas que o nível de acesso deixa entrar.",
       audience: "Nível de acesso",
       audienceGroupShown: "Visível na aplicação",
       audienceGroupHidden: "Oculta na aplicação, salvo se for dado acesso",

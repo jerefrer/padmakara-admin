@@ -14,6 +14,7 @@ import { generateRetreatZip } from "../services/zip-generator.ts";
 import { checkEventAccess, filterAccessibleEvents, eventStatusVisibleTo, eventStatusOpenTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
 import { publicationsViaGroups, mergePublications } from "../services/event-publications.ts";
 import { openablePublications } from "../services/publication-access.ts";
+import { publicationStatusVisibleTo } from "../services/publication-status.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { teacherArtworkUrl } from "../lib/teacher-artwork.ts";
 import { countUsage } from "../services/usage.ts";
@@ -628,12 +629,14 @@ eventRoutes.get("/:id", async (c) => {
   const eventGroupIds = ((event as any).eventRetreatGroups || []).map(
     (g: any) => g.retreatGroupId ?? g.retreatGroup?.id,
   ).filter((gid: unknown): gid is number => typeof gid === "number");
+  // A draft is never listed to a non-admin; a forthcoming one is, with its status.
+  const visibleStatuses = publicationStatusVisibleTo(user.role);
   const linkedPublications = contentClosed
     ? []
     : mergePublications(
         directPublications,
         textsVisible ? await publicationsViaGroups(eventGroupIds) : [],
-      );
+      ).filter((pub: any) => visibleStatuses.includes(pub.status));
   const openedPublications = await openablePublications(user, linkedPublications);
   const relatedPublications = linkedPublications.filter((pub: any) =>
     openedPublications.has(pub.id),
@@ -644,6 +647,7 @@ eventRoutes.get("/:id", async (c) => {
       id: pub.id,
       title: pub.title,
       subtitle: pub.subtitle,
+      status: pub.status,
       coverImageUrl: pub.coverImageS3Key
         ? await generatePresignedDownloadUrl(pub.coverImageS3Key)
         : null,

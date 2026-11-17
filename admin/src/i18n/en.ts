@@ -1251,6 +1251,13 @@ export const en = {
       importedSuccessfullyWithEvent: "Imported successfully as event #%{id} (open it from the Events list).",
     },
     publications: {
+      status: "Status",
+      statusDraft: "Draft",
+      statusForthcoming: "Forthcoming",
+      statusPublished: "Published",
+      statusHelperDraft: "Being prepared: only admins see it.",
+      statusHelperForthcoming: "Announced in the app to the people its access tier lets in; the PDF cannot be opened yet.",
+      statusHelperPublished: "In the app, opened by the people its access tier lets in.",
       audience: "Access Tier",
       audienceGroupShown: "Shown in the app",
       audienceGroupHidden: "Hidden in the app unless access is given",

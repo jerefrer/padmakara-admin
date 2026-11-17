@@ -245,6 +245,7 @@ const columns: Record<string, SortTarget> = {
   title: publications.title,
   language: publications.language,
   audienceId: publications.audienceId,
+  status: publications.status,
   publicationDate: publications.publicationDate,
   createdAt: publications.createdAt,
 };
@@ -267,6 +268,7 @@ publicationRoutes.get("/", async (c) => {
   const q = c.req.query("q");
 
   const audienceId = parseInt(c.req.query("audienceId") ?? "", 10);
+  const status = c.req.query("status");
 
   const where = and(
     q
@@ -276,6 +278,7 @@ publicationRoutes.get("/", async (c) => {
         )
       : undefined,
     Number.isNaN(audienceId) ? undefined : eq(publications.audienceId, audienceId),
+    status ? eq(publications.status, status) : undefined,
   );
 
   const [data, total] = await Promise.all([
@@ -571,6 +574,9 @@ publicationRoutes.put("/:id", async (c) => {
   if (!pub) throw AppError.notFound("Publication not found");
   if (sendsEventIds && eventIds) {
     await setLinkedEvents(id, eventIds);
+    bumpEventsVersion();
+  } else if (data.status !== undefined && data.status !== existing.status) {
+    // Event pages list a publication by its status (a draft drops off them).
     bumpEventsVersion();
   }
   if (sendsGroupIds && retreatGroupIds) await setRetreatGroups(id, retreatGroupIds);

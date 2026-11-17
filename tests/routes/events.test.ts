@@ -380,7 +380,7 @@ describe("GET /api/events/:id — related publications", () => {
   it("should list only the linked publications the caller can open, each decided on its own audience", async () => {
     // Arrange: a user opens an event linked to three publications and may open two.
     const pub = (id: number, audienceId: number) => ({
-      publication: { id, title: `Pub ${id}`, subtitle: null, audienceId, coverImageS3Key: null },
+      publication: { id, title: `Pub ${id}`, subtitle: null, audienceId, coverImageS3Key: null, status: "published" },
     });
     mockDb.query.events.findFirst.mockResolvedValueOnce({
       ...draftPublicEvent,
@@ -406,6 +406,37 @@ describe("GET /api/events/:id — related publications", () => {
       ],
     );
   });
+
+  const withStatus = (id: number, status: string) => ({
+    publication: { id, title: `Pub ${id}`, subtitle: null, audienceId: 7, coverImageS3Key: null, status },
+  });
+
+  async function relatedFor(role: string) {
+    mockDb.query.events.findFirst.mockResolvedValueOnce({
+      ...draftPublicEvent,
+      status: "published",
+      eventPublications: [withStatus(1, "published"), withStatus(2, "draft"), withStatus(3, "forthcoming")],
+    });
+    mockDb.query.users.findFirst.mockResolvedValueOnce(makeUserRow(role));
+    mockOpenablePublications.mockImplementationOnce(async (_user, pubs) => new Set(pubs.map((p) => p.id)));
+    const { body } = await testJson("/api/events/42", { headers: await bearerToken(role) });
+    return body.relatedPublications as Array<{ id: number; status: string }>;
+  }
+
+  it("should leave a draft publication off the event page of a non-admin, with its status on the others", async () => {
+    const related = await relatedFor("user");
+
+    expect(related.map((p) => [p.id, p.status])).toEqual([
+      [1, "published"],
+      [3, "forthcoming"],
+    ]);
+  });
+
+  it("should show a draft publication on the event page of an admin", async () => {
+    const related = await relatedFor("admin");
+
+    expect(related.map((p) => p.id)).toEqual([1, 2, 3]);
+  });
 });
 
 describe("GET /api/events/:id — publications linked through retreat groups", () => {
@@ -419,6 +450,7 @@ describe("GET /api/events/:id — publications linked through retreat groups", (
     subtitle: null,
     audienceId: 7,
     coverImageS3Key: null,
+    status: "published",
   });
   const direct = (id: number) => ({ publication: pubRow(id) });
 

@@ -526,6 +526,13 @@
       "when": 1814752000000,
       "tag": "0074_csp_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1814838400000,
+      "tag": "0075_publication_status",
+      "breakpoints": true
     }
   ]
 }

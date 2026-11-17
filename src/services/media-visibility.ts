@@ -1,4 +1,5 @@
 import { AppError } from "../lib/errors.ts";
+import { publicationStatusVisibleTo } from "./publication-status.ts";
 
 /**
  * Per-section visibility of a published event.
@@ -78,6 +79,16 @@ function clearReadAlong(track: unknown): void {
 
 const THEME_FIELDS = ["mainThemesEn", "mainThemesPt", "sessionThemesEn", "sessionThemesPt"] as const;
 
+/** Links to publications whose status the caller may not see (drafts for a non-admin) go. */
+function dropHiddenPublicationLinks(ev: Record<string, unknown>, role: string | null | undefined): void {
+  if (!Array.isArray(ev.eventPublications)) return;
+  const visible = publicationStatusVisibleTo(role);
+  ev.eventPublications = ev.eventPublications.filter((link: unknown) => {
+    const status = (link as { publication?: { status?: unknown } } | null)?.publication?.status;
+    return typeof status === "string" && visible.includes(status);
+  });
+}
+
 /**
  * Strip hidden sections from an event payload, in place (like the other `apply…`
  * payload helpers). Audio hidden: the sessions go entirely, since a session only
@@ -86,6 +97,7 @@ const THEME_FIELDS = ["mainThemesEn", "mainThemesPt", "sessionThemesEn", "sessio
  * publications stay in their own catalogue). Topics hidden: the themes are nulled.
  * A `forthcoming` event is announced without any content, whatever its flags say: for a
  * non-admin it loses sessions, videos, transcripts, files, publications, themes and bibliography.
+ * Links to publications the caller may not see by their own status (drafts) always go.
  * Call it before the tracks are enriched with `hasReadAlong`.
  */
 export function applyContentVisibility(event: unknown, role: string | null | undefined): void {
@@ -94,6 +106,7 @@ export function applyContentVisibility(event: unknown, role: string | null | und
     status?: unknown;
     sessions?: Array<{ tracks?: unknown[] }>;
   };
+  dropHiddenPublicationLinks(ev, role);
   if (ev.status === "forthcoming" && !isAdminRole(role)) {
     for (const field of ["sessions", "videos", "transcripts", "eventFiles", "eventPublications", "relatedPublications"]) {
       if (field in ev) ev[field] = [];

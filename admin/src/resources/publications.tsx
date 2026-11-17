@@ -62,6 +62,19 @@ const EVENT_BASED_AUDIENCE_SLUGS = [
 ];
 const PUBLIC_AUDIENCE_SLUG = "free-anyone";
 
+/** Draft: admins only. Forthcoming: announced in the app, PDF not served. Published: as the audience decides. */
+const STATUS_CHOICES = [
+  { id: "draft", name: "padmakara.publications.statusDraft" },
+  { id: "forthcoming", name: "padmakara.publications.statusForthcoming" },
+  { id: "published", name: "padmakara.publications.statusPublished" },
+];
+
+const STATUS_HELPERS: Record<string, string> = {
+  draft: "padmakara.publications.statusHelperDraft",
+  forthcoming: "padmakara.publications.statusHelperForthcoming",
+  published: "padmakara.publications.statusHelperPublished",
+};
+
 const LANGUAGE_CHOICES = [
   { id: "pt", name: "padmakara.publications.langPt" },
   { id: "en", name: "padmakara.publications.langEn" },
@@ -621,9 +634,52 @@ function AudienceAccessInput() {
   return <AudienceAccessFields values={values} onChange={handleChange} />;
 }
 
+/** Edit-page status select; its helper says what the chosen status does in the app. */
+function PublicationStatusInput() {
+  const translate = useTranslate();
+  const { watch } = useFormContext();
+  const status = watch("status") as string | undefined;
+  return (
+    <SelectInput
+      source="status"
+      label="padmakara.publications.status"
+      choices={STATUS_CHOICES}
+      validate={required()}
+      helperText={translate(STATUS_HELPERS[status ?? ""] ?? "padmakara.publications.statusHelperDraft")}
+      data-testid="publication-status"
+    />
+  );
+}
+
+/** Coloured like the event status chip: published green, forthcoming blue, draft amber. */
+function PublicationStatusChip({ status }: { status: string }) {
+  const translate = useTranslate();
+  const colorMap: Record<string, "success" | "warning" | "info" | "default"> = {
+    published: "success",
+    forthcoming: "info",
+    draft: "warning",
+  };
+  const choice = STATUS_CHOICES.find((c) => c.id === status);
+  return (
+    <Chip
+      label={choice ? translate(choice.name) : status}
+      size="small"
+      color={colorMap[status] ?? "default"}
+      sx={{ fontWeight: 600, color: "#fff" }}
+    />
+  );
+}
+
 // ─── List ────────────────────────────────────────────────────────────────────
 
 const publicationFilters = [
+  <SelectInput
+    key="status"
+    source="status"
+    label="padmakara.publications.status"
+    choices={STATUS_CHOICES}
+    alwaysOn
+  />,
   <ReferenceInput
     key="audienceId"
     source="audienceId"
@@ -674,6 +730,11 @@ export const PublicationList = () => {
           }
         />
         <TextField source="title" label="padmakara.events.title" />
+        <FunctionField
+          label={translate("padmakara.publications.status")}
+          sortBy="status"
+          render={(record: { status: string }) => <PublicationStatusChip status={record.status} />}
+        />
         <TextField source="language" label="padmakara.publications.language" />
         <FunctionField
           label={translate("padmakara.publications.authors")}
@@ -971,6 +1032,7 @@ export const PublicationEdit = () => {
 
           {/* Right: All form fields */}
           <Box sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+            <PublicationStatusInput />
             <TextInput source="title" label="padmakara.events.title" validate={required()} fullWidth />
             <TextInput source="subtitle" label="padmakara.publications.subtitle" fullWidth />
             <TextInput source="description" label="padmakara.fields.description" multiline rows={3} fullWidth />
@@ -1097,6 +1159,8 @@ export const PublicationCreate = () => {
         language: metadata.language || "pt",
         publicationDate: metadata.publicationDate || undefined,
         version: metadata.version || "",
+        // New texts start as drafts: nobody sees them in the app until an admin says so.
+        status: "draft",
         eventIds: [],
         retreatGroupIds: [],
         accessUserIds: [],
@@ -1228,6 +1292,30 @@ export const PublicationCreate = () => {
             <Box
               sx={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}
             >
+              <MuiTextField
+                label={translate("padmakara.publications.status")}
+                select
+                required
+                value={(defaultValues.status as string) || "draft"}
+                onChange={(e) =>
+                  setDefaultValues((prev) => ({
+                    ...prev,
+                    status: e.target.value,
+                  }))
+                }
+                helperText={translate(
+                  STATUS_HELPERS[(defaultValues.status as string) || "draft"] ??
+                    "padmakara.publications.statusHelperDraft",
+                )}
+                slotProps={{ inputLabel: { shrink: true } }}
+                sx={{ maxWidth: 400 }}
+              >
+                {STATUS_CHOICES.map((c) => (
+                  <MenuItem key={c.id} value={c.id}>
+                    {translate(c.name)}
+                  </MenuItem>
+                ))}
+              </MuiTextField>
               <MuiTextField
                 label={translate("padmakara.events.title")}
                 required
