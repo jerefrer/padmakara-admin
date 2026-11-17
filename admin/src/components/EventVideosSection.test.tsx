@@ -186,3 +186,60 @@ describe("EventVideosSection slides button", () => {
     expect(slidesButton()?.disabled).toBe(false);
   });
 });
+
+/**
+ * The title editor saved its whole opening copy and compared it with the live
+ * video, so a title another admin changed while it was open was written back
+ * with the editor's older text. It now saves only what was changed in it.
+ */
+describe("EventVideosSection title editor and changes made elsewhere", () => {
+  const openEditor = () => {
+    const title = [...container.querySelectorAll("p")].find((el) => el.textContent === "Morning") as HTMLElement;
+    act(() => title.click());
+  };
+  const englishInput = () =>
+    container.querySelector('input[placeholder="padmakara.events.titleEn"]') as HTMLInputElement;
+  const type = (input: HTMLInputElement, value: string) => {
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setValue.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  const pressEnter = () =>
+    act(async () => {
+      englishInput().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+  const sentBody = () => {
+    const [, init] = authFetch.mock.calls[0] as unknown as [string, RequestInit];
+    return JSON.parse(init.body as string) as Record<string, unknown>;
+  };
+
+  it("should send only the English title when only the English title was edited", async () => {
+    mount(video({ titlePtReviewed: false }));
+    openEditor();
+    type(englishInput(), "Morning teaching");
+    await pressEnter();
+    expect(authFetch).toHaveBeenCalledTimes(1);
+    expect(sentBody()).toEqual({ titleEn: "Morning teaching" });
+  });
+
+  it("should not write back a Portuguese title changed while the editor was open", async () => {
+    mount(video({ titlePtReviewed: false }));
+    openEditor();
+    // Another admin approves and rewrites the Portuguese title meanwhile.
+    mount(video({ titlePt: "Manhã de ensinamentos", titlePtReviewed: true }));
+    type(englishInput(), "Morning teaching");
+    await pressEnter();
+    expect(sentBody()).not.toHaveProperty("titlePt");
+    expect(sentBody()).not.toHaveProperty("titlePtReviewed");
+  });
+
+  it("should save nothing when nothing was changed in the editor", async () => {
+    mount(video({ titlePtReviewed: false }));
+    openEditor();
+    mount(video({ titlePt: "Manhã de ensinamentos", titlePtReviewed: true }));
+    await pressEnter();
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+});

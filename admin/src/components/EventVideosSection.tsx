@@ -29,6 +29,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNotify, useTranslate } from "react-admin";
 import { hasAnySlides } from "@slides/types.ts";
 import { authFetch } from "../utils/authFetch";
+import { changedFields } from "../utils/changedFields";
 import { requestDefaultSlides } from "../utils/slideGeneration";
 import { isAwaitingFile, type SessionOption } from "../utils/slideSequence";
 import type { UploadProgress as UploadProgressData } from "../utils/uploadManager";
@@ -358,6 +359,9 @@ const VideoRow = ({
     titlePtReviewed: video.titlePtReviewed ?? true,
   });
   const [edit, setEdit] = useState(seedEdit);
+  // What the title editor opened with: a save sends only the fields changed
+  // since, so a title changed elsewhere while it was open is not written back.
+  const openedWithRef = useRef(edit);
   const [deleting, setDeleting] = useState(false);
   const [reordering, setReordering] = useState(false);
   const [subsOpen, setSubsOpen] = useState(false);
@@ -396,7 +400,9 @@ const VideoRow = ({
   }, [video.masterS3Key, video.burnStatus, video.bunnyVideoId]);
 
   const openEditor = () => {
-    setEdit(seedEdit());
+    const seed = seedEdit();
+    openedWithRef.current = seed;
+    setEdit(seed);
     doneRef.current = false;
     setEditingTitle(true);
   };
@@ -404,20 +410,13 @@ const VideoRow = ({
   const saveTitle = () => {
     if (doneRef.current) return;
     doneRef.current = true;
-    const seed = seedEdit();
-    const dirty =
-      edit.titleEn !== seed.titleEn ||
-      edit.titlePt !== seed.titlePt ||
-      edit.titleEnReviewed !== seed.titleEnReviewed ||
-      edit.titlePtReviewed !== seed.titlePtReviewed;
-    if (dirty) {
-      void onUpdate(video.id, {
-        titleEn: edit.titleEn.trim() || null,
-        titlePt: edit.titlePt.trim() || null,
-        titleEnReviewed: edit.titleEnReviewed,
-        titlePtReviewed: edit.titlePtReviewed,
-      });
-    }
+    const { titleEn, titlePt, ...flags } = changedFields(openedWithRef.current, edit);
+    const patch: VideoTitlePatch = {
+      ...flags,
+      ...(titleEn !== undefined ? { titleEn: titleEn.trim() || null } : {}),
+      ...(titlePt !== undefined ? { titlePt: titlePt.trim() || null } : {}),
+    };
+    if (Object.keys(patch).length > 0) void onUpdate(video.id, patch);
     setEditingTitle(false);
   };
 

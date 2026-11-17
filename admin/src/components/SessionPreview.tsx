@@ -46,6 +46,7 @@ import {
   languageLabel,
 } from "../utils/trackParser";
 import { movedTrackIds } from "../utils/trackOrder";
+import { changedFields } from "../utils/changedFields";
 import type { TrackCorrection } from "../utils/analyzeFolder";
 import { MediaPreviewDialog } from "./MediaPreviewDialog";
 import { SpeakerChipPicker } from "./SpeakerPicker";
@@ -274,6 +275,9 @@ const SessionCard = ({
     titlePtReviewed: session.titlePtReviewed,
   });
   const [edit, setEdit] = useState(seedFromSession);
+  // What the title editor opened with: a save sends only the fields changed
+  // since, so a title changed elsewhere while it was open is not written back.
+  const titleOpenedWithRef = useRef(edit);
   const ft = useFieldTranslate();
   const titleDoneRef = useRef(false);
   const titleBoxRef = useRef<HTMLDivElement | null>(null);
@@ -351,7 +355,9 @@ const SessionCard = ({
   })();
 
   const openTitleEditor = () => {
-    setEdit(seedFromSession());
+    const seed = seedFromSession();
+    titleOpenedWithRef.current = seed;
+    setEdit(seed);
     titleDoneRef.current = false;
     setEditingTitle(true);
   };
@@ -359,20 +365,8 @@ const SessionCard = ({
   const saveTitle = () => {
     if (titleDoneRef.current) return;
     titleDoneRef.current = true;
-    const seed = seedFromSession();
-    const dirty =
-      edit.titleEn !== seed.titleEn ||
-      edit.titlePt !== seed.titlePt ||
-      edit.titleEnReviewed !== seed.titleEnReviewed ||
-      edit.titlePtReviewed !== seed.titlePtReviewed;
-    if (dirty) {
-      onTitleChange({
-        titleEn: edit.titleEn,
-        titlePt: edit.titlePt,
-        titleEnReviewed: edit.titleEnReviewed,
-        titlePtReviewed: edit.titlePtReviewed,
-      });
-    }
+    const changes = changedFields(titleOpenedWithRef.current, edit);
+    if (Object.keys(changes).length > 0) onTitleChange(changes);
     titleJustClosedRef.current = Date.now();
     setEditingTitle(false);
   };
@@ -898,27 +892,16 @@ const TrackRow = ({
   );
 
   /** The fields edited since the editor opened, as an update. */
-  const changedFields = (): Partial<ParsedTrack> => {
-    const seed = openedWithRef.current;
-    const changes: Partial<ParsedTrack> = {};
-    if (editValues.titleEn !== seed.titleEn) changes.titleEn = editValues.titleEn;
-    if (editValues.titlePt !== seed.titlePt) changes.titlePt = editValues.titlePt;
-    if (editValues.titleEnReviewed !== seed.titleEnReviewed) changes.titleEnReviewed = editValues.titleEnReviewed;
-    if (editValues.titlePtReviewed !== seed.titlePtReviewed) changes.titlePtReviewed = editValues.titlePtReviewed;
-    if (editValues.speaker !== seed.speaker) changes.speaker = editValues.speaker;
-    if (editValues.isPractice !== seed.isPractice) changes.isPractice = editValues.isPractice;
-    if (editValues.isTranslation !== seed.isTranslation) changes.isTranslation = editValues.isTranslation;
-    if (editValues.languages.join(",") !== seed.languages.join(",")) {
-      changes.languages = editValues.languages;
-      changes.originalLanguage = editValues.languages[0] || "en";
-    }
+  const trackChanges = (): Partial<ParsedTrack> => {
+    const changes: Partial<ParsedTrack> = changedFields(openedWithRef.current, editValues);
+    if (changes.languages) changes.originalLanguage = changes.languages[0] || "en";
     return changes;
   };
 
   const commit = () => {
     if (doneRef.current) return;
     doneRef.current = true;
-    const changes = changedFields();
+    const changes = trackChanges();
     if (onTrackUpdate && track.id && Object.keys(changes).length > 0) {
       onTrackUpdate(track.id, {
         ...changes,
