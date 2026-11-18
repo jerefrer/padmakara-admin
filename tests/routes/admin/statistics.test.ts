@@ -55,9 +55,9 @@ function queueFullResponse() {
     [{ month: "2026-10", amount: "17.50" }], // membership income (euros)
     [{ deviceType: "ios", n: 50 }, { deviceType: "android", n: 20 }, { deviceType: "web", n: 5 }],
     [{ day: "2026-11-12", n: 7 }], // app opens per day
-    [{ id: 3, titleEn: "Spring", titlePt: "Primavera", startDate: "2026-04-10", endDate: "2026-04-12", listeners: 14, completedTracks: 22, listenSeconds: 7200 }],
     [{ month: "2026-11", n: "6" }, { month: "2026-09", n: "2" }], // read-along opens per month
-    [{ eventId: 3, n: 5 }], // video viewers
+    [{ eventId: 3, listeners: 14, completedTracks: 22, listenSeconds: 7200 }], // audio per event
+    [{ eventId: 3, n: 5 }], // video viewers per event
     [
       { eventId: 3, metric: "transcript_open", n: 8 },
       { eventId: 3, metric: "readalong_open", n: 3 },
@@ -66,6 +66,7 @@ function queueFullResponse() {
       { eventId: 3, metric: "zip_download", n: 1 },
       { eventId: 3, metric: "video_download", n: 4 },
     ],
+    [{ id: 3, titleEn: "Spring", titlePt: "Primavera", startDate: "2026-04-10", endDate: "2026-04-12" }], // events
   ];
 }
 
@@ -185,13 +186,71 @@ describe("GET /api/admin/statistics", () => {
     expect(days).toBe(29);
   });
 
-  it("should skip the per-event queries when no event has listeners", async () => {
+  it("should skip the events lookup when nothing was active", async () => {
     queueFullResponse();
-    state.queue[12] = [];
+    state.queue[13] = [];
+    state.queue[14] = [];
+    state.queue[15] = [];
+    state.queue[16] = [];
     const res = await testRequest("/api/admin/statistics", { headers: await adminHeaders() });
     const body = (await res.json()) as any;
     expect(body.events).toEqual([]);
-    expect(state.selects).toBe(14);
+    expect(state.selects).toBe(16);
+  });
+
+  const ev = (id: number, title: string) => ({ id, titleEn: title, titlePt: null, startDate: null, endDate: null });
+  const noAudio = (id: number, listeners = 1) => ({ eventId: id, listeners, completedTracks: 0, listenSeconds: 0 });
+
+  it("should list a teaching that only had video plays or document opens", async () => {
+    queueFullResponse();
+    state.queue[13] = [];
+    state.queue[14] = [];
+    state.queue[15] = [
+      { eventId: 8, metric: "video_start", n: "3" },
+      { eventId: 9, metric: "file_open", n: "2" },
+    ];
+    state.queue[16] = [ev(8, "Video only"), ev(9, "Docs only")];
+    const res = await testRequest("/api/admin/statistics", { headers: await adminHeaders() });
+    const body = (await res.json()) as any;
+    expect(body.events.map((e: any) => [e.id, e.listeners, e.videoStarts, e.fileOpens])).toEqual([
+      [8, 0, 3, 0],
+      [9, 0, 0, 2],
+    ]);
+  });
+
+  it("should list every active teaching, with no cap of 20", async () => {
+    queueFullResponse();
+    state.queue[13] = Array.from({ length: 35 }, (_, i) => noAudio(i + 1));
+    state.queue[14] = [];
+    state.queue[15] = [];
+    state.queue[16] = Array.from({ length: 35 }, (_, i) => ev(i + 1, `T${i + 1}`));
+    const res = await testRequest("/api/admin/statistics", { headers: await adminHeaders() });
+    const body = (await res.json()) as any;
+    expect(body.events).toHaveLength(35);
+  });
+
+  it("should sort by listeners, then video plays, then title", async () => {
+    queueFullResponse();
+    state.queue[13] = [noAudio(2, 5)];
+    state.queue[14] = [];
+    state.queue[15] = [
+      { eventId: 3, metric: "video_start", n: "9" },
+      { eventId: 4, metric: "video_start", n: "1" },
+      { eventId: 5, metric: "file_open", n: "1" },
+      { eventId: 6, metric: "file_open", n: "1" },
+    ];
+    state.queue[16] = [ev(6, "Alpha"), ev(5, "Beta"), ev(4, "Gamma"), ev(3, "Delta"), ev(2, "Epsilon")];
+    const res = await testRequest("/api/admin/statistics", { headers: await adminHeaders() });
+    const body = (await res.json()) as any;
+    expect(body.events.map((e: any) => e.id)).toEqual([2, 3, 4, 6, 5]);
+  });
+
+  it("should not list a teaching the events lookup does not return", async () => {
+    queueFullResponse();
+    state.queue[13] = [noAudio(3, 14), noAudio(77, 2)]; // 77 is unpublished, so the lookup drops it
+    const res = await testRequest("/api/admin/statistics", { headers: await adminHeaders() });
+    const body = (await res.json()) as any;
+    expect(body.events.map((e: any) => e.id)).toEqual([3]);
   });
 
   it("should not expose any email, name or user id", async () => {

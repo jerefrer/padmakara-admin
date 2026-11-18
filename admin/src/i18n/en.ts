@@ -87,7 +87,7 @@ export const en = {
       platforms: "Platforms (devices used in this period)",
       teachings: "Teachings in this period",
       teaching: "Teaching",
-      teachingsNote: "The 20 teachings with the most listeners in this period. Click a row for its detail.",
+      teachingsNote: "Every teaching with activity in this period. Click a row for its detail.",
       searchPlaceholder: "Search a teaching",
       noMatch: "No teaching matches “%{query}”.",
       totalOf: "Total, %{smart_count} teaching |||| Total, %{smart_count} teachings",

@@ -26,7 +26,15 @@ import { transcripts } from "../db/schema/transcripts.ts";
 
 const MAX_RANGE_DAYS = 400;
 const DAY_MS = 86_400_000;
-const TOP_EVENTS = 20;
+/** Per-teaching usage_daily metrics the Statistics table shows. */
+const EVENT_METRICS = [
+  "transcript_open",
+  "readalong_open",
+  "file_open",
+  "video_start",
+  "zip_download",
+  "video_download",
+];
 const LISBON = "Europe/Lisbon";
 
 export interface DateRange {
@@ -112,7 +120,6 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
     membershipRows,
     platformRows,
     openRows,
-    eventRows,
     readAlongRows,
   ] = await Promise.all([
     db.select({ n: count() }).from(users),
@@ -168,26 +175,6 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       .where(and(eq(usageDaily.metric, "app_open"), gte(usageDaily.day, range.from), lte(usageDaily.day, range.to)))
       .groupBy(usageDaily.day)
       .orderBy(usageDaily.day),
-    // Listening comes from user_progress (audio is played offline and in ranges, so not counted from requests).
-    db
-      .select({
-        id: events.id,
-        titleEn: events.titleEn,
-        titlePt: events.titlePt,
-        startDate: events.startDate,
-        endDate: events.endDate,
-        listeners: countDistinct(userProgress.userId),
-        completedTracks: sql<number>`count(*) filter (where ${userProgress.isCompleted})`,
-        listenSeconds: sum(userProgress.totalListenSeconds),
-      })
-      .from(userProgress)
-      .innerJoin(tracks, eq(tracks.id, userProgress.trackId))
-      .innerJoin(sessions, eq(sessions.id, tracks.sessionId))
-      .innerJoin(events, eq(events.id, sessions.eventId))
-      .where(and(eq(events.status, "published"), inRange(userProgress.lastPlayed)))
-      .groupBy(events.id, events.titleEn, events.titlePt, events.startDate, events.endDate)
-      .orderBy(desc(countDistinct(userProgress.userId)), events.id)
-      .limit(TOP_EVENTS),
     // Read-along opens per month: an anonymous total, no per-user data behind it.
     db
       .select({ month: sql<string>`to_char(${usageDaily.day}, 'YYYY-MM')`, n: sum(usageDaily.count) })
@@ -196,26 +183,68 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       .groupBy(sql`to_char(${usageDaily.day}, 'YYYY-MM')`),
   ]);
 
-  const eventIds = eventRows.map((r) => r.id);
-  let videoRows: { eventId: number; n: number }[] = [];
-  let usageRows: { eventId: number; metric: string; n: unknown }[] = [];
-  if (eventIds.length > 0) {
-    [videoRows, usageRows] = await Promise.all([
-      db
-        .select({ eventId: eventVideos.eventId, n: countDistinct(videoProgress.userId) })
-        .from(videoProgress)
-        .innerJoin(eventVideos, eq(eventVideos.id, videoProgress.videoId))
-        .where(and(inArray(eventVideos.eventId, eventIds), inRange(videoProgress.updatedAt)))
-        .groupBy(eventVideos.eventId),
-      db
-        .select({ eventId: usageDaily.eventId, metric: usageDaily.metric, n: sum(usageDaily.count) })
-        .from(usageDaily)
-        .where(
-          and(inArray(usageDaily.eventId, eventIds), gte(usageDaily.day, range.from), lte(usageDaily.day, range.to)),
-        )
-        .groupBy(usageDaily.eventId, usageDaily.metric),
-    ]);
-  }
+  // One pass per activity source, each grouped by event, then the union of event ids.
+  // Listening comes from user_progress (audio is played offline and in ranges, so not counted from requests).
+  const [audioRows, videoRows, usageRows] = await Promise.all([
+    db
+      .select({
+        eventId: sessions.eventId,
+        listeners: countDistinct(userProgress.userId),
+        completedTracks: sql<number>`count(*) filter (where ${userProgress.isCompleted})`,
+        listenSeconds: sum(userProgress.totalListenSeconds),
+      })
+      .from(userProgress)
+      .innerJoin(tracks, eq(tracks.id, userProgress.trackId))
+      .innerJoin(sessions, eq(sessions.id, tracks.sessionId))
+      .where(inRange(userProgress.lastPlayed))
+      .groupBy(sessions.eventId),
+    db
+      .select({ eventId: eventVideos.eventId, n: countDistinct(videoProgress.userId) })
+      .from(videoProgress)
+      .innerJoin(eventVideos, eq(eventVideos.id, videoProgress.videoId))
+      .where(inRange(videoProgress.updatedAt))
+      .groupBy(eventVideos.eventId),
+    db
+      .select({ eventId: usageDaily.eventId, metric: usageDaily.metric, n: sum(usageDaily.count) })
+      .from(usageDaily)
+      .where(
+        and(
+          inArray(usageDaily.metric, EVENT_METRICS),
+          sql`${usageDaily.eventId} IS NOT NULL`,
+          gte(usageDaily.day, range.from),
+          lte(usageDaily.day, range.to),
+        ),
+      )
+      .groupBy(usageDaily.eventId, usageDaily.metric),
+  ]);
+
+  // Every teaching with any activity in the period, published ones only.
+  const activeIds = [
+    ...new Set([
+      ...audioRows.map((r) => r.eventId),
+      ...videoRows.map((r) => r.eventId),
+      ...usageRows.map((r) => r.eventId).filter((id): id is number => id !== null),
+    ]),
+  ];
+  const eventRows =
+    activeIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: events.id,
+            titleEn: events.titleEn,
+            titlePt: events.titlePt,
+            startDate: events.startDate,
+            endDate: events.endDate,
+          })
+          .from(events)
+          .where(and(eq(events.status, "published"), inArray(events.id, activeIds)));
+
+  const audioBy = new Map(audioRows.map((r) => [r.eventId, r]));
+  const videoBy = new Map(videoRows.map((r) => [r.eventId, num(r.n)]));
+  const usageBy = new Map<string, number>();
+  for (const r of usageRows) usageBy.set(`${r.eventId}:${r.metric}`, num(r.n));
+  const usage = (eventId: number, metric: string) => usageBy.get(`${eventId}:${metric}`) ?? 0;
 
   const byMonth = <T extends { month: string }>(rows: T[]) => new Map(rows.map((r) => [r.month, r]));
   const signups = byMonth(signupRows);
@@ -223,9 +252,6 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
   const sales = byMonth(salesRows);
   const membership = byMonth(membershipRows);
   const readAlong = byMonth(readAlongRows);
-
-  const usage = (eventId: number, metric: string) =>
-    num(usageRows.find((r) => r.eventId === eventId && r.metric === metric)?.n);
 
   return {
     range,
@@ -248,24 +274,30 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       membershipCents: Math.round(num(membership.get(month)?.amount) * 100),
     })),
     platforms: platformRows.map((r) => ({ deviceType: r.deviceType, count: num(r.n) })),
-    events: eventRows.map((r) => ({
-      id: r.id,
-      title: r.titleEn,
-      titlePt: r.titlePt,
-      startDate: r.startDate ?? null,
-      endDate: r.endDate ?? null,
-      listeners: num(r.listeners),
-      completedTracks: num(r.completedTracks),
-      listenHours: Math.round((num(r.listenSeconds) / 3600) * 10) / 10,
-      videoViewers: num(videoRows.find((v) => v.eventId === r.id)?.n),
-      transcriptOpens: usage(r.id, "transcript_open"),
-      readAlongOpens: usage(r.id, "readalong_open"),
-      fileOpens: usage(r.id, "file_open"),
-      videoStarts: usage(r.id, "video_start"),
-      zipDownloads: usage(r.id, "zip_download"),
-      // Offline downloads of a video, kept apart from video_start (a stream)
-      videoDownloads: usage(r.id, "video_download"),
-    })),
+    events: eventRows
+      .map((r) => {
+        const audio = audioBy.get(r.id);
+        return {
+          id: r.id,
+          title: r.titleEn,
+          titlePt: r.titlePt,
+          startDate: r.startDate ?? null,
+          endDate: r.endDate ?? null,
+          listeners: num(audio?.listeners),
+          completedTracks: num(audio?.completedTracks),
+          listenHours: Math.round((num(audio?.listenSeconds) / 3600) * 10) / 10,
+          videoViewers: videoBy.get(r.id) ?? 0,
+          transcriptOpens: usage(r.id, "transcript_open"),
+          readAlongOpens: usage(r.id, "readalong_open"),
+          fileOpens: usage(r.id, "file_open"),
+          videoStarts: usage(r.id, "video_start"),
+          zipDownloads: usage(r.id, "zip_download"),
+          // Offline downloads of a video, kept apart from video_start (a stream)
+          videoDownloads: usage(r.id, "video_download"),
+        };
+      })
+      // Listeners first, then video plays so video-only teachings are not randomly ordered, then title.
+      .sort((a, b) => b.listeners - a.listeners || b.videoStarts - a.videoStarts || a.title.localeCompare(b.title) || a.id - b.id),
     appOpens: openRows.map((r) => ({ day: r.day, count: num(r.n) })),
   };
 }
