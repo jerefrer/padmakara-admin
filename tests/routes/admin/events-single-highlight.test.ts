@@ -15,8 +15,8 @@ const { mockDb, mockTx, txSets, dbSets, bumpVersion } = vi.hoisted(() => {
   };
   const mockDb = {
     query: { events: { findFirst: vi.fn() } },
-    // Internal notes lookup: no row.
-    select: vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([])) })) })),
+    // Internal notes lookup: no row. The audience slug lookup is set per test (see selectRows).
+    select: vi.fn(),
     transaction: vi.fn(async (cb: (tx: typeof mockTx) => Promise<unknown>) => cb(mockTx)),
     update: vi.fn(() => ({
       set: vi.fn((data: Record<string, unknown>) => {
@@ -47,6 +47,7 @@ const fullEvent = {
   id: 5,
   eventCode: "E5",
   status: "published",
+  audienceId: 1,
   featuredAt: null,
   eventTeachers: [],
   eventRetreatGroups: [],
@@ -61,7 +62,14 @@ describe("admin events: single highlight", () => {
     txSets.length = 0;
     dbSets.length = 0;
     mockDb.query.events.findFirst.mockResolvedValue(structuredClone(fullEvent));
+    selectRows([{ slug: "free-anyone" }]);
   });
+
+  function selectRows(rows: unknown[]) {
+    mockDb.select.mockImplementation(
+      () => ({ from: vi.fn(() => ({ where: vi.fn(() => Promise.resolve(rows)) })) }) as never,
+    );
+  }
 
   describe("POST /:id/feature", () => {
     it("should clear every other highlight and set the target in one transaction", async () => {
@@ -98,6 +106,61 @@ describe("admin events: single highlight", () => {
       expect(status).toBe(409);
       expect(body.code ?? body.error?.code).toBe("EVENT_NOT_PUBLISHED");
       expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("free-for-everyone rule", () => {
+    it("should return 400 FEATURED_MUST_BE_FREE when featuring a members-only event", async () => {
+      selectRows([{ slug: "free-subscribers" }]);
+      const { status, body } = await testJson("/api/admin/events/5/feature", {
+        method: "POST",
+        headers: await auth(),
+      });
+      expect(status).toBe(400);
+      expect(body.code ?? body.error?.code).toBe("FEATURED_MUST_BE_FREE");
+      expect(JSON.stringify(body)).toContain("The monthly highlight must be free for everyone");
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("should return 400 when the event has no audience", async () => {
+      mockDb.query.events.findFirst.mockResolvedValue({ ...fullEvent, audienceId: null });
+      const { status } = await testJson("/api/admin/events/5/feature", { method: "POST", headers: await auth() });
+      expect(status).toBe(400);
+      expect(mockDb.transaction).not.toHaveBeenCalled();
+    });
+
+    it("should return 400 FEATURED_MUST_BE_FREE when moving the featured event to a members-only audience", async () => {
+      mockDb.query.events.findFirst.mockResolvedValue({ ...fullEvent, featuredAt: new Date() });
+      selectRows([{ slug: "free-subscribers" }]);
+      const { status, body } = await testJson("/api/admin/events/5", {
+        method: "PUT",
+        headers: await auth(),
+        body: JSON.stringify({ audienceId: 2 }),
+      });
+      expect(status).toBe(400);
+      expect(body.code ?? body.error?.code).toBe("FEATURED_MUST_BE_FREE");
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("should change the audience of an event that is not featured", async () => {
+      selectRows([{ slug: "free-subscribers" }]);
+      const { status } = await testJson("/api/admin/events/5", {
+        method: "PUT",
+        headers: await auth(),
+        body: JSON.stringify({ audienceId: 2 }),
+      });
+      expect(status).toBe(200);
+      expect(dbSets[0]).toMatchObject({ audienceId: 2 });
+    });
+
+    it("should allow re-saving the featured event on the free audience", async () => {
+      mockDb.query.events.findFirst.mockResolvedValue({ ...fullEvent, featuredAt: new Date() });
+      const { status } = await testJson("/api/admin/events/5", {
+        method: "PUT",
+        headers: await auth(),
+        body: JSON.stringify({ audienceId: 1 }),
+      });
+      expect(status).toBe(200);
     });
   });
 

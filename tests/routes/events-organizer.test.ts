@@ -16,6 +16,7 @@ describe("GET /api/events/featured organizer", () => {
   it("should keep returning organizer as one comma-joined string in position order", async () => {
     mockDb.query.events.findFirst.mockResolvedValueOnce({
       id: 1,
+      audience: { slug: "free-anyone" },
       eventTeachers: [],
       eventRetreatGroups: [],
       videos: [],
@@ -33,7 +34,7 @@ describe("GET /api/events/featured organizer", () => {
 
   it("should return organizer null when the event has no organizers", async () => {
     mockDb.query.events.findFirst.mockResolvedValueOnce({
-      id: 1, eventTeachers: [], eventRetreatGroups: [], videos: [], sessions: [], eventOrganizers: [],
+      id: 1, audience: { slug: "free-anyone" }, eventTeachers: [], eventRetreatGroups: [], videos: [], sessions: [], eventOrganizers: [],
     });
     const { body } = await testJson("/api/events/featured");
     expect(body.organizer).toBeNull();

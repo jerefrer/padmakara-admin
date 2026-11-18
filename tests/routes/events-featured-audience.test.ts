@@ -62,27 +62,9 @@ function featuredEvent(audienceSlug: string) {
   };
 }
 
-function userRow(subscriptionStatus: string) {
-  return { id: 1, role: "user", subscriptionStatus, subscriptionExpiresAt: null };
-}
-
 async function userHeader() {
   const token = await createAccessToken({ sub: 1, email: "u@test.com", role: "user" });
   return { Authorization: `Bearer ${token}` };
-}
-
-function expectAnnouncementOnly(body: any) {
-  // The home card still has what it shows
-  expect(body.id).toBe(42);
-  expect(body.titleEn).toBe("Spring Retreat");
-  expect(body.eventTeachers[0].teacher.name).toBe("Teacher One");
-  // And none of the content
-  expect(body.sessions).toEqual([]);
-  expect(body.transcripts).toEqual([]);
-  expect(body.videos).toEqual([]);
-  expect(body.eventFiles).toEqual([]);
-  expect(body.eventPublications).toEqual([]);
-  expect(JSON.stringify(body)).not.toContain("s3Key");
 }
 
 beforeEach(() => {
@@ -97,36 +79,6 @@ beforeEach(() => {
 });
 
 describe("GET /api/events/featured — audience", () => {
-  it("should return only the announcement to a guest when the featured event is not public", async () => {
-    mockDb.query.events.findFirst.mockResolvedValue(featuredEvent("free-subscribers"));
-
-    const { status, body } = await testJson("/api/events/featured");
-
-    expect(status).toBe(200);
-    expectAnnouncementOnly(body);
-  });
-
-  it("should return only the announcement to a signed-in user outside the featured event's audience", async () => {
-    mockDb.query.events.findFirst.mockResolvedValue(featuredEvent("restricted"));
-    mockDb.query.users.findFirst.mockResolvedValue(userRow("active"));
-
-    const { status, body } = await testJson("/api/events/featured", { headers: await userHeader() });
-
-    expect(status).toBe(200);
-    expectAnnouncementOnly(body);
-  });
-
-  it("should return the content to a member the featured event's audience lets in", async () => {
-    mockDb.query.events.findFirst.mockResolvedValue(featuredEvent("free-subscribers"));
-    mockDb.query.users.findFirst.mockResolvedValue(userRow("active"));
-
-    const { status, body } = await testJson("/api/events/featured", { headers: await userHeader() });
-
-    expect(status).toBe(200);
-    expect(body.sessions[0].tracks[0].id).toBe(100);
-    expect(body.transcripts).toHaveLength(1);
-  });
-
   it("should return the content of a public featured event to a guest", async () => {
     mockDb.query.events.findFirst.mockResolvedValue(featuredEvent("free-anyone"));
 
@@ -135,5 +87,27 @@ describe("GET /api/events/featured — audience", () => {
     expect(status).toBe(200);
     expect(body.sessions[0].tracks[0].id).toBe(100);
     expect(body.videos).toHaveLength(1);
+  });
+
+  it("should never return a featured event that is not free for everyone, and fall back to a free one", async () => {
+    const legacy = { ...featuredEvent("free-subscribers"), id: 42 };
+    const stand = { ...featuredEvent("free-anyone"), id: 77 };
+    mockDb.query.events.findFirst.mockResolvedValueOnce(legacy).mockResolvedValueOnce(stand);
+
+    const { status, body } = await testJson("/api/events/featured");
+
+    expect(status).toBe(200);
+    expect(body.id).toBe(77);
+  });
+
+  it("should return null rather than a non-free event when no free event exists", async () => {
+    mockDb.query.events.findFirst
+      .mockResolvedValueOnce(featuredEvent("restricted"))
+      .mockResolvedValueOnce(undefined);
+
+    const { status, body } = await testJson("/api/events/featured", { headers: await userHeader() });
+
+    expect(status).toBe(200);
+    expect(body).toBeNull();
   });
 });
