@@ -322,3 +322,13 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Why:** Storage is private and a key alone opens nothing, but keys reveal the bucket layout and file names, and `GET /api/events/public` served them to anonymous callers.
 **Trade-offs:** A track, video or file column a client should see must be added to its list by hand. Bookmarks, track bookmarks and last-played tracks now carry `hasReadAlong` instead of the raw read-along key.
 **Revisit if:** the app needs slide data (e.g. to render intros client-side): serve a resolved copy then, never the stored document.
+
+---
+
+## 2026-11-18 — "Recently opened" publications: a dedicated open call, stored per user
+
+**Chosen:** User decision (André, product owner): the app's Publications tab "Latest" becomes "Recently opened", the texts a person opened most recently first, never-opened ones after them, newest first. The server keeps one row per (user, publication) in `user_publication_opens` (`last_opened_at`, `open_count`, cascades on both sides), written by `POST /api/publications/:id/opened` from the app's reader. `GET /api/publications` adds `lastOpenedAt` (the caller's own, null when signed out). The app also keeps a device map and uses the later of the two times, so the order works signed out and offline.
+**Alternatives:** (a) Record the open inside `GET /api/publications/:id/pdf`: the app opens a downloaded PDF from its cache without calling that route, and calls it when replacing a cached file, so it would miss most re-opens (the very signal wanted) and count updates as opens. (b) Device-only storage: the order would differ between phone, iPad and web.
+**Why:** The open is an app-side event; only the reader knows it happened. Server storage makes the order follow the person across devices.
+**Trade-offs:** One extra request per open (fire-and-forget; a failed call only delays the cross-device order). The device map is per device, not per account: on a shared device a second account starts from the first one's local order until it opens texts itself. `open_count` is stored but not used yet.
+**Revisit if:** a "most opened" order or reading statistics are wanted (the count is already there).
