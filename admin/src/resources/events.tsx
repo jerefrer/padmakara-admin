@@ -27,6 +27,7 @@ import {
   useBlocker,
 } from "react-admin";
 import Box from "@mui/material/Box";
+import type { SxProps, Theme } from "@mui/material/styles";
 import Paper from "@mui/material/Paper";
 import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
@@ -2343,6 +2344,23 @@ function tableValueToSessions(
   });
 }
 
+/**
+ * The create and edit pages' action bar: sticks to the bottom of the window
+ * while the form runs below it. The shadow points up, onto the content it
+ * floats over.
+ */
+const stickyActionBarSx = {
+  position: "sticky",
+  bottom: 0,
+  zIndex: (t: Theme) => t.zIndex.appBar - 1,
+  py: 1.5,
+  bgcolor: "background.paper",
+  borderTop: 1,
+  borderColor: "divider",
+  borderRadius: "8px",
+  boxShadow: "0 -4px 12px rgba(0,0,0,0.08)",
+} satisfies SxProps<Theme>;
+
 export const EventCreate = () => {
   const dataProvider = useDataProvider();
   const notify = useNotify();
@@ -3114,20 +3132,7 @@ export const EventCreate = () => {
           )}
 
           {/* Sticky so Create event stays in view however long the track table is. */}
-          <Box
-            sx={{
-              position: "sticky",
-              bottom: 0,
-              zIndex: (t) => t.zIndex.appBar - 1,
-              mx: -3,
-              px: 3,
-              py: 1.5,
-              bgcolor: "background.paper",
-              borderTop: 1,
-              borderColor: "divider",
-              boxShadow: 3,
-            }}
-          >
+          <Box sx={{ ...stickyActionBarSx, mx: -3, px: 3 }}>
             {saving && <LinearProgress sx={{ mb: 1.5, borderRadius: 1 }} />}
             <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
               {hasFolder && !eventCreated && (
@@ -5026,21 +5031,7 @@ export const EventEdit = () => {
 
 
       {/* Sticky so Save stays in view however many sections are open (as on the create page). */}
-      <Box
-        sx={{
-          position: "sticky",
-          bottom: 0,
-          zIndex: (t) => t.zIndex.appBar - 1,
-          mt: 2,
-          px: 2,
-          py: 1.5,
-          bgcolor: "background.paper",
-          borderTop: 1,
-          borderColor: "divider",
-          borderRadius: "8px 8px 0 0",
-          boxShadow: 3,
-        }}
-      >
+      <Box sx={{ ...stickyActionBarSx, mt: 2, px: 2 }}>
         {saving && <LinearProgress sx={{ mb: 1.5, borderRadius: 1 }} />}
         <EventEditActions
           leading={

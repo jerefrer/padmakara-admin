@@ -130,7 +130,13 @@ export const Layout = ({ children }: { children: React.ReactNode }) => (
           flexGrow: 1,
           p: 3,
           backgroundColor: "background.default",
-          overflow: "auto",
+          // The window scrolls, not main. `overflow: auto` made main a scroll
+          // container as tall as its content, so `position: sticky` children
+          // (the event pages' Save bar) stuck to main's bottom, i.e. never.
+          // `clip` still keeps wide content from widening the page without
+          // creating a scroll container; wide tables scroll in their own
+          // wrapper (see RaDatagrid in theme.ts).
+          overflowX: "clip",
         }}
       >
         {children}

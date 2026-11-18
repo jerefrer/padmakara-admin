@@ -272,6 +272,11 @@ export const theme = createTheme({
           "& .RaDatagrid-headerCell": {
             fontWeight: 600,
           },
+          // A table wider than the page scrolls here, under itself: the layout's
+          // main area clips horizontally (see Layout.tsx).
+          "& .RaDatagrid-tableWrapper": {
+            overflowX: "auto",
+          },
         },
       },
     } as any,
