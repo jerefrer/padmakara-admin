@@ -1204,7 +1204,9 @@ async function seedEvent(
         language: tr.language,
         s3Key: tr.s3Key,
         pageCount,
-        status: "published",
+        status: "final",
+        // Imported from the live archive, so readers already had these files
+        published: true,
         originalFilename: tr.basename,
         fileSizeBytes: tr.size,
       })

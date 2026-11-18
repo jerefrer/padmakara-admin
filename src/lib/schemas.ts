@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AppError } from "./errors.ts";
 import { CURRENT_FINGERPRINT_FORMAT } from "./device-fingerprint.ts";
 import { HERO_FRAME_KEYS } from "../db/schema/teachers.ts";
+import { TRANSCRIPT_LANGUAGES, TRANSCRIPT_STATUSES } from "../db/schema/transcripts.ts";
 import { BUILTIN_CLIPS, SLIDE_ROLES } from "./slides/types.ts";
 import { PUBLICATION_STATUSES } from "../services/publication-status.ts";
 
@@ -773,19 +774,27 @@ export const updateEventFileSchema = z.object({
 });
 
 // Persist a transcripts row from the admin (fixes the persistence gap).
+// A new upload is a final, full text that starts unpublished: an admin reviews
+// it and switches it on. The status only describes the file (see db/schema/transcripts.ts).
 export const createTranscriptSchema = z.object({
   eventId: z.number().int(),
-  language: z.string().min(1).max(20),
+  language: z.enum(TRANSCRIPT_LANGUAGES),
   s3Key: z.string().min(1).max(1000),
   originalFilename: z.string().max(500).optional().nullable(),
   fileSizeBytes: z.number().int().min(0).optional().nullable(),
+  /** Used only when the server cannot count the pages of the stored PDF. */
   pageCount: z.number().int().min(0).optional().nullable(),
-  status: z.string().max(20).optional().default("published"),
+  status: z.enum(TRANSCRIPT_STATUSES).optional().default("final"),
+  isExcerpt: z.boolean().optional().default(false),
+  published: z.boolean().optional().default(false),
 });
 
 export const updateTranscriptSchema = z.object({
-  language: z.string().min(1).max(20).optional(),
-  status: z.string().max(20).optional(),
+  // No create defaults here: a PATCH that sends one field must not reset the others.
+  language: createTranscriptSchema.shape.language.optional(),
+  status: createTranscriptSchema.shape.status.removeDefault(),
+  isExcerpt: createTranscriptSchema.shape.isExcerpt.removeDefault(),
+  published: createTranscriptSchema.shape.published.removeDefault(),
 });
 
 // AI assist (event + sessions + tracks)

@@ -21,6 +21,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import TranslateIcon from "@mui/icons-material/Translate";
 import { type ParsedTrack, formatFileSize, languageLabel } from "../utils/trackParser";
 import { authFetch } from "../utils/authFetch";
+import { TranscriptMetaControls, type TranscriptMeta } from "./TranscriptMetaControls";
 
 type FileType = "video" | "transcript" | "audio" | "other";
 
@@ -62,7 +63,12 @@ interface EventFilesPreviewProps {
  * `transcriptId` is absent for transcripts dropped but not yet saved — those
  * rows render without a download button since there is nothing stored yet.
  */
-type FileRowData = ParsedTrack & { transcriptId?: number; hasFile: boolean };
+type FileRowData = ParsedTrack & {
+  transcriptId?: number;
+  hasFile: boolean;
+  meta: TranscriptMeta;
+  pageCount: number | null;
+};
 
 export const EventFilesPreview = ({ transcripts, onTranscriptDeleted }: EventFilesPreviewProps) => {
   if (transcripts.length === 0) return null;
@@ -71,6 +77,14 @@ export const EventFilesPreview = ({ transcripts, onTranscriptDeleted }: EventFil
   const transcriptTracks: FileRowData[] = transcripts.map((t, idx) => ({
     transcriptId: typeof t.id === "number" ? t.id : undefined,
     hasFile: Boolean(t.s3Key),
+    meta: {
+      language: t.language || "en",
+      status: t.status || "final",
+      isExcerpt: Boolean(t.isExcerpt),
+      // A row from before the column existed counts as published, as the API does
+      published: t.published !== false,
+    },
+    pageCount: typeof t.pageCount === "number" ? t.pageCount : null,
     trackNumber: 0,
     title: t.originalFilename || `Transcript ${idx + 1}`,
     speaker: null,
@@ -202,15 +216,13 @@ const FileRow = ({
   return (
     <Box
       sx={{
-        display: "flex",
-        alignItems: "center",
-        gap: 1.5,
         px: 2,
         py: 1,
         borderBottom: isLast ? "none" : "1px solid rgba(0,0,0,0.03)",
         "&:hover": { backgroundColor: "rgba(0,0,0,0.01)" },
       }}
     >
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
       {/* Icon */}
       <Box sx={{ color: track.isTranslation ? "secondary.main" : "primary.light", flexShrink: 0 }}>{icon}</Box>
 
@@ -248,8 +260,8 @@ const FileRow = ({
         />
       )}
 
-      {/* Language badge(s) */}
-      {(track.languages && track.languages.length > 1 ? track.languages : [track.originalLanguage || "en"]).map((lang) => (
+      {/* Language badge(s) — a saved row edits its language in the controls below */}
+      {!track.transcriptId && (track.languages && track.languages.length > 1 ? track.languages : [track.originalLanguage || "en"]).map((lang) => (
         <Chip
           key={lang}
           label={languageLabel(lang)}
@@ -291,6 +303,12 @@ const FileRow = ({
         >
           {deleting ? <CircularProgress size={16} /> : <DeleteOutlineIcon sx={{ fontSize: 16 }} />}
         </IconButton>
+      )}
+    </Box>
+
+      {/* Language, status, excerpts, publish switch — only for saved rows */}
+      {track.transcriptId && (
+        <TranscriptMetaControls transcriptId={track.transcriptId} meta={track.meta} pageCount={track.pageCount} />
       )}
 
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} maxWidth="xs" fullWidth>

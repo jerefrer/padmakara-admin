@@ -29,6 +29,7 @@ import { checkEventAccess, denialToHttpError, AUDIENCE_SLUGS } from "../services
 import {
   assertAudioVisible,
   assertTextsVisible,
+  assertTranscriptFileVisible,
   assertTranscriptsVisible,
   assertVideoVisible,
 } from "../services/media-visibility.ts";
@@ -672,6 +673,8 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
     // back to requiring a session rather than serving it to anyone.
     throw AppError.unauthorized("Authentication required to view transcripts");
   }
+  // An unpublished file answers exactly like a hidden section, so its existence does not leak
+  assertTranscriptFileVisible(result.transcript, authUser?.role, "Transcript not found");
 
   const isPublicEvent = result.event?.audience?.slug === AUDIENCE_SLUGS.PUBLIC;
 

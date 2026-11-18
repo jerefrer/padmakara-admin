@@ -90,10 +90,33 @@ function dropHiddenPublicationLinks(ev: Record<string, unknown>, role: string | 
 }
 
 /**
+ * Whether one transcript file is visible to the caller. Each file has its own
+ * `published` switch (a new upload starts off until an admin reviews it); a row
+ * that did not load the column counts as published. Its `status` (final,
+ * provisional, unrevised, draft) is descriptive only and never decides this.
+ */
+function transcriptFileVisibleTo(row: { published?: unknown }, role: string | null | undefined): boolean {
+  return isAdminRole(role) || row.published !== false;
+}
+
+/**
+ * Unpublished transcript files go for a non-admin. The read-along of the tracks
+ * stays: it belongs to the section switch, and an unpublished draft can still be
+ * the text the read-along was aligned against.
+ */
+function dropUnpublishedTranscripts(ev: Record<string, unknown>, role: string | null | undefined): void {
+  if (!Array.isArray(ev.transcripts)) return;
+  ev.transcripts = ev.transcripts.filter(
+    (row: unknown) => !row || typeof row !== "object" || transcriptFileVisibleTo(row as { published?: unknown }, role),
+  );
+}
+
+/**
  * Strip hidden sections from an event payload, in place (like the other `apply…`
  * payload helpers). Audio hidden: the sessions go entirely, since a session only
  * carries tracks. Video hidden: no videos. Transcripts hidden: no transcripts and no
- * read-along on the tracks. Texts hidden: no files and no linked publications (the
+ * read-along on the tracks. Unpublished transcript files go for a non-admin even when
+ * the section shows. Texts hidden: no files and no linked publications (the
  * publications stay in their own catalogue). Topics hidden: the themes are nulled.
  * A `forthcoming` event is announced without any content, whatever its flags say: for a
  * non-admin it loses sessions, videos, transcripts, files, publications, themes and bibliography.
@@ -115,6 +138,7 @@ export function applyContentVisibility(event: unknown, role: string | null | und
     return;
   }
   const visible = contentVisibleTo(ev, role);
+  dropUnpublishedTranscripts(ev, role);
   if (!visible.transcripts) {
     if (ev.transcripts) ev.transcripts = [];
     for (const session of ev.sessions ?? []) for (const track of session.tracks ?? []) clearReadAlong(track);
@@ -185,6 +209,18 @@ export function assertTranscriptsVisible(
   notFoundMessage: string,
 ): void {
   assertVisible("transcripts", event, role, notFoundMessage);
+}
+
+/**
+ * 404 when one transcript file is unpublished and the caller is not an admin. Use the
+ * same message as the section check, so an unpublished file looks like a missing one.
+ */
+export function assertTranscriptFileVisible(
+  row: { published?: unknown },
+  role: string | null | undefined,
+  notFoundMessage: string,
+): void {
+  if (!transcriptFileVisibleTo(row, role)) throw AppError.notFound(notFoundMessage);
 }
 
 /** 404 when the event's texts (files and related publications) are hidden from the caller. */

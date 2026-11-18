@@ -22,9 +22,15 @@ vi.mock("../../../src/services/s3.ts", () => ({
   generatePresignedAttachmentUrl: vi.fn(() => Promise.resolve("https://signed.example/t.pdf")),
 }));
 // The protected-PDF check reads S3; its own behaviour is in tests/services/pdf-protection.test.ts.
-const mockRejectProtectedPdf = vi.fn((_key: string) => Promise.resolve());
+const PDF_BYTES = new Uint8Array([37, 80, 68, 70]);
+const mockRejectProtectedPdf = vi.fn((_key: string) => Promise.resolve(PDF_BYTES));
 vi.mock("../../../src/services/pdf-protection.ts", () => ({
   rejectProtectedPdf: (key: string) => mockRejectProtectedPdf(key),
+}));
+// pdfinfo is a system binary; the route only has to store what it counts.
+const mockPageCount = vi.fn((_bytes: Uint8Array) => Promise.resolve(42));
+vi.mock("../../../src/services/pdf-page-count.ts", () => ({
+  getPdfPageCount: (bytes: Uint8Array) => mockPageCount(bytes),
 }));
 vi.mock("../../../src/services/sync-versions.ts", () => ({ bumpVersion: vi.fn(() => Promise.resolve()) }));
 
@@ -42,7 +48,7 @@ const adminToken = () => createAccessToken({ sub: 1, email: "a@test.com", role: 
 describe("transcripts admin resource", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("persists a transcript row with default status=published", async () => {
+  it("should persist a new upload as a final, full, unpublished file", async () => {
     mockReturning.mockResolvedValueOnce([{ id: 11, eventId: 3, language: "en" }]);
     const token = await adminToken();
     const { status, body } = await testJson("/api/admin/transcripts", {
@@ -52,7 +58,90 @@ describe("transcripts admin resource", () => {
     });
     expect(status).toBe(201);
     expect(body).toMatchObject({ id: 11, eventId: 3 });
-    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ status: "published" }));
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "final", isExcerpt: false, published: false }),
+    );
+  });
+
+  it("should store the page count read from the uploaded PDF", async () => {
+    mockReturning.mockResolvedValueOnce([{ id: 11, eventId: 3, language: "en" }]);
+    const token = await adminToken();
+    await testJson("/api/admin/transcripts", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId: 3, language: "en", s3Key: "events/E/transcripts/t.pdf", pageCount: 7 }),
+    });
+    expect(mockPageCount).toHaveBeenCalledWith(PDF_BYTES);
+    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ pageCount: 42 }));
+  });
+
+  it("should still save the row when the pages cannot be counted", async () => {
+    vi.spyOn(console, "error").mockImplementationOnce(() => {});
+    mockPageCount.mockRejectedValueOnce(new Error("pdfinfo failed"));
+    mockReturning.mockResolvedValueOnce([{ id: 11, eventId: 3, language: "en" }]);
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/transcripts", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId: 3, language: "en", s3Key: "events/E/transcripts/t.pdf" }),
+    });
+    expect(status).toBe(201);
+    expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ pageCount: null }));
+  });
+
+  it("should refuse a language outside en, pt, fr and tib", async () => {
+    const token = await adminToken();
+    const { status } = await testJson("/api/admin/transcripts", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ eventId: 3, language: "es", s3Key: "events/E/transcripts/t.pdf" }),
+    });
+    expect(status).toBe(400);
+    expect(mockValues).not.toHaveBeenCalled();
+  });
+
+  describe("PATCH /api/admin/transcripts/:id", () => {
+    async function patch(body: unknown) {
+      return testJson("/api/admin/transcripts/11", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${await adminToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
+    const mockSet = () => ((db as any).update.mock.results[0].value.set as ReturnType<typeof vi.fn>);
+
+    it("should write only the field the body sends", async () => {
+      mockReturning.mockResolvedValueOnce([{ id: 11, eventId: 3, published: true }]);
+
+      const { status } = await patch({ published: true });
+
+      expect(status).toBe(200);
+      const written = mockSet().mock.calls[0]![0] as Record<string, unknown>;
+      expect(Object.keys(written).sort()).toEqual(["published", "updatedAt"]);
+    });
+
+    it("should accept language, status and isExcerpt", async () => {
+      mockReturning.mockResolvedValueOnce([{ id: 11, eventId: 3 }]);
+
+      const { status } = await patch({ language: "fr", status: "provisional", isExcerpt: true });
+
+      expect(status).toBe(200);
+      expect(mockSet().mock.calls[0]![0]).toMatchObject({ language: "fr", status: "provisional", isExcerpt: true });
+    });
+
+    it("should refuse an unknown status", async () => {
+      const { status } = await patch({ status: "published" });
+
+      expect(status).toBe(400);
+    });
+
+    it("should answer 404 for an unknown transcript", async () => {
+      mockReturning.mockResolvedValueOnce([]);
+
+      const { status } = await patch({ published: false });
+
+      expect(status).toBe(404);
+    });
   });
 
   it("should refuse a password-protected PDF without saving a row", async () => {

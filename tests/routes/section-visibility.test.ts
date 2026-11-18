@@ -183,6 +183,67 @@ describe("GET /api/events/:id", () => {
   });
 });
 
+describe("unpublished transcript files", () => {
+  const twoFiles = {
+    transcripts: [
+      { id: 9, language: "en", published: true },
+      { id: 10, language: "pt", published: false },
+    ],
+  };
+
+  it("should leave an unpublished transcript out of the event detail for a user", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(makeEvent(twoFiles));
+    mockDb.query.users.findFirst.mockResolvedValueOnce(userRow("user"));
+
+    const { body } = await testJson("/api/events/1", { headers: await auth("user") });
+
+    expect(body.transcripts.map((t: { id: number }) => t.id)).toEqual([9]);
+  });
+
+  it("should keep an unpublished transcript in the event detail for an admin", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(makeEvent(twoFiles));
+    mockDb.query.users.findFirst.mockResolvedValueOnce(userRow("admin"));
+
+    const { body } = await testJson("/api/events/1", { headers: await auth("admin") });
+
+    expect(body.transcripts.map((t: { id: number }) => t.id)).toEqual([9, 10]);
+  });
+
+  it("should not count an unpublished transcript in GET /api/events for a user", async () => {
+    mockDb.query.users.findFirst.mockResolvedValueOnce(userRow("user"));
+    mockDb.query.events.findMany.mockResolvedValueOnce([makeEvent(twoFiles)]);
+
+    const { body } = await testJson("/api/events", { headers: await auth("user") });
+
+    expect(body[0].transcripts).toHaveLength(1);
+  });
+
+  it("should not load the transcript storage key for the event detail", async () => {
+    mockDb.query.events.findFirst.mockResolvedValueOnce(makeEvent());
+    mockDb.query.users.findFirst.mockResolvedValueOnce(userRow("user"));
+
+    await testJson("/api/events/1", { headers: await auth("user") });
+
+    const query = mockDb.query.events.findFirst.mock.calls[0]![0] as {
+      with: { transcripts: { columns: Record<string, boolean> } };
+    };
+    expect(query.with.transcripts.columns).not.toHaveProperty("s3Key");
+    expect(query.with.transcripts.columns).toMatchObject({ status: true, isExcerpt: true, published: true });
+  });
+
+  it("should load published with the list's transcript ids so unpublished files can go", async () => {
+    mockDb.query.users.findFirst.mockResolvedValueOnce(userRow("user"));
+    mockDb.query.events.findMany.mockResolvedValueOnce([]);
+
+    await testJson("/api/events", { headers: await auth("user") });
+
+    const query = mockDb.query.events.findMany.mock.calls[0]![0] as {
+      with: { transcripts: { columns: Record<string, boolean> } };
+    };
+    expect(query.with.transcripts.columns).toEqual({ id: true, published: true });
+  });
+});
+
 describe("event lists and public routes", () => {
   const hidden = { ...TRANSCRIPTS_HIDDEN, ...TEXTS_HIDDEN, ...TOPICS_HIDDEN };
 

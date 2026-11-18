@@ -51,9 +51,10 @@ describe("rejectProtectedPdf", () => {
   });
 
   it("should let an ordinary PDF through and keep it", async () => {
-    (getObjectBytes as any).mockResolvedValue({ body: await plainPdf(), contentType: "application/pdf" });
+    const body = await plainPdf();
+    (getObjectBytes as any).mockResolvedValue({ body, contentType: "application/pdf" });
 
-    await expect(rejectProtectedPdf("events/X/transcripts/a.pdf")).resolves.toBeUndefined();
+    await expect(rejectProtectedPdf("events/X/transcripts/a.pdf")).resolves.toBe(body);
     expect(deleteObject).not.toHaveBeenCalled();
   });
 });

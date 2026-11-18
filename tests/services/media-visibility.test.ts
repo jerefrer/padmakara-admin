@@ -286,3 +286,59 @@ describe("assertTranscriptsVisible / assertTextsVisible", () => {
     expect(() => assertTextsVisible(null, "user", "x")).not.toThrow();
   });
 });
+
+// ─── Per-file transcript publication ─────────────────────────────────────
+
+import { assertTranscriptFileVisible } from "../../src/services/media-visibility.ts";
+
+function eventWithTranscriptFiles() {
+  return {
+    ...makeFullEvent(),
+    transcripts: [
+      { id: 1, published: true },
+      { id: 2, published: false },
+      { id: 3 }, // a payload that did not load the column counts as published
+    ],
+  };
+}
+
+describe("applyContentVisibility — unpublished transcript files", () => {
+  it("should drop unpublished transcript rows for a regular user", () => {
+    const event = eventWithTranscriptFiles();
+    applyContentVisibility(event, "user");
+    expect(event.transcripts.map((t) => t.id)).toEqual([1, 3]);
+  });
+
+  it("should drop unpublished transcript rows for an anonymous caller", () => {
+    const event = eventWithTranscriptFiles();
+    applyContentVisibility(event, undefined);
+    expect(event.transcripts.map((t) => t.id)).toEqual([1, 3]);
+  });
+
+  it("should keep unpublished transcript rows for an admin", () => {
+    const event = eventWithTranscriptFiles();
+    applyContentVisibility(event, "admin");
+    expect(event.transcripts.map((t) => t.id)).toEqual([1, 2, 3]);
+  });
+
+  it("should keep the read-along of the tracks when every transcript file is unpublished", () => {
+    const event = { ...makeFullEvent(), transcripts: [{ id: 2, published: false }] };
+    applyContentVisibility(event, "user");
+    expect(event.transcripts).toEqual([]);
+    expect(event.sessions[0]!.tracks[0]!.hasReadAlong).toBe(true);
+  });
+});
+
+describe("assertTranscriptFileVisible", () => {
+  it("should throw a 404 for an unpublished file and a regular user", () => {
+    expect(() => assertTranscriptFileVisible({ published: false }, "user", "Transcript not found")).toThrow(AppError);
+  });
+
+  it("should let an admin open an unpublished file", () => {
+    expect(() => assertTranscriptFileVisible({ published: false }, "admin", "x")).not.toThrow();
+  });
+
+  it("should let anyone open a published file", () => {
+    expect(() => assertTranscriptFileVisible({ published: true }, undefined, "x")).not.toThrow();
+  });
+});

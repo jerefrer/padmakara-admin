@@ -9,6 +9,7 @@ import { parsePagination, listResponse, countRows } from "./helpers.ts";
 import { deleteObject, generatePresignedAttachmentUrl } from "../../services/s3.ts";
 import { bumpVersion } from "../../services/sync-versions.ts";
 import { rejectProtectedPdf } from "../../services/pdf-protection.ts";
+import { getPdfPageCount } from "../../services/pdf-page-count.ts";
 
 const transcriptRoutes = new Hono();
 
@@ -35,10 +36,22 @@ transcriptRoutes.get("/", async (c) => {
   return listResponse(c, data, total, offset, offset + limit, "transcripts");
 });
 
+/** The PDF's page count, or null when pdfinfo cannot read it (the upload still saves). */
+async function countPages(bytes: Uint8Array, s3Key: string): Promise<number | null> {
+  try {
+    return await getPdfPageCount(bytes);
+  } catch (err) {
+    console.error(`Failed to count the pages of ${s3Key}:`, err);
+    return null;
+  }
+}
+
 transcriptRoutes.post("/", async (c) => {
   const data = createTranscriptSchema.parse(await c.req.json());
-  await rejectProtectedPdf(data.s3Key);
-  const [row] = await db.insert(transcripts).values(data).returning();
+  const bytes = await rejectProtectedPdf(data.s3Key);
+  // Counted here rather than trusted from the client; the client value is only a fallback
+  const pageCount = (await countPages(bytes, data.s3Key)) ?? data.pageCount ?? null;
+  const [row] = await db.insert(transcripts).values({ ...data, pageCount }).returning();
   await touchParentEvent(row!.eventId);
   return c.json(row!, 201);
 });

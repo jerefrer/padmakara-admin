@@ -23,11 +23,12 @@ export async function isProtectedPdf(bytes: Uint8Array): Promise<boolean> {
 /**
  * Refuse an uploaded PDF that is password-protected: readers get it with
  * their name stamped on every page, which a protected PDF does not allow.
- * The object is deleted so it does not linger in the bucket.
+ * The object is deleted so it does not linger in the bucket. Returns the
+ * file's bytes, so a caller that also reads the PDF does not fetch it twice.
  */
-export async function rejectProtectedPdf(s3Key: string): Promise<void> {
+export async function rejectProtectedPdf(s3Key: string): Promise<Uint8Array> {
   const { body } = await getObjectBytes(s3Key);
-  if (!(await isProtectedPdf(body))) return;
+  if (!(await isProtectedPdf(body))) return body;
   await deleteObject(s3Key).catch((err) =>
     console.error(`Failed to delete protected PDF ${s3Key}:`, err),
   );

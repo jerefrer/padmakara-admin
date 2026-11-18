@@ -160,4 +160,37 @@ describe("GET /api/media/transcript/:transcriptId", () => {
 
     expect(status).toBe(404);
   });
+
+  describe("unpublished file", () => {
+    it("should 404 like a hidden section when a reader asks for an unpublished transcript", async () => {
+      transcriptFindFirst.mockResolvedValueOnce({ ...transcriptRow(SUBSCRIBER_EVENT), published: false });
+
+      const { status, body } = await testJson("/api/media/transcript/399", {
+        headers: { Authorization: `Bearer ${await subscriberToken()}` },
+      });
+
+      expect(status).toBe(404);
+      expect(body.error ?? body.message).toBe("Transcript not found");
+    });
+
+    it("should 404 an anonymous reader on an unpublished transcript of a public event", async () => {
+      transcriptFindFirst.mockResolvedValueOnce({ ...transcriptRow(PUBLIC_EVENT), published: false });
+
+      const { status } = await testJson("/api/media/transcript/399");
+
+      expect(status).toBe(404);
+    });
+
+    it("should serve an unpublished transcript to an admin", async () => {
+      transcriptFindFirst.mockResolvedValueOnce({ ...transcriptRow(SUBSCRIBER_EVENT), published: false });
+      stubS3Fetch(await makeSourcePdf());
+      const token = await createAccessToken({ sub: 1, email: "a@test.com", role: "admin" });
+
+      const res = await testRequest("/api/media/transcript/399", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      expect(res.status).toBe(200);
+    });
+  });
 });
