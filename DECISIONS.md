@@ -312,3 +312,13 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Why:** Two independent decisions (what the document is, whether readers get it) need two fields; the event-level `transcripts_published` switch stays the section gate above them. Starting new uploads unpublished matches the publication draft-first workflow decided on 2026-11-17.
 **Trade-offs:** An admin who uploads a transcript and forgets the switch leaves it invisible in the app (the admin shows an "Unpublished" chip and a hint after upload). Admins in the app see unpublished files with no marker, as they see drafts. The read-along of a track stays even when every transcript file of the event is unpublished.
 **Revisit if:** André wants per-file read-only (no download) transcripts, covers, or the Wix metadata imported.
+
+---
+
+## 2026-11-18 — Storage keys stay server-side: explicit client columns for tracks, videos and files
+
+**Chosen:** App-facing routes load tracks, event videos and event files with the column lists in `src/lib/client-columns.ts` (`TRACK_CLIENT_COLUMNS`, `VIDEO_CLIENT_COLUMNS`, `EVENT_FILE_CLIENT_COLUMNS`), so `s3Key` and `masterS3Key` are never selected. Videos go to clients without `slides` (the slide document, whose image lines carry `@builtin/...` and uploaded keys) and without the burn pipeline state: the slides are burnt into the video and the app never read them. `readAlongS3Key` is still loaded, only to derive `hasReadAlong`, and dropped before the response (`toClientTrack`, or the speaker enrichment in `routes/events.ts`). Group photos keep their keys for signing and lose them afterwards (`resolveClientGroupUrls`); the event photo already did (`resolveEventImageUrls`), now also on the session, track and last-played payloads. Admin routes keep full rows.
+**Alternatives:** (a) Delete the keys from each payload after the query: one forgotten route leaks again, and every new column reaches clients by default. (b) A deep scrubber run over every response: hides the problem instead of not loading the data, and would also strip keys an admin response needs. (c) Keep sending a derived file extension: the app never read `s3Key` (no reference in padmakara-app's code or history), so nothing needs replacing.
+**Why:** Storage is private and a key alone opens nothing, but keys reveal the bucket layout and file names, and `GET /api/events/public` served them to anonymous callers.
+**Trade-offs:** A track, video or file column a client should see must be added to its list by hand. Bookmarks, track bookmarks and last-played tracks now carry `hasReadAlong` instead of the raw read-along key.
+**Revisit if:** the app needs slide data (e.g. to render intros client-side): serve a resolved copy then, never the stored document.

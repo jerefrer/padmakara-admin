@@ -12,6 +12,8 @@ interface RetreatGroupDbRecord {
   avatarS3Key: string | null;
   heroS3Key: string | null;
   heroMobileS3Key: string | null;
+  /** The uncropped upload the admin editor re-opens; passed through by `resolveGroupUrls`. */
+  heroOriginalS3Key?: string | null;
   heroFocalX: number;
   heroFocalY: number;
   heroScale: number;
@@ -77,6 +79,29 @@ export async function resolveGroupUrls(
   };
 }
 
+/** The storage keys of a group photo: admin-only (the admin image editor re-opens the original). */
+const GROUP_KEY_COLUMNS = ["avatarS3Key", "heroS3Key", "heroMobileS3Key", "heroOriginalS3Key"] as const;
+
+export type ClientRetreatGroup = Omit<RetreatGroupResponse, (typeof GROUP_KEY_COLUMNS)[number]>;
+
+/**
+ * App-facing shape of a group: the resolved URLs, without the storage keys they were
+ * signed from. Admin routes use `resolveGroupUrls`, which keeps the keys.
+ */
+export async function resolveClientGroupUrls(group: RetreatGroupDbRecord): Promise<ClientRetreatGroup> {
+  const resolved: Record<string, unknown> = { ...(await resolveGroupUrls(group)) };
+  for (const column of GROUP_KEY_COLUMNS) delete resolved[column];
+  // The keys are gone; every other field is the RetreatGroupResponse one
+  return resolved as ClientRetreatGroup;
+}
+
+/** Resolve a list of group records for an app-facing payload (no storage keys). */
+export async function resolveClientGroupsUrls(
+  groups: RetreatGroupDbRecord[],
+): Promise<ClientRetreatGroup[]> {
+  return Promise.all(groups.map(resolveClientGroupUrls));
+}
+
 /**
  * Resolve a list of group records.
  */
@@ -88,14 +113,15 @@ export async function resolveGroupsUrls(
 
 /**
  * Mutate event.eventRetreatGroups in place, replacing each nested
- * retreatGroup with its resolved (presigned-URL) shape.
+ * retreatGroup with its resolved (presigned-URL) shape, storage keys dropped.
+ * Only app-facing routes call it.
  */
 export async function resolveEventGroupUrls(event: any): Promise<void> {
   if (!event?.eventRetreatGroups?.length) return;
   const resolved = await Promise.all(
     event.eventRetreatGroups.map(async (erg: any) => ({
       ...erg,
-      retreatGroup: erg.retreatGroup ? await resolveGroupUrls(erg.retreatGroup) : erg.retreatGroup,
+      retreatGroup: erg.retreatGroup ? await resolveClientGroupUrls(erg.retreatGroup) : erg.retreatGroup,
     })),
   );
   event.eventRetreatGroups = resolved;

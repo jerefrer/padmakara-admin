@@ -41,7 +41,7 @@ vi.mock("../../src/lib/teacher-utils.ts", () => ({
   resolveEventsTeacherUrls: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../../src/lib/group-utils.ts", () => ({
-  resolveGroupsUrls: vi.fn((groups: unknown) => Promise.resolve(groups)),
+  resolveClientGroupsUrls: vi.fn((groups: unknown) => Promise.resolve(groups)),
   resolveEventsGroupUrls: vi.fn(() => Promise.resolve()),
 }));
 

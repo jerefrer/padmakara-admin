@@ -9,10 +9,11 @@ import { AppError } from "../lib/errors.ts";
 import { AUDIENCE_SLUGS, filterAccessibleEvents, eventStatusVisibleTo } from "../services/access.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
-import { resolveGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
+import { resolveClientGroupsUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { resolveEventsImageUrls } from "../lib/event-image.ts";
 import { applyContentVisibilityToAll } from "../services/media-visibility.ts";
 import { trackOrderBy } from "../services/track-order.ts";
+import { TRACK_CLIENT_COLUMNS, VIDEO_CLIENT_COLUMNS, toClientTrack } from "../lib/client-columns.ts";
 
 const groupRoutes = new Hono();
 
@@ -47,7 +48,7 @@ groupRoutes.get("/", async (c) => {
   // Admin sees all groups
   if (user.role === "admin" || user.role === "superadmin") {
     const data = await db.select().from(retreatGroups).orderBy(retreatGroups.displayOrder);
-    const resolved = await resolveGroupsUrls(data);
+    const resolved = await resolveClientGroupsUrls(data);
     return c.json(resolved);
   }
 
@@ -94,7 +95,7 @@ groupRoutes.get("/", async (c) => {
     (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0),
   );
 
-  const resolved = await resolveGroupsUrls(data);
+  const resolved = await resolveClientGroupsUrls(data);
   return c.json(resolved);
 });
 
@@ -148,11 +149,13 @@ groupRoutes.get("/:id/events", async (c) => {
         orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
         with: {
           tracks: {
+            columns: TRACK_CLIENT_COLUMNS,
             orderBy: (t: any) => trackOrderBy(t),
           },
         },
       },
       videos: {
+        columns: VIDEO_CLIENT_COLUMNS,
         orderBy: (v: any, { asc }: any) => [asc(v.position)],
       },
     },
@@ -164,6 +167,9 @@ groupRoutes.get("/:id/events", async (c) => {
 
   // Strips the content of forthcoming events
   applyContentVisibilityToAll(accessibleEvents, user.role);
+  for (const event of accessibleEvents) {
+    for (const session of event.sessions ?? []) for (const track of session.tracks ?? []) toClientTrack(track);
+  }
   await resolveEventsTeacherUrls(accessibleEvents);
   await resolveEventsGroupUrls(accessibleEvents);
   await resolveEventsImageUrls(accessibleEvents);
