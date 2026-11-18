@@ -288,7 +288,7 @@ export const pt = {
       platforms: "Plataformas (dispositivos usados neste período)",
       teachings: "Ensinamentos neste período",
       teaching: "Ensinamento",
-      teachingsNote: "Os 20 ensinamentos com mais ouvintes neste período. Clique numa linha para ver o detalhe.",
+      teachingsNote: "Todos os ensinamentos com atividade neste período. Clique numa linha para ver o detalhe.",
       searchPlaceholder: "Procurar um ensinamento",
       noMatch: "Nenhum ensinamento corresponde a “%{query}”.",
       totalOf: "Total, %{smart_count} ensinamento |||| Total, %{smart_count} ensinamentos",
