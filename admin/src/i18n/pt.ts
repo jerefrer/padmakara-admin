@@ -445,7 +445,7 @@ export const pt = {
         and: "&",
         practice_sessions_by: "sessões de prática por",
         with_visit_of: "com a visita de",
-        with_guest: "com a participação de",
+        with_guest: "com",
       },
       teachersPreview: "Na aplicação",
       places: "Locais",

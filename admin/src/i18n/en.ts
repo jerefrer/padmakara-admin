@@ -244,7 +244,7 @@ export const en = {
         and: "&",
         practice_sessions_by: "practice sessions by",
         with_visit_of: "with the visit of",
-        with_guest: "with guest",
+        with_guest: "with",
       },
       teachersPreview: "In the app",
       places: "Places",

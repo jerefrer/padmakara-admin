@@ -24,16 +24,16 @@ export type GuestIntro = (typeof GUEST_INTRO_KEYS)[number];
 export const DEFAULT_GUEST_INTRO: GuestIntro = "with_presence_of";
 
 /**
- * Reference labels (also used by the import script's report). `with_guest` in
- * Portuguese is the gender- and number-neutral "com a participação de": "com o
- * convidado" would be wrong for a woman or for several guests.
+ * Reference labels (also used by the import script's report). `with_guest` is
+ * the plain "with" / "com" (André's choice): short, and right for one guest or
+ * several, a man or a woman.
  */
 export const GUEST_INTRO_LABELS: Record<GuestIntro, { en: string; pt: string }> = {
   with_presence_of: { en: "with the presence of", pt: "com a presença de" },
   and: { en: "&", pt: "&" },
   practice_sessions_by: { en: "practice sessions by", pt: "sessões de prática por" },
   with_visit_of: { en: "with the visit of", pt: "com a visita de" },
-  with_guest: { en: "with guest", pt: "com a participação de" },
+  with_guest: { en: "with", pt: "com" },
 };
 
 export function isGuestIntro(value: unknown): value is GuestIntro {
