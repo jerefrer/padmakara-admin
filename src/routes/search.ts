@@ -9,7 +9,7 @@ import { AppError } from "../lib/errors.ts";
 import { authIpLimiter } from "../middleware/rate-limit.ts";
 import { recordSearch, purgeIfDue } from "../services/search-log.ts";
 import { filterAccessibleEvents, AUDIENCE_SLUGS, eventStatusVisibleTo } from "../services/access.ts";
-import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
+import { GUEST_ROLE, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { applyContentVisibilityToAll } from "../services/media-visibility.ts";
 import { trackOrderBy } from "../services/track-order.ts";
 
@@ -412,7 +412,12 @@ searchRoutes.get("/", authIpLimiter({ limit: 300, windowMs: 60 * 1000 }), async 
           titlePt: event.titlePt,
           startDate: event.startDate,
           endDate: event.endDate,
-          teachers: teacherNames.filter(Boolean),
+          // Shown in a compact result row: the main teachers only. Guests still
+          // count for the match above, so an event is found under its guests too.
+          teachers: (event.eventTeachers ?? [])
+            .filter((et: any) => et.role !== GUEST_ROLE)
+            .map((et: any) => et.teacher?.name ?? "")
+            .filter(Boolean),
         },
         sessions: sessionResults,
         snippets,

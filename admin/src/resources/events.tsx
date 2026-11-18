@@ -54,6 +54,12 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
 import { CheckboxMultiSelect } from "../components/CheckboxMultiSelect";
+import {
+  EventTeachersFields,
+  orderedEventTeacherIds,
+  teacherIdsPayload,
+  type GuestIntro,
+} from "../components/EventTeachersFields";
 import { FeatureStarButton } from "../components/FeatureStarButton";
 import { EventStatusControls, type PublishSection } from "../components/EventStatusControls";
 import { apiErrorMessageKey, isMappedApiError } from "../utils/apiErrors";
@@ -607,6 +613,8 @@ export interface EventFormData {
   librarySnapshot: Record<string, unknown> | null;
   /** Teachers (ids from the selected list) saved with the 'guest' role. */
   guestTeacherIds: number[];
+  /** Phrase introducing the guests in the app; null = the default ("with the presence of"). */
+  guestIntro: GuestIntro | null;
   status: string;
   /** Per-section visibility of a published event. A new event starts with all
    *  of them off, so nothing reaches the app until an admin ticks it. */
@@ -640,7 +648,7 @@ export const EMPTY_FORM: EventFormData = {
   sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
   startDate: "", endDate: "", bibliography: "", bibliographyPt: "",
   bibliographyEnReviewed: true, bibliographyPtReviewed: true,
-  wixId: null, librarySnapshot: null, guestTeacherIds: [],
+  wixId: null, librarySnapshot: null, guestTeacherIds: [], guestIntro: null,
   status: "draft",
   audioPublished: false,
   videoPublished: false,
@@ -1623,18 +1631,17 @@ export const EventFormFields = ({
       {/* ── Teachers & Places ── */}
       <Paper sx={{ p: 3, mb: 2 }}>
         <Grid container spacing={2.5}>
-          <Grid size={{ xs: 12 }}>
-            <CheckboxMultiSelect
-              options={allTeachers}
-              getOptionLabel={(o) => `${o.name} (${o.abbreviation})`}
-              value={selectedTeachers}
-              onChange={(_, v) => setSelectedTeachers(v)}
-              isOptionEqualToValue={(o, v) => o.id === v.id}
-              renderInput={(params) => (
-                <MuiTextField {...params} label={translate("padmakara.events.teachers")} placeholder={translate("padmakara.events.teachersPlaceholder")} slotProps={{ inputLabel: { shrink: true } }} />
-              )}
-            />
-          </Grid>
+          <EventTeachersFields
+            allTeachers={allTeachers}
+            selected={selectedTeachers}
+            guestIds={form.guestTeacherIds}
+            guestIntro={form.guestIntro}
+            onChange={({ selected, guestIds }) => {
+              setSelectedTeachers(selected);
+              setForm((p) => ({ ...p, guestTeacherIds: guestIds }));
+            }}
+            onGuestIntroChange={(guestIntro) => setForm((p) => ({ ...p, guestIntro }))}
+          />
           <Grid size={{ xs: 12 }}>
             <CheckboxMultiSelect
               options={allPlaces}
@@ -2734,10 +2741,7 @@ export const EventCreate = () => {
           bibliographyPt: form.bibliographyPt.trim() || null,
           eventTypeId: selectedEventType?.id ?? null,
           audienceId: selectedAudience?.id ?? null,
-          teacherIds: selectedTeachers.map((t) => ({
-            id: t.id,
-            role: form.guestTeacherIds.includes(t.id) ? ("guest" as const) : ("teacher" as const),
-          })),
+          teacherIds: teacherIdsPayload(selectedTeachers, form.guestTeacherIds),
           placeIds: selectedPlaces.map((p) => p.id),
           organizerIds: selectedOrganizers.map((o) => o.id),
           groupIds: selectedGroups.map((g) => g.id),
@@ -3547,6 +3551,7 @@ export const EventEdit = () => {
       guestTeacherIds: (event.eventTeachers ?? [])
         .filter((rt: any) => rt.role === "guest")
         .map((rt: any) => rt.teacherId),
+      guestIntro: event.guestIntro ?? null,
       status: event.status || "draft",
       audioPublished: event.audioPublished ?? true,
       videoPublished: event.videoPublished ?? true,
@@ -3567,8 +3572,13 @@ export const EventEdit = () => {
     });
 
     if (event.eventTeachers && allTeachers.length > 0) {
-      const ids = new Set(event.eventTeachers.map((rt: any) => rt.teacherId));
-      setSelectedTeachers(allTeachers.filter((t) => ids.has(t.id)));
+      // Keep the saved order (main teachers, then guests), not the lookup list's alphabetical one.
+      const byId = new Map(allTeachers.map((t) => [t.id, t]));
+      setSelectedTeachers(
+        orderedEventTeacherIds(event.eventTeachers)
+          .map((teacherId) => byId.get(teacherId))
+          .filter((t): t is TeacherOption => t !== undefined),
+      );
     }
     if (event.eventPlaces && allPlaces.length > 0) {
       const ids = new Set(event.eventPlaces.map((rp: any) => rp.placeId));
@@ -4733,10 +4743,7 @@ export const EventEdit = () => {
     bibliographyPt: form.bibliographyPt.trim() || null,
     eventTypeId: selectedEventType?.id ?? null,
     audienceId: selectedAudience?.id ?? null,
-    teacherIds: selectedTeachers.map((t) => ({
-      id: t.id,
-      role: form.guestTeacherIds.includes(t.id) ? ("guest" as const) : ("teacher" as const),
-    })),
+    teacherIds: teacherIdsPayload(selectedTeachers, form.guestTeacherIds),
     placeIds: selectedPlaces.map((p) => p.id),
     organizerIds: selectedOrganizers.map((o) => o.id),
     groupIds: selectedGroups.map((g) => g.id),

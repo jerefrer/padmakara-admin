@@ -19,6 +19,7 @@ import {
   designationToGroup,
   type WixRow,
 } from "../scripts/csv-parser.ts";
+import { guestIntroFromWix, type GuestIntro } from "../lib/guest-intro.ts";
 
 // ─── Parsing ─────────────────────────────────────────────────────────────
 
@@ -436,6 +437,8 @@ export interface MappingResult {
     audienceId: number | null;
     groupIds: number[];
     teacherIds: { id: number; role: "teacher" | "guest" }[];
+    /** The Wix `Aux-introGuest` phrase as a GUEST_INTRO_KEYS key; null when absent or unknown. */
+    guestIntro: GuestIntro | null;
     placeIds: number[];
     /** In the order the CSV lists them. */
     organizerIds: number[];
@@ -545,7 +548,8 @@ export function mapRecordToEvent(
   const unresolvedTeachers: MappingResult["unresolved"]["teachers"] = [];
   const people: { name: string; role: "teacher" | "guest" }[] = [
     ...parseTeachers(row.teacherName).map((name) => ({ name, role: "teacher" as const })),
-    ...(row.guestName ? [{ name: row.guestName, role: "guest" as const }] : []),
+    // The guest field lists several people the same way ("A | B").
+    ...parseTeachers(row.guestName).map((name) => ({ name, role: "guest" as const })),
   ];
   for (const person of people) {
     const found = findTeacher(person.name, ref.teachers);
@@ -611,6 +615,8 @@ export function mapRecordToEvent(
       audienceId: audience?.id ?? null,
       groupIds: group ? [group.id] : [],
       teacherIds,
+      // An unknown phrase stays in the snapshot (introGuest) and maps to the default.
+      guestIntro: guestIntroFromWix(record.raw["Aux-introGuest"]) ?? null,
       placeIds: place ? [place.id] : [],
       organizerIds: resolvedOrganizers.map((o) => o.id),
       wixId: row.wixId,

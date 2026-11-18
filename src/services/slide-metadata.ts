@@ -17,6 +17,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
 import { orderedOrganizers, joinOrganizerNames, eventOrganizersWith } from "../lib/organizer-utils.ts";
+import { orderEventTeachers } from "../lib/event-teacher-order.ts";
 import type { SlideDocument } from "../lib/slides/types.ts";
 import {
   buildDefaultSlideDocument,
@@ -123,7 +124,7 @@ export async function fetchSlideTemplateMetadata(
   return {
     defaultLanguage: defaultSlideLanguage(event.originalLanguage),
     meta: {
-      teacherNames: event.eventTeachers.map((et) => et.teacher.name),
+      teacherNames: orderEventTeachers(event.eventTeachers).map((et) => et.teacher.name),
       titleEn: event.titleEn,
       titlePt: event.titlePt,
       date: dateOverride ?? linked?.date ?? event.startDate ?? null,

@@ -24,7 +24,7 @@ import {
 import { easypayFetch, isMockMode } from "./payment.ts";
 import { eventListWith } from "./events.ts";
 import { EVENT_CLIENT_COLUMNS } from "../lib/client-columns.ts";
-import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
+import { orderEventTeachers, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { resolveEventsImageUrls } from "../lib/event-image.ts";
 import { applyEventsOrganizers } from "../lib/organizer-utils.ts";
@@ -187,7 +187,11 @@ teachingRoutes.get("/:eventId", async (c) => {
     startDate: event.startDate ?? null,
     endDate: event.endDate ?? null,
     imageUrl: event.imageUrl ?? null,
-    teachers: (event.eventTeachers ?? []).flatMap((et) => (et.teacher ? [{ name: et.teacher.name }] : [])),
+    // Main teachers first, then the guests (role "guest"), introduced by guestIntro.
+    teachers: orderEventTeachers(event.eventTeachers).flatMap((et) =>
+      et.teacher ? [{ name: et.teacher.name, role: et.role }] : [],
+    ),
+    guestIntro: event.guestIntro ?? null,
     places: (event.eventPlaces ?? []).flatMap((ep) => (ep.place ? [{ name: ep.place.name }] : [])),
     // Sessions only carry audio: none to announce while the audio is hidden
     sessionCount: mediaVisibleTo(event, undefined).audio ? (event.sessions?.length ?? 0) : 0,

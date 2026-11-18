@@ -257,6 +257,25 @@ describe("mapRecordToEvent", () => {
     expect(m.unresolved.teachers).toEqual([{ name: "Wulstan Fletcher", role: "guest" }]);
   });
 
+  it("should map the Wix guest intro to its key", () => {
+    const [row] = parseLibraryCsv(
+      csv(SHANTIDEVA).replace("notes", "notes,Aux-introGuest").replace('"Completo e Revisto"', '"Completo e Revisto",com a presença de'),
+    );
+    expect(mapRecordToEvent(row!, ref).fields.guestIntro).toBe("with_presence_of");
+  });
+
+  it("should leave the guest intro null when the export has none", () => {
+    expect(mapRecordToEvent(shantideva!, ref).fields.guestIntro).toBeNull();
+  });
+
+  it("should split a guest field that lists several people", () => {
+    const [row] = parseLibraryCsv(csv(SHANTIDEVA.replace("Wulstan Fletcher", "Wulstan Fletcher | Lama Tsultrim")));
+    expect(mapRecordToEvent(row!, ref).unresolved.teachers).toEqual([
+      { name: "Wulstan Fletcher", role: "guest" },
+      { name: "Lama Tsultrim", role: "guest" },
+    ]);
+  });
+
   it("should map a group designation to a retreat group, not an event type", () => {
     const m = mapRecordToEvent(samatha!, ref);
     expect(m.fields.eventTypeId).toBeNull();

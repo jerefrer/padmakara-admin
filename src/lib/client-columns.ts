@@ -35,6 +35,8 @@ export const EVENT_CLIENT_COLUMNS = {
   bibliography: true,
   bibliographyPt: true,
   originalLanguage: true,
+  // The phrase before the guest teachers (lib/guest-intro.ts); the app localizes the key.
+  guestIntro: true,
   status: true,
   audioPublished: true,
   videoPublished: true,

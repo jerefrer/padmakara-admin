@@ -493,6 +493,21 @@ describe("GET /api/search", () => {
       ]);
     });
 
+    it("should find an event by a guest teacher but list only the main teachers", async () => {
+      const event = makeEvent({
+        eventTeachers: [
+          { role: "guest", position: 1, teacher: { name: "Shechen Rabjam Rinpoche" } },
+          { role: "teacher", position: 0, teacher: { name: "Jigme Khyentse Rinpoche" } },
+        ],
+      });
+      (db.query.events.findMany as any).mockResolvedValue([event]);
+
+      const { body } = await testJson("/api/search?q=rabjam");
+
+      expect(body.results).toHaveLength(1);
+      expect(body.results[0].event.teachers).toEqual(["Jigme Khyentse Rinpoche"]);
+    });
+
     it("includes matched tracks in session results", async () => {
       const event = makeEvent();
       (db.query.events.findMany as any).mockResolvedValue([event]);

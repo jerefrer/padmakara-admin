@@ -43,7 +43,7 @@ const EMPTY_FORM = {
   sessionThemesEnReviewed: true, sessionThemesPtReviewed: true,
   startDate: "", endDate: "", bibliography: "", bibliographyPt: "",
   bibliographyEnReviewed: true, bibliographyPtReviewed: true,
-  wixId: null, librarySnapshot: null, guestTeacherIds: [], status: "draft", audioPublished: true, videoPublished: true,
+  wixId: null, librarySnapshot: null, guestTeacherIds: [], guestIntro: null, status: "draft", audioPublished: true, videoPublished: true,
   transcriptsPublished: true, textsPublished: true, topicsPublished: true, featuredAt: null,
   saleMode: "none", priceCents: null, includedInMembership: false, internalNotes: "",
 } satisfies EventFormData;

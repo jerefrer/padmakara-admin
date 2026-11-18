@@ -23,6 +23,7 @@ import LibraryBooksIcon from "@mui/icons-material/LibraryBooks";
 import { Link as RouterLink } from "react-router-dom";
 import { useLocaleState, useNotify, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
+import type { GuestIntro } from "./EventTeachersFields";
 import type {
   EventFormData,
   TeacherOption,
@@ -79,6 +80,8 @@ interface Mapping {
     audienceId: number | null;
     groupIds: number[];
     teacherIds: { id: number; role: "teacher" | "guest" }[];
+    /** The Wix intro phrase as a key; absent from an older API. */
+    guestIntro?: GuestIntro | null;
     placeIds: number[];
     organizerIds: number[];
     wixId: string;
@@ -431,6 +434,8 @@ const LibraryMetadataDialog = ({
               .filter((id): id is number => id !== undefined),
           ];
           next.guestTeacherIds = guests;
+          // The phrase that introduces those guests travels with them.
+          next.guestIntro = f.guestIntro ?? null;
         }
         // The link to the record and the CSV fields without a column of their own.
         next.wixId = f.wixId;
