@@ -1,4 +1,4 @@
-import { and, count, countDistinct, desc, eq, gte, inArray, lte, or, sql, sum } from "drizzle-orm";
+import { and, count, countDistinct, desc, eq, gte, inArray, lte, min, or, sql, sum } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
@@ -13,7 +13,9 @@ import { videoProgress } from "../db/schema/video-progress.ts";
 import { deviceActivations } from "../db/schema/auth.ts";
 import { teachingOrders } from "../db/schema/event-access.ts";
 import { paymentTransactions } from "../db/schema/payment-transactions.ts";
-import { usageDaily, userActiveDays } from "../db/schema/usage.ts";
+import { usageDaily, usageDailyItems, userActiveDays } from "../db/schema/usage.ts";
+import { eventFiles } from "../db/schema/event-files.ts";
+import { transcripts } from "../db/schema/transcripts.ts";
 
 /**
  * Aggregate statistics for the admin Statistics page.
@@ -172,6 +174,8 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
         id: events.id,
         titleEn: events.titleEn,
         titlePt: events.titlePt,
+        startDate: events.startDate,
+        endDate: events.endDate,
         listeners: countDistinct(userProgress.userId),
         completedTracks: sql<number>`count(*) filter (where ${userProgress.isCompleted})`,
         listenSeconds: sum(userProgress.totalListenSeconds),
@@ -181,7 +185,7 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       .innerJoin(sessions, eq(sessions.id, tracks.sessionId))
       .innerJoin(events, eq(events.id, sessions.eventId))
       .where(and(eq(events.status, "published"), inRange(userProgress.lastPlayed)))
-      .groupBy(events.id, events.titleEn, events.titlePt)
+      .groupBy(events.id, events.titleEn, events.titlePt, events.startDate, events.endDate)
       .orderBy(desc(countDistinct(userProgress.userId)), events.id)
       .limit(TOP_EVENTS),
     // Read-along opens per month: an anonymous total, no per-user data behind it.
@@ -248,6 +252,8 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       id: r.id,
       title: r.titleEn,
       titlePt: r.titlePt,
+      startDate: r.startDate ?? null,
+      endDate: r.endDate ?? null,
       listeners: num(r.listeners),
       completedTracks: num(r.completedTracks),
       listenHours: Math.round((num(r.listenSeconds) / 3600) * 10) / 10,
@@ -261,5 +267,135 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       videoDownloads: usage(r.id, "video_download"),
     })),
     appOpens: openRows.map((r) => ({ day: r.day, count: num(r.n) })),
+  };
+}
+
+/** Document types shown in the event's "Documents" section (subtitles and the like are not opened by readers). */
+const DOCUMENT_FILE_TYPES = ["document", "image", "other"];
+
+/**
+ * Per-item figures for one teaching, for the detail drawer of the Statistics
+ * page. Tracks and video viewers come from user_progress / video_progress and
+ * exist for any period; per-document, per-video and per-transcript opens come
+ * from usage_daily_items, which only exists from `itemsRecordedFrom` onward.
+ *
+ * Still totals only: counts per item, never who.
+ */
+export async function getEventStatistics(eventId: number, range: DateRange) {
+  const [event] = await db
+    .select({
+      id: events.id,
+      titleEn: events.titleEn,
+      titlePt: events.titlePt,
+      startDate: events.startDate,
+      endDate: events.endDate,
+    })
+    .from(events)
+    .where(eq(events.id, eventId))
+    .limit(1);
+  if (!event) throw AppError.notFound("Event not found");
+
+  const inRange = (col: unknown) =>
+    and(sql`${lisbonDate(col)} >= ${range.from}::date`, sql`${lisbonDate(col)} <= ${range.to}::date`);
+
+  const [trackRows, videoRows, viewerRows, documentRows, transcriptRows, itemRows, firstItemRows] =
+    await Promise.all([
+      db
+        .select({
+          id: tracks.id,
+          title: tracks.title,
+          titleEn: tracks.titleEn,
+          trackNumber: tracks.trackNumber,
+          sessionNumber: sessions.sessionNumber,
+          sessionTitle: sessions.titleEn,
+          listeners: countDistinct(userProgress.userId),
+          completions: sql<number>`count(*) filter (where ${userProgress.isCompleted})`,
+          listenSeconds: sum(userProgress.totalListenSeconds),
+        })
+        .from(userProgress)
+        .innerJoin(tracks, eq(tracks.id, userProgress.trackId))
+        .innerJoin(sessions, eq(sessions.id, tracks.sessionId))
+        .where(and(eq(sessions.eventId, eventId), inRange(userProgress.lastPlayed)))
+        .groupBy(tracks.id, tracks.title, tracks.titleEn, tracks.trackNumber, sessions.sessionNumber, sessions.titleEn)
+        .orderBy(sessions.sessionNumber, tracks.trackNumber),
+      db
+        .select({ id: eventVideos.id, titleEn: eventVideos.titleEn, titlePt: eventVideos.titlePt, position: eventVideos.position })
+        .from(eventVideos)
+        .where(eq(eventVideos.eventId, eventId))
+        .orderBy(eventVideos.position, eventVideos.id),
+      db
+        .select({ videoId: videoProgress.videoId, n: countDistinct(videoProgress.userId) })
+        .from(videoProgress)
+        .innerJoin(eventVideos, eq(eventVideos.id, videoProgress.videoId))
+        .where(and(eq(eventVideos.eventId, eventId), inRange(videoProgress.updatedAt)))
+        .groupBy(videoProgress.videoId),
+      db
+        .select({ id: eventFiles.id, title: eventFiles.title, filename: eventFiles.originalFilename })
+        .from(eventFiles)
+        .where(and(eq(eventFiles.eventId, eventId), inArray(eventFiles.fileType, DOCUMENT_FILE_TYPES)))
+        .orderBy(eventFiles.sortOrder, eventFiles.id),
+      db
+        .select({ id: transcripts.id, language: transcripts.language, filename: transcripts.originalFilename })
+        .from(transcripts)
+        .where(eq(transcripts.eventId, eventId))
+        .orderBy(transcripts.id),
+      db
+        .select({ metric: usageDailyItems.metric, itemId: usageDailyItems.itemId, n: sum(usageDailyItems.count) })
+        .from(usageDailyItems)
+        .where(
+          and(
+            eq(usageDailyItems.eventId, eventId),
+            gte(usageDailyItems.day, range.from),
+            lte(usageDailyItems.day, range.to),
+          ),
+        )
+        .groupBy(usageDailyItems.metric, usageDailyItems.itemId),
+      db.select({ day: min(usageDailyItems.day) }).from(usageDailyItems),
+    ]);
+
+  const itemCount = (metric: string, itemId: number) =>
+    num(itemRows.find((r) => r.metric === metric && r.itemId === itemId)?.n);
+
+  return {
+    range,
+    // First day any per-item count was recorded (null until the first one): earlier days have event totals only.
+    itemsRecordedFrom: firstItemRows[0]?.day ?? null,
+    event: {
+      id: event.id,
+      title: event.titleEn,
+      titlePt: event.titlePt,
+      startDate: event.startDate ?? null,
+      endDate: event.endDate ?? null,
+    },
+    tracks: trackRows.map((r) => ({
+      id: r.id,
+      title: r.titleEn || r.title,
+      trackNumber: r.trackNumber,
+      sessionNumber: r.sessionNumber,
+      sessionTitle: r.sessionTitle,
+      listeners: num(r.listeners),
+      completions: num(r.completions),
+      listenHours: Math.round((num(r.listenSeconds) / 3600) * 10) / 10,
+    })),
+    videos: videoRows.map((r) => ({
+      id: r.id,
+      title: r.titleEn,
+      titlePt: r.titlePt,
+      position: r.position,
+      viewers: num(viewerRows.find((v) => v.videoId === r.id)?.n),
+      plays: itemCount("video_start", r.id),
+    })),
+    documents: documentRows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      filename: r.filename,
+      opens: itemCount("file_open", r.id),
+    })),
+    transcripts: transcriptRows.map((r) => ({
+      id: r.id,
+      language: r.language,
+      filename: r.filename,
+      opens: itemCount("transcript_open", r.id),
+    })),
   };
 }

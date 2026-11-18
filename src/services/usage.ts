@@ -1,6 +1,6 @@
 import { eq, lt, sql } from "drizzle-orm";
 import { db } from "../db/index.ts";
-import { usageDaily, userActiveDays } from "../db/schema/usage.ts";
+import { usageDaily, usageDailyItems, userActiveDays } from "../db/schema/usage.ts";
 import { eventVideos } from "../db/schema/event-videos.ts";
 
 /**
@@ -36,19 +36,38 @@ export function lisbonDay(now: Date = new Date()): string {
   return lisbonFormat.format(now);
 }
 
-/** Add one to today's counter for a metric (event id 0 = not tied to an event). */
-export function countUsage(metric: UsageMetric, eventId: number = 0): void {
+/**
+ * Add one to today's counter for a metric (event id 0 = not tied to an event).
+ * With an item id (the opened document, video or transcript), also add one to
+ * that item's counter, for the per-teaching detail in the admin.
+ */
+export function countUsage(metric: UsageMetric, eventId: number = 0, itemId?: number): void {
+  const day = lisbonDay();
   void (async () => {
     try {
       await db
         .insert(usageDaily)
-        .values({ day: lisbonDay(), metric, eventId, count: 1 })
+        .values({ day, metric, eventId, count: 1 })
         .onConflictDoUpdate({
           target: [usageDaily.day, usageDaily.metric, usageDaily.eventId],
           set: { count: sql`${usageDaily.count} + 1` },
         });
     } catch (err) {
       console.error("usage count failed", metric, err);
+    }
+  })();
+  if (itemId === undefined) return;
+  void (async () => {
+    try {
+      await db
+        .insert(usageDailyItems)
+        .values({ day, metric, eventId, itemId, count: 1 })
+        .onConflictDoUpdate({
+          target: [usageDailyItems.day, usageDailyItems.metric, usageDailyItems.itemId],
+          set: { count: sql`${usageDailyItems.count} + 1` },
+        });
+    } catch (err) {
+      console.error("usage item count failed", metric, err);
     }
   })();
 }
@@ -97,7 +116,7 @@ export function countVideoStart(videoId: number): void {
         .from(eventVideos)
         .where(eq(eventVideos.id, videoId))
         .limit(1);
-      if (row?.eventId != null) countUsage("video_start", row.eventId);
+      if (row?.eventId != null) countUsage("video_start", row.eventId, videoId);
     } catch (err) {
       console.error("usage video_start lookup failed", err);
     }
