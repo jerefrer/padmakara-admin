@@ -40,7 +40,7 @@ vi.mock("../../src/services/event-publications.ts", () => ({
   mergePublications: vi.fn((a: unknown[], b: unknown[]) => [...a, ...b]),
 }));
 vi.mock("../../src/lib/group-utils.ts", () => ({
-  resolveGroupsUrls: vi.fn((groups: unknown) => Promise.resolve(groups)),
+  resolveClientGroupsUrls: vi.fn((groups: unknown) => Promise.resolve(groups)),
   resolveEventsGroupUrls: vi.fn(() => Promise.resolve()),
   resolveEventGroupUrls: vi.fn(() => Promise.resolve()),
 }));

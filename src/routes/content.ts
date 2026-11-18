@@ -29,6 +29,7 @@ import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teache
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { resolveEventImageUrls, resolveEventsImageUrls } from "../lib/event-image.ts";
+import { TRACK_CLIENT_COLUMNS, VIDEO_CLIENT_COLUMNS, toClientTrack } from "../lib/client-columns.ts";
 import { z } from "zod";
 
 const contentRoutes = new Hono();
@@ -242,6 +243,7 @@ contentRoutes.get("/last-played", async (c) => {
     limit: 25,
     with: {
       track: {
+        columns: TRACK_CLIENT_COLUMNS,
         with: {
           session: {
             with: {
@@ -265,8 +267,11 @@ contentRoutes.get("/last-played", async (c) => {
 
   // The embedded event carries the themes; the track carries the read-along
   applyTrackReadAlongVisibility(row.track, row.track?.session?.event, user.role);
+  toClientTrack(row.track);
   applyContentVisibility(row.track?.session?.event, user.role);
   dropAudience(row.track?.session?.event);
+  // The event photo as URLs, without its storage keys
+  await resolveEventImageUrls(row.track?.session?.event);
 
   return c.json({
     trackId: row.trackId,
@@ -410,7 +415,12 @@ contentRoutes.get("/bookmarks", async (c) => {
   const rows = await db.query.bookmarks.findMany({
     where: eq(bookmarks.userId, user.id),
     orderBy: (b, { desc }) => [desc(b.createdAt)],
-    with: { track: { with: { session: { with: { event: { with: { audience: true } } } } } } },
+    with: {
+      track: {
+        columns: TRACK_CLIENT_COLUMNS,
+        with: { session: { with: { event: { with: { audience: true } } } } },
+      },
+    },
   });
   // Keep the payload shape (the bare track): the event is loaded only to apply the
   // access and audio visibility rules. Bookmarks on a track of an event the caller can
@@ -425,6 +435,7 @@ contentRoutes.get("/bookmarks", async (c) => {
       if (!track) return { ...bookmark, track };
       const { session: _session, ...bareTrack } = track;
       applyTrackReadAlongVisibility(bareTrack, _session?.event, user.role);
+      toClientTrack(bareTrack);
       return { ...bookmark, track: bareTrack };
     });
   return c.json(data);
@@ -580,6 +591,7 @@ contentRoutes.delete("/event-bookmarks/:eventId", async (c) => {
 
 const trackBookmarkWith = {
   track: {
+    columns: TRACK_CLIENT_COLUMNS,
     with: {
       session: {
         with: {
@@ -621,6 +633,7 @@ contentRoutes.get("/track-bookmarks", async (c) => {
   for (const row of rows) {
     const event = (row.track as any)?.session?.event;
     applyTrackReadAlongVisibility(row.track, event, user.role);
+    toClientTrack(row.track);
     dropAudience(event);
   }
   for (const event of events) applyContentVisibility(event, user.role);
@@ -672,6 +685,8 @@ contentRoutes.post("/track-bookmarks", async (c) => {
   if (!existing) throw AppError.notFound("Track not found");
 
   const event = (existing.track as any)?.session?.event;
+  applyTrackReadAlongVisibility(existing.track, event, user.role);
+  toClientTrack(existing.track);
   if (event) {
     dropAudience(event);
     await resolveEventTeacherUrls(event);
@@ -706,6 +721,7 @@ contentRoutes.delete("/track-bookmarks/:trackId", async (c) => {
 
 const videoBookmarkWith = {
   video: {
+    columns: VIDEO_CLIENT_COLUMNS,
     with: {
       event: {
         with: {

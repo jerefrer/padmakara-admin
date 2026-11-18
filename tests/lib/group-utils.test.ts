@@ -8,6 +8,7 @@ vi.mock("../../src/services/s3.ts", () => ({
 
 import {
   resolveGroupUrls,
+  resolveClientGroupUrls,
   resolveEventGroupUrls,
   type RetreatGroupResponse,
 } from "../../src/lib/group-utils.ts";
@@ -143,5 +144,24 @@ describe("resolveEventGroupUrls", () => {
     const eventB: any = { id: 2, eventRetreatGroups: [] };
     await resolveEventGroupUrls(eventB);
     expect(eventB.eventRetreatGroups).toEqual([]);
+  });
+});
+
+describe("group storage keys", () => {
+  it("should keep the storage keys for the admin image editor", async () => {
+    // Act
+    const resolved = await resolveGroupUrls({ ...baseGroup });
+
+    // Assert
+    expect(resolved.avatarS3Key).toBe("groups/avatars/7-1.webp");
+  });
+
+  it("should drop every storage key from the app-facing shape", async () => {
+    // Act
+    const resolved = await resolveClientGroupUrls({ ...baseGroup, heroOriginalS3Key: "groups/heroes/7-original.jpg" });
+
+    // Assert
+    expect(Object.keys(resolved).filter((key) => /s3key$/i.test(key))).toEqual([]);
+    expect(resolved.heroUrl).toBe("https://s3.example.com/presigned/groups/heroes/7-1.webp");
   });
 });

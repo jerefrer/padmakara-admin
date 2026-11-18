@@ -33,6 +33,12 @@ import {
 } from "../services/media-visibility.ts";
 import { trackOrderBy } from "../services/track-order.ts";
 import { stampEffectiveUpdatedAt } from "../lib/event-freshness.ts";
+import {
+  EVENT_FILE_CLIENT_COLUMNS,
+  TRACK_CLIENT_COLUMNS,
+  VIDEO_CLIENT_COLUMNS,
+  toClientTrack,
+} from "../lib/client-columns.ts";
 
 const eventRoutes = new Hono();
 
@@ -117,6 +123,7 @@ const eventWith = {
   eventPlaces: { with: { place: true } },
   eventOrganizers: eventOrganizersWith,
   videos: {
+    columns: VIDEO_CLIENT_COLUMNS,
     orderBy: (v: any, { asc }: any) => [asc(v.position)],
   },
 } as const;
@@ -146,12 +153,14 @@ const eventWithSessions = {
     orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
     with: {
       tracks: {
+        columns: TRACK_CLIENT_COLUMNS,
         orderBy: (t: any) => trackOrderBy(t),
       },
     },
   },
   transcripts: { columns: TRANSCRIPT_CLIENT_COLUMNS },
   eventFiles: {
+    columns: EVENT_FILE_CLIENT_COLUMNS,
     where: (f: any, { inArray }: any) => inArray(f.fileType, ["document", "image", "other"]),
     orderBy: (f: any, { asc }: any) => [asc(f.sortOrder), asc(f.id)],
   },
@@ -208,6 +217,9 @@ eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
   });
 
   applyContentVisibilityToAll(data, user?.role);
+  for (const event of data) {
+    for (const session of event.sessions ?? []) for (const track of session.tracks ?? []) toClientTrack(track);
+  }
   await resolveEventsTeacherUrls(data);
   await resolveEventsGroupUrls(data);
   await resolveEventsImageUrls(data);
@@ -479,6 +491,7 @@ eventRoutes.get("/sessions/:sessionId", async (c) => {
     where: eq(sessions.id, sessionId),
     with: {
       tracks: {
+        columns: TRACK_CLIENT_COLUMNS,
         orderBy: (t: any) => trackOrderBy(t),
       },
       event: {
@@ -499,6 +512,8 @@ eventRoutes.get("/sessions/:sessionId", async (c) => {
     applyTrackReadAlongVisibility(track, session.event, user.role);
   }
   await enrichTracksWithSpeakerNames(session.tracks, session.event);
+  // After the enrichment, which reads the event photo for the track artwork
+  await resolveEventImageUrls(session.event);
 
   return c.json(session);
 });
@@ -513,6 +528,7 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
 
   const track = await db.query.tracks.findFirst({
     where: eq(tracks.id, trackId),
+    columns: TRACK_CLIENT_COLUMNS,
     with: {
       session: {
         with: {
@@ -538,6 +554,8 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
   applyTrackReadAlongVisibility(track, event, user.role);
   applyContentVisibility(event, user.role);
   await enrichTracksWithSpeakerNames([track], event);
+  // After the enrichment, which reads the event photo for the track artwork
+  await resolveEventImageUrls(event);
 
   return c.json(track);
 });
