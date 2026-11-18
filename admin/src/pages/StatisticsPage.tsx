@@ -37,6 +37,7 @@ interface EventRow {
   fileOpens: number;
   videoStarts: number;
   zipDownloads: number;
+  videoDownloads: number;
 }
 interface Stats {
   accounts: { total: number; newInRange: number; activeMembers: number };
@@ -46,11 +47,16 @@ interface Stats {
   events: EventRow[];
 }
 
-type SortKey = "listeners" | "completedTracks" | "listenHours" | "videoViewers" | "transcriptOpens" | "readAlongOpens" | "downloads";
-const SORT_KEYS: SortKey[] = ["listeners", "completedTracks", "listenHours", "videoViewers", "transcriptOpens", "readAlongOpens", "downloads"];
+type SortKey =
+  | "listeners" | "completedTracks" | "listenHours" | "videoViewers" | "transcriptOpens" | "readAlongOpens"
+  | "videoStarts" | "fileOpens" | "downloads";
+const SORT_KEYS: SortKey[] = [
+  "listeners", "completedTracks", "listenHours", "videoViewers", "transcriptOpens", "readAlongOpens",
+  "videoStarts", "fileOpens", "downloads",
+];
 
-/** Files, videos and ZIPs opened or downloaded, counted as one "downloads" figure. */
-const downloadsOf = (e: EventRow) => e.fileOpens + e.videoStarts + e.zipDownloads;
+/** Real downloads only: event ZIPs and offline video downloads. Video plays and opened files have their own columns. */
+const downloadsOf = (e: EventRow) => e.zipDownloads + e.videoDownloads;
 const valueOf = (e: EventRow, key: SortKey): number => (key === "downloads" ? downloadsOf(e) : e[key]);
 
 const PLATFORM_LABELS: Record<string, string> = { ios: "iPhone", android: "Android", web: "Web" };
@@ -166,6 +172,8 @@ export const StatisticsPage = () => {
       listenHours: Math.round(sum("listenHours") * 10) / 10,
       transcriptOpens: sum("transcriptOpens"),
       readAlongOpens: sum("readAlongOpens"),
+      videoStarts: sum("videoStarts"),
+      fileOpens: sum("fileOpens"),
       downloads: sum("downloads"),
     };
   }, [stats]);

@@ -54,7 +54,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
 import { FeatureStarButton } from "../components/FeatureStarButton";
-import { EventStatusControls, type PublishOptions, type PublishRecipients, type PublishSection } from "../components/EventStatusControls";
+import { EventStatusControls, type PublishSection } from "../components/EventStatusControls";
 import { apiErrorMessageKey, isMappedApiError } from "../utils/apiErrors";
 import IconButton from "@mui/material/IconButton";
 import { useParams } from "react-router-dom";
@@ -141,7 +141,7 @@ import { UploadIncompleteAlert } from "../components/UploadIncompleteAlert";
 import { uploadVideoFile, uploadVideoMaster } from "../utils/videoUploader";
 import type { SessionOption } from "../utils/slideSequence";
 import { authFetch } from "../utils/authFetch";
-import { notifyPublishedBody } from "../utils/publishNotify";
+import { formatDayMonthYear, formatEventDates } from "../utils/eventDates";
 import { AnnounceContentButton } from "../components/AnnounceContentButton";
 import type { AnnouncementsInfo } from "../utils/announce";
 import { compareTracks } from "../utils/trackOrder";
@@ -484,55 +484,11 @@ export const EventList = () => {
           label={translate("padmakara.events.dates")}
           sortBy="startDate"
           sx={{ whiteSpace: "nowrap" }}
-          render={(record: any) => {
-            if (!record.startDate) return "—";
-            const dateLocale = locale === "pt" ? "pt-PT" : "en-GB";
-            const startDate = new Date(record.startDate);
-            const endDate = record.endDate ? new Date(record.endDate) : null;
-
-            // If same date or no end date, show single date
-            if (!endDate || record.startDate === record.endDate) {
-              const formatted = startDate.toLocaleDateString(dateLocale, {
-                day: "numeric",
-                month: "long",
-                year: "numeric"
-              });
-              return (
-                <Box sx={{ textAlign: "right", fontSize: "0.875rem" }}>
-                  {formatted}
-                </Box>
-              );
-            }
-
-            // Different dates - show from/to on separate lines
-            const startFormatted = startDate.toLocaleDateString(dateLocale, {
-              day: "numeric",
-              month: "long",
-              year: "numeric"
-            });
-            const endFormatted = endDate.toLocaleDateString(dateLocale, {
-              day: "numeric",
-              month: "long",
-              year: "numeric"
-            });
-
-            return (
-              <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 0.5, columnGap: 1 }}>
-                <Box component="span" sx={{ opacity: 0.6, fontSize: "0.875rem", textAlign: "right" }}>
-                  {translate("padmakara.events.from")}:
-                </Box>
-                <Box component="span" sx={{ fontSize: "0.875rem", textAlign: "right" }}>
-                  {startFormatted}
-                </Box>
-                <Box component="span" sx={{ opacity: 0.6, fontSize: "0.875rem", textAlign: "right" }}>
-                  {translate("padmakara.events.to")}:
-                </Box>
-                <Box component="span" sx={{ fontSize: "0.875rem", textAlign: "right" }}>
-                  {endFormatted}
-                </Box>
-              </Box>
-            );
-          }}
+          render={(record: any) => (
+            <Box component="span" sx={{ fontSize: "0.875rem" }}>
+              {formatEventDates(record.startDate, record.endDate)}
+            </Box>
+          )}
         />
         <FunctionField
           label={translate("padmakara.events.content")}
@@ -579,6 +535,17 @@ export const EventList = () => {
                   </Tooltip>
                 )
               )}
+            </Box>
+          )}
+        />
+        <FunctionField
+          label={translate("padmakara.events.announced")}
+          sortBy="lastAnnouncedAt"
+          sortByOrder="DESC"
+          sx={{ whiteSpace: "nowrap" }}
+          render={(record: any) => (
+            <Box component="span" sx={{ fontSize: "0.875rem" }} data-testid="announced-cell">
+              {formatDayMonthYear(record.lastAnnouncedAt)}
             </Box>
           )}
         />
@@ -4682,13 +4649,6 @@ export const EventEdit = () => {
     [form.eventCode, sessions, refresh],
   );
 
-  /** Who the "now available" email would reach, for the publish dialog. */
-  const loadPublishRecipients = useCallback(async (): Promise<PublishRecipients> => {
-    const res = await authFetch(`/api/admin/events/${id}/recipients`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }, [id]);
-
   /** What the "Announce new content" dialog shows: kinds, recipients, history. */
   const loadAnnouncements = useCallback(async (): Promise<AnnouncementsInfo> => {
     const res = await authFetch(`/api/admin/events/${id}/announcements`);
@@ -4696,7 +4656,7 @@ export const EventEdit = () => {
     return res.json();
   }, [id]);
 
-  const handleAnnounce = useCallback(async (body: object) => {
+  const handleAnnounce = useCallback(async (body: object): Promise<void> => {
     try {
       const res = await authFetch(`/api/admin/events/${id}/announce`, {
         method: "POST",
@@ -4717,7 +4677,6 @@ export const EventEdit = () => {
   const handleStatusChange = useCallback(async (
     newStatus: string,
     chosen?: Partial<Record<SectionVisibilityKey, boolean>>,
-    options?: PublishOptions,
   ) => {
     if (!id) return;
     try {
@@ -4740,24 +4699,6 @@ export const EventEdit = () => {
       }
       notify(apiErrorMessageKey(error), { type: "error", messageArgs: { message: error.message } });
       return;
-    }
-
-    // The event is published and saved: now tell the people who have access, if asked to.
-    if (!options?.notify) return;
-    try {
-      const res = await authFetch(`/api/admin/events/${id}/notify-published`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: notifyPublishedBody(options),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error || `HTTP ${res.status}`);
-      }
-      const { queued } = (await res.json()) as { queued: number };
-      notify("padmakara.events.notifying", { type: "info", messageArgs: { smart_count: queued } });
-    } catch (error: any) {
-      notify("padmakara.events.notifyFailed", { type: "error", messageArgs: { message: error.message } });
     }
   }, [id, dataProvider, event, notify, translate, markSaved]);
 
@@ -4989,8 +4930,7 @@ export const EventEdit = () => {
             <EventStatusControls
               status={form.status}
               publishSections={buildPublishSections(sectionFlagsOf(form), sectionContent, translate)}
-              loadRecipients={loadPublishRecipients}
-              onStatusChange={(val, chosen, options) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val, chosen, options); }}
+              onStatusChange={(val, chosen) => { setForm((prev) => ({ ...prev, status: val })); handleStatusChange(val, chosen); }}
               star={{
                 eventId: Number(id),
                 featured: !!form.featuredAt,

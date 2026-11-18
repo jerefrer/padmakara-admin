@@ -39,8 +39,8 @@ const RESPONSE = {
   ],
   appOpens: [],
   events: [
-    { id: 1, title: "Alpha", titlePt: null, listeners: 5, completedTracks: 1, listenHours: 2, videoViewers: 0, transcriptOpens: 9, readAlongOpens: 4, fileOpens: 0, videoStarts: 0, zipDownloads: 0 },
-    { id: 2, title: "Beta", titlePt: null, listeners: 8, completedTracks: 4, listenHours: 1, videoViewers: 3, transcriptOpens: 1, readAlongOpens: 2, fileOpens: 0, videoStarts: 0, zipDownloads: 2 },
+    { id: 1, title: "Alpha", titlePt: null, listeners: 5, completedTracks: 1, listenHours: 2, videoViewers: 0, transcriptOpens: 9, readAlongOpens: 4, fileOpens: 0, videoStarts: 0, zipDownloads: 0, videoDownloads: 0 },
+    { id: 2, title: "Beta", titlePt: null, listeners: 8, completedTracks: 4, listenHours: 1, videoViewers: 3, transcriptOpens: 1, readAlongOpens: 2, fileOpens: 3, videoStarts: 7, zipDownloads: 2, videoDownloads: 1 },
   ],
 };
 
@@ -105,8 +105,8 @@ describe("StatisticsPage", () => {
     const check = () => {
       const rows = Array.from(container.querySelectorAll("tbody tr"));
       const cells = Array.from(rows[rows.length - 1]!.querySelectorAll("td")).map((c) => c.textContent);
-      // teaching, listeners, tracks, hours, video viewers, transcripts, read-along, downloads
-      expect(cells).toEqual(["padmakara.statistics.total", "", "5", "3", "", "10", "6", "2"]);
+      // teaching, listeners, tracks, hours, video viewers, transcripts, read-along, video plays, files opened, downloads
+      expect(cells).toEqual(["padmakara.statistics.total", "", "5", "3", "", "10", "6", "7", "3", "3"]);
     };
     check();
     click(container.querySelector('[data-testid="sort-listeners"]')!);
@@ -140,6 +140,18 @@ describe("StatisticsPage", () => {
     const header = container.querySelector('[data-testid="sort-readAlongOpens"]')!;
     click(header);
     expect(rowTitles()).toEqual(["Alpha", "Beta"]);
+  });
+
+  it("should keep video plays, files opened and downloads in separate columns", () => {
+    const beta = container.querySelectorAll('[data-testid="event-row"]')[1]!;
+    const cells = Array.from(beta.querySelectorAll("td")).map((c) => c.textContent);
+    // video plays, files opened, downloads (ZIPs + offline video downloads)
+    expect(cells.slice(-3)).toEqual(["7", "3", "3"]);
+  });
+
+  it("should sort the events table by video plays", () => {
+    click(container.querySelector('[data-testid="sort-videoStarts"]')!);
+    expect(rowTitles()).toEqual(["Beta", "Alpha"]);
   });
 
   it("should open the event edit page when a row is clicked", () => {

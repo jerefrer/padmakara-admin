@@ -257,6 +257,8 @@ export async function getStatistics(range: DateRange, now: Date = new Date()) {
       fileOpens: usage(r.id, "file_open"),
       videoStarts: usage(r.id, "video_start"),
       zipDownloads: usage(r.id, "zip_download"),
+      // Offline downloads of a video, kept apart from video_start (a stream)
+      videoDownloads: usage(r.id, "video_download"),
     })),
     appOpens: openRows.map((r) => ({ day: r.day, count: num(r.n) })),
   };

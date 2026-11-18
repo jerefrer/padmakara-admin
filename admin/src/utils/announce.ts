@@ -38,3 +38,16 @@ export function announceBody(
     ...(chosen.some((k) => k.announcedAt) ? { force: true as const } : {}),
   };
 }
+
+/** When people were last emailed about the event, publish-time email included, or null. */
+export function lastAnnouncement(info: AnnouncementsInfo): { at: string; count: number } | null {
+  const candidates = [
+    ...(info.published ? [{ at: info.published.at, count: info.published.count }] : []),
+    ...info.history.map((h) => ({ at: h.sentAt, count: h.count })),
+  ];
+  let latest: { at: string; count: number } | null = null;
+  for (const c of candidates) {
+    if (!latest || new Date(c.at).getTime() > new Date(latest.at).getTime()) latest = c;
+  }
+  return latest;
+}

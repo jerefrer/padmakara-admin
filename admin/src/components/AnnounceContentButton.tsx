@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslate } from "react-admin";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -10,8 +10,9 @@ import DialogTitle from "@mui/material/DialogTitle";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import { formatDayMonthYear } from "../utils/eventDates";
 import { MAX_NOTIFY_MESSAGE_LENGTH } from "./EventStatusControls";
-import { announceBody, defaultTicked, type AnnounceKind, type AnnouncementsInfo, type Ticked } from "../utils/announce";
+import { announceBody, defaultTicked, lastAnnouncement, type AnnounceKind, type AnnouncementsInfo, type Ticked } from "../utils/announce";
 
 const KIND_LABEL_KEYS: Record<AnnounceKind, string> = {
   transcripts: "padmakara.events.announceKindTranscripts",
@@ -24,13 +25,14 @@ interface AnnounceContentButtonProps {
   status: string;
   /** Asked each time the dialog opens, so the state is always current. */
   load: () => Promise<AnnouncementsInfo>;
-  /** The confirmed request body for POST /events/:id/announce. */
-  onConfirm: (body: ReturnType<typeof announceBody>) => void;
+  /** The confirmed request body for POST /events/:id/announce. The summary reloads once it settles. */
+  onConfirm: (body: ReturnType<typeof announceBody>) => void | Promise<void>;
 }
 
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString();
 
-/** "Announce new content": a second email once transcripts, videos or texts are ready. */
+/** "Announce new content": a second email once transcripts, videos or texts are ready.
+ *  Next to the button, a line always says when people were last emailed. */
 export function AnnounceContentButton({ status, load, onConfirm }: AnnounceContentButtonProps) {
   const translate = useTranslate();
   const [open, setOpen] = useState(false);
@@ -38,10 +40,23 @@ export function AnnounceContentButton({ status, load, onConfirm }: AnnounceConte
   const [failed, setFailed] = useState(false);
   const [ticked, setTicked] = useState<Ticked>({});
   const [message, setMessage] = useState("");
+  // undefined: not loaded yet (or failed), null: never announced
+  const [last, setLast] = useState<{ at: string; count: number } | null | undefined>(undefined);
   // Answers of an earlier dialog must not land in a later one
   const askCount = useRef(0);
+  const published = status === "published";
 
-  if (status !== "published") return null;
+  const refreshLast = useCallback(() => {
+    load()
+      .then((loaded) => setLast(lastAnnouncement(loaded)))
+      .catch(() => setLast(undefined));
+  }, [load]);
+
+  useEffect(() => {
+    if (published) refreshLast();
+  }, [published, refreshLast]);
+
+  if (!published) return null;
 
   const openDialog = () => {
     setInfo(null);
@@ -64,6 +79,13 @@ export function AnnounceContentButton({ status, load, onConfirm }: AnnounceConte
 
   return (
     <>
+      {last !== undefined && (
+        <Typography variant="body2" color="text.secondary" sx={{ flexShrink: 0 }} data-testid="announce-last">
+          {last
+            ? translate("padmakara.events.lastAnnounced", { date: formatDayMonthYear(last.at), smart_count: last.count })
+            : translate("padmakara.events.notAnnouncedYet")}
+        </Typography>
+      )}
       <Button
         variant="outlined"
         size="small"
@@ -165,7 +187,7 @@ export function AnnounceContentButton({ status, load, onConfirm }: AnnounceConte
             disabled={!canSend}
             onClick={() => {
               if (!canSend || !body) return;
-              onConfirm(body);
+              void Promise.resolve(onConfirm(body)).then(refreshLast, refreshLast);
               setOpen(false);
             }}
             data-testid="confirm-change-ok"

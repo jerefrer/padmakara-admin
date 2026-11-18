@@ -53,8 +53,6 @@ describe("EventStatusControls", () => {
     { key: "audioPublished" as const, label: "Audio", checked: true },
     { key: "videoPublished" as const, label: "Video", detail: "nothing yet", checked: false },
   ];
-  const notifyBox = () =>
-    document.body.querySelector('input[data-testid="notify-on-publish"]') as HTMLInputElement | null;
   const sectionBox = (key: string) =>
     document.body.querySelector(`input[data-publish-section="${key}"]`) as HTMLInputElement | null;
 
@@ -163,183 +161,42 @@ describe("EventStatusControls", () => {
     expect(onStatusChange).toHaveBeenCalledWith("forthcoming", undefined);
   });
 
-  it("should not offer section boxes or the email box for forthcoming", () => {
-    const loadRecipients = vi.fn(() => Promise.resolve({ count: 3, notifiedAt: null }));
+  it("should not offer section boxes for forthcoming", () => {
     act(() =>
-      root.render(
-        <EventStatusControls status="draft" onStatusChange={() => {}} publishSections={SECTIONS} loadRecipients={loadRecipients} />,
-      ),
+      root.render(<EventStatusControls status="draft" onStatusChange={() => {}} publishSections={SECTIONS} />),
     );
 
     act(() => button("forthcoming").click());
 
     expect(sectionBox("audioPublished")).toBeNull();
-    expect(notifyBox()).toBeNull();
-    expect(loadRecipients).not.toHaveBeenCalled();
   });
 
-  describe("email on publish", () => {
-    const openPublish = async (
-      recipients: { count: number; notifiedAt: string | null; notifyByDefault?: boolean } | "fail",
-      onStatusChange = vi.fn(),
-    ) => {
-      const loadRecipients = vi.fn(() =>
-        recipients === "fail" ? Promise.reject(new Error("boom")) : Promise.resolve(recipients),
-      );
+  describe("publishing never emails", () => {
+    it("should offer no email box, message field or already-emailed note in the publish dialog", () => {
       act(() =>
-        root.render(
-          <EventStatusControls
-            status="forthcoming"
-            onStatusChange={onStatusChange}
-            publishSections={SECTIONS}
-            loadRecipients={loadRecipients}
-          />,
-        ),
+        root.render(<EventStatusControls status="forthcoming" onStatusChange={() => {}} publishSections={SECTIONS} />),
       );
-      await act(async () => {
-        button("published").click();
-      });
-      return { onStatusChange, loadRecipients };
-    };
-
-    it("should fetch the recipients when the publish dialog opens and tick the box by default", async () => {
-      const { loadRecipients } = await openPublish({ count: 12, notifiedAt: null });
-
-      expect(loadRecipients).toHaveBeenCalledTimes(1);
-      expect(notifyBox()).not.toBeNull();
-      expect(notifyBox()!.checked).toBe(true);
-      // below the section boxes
-      const html = document.body.innerHTML;
-      expect(html.indexOf("data-publish-section")).toBeLessThan(html.indexOf("notify-on-publish"));
-    });
-
-    it("should leave the box unticked when the server does not suggest emailing", async () => {
-      await openPublish({ count: 40, notifiedAt: null, notifyByDefault: false });
-
-      expect(notifyBox()!.checked).toBe(false);
-    });
-
-    it("should report notify: true with the sections when confirmed with the box ticked", async () => {
-      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: null });
-
-      act(() => dialogButton("confirm-change-ok")!.click());
-
-      expect(onStatusChange).toHaveBeenCalledWith(
-        "published",
-        { audioPublished: true, videoPublished: false },
-        { notify: true },
-      );
-    });
-
-    it("should not report notify when the box is unticked", async () => {
-      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: null });
-
-      act(() => notifyBox()!.click());
-      act(() => dialogButton("confirm-change-ok")!.click());
-
-      expect(onStatusChange).toHaveBeenCalledWith("published", { audioPublished: true, videoPublished: false });
-    });
-
-    const messageBox = () =>
-      document.body.querySelector('[data-testid="notify-message"] textarea:not([aria-hidden])') as HTMLTextAreaElement | null;
-    const typeMessage = (value: string) =>
-      act(() => {
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(messageBox()!, value);
-        messageBox()!.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-
-    it("should offer an optional message field while the email box is ticked", async () => {
-      await openPublish({ count: 12, notifiedAt: null });
-
-      expect(messageBox()).not.toBeNull();
-      act(() => notifyBox()!.click());
-      expect(messageBox()).toBeNull();
-      act(() => notifyBox()!.click());
-      expect(messageBox()).not.toBeNull();
-    });
-
-    it("should not offer the message field when nobody would be emailed", async () => {
-      await openPublish({ count: 0, notifiedAt: null });
-      expect(messageBox()).toBeNull();
-    });
-
-    it("should report the trimmed message with notify", async () => {
-      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: null });
-
-      typeMessage("  Welcome back.  ");
-      act(() => dialogButton("confirm-change-ok")!.click());
-
-      expect(onStatusChange).toHaveBeenCalledWith(
-        "published",
-        { audioPublished: true, videoPublished: false },
-        { notify: true, message: "Welcome back." },
-      );
-    });
-
-    it("should report no message when the field is left blank", async () => {
-      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: null });
-
-      typeMessage("   ");
-      act(() => dialogButton("confirm-change-ok")!.click());
-
-      expect(onStatusChange).toHaveBeenCalledWith(
-        "published",
-        { audioPublished: true, videoPublished: false },
-        { notify: true },
-      );
-    });
-
-    it("should drop a typed message when the email box is unticked before confirming", async () => {
-      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: null });
-
-      typeMessage("Welcome back.");
-      act(() => notifyBox()!.click());
-      act(() => dialogButton("confirm-change-ok")!.click());
-
-      expect(onStatusChange).toHaveBeenCalledWith("published", { audioPublished: true, videoPublished: false });
-    });
-
-    it("should start with an empty message in each new dialog", async () => {
-      await openPublish({ count: 12, notifiedAt: null });
-      typeMessage("Old text");
-      act(() => dialogButton("confirm-change-cancel")?.click());
-      await act(async () => {
-        button("published").click();
-      });
-      expect(messageBox()?.value ?? "").toBe("");
-    });
-
-    it("should hide the box when nobody has access", async () => {
-      const { onStatusChange } = await openPublish({ count: 0, notifiedAt: null });
-
-      expect(notifyBox()).toBeNull();
-      act(() => dialogButton("confirm-change-ok")!.click());
-      expect(onStatusChange).toHaveBeenCalledWith("published", { audioPublished: true, videoPublished: false });
-    });
-
-    it("should show when they were emailed instead of the box when already notified", async () => {
-      const { onStatusChange } = await openPublish({ count: 12, notifiedAt: "2026-11-01T10:00:00.000Z" });
-
-      expect(notifyBox()).toBeNull();
-      expect(document.body.querySelector('[data-testid="already-notified"]')).not.toBeNull();
-      act(() => dialogButton("confirm-change-ok")!.click());
-      expect(onStatusChange.mock.calls[0]).toHaveLength(2);
-    });
-
-    it("should still publish, without the box, when the recipients cannot be fetched", async () => {
-      const { onStatusChange } = await openPublish("fail");
-
-      expect(notifyBox()).toBeNull();
-      act(() => dialogButton("confirm-change-ok")!.click());
-      expect(onStatusChange).toHaveBeenCalledWith("published", { audioPublished: true, videoPublished: false });
-    });
-
-    it("should not offer the box without a loader, as in the create wizard", () => {
-      act(() => root.render(<EventStatusControls status="draft" onStatusChange={() => {}} />));
 
       act(() => button("published").click());
 
-      expect(notifyBox()).toBeNull();
+      const dialog = document.body.innerHTML;
+      expect(dialog).not.toContain("notify-on-publish");
+      expect(dialog).not.toContain("notify-message");
+      expect(dialog).not.toContain("already-notified");
+      expect(document.body.querySelector("textarea")).toBeNull();
+    });
+
+    it("should report only the status and the sections when confirmed", () => {
+      const onStatusChange = vi.fn();
+      act(() =>
+        root.render(<EventStatusControls status="forthcoming" onStatusChange={onStatusChange} publishSections={SECTIONS} />),
+      );
+
+      act(() => button("published").click());
+      act(() => dialogButton("confirm-change-ok")!.click());
+
+      expect(onStatusChange).toHaveBeenCalledWith("published", { audioPublished: true, videoPublished: false });
+      expect(onStatusChange.mock.calls[0]).toHaveLength(2);
     });
   });
 });
