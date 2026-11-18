@@ -15,6 +15,7 @@ const mockFetch = vi.fn();
 vi.mock("../utils/authFetch", () => ({ authFetch: (...a: unknown[]) => mockFetch(...a) }));
 
 import { StatisticsPage } from "./StatisticsPage";
+import { DRAWER_WIDTH } from "./statistics/TeachingDetailDrawer";
 import { rangeFor } from "../utils/statisticsRange";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -51,6 +52,8 @@ const DETAIL = {
   event: { id: 2, title: "Beta Ngöndro", titlePt: null, startDate: "2025-10-03", endDate: "2025-10-05" },
   tracks: [
     { id: 31, title: "Introduction", trackNumber: 1, sessionNumber: 1, sessionTitle: "Morning", listeners: 4, completions: 2, listenHours: 1.5 },
+    { id: 32, title: "Refuge", trackNumber: 2, sessionNumber: 1, sessionTitle: "Morning", listeners: 3, completions: 0, listenHours: 0.5 },
+    { id: 33, title: "Merit", trackNumber: 1, sessionNumber: 2, sessionTitle: "Evening", listeners: 1, completions: 1, listenHours: 0.2 },
   ],
   videos: [
     { id: 70, title: "Day 1", titlePt: null, position: 0, viewers: 3, plays: 9 },
@@ -310,8 +313,32 @@ describe("StatisticsPage", () => {
     ]);
     expect(cells("detail-transcripts")).toEqual([["beta-en.pdfpadmakara.statistics.language_en", "2"]]);
     expect(cells("detail-tracks")).toEqual([
-      ['Introductionpadmakara.statistics.sessionNumber {"n":1} · Morning', "4", "2", "1.5"],
+      ["Introduction", "4", "2", "1.5"],
+      ["Refuge", "3", "0", "0.5"],
+      ["Merit", "1", "1", "0.2"],
     ]);
+  });
+
+  it("should show each session once as a header row with its tracks below it", async () => {
+    await openDrawerFor(0);
+    const body = drawer()!.querySelector('[data-testid="detail-tracks"] tbody')!;
+    const lines = Array.from(body.querySelectorAll("tr")).map((r) =>
+      r.getAttribute("data-testid") === "detail-tracks-group" ? `# ${r.textContent}` : r.querySelector("td")!.textContent,
+    );
+    expect(lines).toEqual([
+      '# padmakara.statistics.sessionNumber {"n":1} · Morning',
+      "Introduction",
+      "Refuge",
+      '# padmakara.statistics.sessionNumber {"n":2} · Evening',
+      "Merit",
+    ]);
+  });
+
+  it("should make the drawer wide on desktop", async () => {
+    await openDrawerFor(0);
+    expect(DRAWER_WIDTH).toBe("min(1100px, 92vw)");
+    const css = Array.from(document.querySelectorAll("style")).map((s) => s.textContent).join("");
+    expect(css).toContain("min(1100px, 92vw)");
   });
 
   it("should say from when per-item counts exist when the period starts earlier", async () => {
