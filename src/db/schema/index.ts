@@ -133,7 +133,7 @@ export type { SearchQuery } from "./search-queries.ts";
 export { passkeyCredentials, webauthnChallenges } from "./passkeys.ts";
 
 // Usage statistics (server-side totals + daily activity)
-export { usageDaily, userActiveDays } from "./usage.ts";
+export { usageDaily, usageDailyItems, userActiveDays } from "./usage.ts";
 
 // Content-Security-Policy violation reports (deduplicated)
 export { cspReports } from "./csp-reports.ts";

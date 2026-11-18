@@ -7,6 +7,7 @@ const mockNavigate = vi.fn();
 vi.mock("react-router-dom", () => ({ useNavigate: () => mockNavigate }));
 vi.mock("react-admin", () => ({
   Title: () => null,
+  useLocaleState: () => ["en", () => {}],
   useTranslate: () => (key: string, opts?: Record<string, unknown>) =>
     opts ? `${key} ${JSON.stringify(opts)}` : key,
 }));
@@ -39,22 +40,60 @@ const RESPONSE = {
   ],
   appOpens: [],
   events: [
-    { id: 1, title: "Alpha", titlePt: null, listeners: 5, completedTracks: 1, listenHours: 2, videoViewers: 0, transcriptOpens: 9, readAlongOpens: 4, fileOpens: 0, videoStarts: 0, zipDownloads: 0, videoDownloads: 0 },
-    { id: 2, title: "Beta", titlePt: null, listeners: 8, completedTracks: 4, listenHours: 1, videoViewers: 3, transcriptOpens: 1, readAlongOpens: 2, fileOpens: 3, videoStarts: 7, zipDownloads: 2, videoDownloads: 1 },
+    { id: 1, title: "Alpha", titlePt: null, startDate: "2026-04-10", endDate: "2026-04-12", listeners: 5, completedTracks: 1, listenHours: 2, videoViewers: 0, transcriptOpens: 9, readAlongOpens: 4, fileOpens: 0, videoStarts: 0, zipDownloads: 0, videoDownloads: 0 },
+    { id: 2, title: "Beta Ngöndro", titlePt: null, startDate: "2025-10-03", endDate: "2025-10-05", listeners: 8, completedTracks: 4, listenHours: 1, videoViewers: 3, transcriptOpens: 1, readAlongOpens: 2, fileOpens: 3, videoStarts: 7, zipDownloads: 2, videoDownloads: 1 },
   ],
+};
+
+const DETAIL = {
+  range: { from: "2026-10-20", to: "2026-11-18" },
+  itemsRecordedFrom: "2026-11-19",
+  event: { id: 2, title: "Beta Ngöndro", titlePt: null, startDate: "2025-10-03", endDate: "2025-10-05" },
+  tracks: [
+    { id: 31, title: "Introduction", trackNumber: 1, sessionNumber: 1, sessionTitle: "Morning", listeners: 4, completions: 2, listenHours: 1.5 },
+  ],
+  videos: [
+    { id: 70, title: "Day 1", titlePt: null, position: 0, viewers: 3, plays: 9 },
+    { id: 71, title: null, titlePt: null, position: 1, viewers: 0, plays: 0 },
+  ],
+  documents: [
+    { id: 50, title: "Prayer sheet", filename: "prayer.pdf", opens: 6 },
+    { id: 51, title: null, filename: "photo.jpg", opens: 0 },
+  ],
+  transcripts: [{ id: 90, language: "en", filename: "beta-en.pdf", opens: 2 }],
 };
 
 let container: HTMLDivElement;
 let root: Root;
+let detail: unknown;
 
 const text = () => container.textContent ?? "";
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
 const rowTitles = () =>
-  Array.from(container.querySelectorAll('[data-testid="event-row"]')).map((r) => r.querySelector("td")!.textContent);
+  Array.from(container.querySelectorAll('[data-testid="event-title"]')).map((r) => r.textContent);
+const rowCells = (index: number) =>
+  Array.from(container.querySelectorAll('[data-testid="event-row"]')[index]!.querySelectorAll("td")).map((c) => c.textContent);
 const click = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+const search = (value: string) =>
+  act(() => {
+    const input = container.querySelector<HTMLInputElement>('[data-testid="teaching-search"]')!;
+    // React tracks the input's value through the native setter, so set it there before the input event
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+const drawer = () => document.querySelector('[data-testid="teaching-drawer"]');
+const openDrawerFor = async (index: number) => {
+  click(container.querySelectorAll('[data-testid="event-row"]')[index]!);
+  await flush();
+};
 
 beforeEach(async () => {
-  mockFetch.mockReset().mockResolvedValue({ ok: true, json: async () => RESPONSE });
+  detail = DETAIL;
+  mockFetch.mockReset().mockImplementation(async (url: string) =>
+    url.includes("/statistics/events/")
+      ? { ok: true, json: async () => detail }
+      : { ok: true, json: async () => RESPONSE },
+  );
   mockNavigate.mockReset();
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -76,9 +115,64 @@ describe("StatisticsPage", () => {
     expect(text()).toContain("29");
   });
 
-  it("should list the events with their counts", () => {
-    expect(rowTitles()).toEqual(["Alpha", "Beta"]);
+  it("should list the events by listeners, most first, by default", () => {
+    expect(rowTitles()).toEqual(["Beta Ngöndro", "Alpha"]);
     expect(text()).toContain("padmakara.statistics.privacyNote");
+  });
+
+  it("should show each teaching's dates under its title", () => {
+    const dates = Array.from(container.querySelectorAll('[data-testid="event-dates"]')).map((d) => d.textContent);
+    expect(dates).toEqual(["03–05/10/2025", "10–12/04/2026"]);
+  });
+
+  it("should group the columns under Audio, Video and Texts", () => {
+    const groups = Array.from(container.querySelectorAll("thead tr:first-child th")).map((c) => c.textContent);
+    expect(groups).toEqual([
+      "padmakara.statistics.teaching",
+      "padmakara.statistics.group_audio",
+      "padmakara.statistics.group_video",
+      "padmakara.statistics.group_texts",
+      "padmakara.statistics.col_downloads",
+    ]);
+    const columns = Array.from(container.querySelectorAll("thead tr:nth-child(2) th")).map((c) => c.textContent);
+    expect(columns).toEqual([
+      "padmakara.statistics.col_listeners",
+      "padmakara.statistics.col_completedTracks",
+      "padmakara.statistics.col_listenHours",
+      "padmakara.statistics.col_videoViewers",
+      "padmakara.statistics.col_videoStarts",
+      "padmakara.statistics.col_transcriptOpens",
+      "padmakara.statistics.col_readAlongOpens",
+      "padmakara.statistics.col_fileOpens",
+    ]);
+  });
+
+  it("should explain what every column counts", () => {
+    for (const key of ["listeners", "completedTracks", "listenHours", "videoViewers", "videoStarts", "transcriptOpens", "readAlongOpens", "fileOpens", "downloads"]) {
+      const label = container.querySelector(`[data-testid="help-${key}"]`);
+      expect(label?.getAttribute("aria-label")).toBe(`padmakara.statistics.help_${key}`);
+    }
+  });
+
+  it("should show zeros muted and other counts in the normal colour", () => {
+    // Alpha: video viewers 0, listeners 5
+    const alpha = container.querySelectorAll('[data-testid="event-row"]')[1]!;
+    const figures = Array.from(alpha.querySelectorAll("td:not(:first-child) > span"));
+    const viewers = figures[3]!;
+    const listeners = figures[0]!;
+    expect(viewers.textContent).toBe("0");
+    expect(viewers.getAttribute("data-zero")).toBe("true");
+    expect(listeners.getAttribute("data-zero")).toBeNull();
+  });
+
+  it("should show hours with one decimal and thousands with separators", async () => {
+    const big = { ...RESPONSE.events[0]!, id: 9, title: "Gamma", listeners: 99, listenHours: 1230.4, transcriptOpens: 1234 };
+    mockFetch.mockImplementation(async () => ({ ok: true, json: async () => ({ ...RESPONSE, events: [big] }) }));
+    click(container.querySelector('[data-testid="range-90"]')!);
+    await flush();
+    const cells = rowCells(0);
+    expect(cells[3]).toBe("1,230.4");
+    expect(cells[6]).toBe("1,234");
   });
 
   it("should show the platforms with friendly names and counts", () => {
@@ -101,16 +195,42 @@ describe("StatisticsPage", () => {
     ]);
   });
 
-  it("should add a bold total row of the additive columns at the bottom, whatever the sort", () => {
+  it("should add a total row of the additive columns at the bottom, whatever the sort", () => {
     const check = () => {
       const rows = Array.from(container.querySelectorAll("tbody tr"));
+      expect(rows[rows.length - 1]!.getAttribute("data-testid")).toBe("total-row");
       const cells = Array.from(rows[rows.length - 1]!.querySelectorAll("td")).map((c) => c.textContent);
-      // teaching, listeners, tracks, hours, video viewers, transcripts, read-along, video plays, files opened, downloads
-      expect(cells).toEqual(["padmakara.statistics.total", "", "5", "3", "", "10", "6", "7", "3", "3"]);
+      // teaching | listeners, completed, hours | viewers, plays | transcripts, read-along, documents | downloads
+      expect(cells).toEqual([
+        'padmakara.statistics.totalOf {"smart_count":2}', "", "5", "3.0", "", "7", "10", "6", "3", "3",
+      ]);
     };
     check();
     click(container.querySelector('[data-testid="sort-listeners"]')!);
     check();
+  });
+
+  it("should filter the teachings by title, ignoring case and accents, and total only those shown", () => {
+    search("ngondro");
+    expect(rowTitles()).toEqual(["Beta Ngöndro"]);
+    const total = container.querySelector('[data-testid="total-row"]')!;
+    expect(total.textContent).toContain('{"smart_count":1}');
+    // Beta's completed tracks alone
+    expect(Array.from(total.querySelectorAll("td")).map((c) => c.textContent)[2]).toBe("4");
+  });
+
+  it("should say so when no teaching matches the search", () => {
+    search("zzz");
+    expect(rowTitles()).toEqual([]);
+    expect(text()).toContain('padmakara.statistics.noMatch {"query":"zzz"}');
+    expect(container.querySelector('[data-testid="total-row"]')).toBeNull();
+  });
+
+  it("should sort by title alphabetically, A to Z first", () => {
+    click(container.querySelector('[data-testid="sort-title"]')!);
+    expect(rowTitles()).toEqual(["Alpha", "Beta Ngöndro"]);
+    click(container.querySelector('[data-testid="sort-title"]')!);
+    expect(rowTitles()).toEqual(["Beta Ngöndro", "Alpha"]);
   });
 
   it("should put the 12-month charts before the period selector and the period-dependent blocks after it", () => {
@@ -128,34 +248,99 @@ describe("StatisticsPage", () => {
     expect(text()).toContain("€25");
   });
 
-  it("should sort the events table by a column, descending first, then ascending", () => {
-    const header = container.querySelector('[data-testid="sort-listeners"]')!;
-    click(header);
-    expect(rowTitles()).toEqual(["Beta", "Alpha"]);
-    click(header);
-    expect(rowTitles()).toEqual(["Alpha", "Beta"]);
+  it("should flip the sort of the active column, then sort a new column descending first", () => {
+    click(container.querySelector('[data-testid="sort-listeners"]')!);
+    expect(rowTitles()).toEqual(["Alpha", "Beta Ngöndro"]);
+    click(container.querySelector('[data-testid="sort-listeners"]')!);
+    expect(rowTitles()).toEqual(["Beta Ngöndro", "Alpha"]);
   });
 
   it("should sort the events table by read-along opens", () => {
-    const header = container.querySelector('[data-testid="sort-readAlongOpens"]')!;
-    click(header);
-    expect(rowTitles()).toEqual(["Alpha", "Beta"]);
+    click(container.querySelector('[data-testid="sort-readAlongOpens"]')!);
+    expect(rowTitles()).toEqual(["Alpha", "Beta Ngöndro"]);
   });
 
-  it("should keep video plays, files opened and downloads in separate columns", () => {
-    const beta = container.querySelectorAll('[data-testid="event-row"]')[1]!;
-    const cells = Array.from(beta.querySelectorAll("td")).map((c) => c.textContent);
-    // video plays, files opened, downloads (ZIPs + offline video downloads)
-    expect(cells.slice(-3)).toEqual(["7", "3", "3"]);
+  it("should sort the events table by documents opened", () => {
+    click(container.querySelector('[data-testid="sort-transcriptOpens"]')!);
+    expect(rowTitles()).toEqual(["Alpha", "Beta Ngöndro"]);
+    click(container.querySelector('[data-testid="sort-fileOpens"]')!);
+    expect(rowTitles()).toEqual(["Beta Ngöndro", "Alpha"]);
   });
 
-  it("should sort the events table by video plays", () => {
-    click(container.querySelector('[data-testid="sort-videoStarts"]')!);
-    expect(rowTitles()).toEqual(["Beta", "Alpha"]);
+  it("should keep video plays, documents opened and downloads in separate columns", () => {
+    // Beta: plays 7 | transcripts 1, read-along 2, documents 3 | downloads 2 ZIPs + 1 video = 3
+    expect(rowCells(0).slice(-5)).toEqual(["7", "1", "2", "3", "3"]);
   });
 
-  it("should open the event edit page when a row is clicked", () => {
-    click(container.querySelectorAll('[data-testid="event-row"]')[1]!);
+  it("should open the teaching's detail when a row is clicked, for the selected period", async () => {
+    expect(drawer()).toBeNull();
+    await openDrawerFor(0);
+    expect(drawer()).not.toBeNull();
+    const { from, to } = rangeFor(30);
+    expect(mockFetch).toHaveBeenLastCalledWith(`/api/admin/statistics/events/2?from=${from}&to=${to}`);
+  });
+
+  it("should open the detail from the keyboard", async () => {
+    const row = container.querySelectorAll('[data-testid="event-row"]')[0]!;
+    act(() => { row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    await flush();
+    expect(drawer()).not.toBeNull();
+  });
+
+  it("should list each document with its opens in the detail", async () => {
+    await openDrawerFor(0);
+    const rows = Array.from(drawer()!.querySelectorAll('[data-testid="detail-documents-row"]')).map((r) =>
+      Array.from(r.querySelectorAll("td")).map((c) => c.textContent),
+    );
+    expect(rows).toEqual([
+      ["Prayer sheetprayer.pdf", "6"],
+      ["photo.jpg", "0"],
+    ]);
+  });
+
+  it("should list videos with viewers and plays, transcripts and listened tracks in the detail", async () => {
+    await openDrawerFor(0);
+    const cells = (id: string) =>
+      Array.from(drawer()!.querySelectorAll(`[data-testid="${id}-row"]`)).map((r) =>
+        Array.from(r.querySelectorAll("td")).map((c) => c.textContent),
+      );
+    expect(cells("detail-videos")).toEqual([
+      ["Day 1", "3", "9"],
+      ['padmakara.statistics.videoPart {"n":2}', "0", "0"],
+    ]);
+    expect(cells("detail-transcripts")).toEqual([["beta-en.pdfpadmakara.statistics.language_en", "2"]]);
+    expect(cells("detail-tracks")).toEqual([
+      ['Introductionpadmakara.statistics.sessionNumber {"n":1} · Morning', "4", "2", "1.5"],
+    ]);
+  });
+
+  it("should say from when per-item counts exist when the period starts earlier", async () => {
+    await openDrawerFor(0);
+    const note = drawer()!.querySelector('[data-testid="items-note"]');
+    expect(note?.textContent).toBe('padmakara.statistics.itemsFrom {"date":"19 Nov 2026"}');
+  });
+
+  it("should not warn when per-item counts cover the whole period", async () => {
+    detail = { ...DETAIL, itemsRecordedFrom: "2026-10-01" };
+    await openDrawerFor(0);
+    expect(drawer()!.querySelector('[data-testid="items-note"]')).toBeNull();
+  });
+
+  it("should say per-item counts start now when none was recorded yet", async () => {
+    detail = { ...DETAIL, itemsRecordedFrom: null };
+    await openDrawerFor(0);
+    expect(drawer()!.querySelector('[data-testid="items-note"]')?.textContent).toBe("padmakara.statistics.itemsNone");
+  });
+
+  it("should show an error in the detail when it cannot be loaded", async () => {
+    mockFetch.mockImplementation(async () => ({ ok: false, status: 500 }));
+    await openDrawerFor(0);
+    expect(drawer()!.textContent).toContain("padmakara.statistics.detailLoadFailed");
+  });
+
+  it("should open the event edit page from the detail", async () => {
+    await openDrawerFor(0);
+    click(drawer()!.querySelector('[data-testid="open-event"]')!);
     expect(mockNavigate).toHaveBeenCalledWith("/events/2");
   });
 
