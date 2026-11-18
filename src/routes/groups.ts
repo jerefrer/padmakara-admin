@@ -13,7 +13,13 @@ import { resolveClientGroupsUrls, resolveEventsGroupUrls } from "../lib/group-ut
 import { resolveEventsImageUrls } from "../lib/event-image.ts";
 import { applyContentVisibilityToAll } from "../services/media-visibility.ts";
 import { trackOrderBy } from "../services/track-order.ts";
-import { TRACK_CLIENT_COLUMNS, VIDEO_CLIENT_COLUMNS, toClientTrack } from "../lib/client-columns.ts";
+import {
+  EVENT_CLIENT_COLUMNS,
+  SESSION_CLIENT_COLUMNS,
+  TRACK_CLIENT_COLUMNS,
+  VIDEO_CLIENT_COLUMNS,
+  toClientTrack,
+} from "../lib/client-columns.ts";
 
 const groupRoutes = new Hono();
 
@@ -139,6 +145,7 @@ groupRoutes.get("/:id/events", async (c) => {
       inArray(events.status, eventStatusVisibleTo(user.role)),
     ),
     orderBy: (r, { desc }) => [desc(r.startDate)],
+    columns: EVENT_CLIENT_COLUMNS,
     with: {
       audience: true,
       eventTeachers: { with: { teacher: true } },
@@ -146,6 +153,7 @@ groupRoutes.get("/:id/events", async (c) => {
       eventOrganizers: eventOrganizersWith,
       eventRetreatGroups: { with: { retreatGroup: true } },
       sessions: {
+        columns: SESSION_CLIENT_COLUMNS,
         orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
         with: {
           tracks: {

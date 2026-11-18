@@ -23,6 +23,7 @@ import {
 } from "../services/teaching-orders.ts";
 import { easypayFetch, isMockMode } from "./payment.ts";
 import { eventListWith } from "./events.ts";
+import { EVENT_CLIENT_COLUMNS } from "../lib/client-columns.ts";
 import { resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { resolveEventsImageUrls } from "../lib/event-image.ts";
@@ -114,6 +115,7 @@ teachingRoutes.get("/mine", authMiddleware, async (c) => {
 
   const rows = await db.query.events.findMany({
     where: inArray(events.id, ids),
+    columns: EVENT_CLIENT_COLUMNS,
     with: eventListWith,
   });
   const openIds = new Set(open.map((e) => e.id));
