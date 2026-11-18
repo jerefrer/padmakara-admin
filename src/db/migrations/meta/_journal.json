@@ -547,6 +547,13 @@
       "when": 1815011200000,
       "tag": "0077_user_publication_opens",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1815097600000,
+      "tag": "0078_event_guest_intro",
+      "breakpoints": true
     }
   ]
 }

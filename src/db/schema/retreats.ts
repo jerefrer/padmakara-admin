@@ -97,6 +97,12 @@ export const events = pgTable("retreats", {
   avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
   heroUpdatedAt: timestamp("hero_updated_at", { withTimezone: true }),
   s3Prefix: text("s3_prefix"),
+  /**
+   * The phrase introducing the guest teachers (retreat_teachers rows with role
+   * 'guest') after the main ones: a key of GUEST_INTRO_KEYS (src/lib/guest-intro.ts),
+   * or null for the default rendering. The clients localize it.
+   */
+  guestIntro: text("guest_intro"),
   /** Wix ID of the library record this event was filled from (library_records.wix_id). */
   wixId: text("wix_id"),
   /** Imported library CSV fields that have no column of their own. */
@@ -126,7 +132,9 @@ export const events = pgTable("retreats", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Junction: event <-> teacher
+// Junction: event <-> teacher. `role` is 'teacher' (a main teacher) or 'guest'
+// (a guest / other speaker, shown after the event's `guestIntro`). `position`
+// keeps the order the admin chose ("JKR & PWR", not "PWR & JKR").
 export const eventTeachers = pgTable(
   "retreat_teachers",
   {
@@ -137,6 +145,7 @@ export const eventTeachers = pgTable(
       .notNull()
       .references(() => teachers.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("teacher"),
+    position: integer("position").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.eventId, t.teacherId, t.role] })],
 );
