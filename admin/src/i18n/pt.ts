@@ -464,8 +464,6 @@ export const pt = {
       confirmForthcomingTitle: "Mostrar como em breve?",
       confirmForthcomingMessage: "O evento aparece na aplicação como \"Em breve – a ser editado\" para as pessoas que vão ter acesso, sem o seu conteúdo.",
       confirmForthcoming: "Mostrar como em breve",
-      notifyOnPublish: "Enviar email a %{smart_count} pessoa com acesso a avisar que já está disponível |||| Enviar email a %{smart_count} pessoas com acesso a avisar que já está disponível",
-      alreadyNotified: "Email já enviado a %{date}",
       notifyMessageLabel: "Adicionar uma mensagem pessoal (opcional)",
       notifyMessageHint: "Aparece a seguir à primeira linha do email. Texto simples.",
       notifying: "A enviar email a %{smart_count} pessoa |||| A enviar email a %{smart_count} pessoas",

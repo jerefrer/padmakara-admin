@@ -25,7 +25,6 @@ import { isPaidAudience } from "../../services/access.ts";
 import { audiences } from "../../db/schema/audiences.ts";
 import { eventAccessRoutes } from "./event-access.ts";
 import { eventParticipantRoutes } from "./event-participants.ts";
-import { eventNotifyRoutes } from "./event-notify.ts";
 import { eventAnnounceRoutes } from "./event-announce.ts";
 import { eventImageRoutes } from "./event-image.ts";
 import { adminEventImageFields } from "../../lib/event-image.ts";
@@ -43,8 +42,6 @@ const eventRoutes = new Hono();
 eventRoutes.route("/", eventAccessRoutes);
 // Participants (attendance rows) added in batch: /:id/participants (see event-participants.ts).
 eventRoutes.route("/", eventParticipantRoutes);
-// "Now available" email on publish: /:id/recipients, /:id/notify-published (see event-notify.ts).
-eventRoutes.route("/", eventNotifyRoutes);
 eventRoutes.route("/", eventAnnounceRoutes);
 // Optional event photo: /:id/avatar, /:id/hero, /:id/photo (see event-image.ts).
 eventRoutes.route("/", eventImageRoutes);

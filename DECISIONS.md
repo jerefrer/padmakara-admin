@@ -322,3 +322,13 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Why:** Storage is private and a key alone opens nothing, but keys reveal the bucket layout and file names, and `GET /api/events/public` served them to anonymous callers.
 **Trade-offs:** A track, video or file column a client should see must be added to its list by hand. Bookmarks, track bookmarks and last-played tracks now carry `hasReadAlong` instead of the raw read-along key.
 **Revisit if:** the app needs slide data (e.g. to render intros client-side): serve a resolved copy then, never the stored document.
+
+---
+
+## 2026-11-18 — Publishing never emails; announcing is a separate step
+
+**Chosen:** User decision: André (product owner). Publishing an event sends no email. The publish dialog lost its "email the people who have access" box and personal message, and `POST /events/:id/notify-published` and `GET /events/:id/recipients` (with `sendPublishedEmails`) were removed. The Announce button (`/events/:id/announcements`, `/announce`) is the only way to email people. `events.published_notified_at` / `_count` stay: they record past publish-time emails and feed the "last announced" display.
+**Alternatives:** (a) Keep the endpoint and ignore the flag: dead code that could be wired up again by accident. (b) Keep the box unticked by default: one click still announces a text that is not yet reviewed.
+**Why:** Like 84000, texts are published quietly first, with low visibility, so there is time to fix things, and announced later on a chosen day. Publication and announcement are fully separate.
+**Trade-offs:** Announcing is always a second action. `buildTeachingPublishedEmail` is now unused by routes (still covered by its own tests).
+**Revisit if:** André wants a "publish and announce" shortcut.
