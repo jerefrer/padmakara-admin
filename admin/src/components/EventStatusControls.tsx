@@ -35,6 +35,8 @@ interface EventStatusControlsProps {
   star?: {
     eventId: number | string;
     featured: boolean;
+    /** False when the event's audience is not free-anyone (the star is then disabled). */
+    freeForEveryone?: boolean;
     title: string;
     titleOf: (record: { titleEn?: string | null; titlePt?: string | null }) => string;
     onFeatured: (event: { featuredAt?: string | null }) => void;
@@ -102,6 +104,7 @@ export function EventStatusControls({ status, onStatusChange, publishSections, s
             eventId={star.eventId}
             status={status}
             featured={star.featured}
+            freeForEveryone={star.freeForEveryone}
             title={star.title}
             titleOf={star.titleOf}
             size="medium"

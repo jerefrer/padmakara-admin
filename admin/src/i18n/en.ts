@@ -333,6 +333,9 @@ export const en = {
       featuredDialogConfirm: "Highlight",
       featuredEventLocked: "This event is highlighted on the home page. Highlight another event first.",
       featuredNotPublished: "Only a published event can be highlighted.",
+      featuredMustBeFree: "The monthly highlight must be free for everyone. Choose a teaching on the Everyone free audience.",
+      featuredOnlyFree: "Only teachings free for everyone can be the monthly highlight.",
+      audienceHighlightHint: "This event is the monthly highlight, so it must stay free for everyone. Highlight another event to change its audience.",
       // Buttons
       newEvent: "New Event",
       createEvent: "Create Event",

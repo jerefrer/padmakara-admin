@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, inArray, isNotNull, isNull, desc } from "drizzle-orm";
+import { eq, and, inArray, isNotNull, isNull, desc, sql } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { events } from "../db/schema/retreats.ts";
 import { sessions } from "../db/schema/sessions.ts";
@@ -290,22 +290,39 @@ function stripToAnnouncement(event: Record<string, unknown>): void {
  * Returns the event with the most recent featuredAt timestamp.
  * Admins/superadmins who send a JWT also see draft featured events.
  *
- * The home screen highlights it for everyone, guests included, so the event is always
- * returned; but its content only goes to callers its audience lets in. Anyone else gets
- * the announcement (metadata, teachers, image) and opens the event to see how to get in.
+ * The home screen highlights it for everyone, guests included, so it must be free for
+ * everyone (free-anyone): a featured event with any other audience is never returned and
+ * the most recent free-for-everyone event stands in (the app keeps a stale card or none
+ * when it gets null, so a stand-in avoids a blank home). The access check below stays
+ * as a second guard.
  */
 eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
   const user = getOptionalUser(c);
 
-  const event = await db.query.events.findFirst({
-    where: and(
-      inArray(events.status, eventStatusOpenTo(user?.role)),
-      isNotNull(events.featuredAt),
-    ),
+  const statuses = inArray(events.status, eventStatusOpenTo(user?.role));
+  let event = await db.query.events.findFirst({
+    where: and(statuses, isNotNull(events.featuredAt)),
     orderBy: [desc(events.featuredAt)],
     columns: EVENT_CLIENT_COLUMNS,
     with: eventWithSessions,
   });
+
+  // Safety rule: the highlight must be free for everyone (the admin refuses anything
+  // else). Legacy data that breaks it must not leave the home screen with a card
+  // nobody can open, or with nothing at all: fall back to the most recent
+  // free-for-everyone event.
+  if (event && event.audience?.slug !== AUDIENCE_SLUGS.PUBLIC) {
+    event = await db.query.events.findFirst({
+      where: and(
+        statuses,
+        sql`${events.audienceId} in (select id from ${audiences} where ${audiences.slug} = ${AUDIENCE_SLUGS.PUBLIC})`,
+      ),
+      orderBy: [desc(events.startDate), desc(events.id)],
+      columns: EVENT_CLIENT_COLUMNS,
+      with: eventWithSessions,
+    });
+    if (event && event.audience?.slug !== AUDIENCE_SLUGS.PUBLIC) event = undefined;
+  }
 
   if (!event) {
     return c.json(null);

@@ -22,7 +22,7 @@ import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/
 import { AppError } from "../../lib/errors.ts";
 import { EVENT_REVIEWED_PAIRS, keepApprovals, unflagsAny } from "../../lib/reviewed-flags.ts";
 import { resolveSaleSettings, MIN_PRICE_CENTS } from "../../lib/sale-settings.ts";
-import { isPaidAudience } from "../../services/access.ts";
+import { isPaidAudience, AUDIENCE_SLUGS } from "../../services/access.ts";
 import { audiences } from "../../db/schema/audiences.ts";
 import { eventAccessRoutes } from "./event-access.ts";
 import { eventParticipantRoutes } from "./event-participants.ts";
@@ -370,6 +370,25 @@ async function assertNotFeatured(id: number): Promise<void> {
   }
 }
 
+const FEATURED_MUST_BE_FREE_MESSAGE = "The monthly highlight must be free for everyone";
+
+/**
+ * Safety rule (André, product owner): the home highlight is shown to everyone, guests
+ * included, so it must be a teaching on the free-for-everyone audience; otherwise people
+ * without an account would see a blank card. Throws 400 FEATURED_MUST_BE_FREE unless the
+ * audience is free-anyone.
+ */
+async function assertFreeForEveryone(
+  audienceId: number | null | undefined,
+  message = FEATURED_MUST_BE_FREE_MESSAGE,
+): Promise<void> {
+  if (audienceId != null) {
+    const [row] = await db.select({ slug: audiences.slug }).from(audiences).where(eq(audiences.id, audienceId));
+    if (row?.slug === AUDIENCE_SLUGS.PUBLIC) return;
+  }
+  throw AppError.badRequest(message, "FEATURED_MUST_BE_FREE");
+}
+
 /**
  * POST /admin/events/:id/feature
  *
@@ -382,12 +401,13 @@ eventRoutes.post("/:id/feature", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   const target = await db.query.events.findFirst({
     where: eq(events.id, id),
-    columns: { id: true, status: true },
+    columns: { id: true, status: true, audienceId: true },
   });
   if (!target) throw AppError.notFound("Event not found");
   if (target.status !== "published") {
     throw new AppError(409, "Only a published event can be highlighted.", "EVENT_NOT_PUBLISHED");
   }
+  await assertFreeForEveryone(target.audienceId);
 
   await db.transaction(async (tx) => {
     await tx.update(events).set({ featuredAt: null }).where(and(isNotNull(events.featuredAt), ne(events.id, id)));
@@ -534,6 +554,20 @@ eventRoutes.put("/:id", async (c) => {
       },
     );
     if (paidAudience) filteredEventData.includedInMembership = false;
+  }
+
+  // The highlighted event must stay free for everyone: choose another highlight first.
+  if (bodyKeys.has("audienceId")) {
+    const current = await db.query.events.findFirst({
+      where: eq(events.id, id),
+      columns: { featuredAt: true },
+    });
+    if (current?.featuredAt) {
+      await assertFreeForEveryone(
+        filteredEventData.audienceId,
+        "This event is the monthly highlight and must stay free for everyone. Highlight another event first.",
+      );
+    }
   }
 
   // The highlighted event must stay published: the highlight has to be moved first.

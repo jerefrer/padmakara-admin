@@ -1,6 +1,7 @@
 /** i18n keys for API error codes the admin explains in its own words. */
 const ERROR_KEYS: Record<string, string> = {
   FEATURED_EVENT_LOCKED: "padmakara.events.featuredEventLocked",
+  FEATURED_MUST_BE_FREE: "padmakara.events.featuredMustBeFree",
   EVENT_NOT_PUBLISHED: "padmakara.events.featuredNotPublished",
 };
 
