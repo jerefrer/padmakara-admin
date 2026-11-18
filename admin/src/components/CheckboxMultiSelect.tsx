@@ -5,11 +5,14 @@
  * deliberately kept in the list (no filterSelectedOptions) so a pick can be
  * unticked from it.
  * Keyboard: arrows move, Enter toggles the highlighted option, Escape closes.
+ * Chips are small, like AuthorsInput's, so the field keeps the height of an
+ * empty input and of the selects beside it whether or not anything is picked.
  */
 
 import type { ReactNode } from "react";
 import Autocomplete, { type AutocompleteProps } from "@mui/material/Autocomplete";
 import Checkbox from "@mui/material/Checkbox";
+import Chip from "@mui/material/Chip";
 
 export type CheckboxMultiSelectProps<T> = Omit<
   AutocompleteProps<T, true, false, false>,
@@ -32,6 +35,14 @@ export function CheckboxMultiSelect<T>({
       multiple
       disableCloseOnSelect
       getOptionLabel={labelOf}
+      renderValue={
+        rest.renderValue ??
+        ((picked, getItemProps) =>
+          picked.map((option, index) => {
+            const { key, ...itemProps } = getItemProps({ index });
+            return <Chip key={key} label={labelOf(option)} size="small" {...itemProps} />;
+          }))
+      }
       renderOption={({ key, ...props }, option, { selected }) => (
         <li key={key} {...props}>
           <Checkbox
