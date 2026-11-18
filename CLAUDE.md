@@ -274,6 +274,7 @@ users → bookmarks → tracks (track position bookmarks)
 
 - `GET /api/publications` - Publications the caller can open (optional auth), each with its `status`. Drafts are listed to admins only; a `forthcoming` one is listed to the people its audience lets in (see `services/publication-status.ts`)
 - `GET /api/publications/:id/pdf` - Presigned PDF URL. Draft: 404 to non-admins. Forthcoming: 403 `PUBLICATION_FORTHCOMING` to non-admins its audience lets in
+- `POST /api/publications/:id/opened` - Record that the caller opened the publication in the reader (authenticated; 204; 404 when they could not open it). Each item of `GET /api/publications` carries the caller's `lastOpenedAt` (null when signed out or never opened), for the app's "Recently opened" order
 - `GET /api/admin/publications/authors` - Distinct author names used across publications, with counts (the admin authors field's suggestions)
 
 ### Transcripts

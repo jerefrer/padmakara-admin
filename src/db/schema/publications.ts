@@ -62,6 +62,27 @@ export const publicationRetreatGroups = pgTable(
   (t) => [primaryKey({ columns: [t.publicationId, t.retreatGroupId] })],
 );
 
+/**
+ * When each user last opened each publication in the reader, so the app can
+ * list the texts a person uses most at the top ("Recently opened") on every
+ * device. One row per (user, publication), upserted by
+ * POST /api/publications/:id/opened.
+ */
+export const userPublicationOpens = pgTable(
+  "user_publication_opens",
+  {
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    publicationId: integer("publication_id")
+      .notNull()
+      .references(() => publications.id, { onDelete: "cascade" }),
+    lastOpenedAt: timestamp("last_opened_at", { withTimezone: true }).defaultNow().notNull(),
+    openCount: integer("open_count").notNull().default(1),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.publicationId] })],
+);
+
 /** Users an admin granted a hidden publication to. */
 export const publicationAccessUsers = pgTable(
   "publication_access_users",

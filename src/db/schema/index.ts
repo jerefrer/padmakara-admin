@@ -38,6 +38,7 @@ export {
   publicationAccessUsers,
   publicationRetreatGroupsRelations,
   publicationAccessUsersRelations,
+  userPublicationOpens,
 } from "./publications.ts";
 
 // Users

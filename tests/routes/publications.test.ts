@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { testJson } from "../helpers.ts";
+import { testJson, testRequest } from "../helpers.ts";
 
 // ─── Mock setup (BEFORE imports) ─────────────────────────────────────────
 
@@ -39,6 +39,18 @@ vi.mock("../../src/services/publication-access.ts", async (importOriginal) => {
     publicationAudienceSlugs: () => Promise.resolve(AUDIENCE_SLUGS_BY_ID),
   };
 });
+
+const { mockRecordOpen, mockLastOpened } = vi.hoisted(() => ({
+  mockRecordOpen: vi.fn((_userId: number, _publicationId: number) => Promise.resolve()),
+  mockLastOpened: vi.fn((_userId: number, _ids: number[]) => Promise.resolve(new Map<number, Date>())),
+}));
+
+// The queries themselves run against a real database in
+// tests/services/publication-opens.test.ts.
+vi.mock("../../src/services/publication-opens.ts", () => ({
+  recordPublicationOpen: mockRecordOpen,
+  lastOpenedByPublication: mockLastOpened,
+}));
 
 vi.mock("../../src/services/s3.ts", () => ({
   generatePresignedDownloadUrl: vi.fn(() =>
@@ -490,5 +502,128 @@ describe("GET /api/publications/:id/pdf — status", () => {
     const res = await testJson("/api/publications/1/pdf", { headers: await adminToken() });
 
     expect(res.status).toBe(200);
+  });
+});
+
+// ─── Last opened ─────────────────────────────────────────────────────────
+
+async function tokenFor(sub: number) {
+  const token = await createAccessToken({ sub, email: `user${sub}@test.com`, role: "user" });
+  return { Authorization: `Bearer ${token}` };
+}
+
+describe("GET /api/publications — lastOpenedAt", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSelect.mockImplementation(() => ({ from: mockFrom }));
+    mockLastOpened.mockResolvedValue(new Map());
+  });
+
+  it("should give each publication the time the caller last opened it, null when never opened", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication(), makeRetreatPublication()]));
+    canOpen(1, 3);
+    mockLastOpened.mockResolvedValue(new Map([[3, new Date("2026-11-10T08:00:00.000Z")]]));
+
+    const { body } = await testJson("/api/publications", { headers: await userToken() });
+
+    const byId = Object.fromEntries(body.publications.map((p: any) => [p.id, p.lastOpenedAt]));
+    expect(byId).toEqual({ 1: null, 3: "2026-11-10T08:00:00.000Z" });
+  });
+
+  it("should look up the opens of the caller only, for the publications listed to them", async () => {
+    mockFrom.mockReturnValueOnce(
+      chainable([makePublication(), makeMemberPublication(), makeRetreatPublication()]),
+    );
+    canOpen(1, 3);
+
+    await testJson("/api/publications", { headers: await tokenFor(42) });
+
+    expect(mockLastOpened).toHaveBeenCalledTimes(1);
+    expect(mockLastOpened).toHaveBeenCalledWith(42, [1, 3]);
+  });
+
+  it("should answer null for every publication to a signed-out visitor, without looking up opens", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication()]));
+    canOpen(1);
+
+    const { body } = await testJson("/api/publications");
+
+    expect(body.publications[0].lastOpenedAt).toBeNull();
+    expect(mockLastOpened).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/publications/:id/opened", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSelect.mockImplementation(() => ({ from: mockFrom }));
+    mockOpenable.mockResolvedValue(new Set());
+  });
+
+  it("should record the open for the caller and answer 204", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makeRetreatPublication()]));
+    canOpen(3);
+
+    const res = await testRequest("/api/publications/3/opened", {
+      method: "POST",
+      headers: await tokenFor(42),
+    });
+
+    expect(res.status).toBe(204);
+    expect(mockRecordOpen).toHaveBeenCalledWith(42, 3);
+  });
+
+  it("should ask a signed-out visitor to sign in and record nothing", async () => {
+    const res = await testRequest("/api/publications/1/opened", { method: "POST" });
+
+    expect(res.status).toBe(401);
+    expect(mockRecordOpen).not.toHaveBeenCalled();
+  });
+
+  it("should answer 404 and record nothing for a publication that does not exist", async () => {
+    mockFrom.mockReturnValueOnce(chainable([]));
+
+    const res = await testRequest("/api/publications/999/opened", {
+      method: "POST",
+      headers: await userToken(),
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockRecordOpen).not.toHaveBeenCalled();
+  });
+
+  it("should answer 404 and record nothing for a publication the caller cannot open", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makeMemberPublication()]));
+    canOpen();
+
+    const res = await testRequest("/api/publications/2/opened", {
+      method: "POST",
+      headers: await userToken(),
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockRecordOpen).not.toHaveBeenCalled();
+  });
+
+  it("should answer 404 and record nothing for a draft opened by a non-admin", async () => {
+    mockFrom.mockReturnValueOnce(chainable([makePublication({ status: "draft" })]));
+    canOpen(1);
+
+    const res = await testRequest("/api/publications/1/opened", {
+      method: "POST",
+      headers: await userToken(),
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockRecordOpen).not.toHaveBeenCalled();
+  });
+
+  it("should return 400 for an invalid publication ID", async () => {
+    const res = await testRequest("/api/publications/abc/opened", {
+      method: "POST",
+      headers: await userToken(),
+    });
+
+    expect(res.status).toBe(400);
   });
 });
