@@ -276,6 +276,11 @@ users → bookmarks → tracks (track position bookmarks)
 - `GET /api/publications/:id/pdf` - Presigned PDF URL. Draft: 404 to non-admins. Forthcoming: 403 `PUBLICATION_FORTHCOMING` to non-admins its audience lets in
 - `GET /api/admin/publications/authors` - Distinct author names used across publications, with counts (the admin authors field's suggestions)
 
+### Transcripts
+
+- Each row has `language` (en|pt|fr|tib), `status` (final|provisional|unrevised|draft, descriptive only), `isExcerpt` and `published`. Only `published` decides visibility: unpublished rows are left out of event payloads for non-admins and `GET /api/media/transcript/:id` answers 404. A new upload starts unpublished; `pageCount` is counted server-side on create
+- `PATCH /api/admin/transcripts/:id` - Update `language`, `status`, `isExcerpt`, `published` (send only the changed field)
+
 ## Key Features & Implementation Patterns
 
 ### 1. Authentication & Authorization
