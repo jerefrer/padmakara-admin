@@ -47,12 +47,12 @@ describe("event file schemas", () => {
     expect(r.sortOrder).toBe(0);
   });
 
-  it("defaults transcript status to published", () => {
+  it("should default a new transcript to final and unpublished", () => {
     const r = createTranscriptSchema.parse({
       eventId: 5,
       language: "en",
       s3Key: "events/EVT/transcripts/t.pdf",
     });
-    expect(r.status).toBe("published");
+    expect(r).toMatchObject({ status: "final", published: false });
   });
 });

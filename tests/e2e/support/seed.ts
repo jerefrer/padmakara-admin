@@ -368,7 +368,8 @@ async function seedEvents(
  * tracks NOT-NULL:   sessionId, title, trackNumber, languages (default ["en"]),
  *                    originalLanguage (default "en"), isTranslation (default false),
  *                    isPractice (default false), durationSeconds (default 0).
- * transcripts NOT-NULL: eventId (retreat_id), language, status (default "draft").
+ * transcripts NOT-NULL: eventId (retreat_id), language, status (default "final"),
+ *   published (default false: set true so the content suite sees the file).
  */
 async function seedContent(
   seededEvents: Record<keyof typeof EVENT_CODES, SeededEvent>,
@@ -447,7 +448,8 @@ async function seedContent(
         eventId: event.id,
         language: "en",
         s3Key: `events/${code}/transcripts/transcript.pdf`,
-        status: "published",
+        status: "final",
+        published: true,
         originalFilename: "transcript.pdf",
       })
       .returning({ id: transcripts.id });
