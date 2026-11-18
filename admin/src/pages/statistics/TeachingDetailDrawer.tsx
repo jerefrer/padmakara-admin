@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Box from "@mui/material/Box";
 import Drawer from "@mui/material/Drawer";
 import Typography from "@mui/material/Typography";
@@ -14,9 +15,13 @@ import CloseIcon from "@mui/icons-material/Close";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { formatEventDates } from "../../utils/eventDates";
 import { Figure, formatDay } from "./format";
-import { headCellSx, numberCellSx, zebraRowSx } from "./tableStyles";
+import { headCellSx, numberCellSx } from "./tableStyles";
 import { useTeachingDetail } from "./useTeachingDetail";
 import type { DateRange, EventRow, TeachingDetail } from "./types";
+
+/** Wide enough for track titles on one line; the whole screen on a phone. */
+export const DRAWER_WIDTH = "min(1100px, 92vw)";
+const NUMBER_COLUMN_WIDTH = 112;
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
@@ -24,10 +29,12 @@ interface DetailRow {
   key: number;
   label: string;
   sub?: string;
+  /** Consecutive rows with the same group share one header row above them. */
+  group?: string;
   values: { value: number; decimals?: number }[];
 }
 
-/** One small table of the drawer: a label column and right-aligned counts. */
+/** One small table of the drawer: a label column and right-aligned counts, optionally grouped. */
 const DetailTable = ({
   testId,
   heading,
@@ -48,13 +55,18 @@ const DetailTable = ({
     {rows.length === 0 ? (
       <Typography variant="body2" sx={{ color: "text.secondary" }}>{empty}</Typography>
     ) : (
-      <Table size="small">
+      <Table size="small" stickyHeader sx={{ tableLayout: "fixed" }}>
         <TableHead>
           <TableRow>
             {columns.map((c, i) => (
               <TableCell
                 key={c}
-                sx={[headCellSx, i === 0 ? { width: "100%" } : { ...numberCellSx, textTransform: "none", letterSpacing: 0 }]}
+                sx={[
+                  headCellSx,
+                  i === 0
+                    ? {}
+                    : { ...numberCellSx, width: NUMBER_COLUMN_WIDTH, textTransform: "none", letterSpacing: 0 },
+                ]}
               >
                 {c}
               </TableCell>
@@ -62,20 +74,42 @@ const DetailTable = ({
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map((r) => (
-            <TableRow key={r.key} data-testid={`${testId}-row`} sx={zebraRowSx(false)}>
-              <TableCell sx={{ py: 1, overflowWrap: "anywhere" }}>
-                <Typography variant="body2">{r.label}</Typography>
-                {r.sub && (
-                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>{r.sub}</Typography>
-                )}
-              </TableCell>
-              {r.values.map((v, i) => (
-                <TableCell key={i} sx={numberCellSx}>
-                  <Figure value={v.value} locale={locale} decimals={v.decimals} />
+          {rows.map((r, i) => (
+            <Fragment key={r.key}>
+              {r.group !== undefined && r.group !== rows[i - 1]?.group && (
+                <TableRow data-testid={`${testId}-group`}>
+                  <TableCell
+                    colSpan={columns.length}
+                    sx={{ py: 0.75, bgcolor: "background.default", color: "text.secondary", fontWeight: 600, fontSize: "0.8125rem" }}
+                  >
+                    {r.group}
+                  </TableCell>
+                </TableRow>
+              )}
+              <TableRow
+                data-testid={`${testId}-row`}
+                // Explicit parity: group header rows would throw off nth-of-type zebra
+                sx={{ "& > td": { bgcolor: i % 2 === 1 ? "grey.50" : "background.paper" } }}
+              >
+                <TableCell sx={{ py: 1, ...(r.group === undefined && { overflowWrap: "anywhere" }) }}>
+                  <Typography
+                    variant="body2"
+                    noWrap={r.group !== undefined}
+                    title={r.group !== undefined ? r.label : undefined}
+                  >
+                    {r.label}
+                  </Typography>
+                  {r.sub && (
+                    <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>{r.sub}</Typography>
+                  )}
                 </TableCell>
-              ))}
-            </TableRow>
+                {r.values.map((v, j) => (
+                  <TableCell key={j} sx={numberCellSx}>
+                    <Figure value={v.value} locale={locale} decimals={v.decimals} />
+                  </TableCell>
+                ))}
+              </TableRow>
+            </Fragment>
           ))}
         </TableBody>
       </Table>
@@ -143,7 +177,7 @@ const DetailBody = ({ data, locale, t }: { data: TeachingDetail; locale: string;
         rows={data.tracks.map((tr) => ({
           key: tr.id,
           label: tr.title,
-          sub: [t("sessionNumber", { n: tr.sessionNumber }), tr.sessionTitle].filter(Boolean).join(" · "),
+          group: [t("sessionNumber", { n: tr.sessionNumber }), tr.sessionTitle].filter(Boolean).join(" · "),
           values: [{ value: tr.listeners }, { value: tr.completions }, { value: tr.listenHours, decimals: 1 }],
         }))}
         empty={t("noListening")}
@@ -175,7 +209,14 @@ export const TeachingDetailDrawer = ({ event, range, locale, t, onClose, onOpenE
       onClose={onClose}
       // The theme styles drawers as the dark sidebar; this panel is ordinary page content
       slotProps={{
-        paper: { sx: { width: { xs: "100%", sm: 560 }, bgcolor: "background.paper", color: "text.primary" } },
+        paper: {
+          sx: {
+            width: "100%",
+            "@media (min-width:700px)": { width: DRAWER_WIDTH },
+            bgcolor: "background.paper",
+            color: "text.primary",
+          },
+        },
       }}
     >
       {event && (
