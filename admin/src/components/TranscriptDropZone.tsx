@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
@@ -16,6 +17,7 @@ import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
+import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import { useTranslate } from "react-admin";
 
 export interface TranscriptUploadState {
@@ -187,6 +189,14 @@ export const TranscriptDropZone = ({
         style={{ display: "none" }}
         onChange={handleInputChange}
       />
+
+      {/* A new upload starts unpublished: say so, or the admin expects readers to see it */}
+      {hasDoneUploads && (
+        <Alert severity="info" icon={<VisibilityOffOutlinedIcon fontSize="small" />} sx={{ mt: 1.5 }} data-testid="transcript-unpublished-hint">
+          {translate("padmakara.transcript.uploadedUnpublishedHint") ||
+            "Uploaded transcripts are not published yet. Turn on “Published” on each file when it is ready for readers."}
+        </Alert>
+      )}
     </Box>
   );
 };
