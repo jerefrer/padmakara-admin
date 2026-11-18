@@ -5025,21 +5025,38 @@ export const EventEdit = () => {
       />
 
 
-      {saving && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
-      <EventEditActions
-        leading={
-          <Button variant="text" onClick={() => sections.setAll(!sections.allOpen)}>
-            {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
-          </Button>
-        }
-        saving={saving}
-        deleting={deleting}
-        canSave={!!form.eventCode && !!form.titleEn}
-        onDelete={() => setDeleteOpen(true)}
-        onCancel={() => redirect("list", "events")}
-        onSave={() => handleSave(false)}
-        onSaveAndClose={() => handleSave(true)}
-      />
+      {/* Sticky so Save stays in view however many sections are open (as on the create page). */}
+      <Box
+        sx={{
+          position: "sticky",
+          bottom: 0,
+          zIndex: (t) => t.zIndex.appBar - 1,
+          mt: 2,
+          px: 2,
+          py: 1.5,
+          bgcolor: "background.paper",
+          borderTop: 1,
+          borderColor: "divider",
+          borderRadius: "8px 8px 0 0",
+          boxShadow: 3,
+        }}
+      >
+        {saving && <LinearProgress sx={{ mb: 1.5, borderRadius: 1 }} />}
+        <EventEditActions
+          leading={
+            <Button variant="text" onClick={() => sections.setAll(!sections.allOpen)}>
+              {translate(sections.allOpen ? "padmakara.eventSections.collapseAll" : "padmakara.eventSections.expandAll")}
+            </Button>
+          }
+          saving={saving}
+          deleting={deleting}
+          canSave={!!form.eventCode && !!form.titleEn}
+          onDelete={() => setDeleteOpen(true)}
+          onCancel={() => redirect("list", "events")}
+          onSave={() => handleSave(false)}
+          onSaveAndClose={() => handleSave(true)}
+        />
+      </Box>
 
       <DeleteConfirmDialog
         open={deleteOpen}
