@@ -94,6 +94,33 @@ describe("countUsage", () => {
     expect(state.inserts[0]!.conflict).toBeDefined();
   });
 
+  it("should write only the event total when no item is given", async () => {
+    countUsage("readalong_open", 7);
+    await flush();
+    expect(state.inserts).toHaveLength(1);
+    expect(state.inserts[0]!.values).not.toHaveProperty("itemId");
+  });
+
+  it("should also upsert the item's counter when an item id is given", async () => {
+    countUsage("file_open", 7, 55);
+    await flush();
+    expect(state.inserts).toHaveLength(2);
+    expect(state.inserts[0]!.values).toMatchObject({ metric: "file_open", eventId: 7, count: 1 });
+    expect(state.inserts[0]!.values).not.toHaveProperty("itemId");
+    expect(state.inserts[1]!.values).toMatchObject({ metric: "file_open", eventId: 7, itemId: 55, count: 1 });
+    expect(state.inserts[1]!.values.day).toBe(state.inserts[0]!.values.day);
+    expect(state.inserts[1]!.conflict).toBeDefined();
+  });
+
+  it("should never throw when the item write fails", async () => {
+    state.fail = true;
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(() => countUsage("file_open", 7, 55)).not.toThrow();
+    await flush();
+    expect(err).toHaveBeenCalledWith("usage item count failed", "file_open", expect.any(Error));
+    err.mockRestore();
+  });
+
   it("should use event id 0 when no event is given", async () => {
     countUsage("app_open");
     await flush();
@@ -163,6 +190,13 @@ describe("countVideoStart", () => {
     countVideoStart(9);
     await flush();
     expect(state.inserts[0]!.values).toMatchObject({ metric: "video_start", eventId: 42 });
+  });
+
+  it("should also count the start against the video itself", async () => {
+    state.videoEvent = [{ eventId: 42 }];
+    countVideoStart(9);
+    await flush();
+    expect(state.inserts[1]!.values).toMatchObject({ metric: "video_start", eventId: 42, itemId: 9 });
   });
 
   it("should count nothing when the video is unknown", async () => {

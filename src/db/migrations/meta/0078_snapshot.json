@@ -1,5 +1,5 @@
 {
-  "id": "eeeb5fb5-8ec7-4fe9-b1c8-00bffbe9e9a3",
+  "id": "50655c44-604a-4533-90ca-9b49177819f4",
   "prevId": "c312e562-91e8-4495-8b08-a9251cb31645",
   "version": "7",
   "dialect": "postgresql",
@@ -1382,13 +1382,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'teacher'"
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         }
       },
       "indexes": {},
@@ -2028,12 +2021,6 @@
         },
         "s3_prefix": {
           "name": "s3_prefix",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "guest_intro": {
-          "name": "guest_intro",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -4540,6 +4527,82 @@
             "day",
             "metric",
             "event_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.usage_daily_items": {
+      "name": "usage_daily_items",
+      "schema": "",
+      "columns": {
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metric": {
+          "name": "metric",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "count": {
+          "name": "count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "usage_daily_items_event_id_day_idx": {
+          "name": "usage_daily_items_event_id_day_idx",
+          "columns": [
+            {
+              "expression": "event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "day",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "usage_daily_items_day_metric_item_id_pk": {
+          "name": "usage_daily_items_day_metric_item_id_pk",
+          "columns": [
+            "day",
+            "metric",
+            "item_id"
           ]
         }
       },

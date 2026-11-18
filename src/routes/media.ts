@@ -695,7 +695,7 @@ mediaRoutes.get("/transcript/:transcriptId", async (c) => {
     : await watermarkPdf(originalPdfBytes, await watermarkTextFor(authUser));
 
   if (isFirstChunkRequest(c.req.header("Range"))) {
-    countUsage("transcript_open", result.event?.id ?? 0);
+    countUsage("transcript_open", result.event?.id ?? 0, result.transcript.id);
   }
 
   // Use original filename if available, fall back to generated name
@@ -761,7 +761,7 @@ mediaRoutes.get("/file/:id", async (c) => {
   }
 
   if (isFirstChunkRequest(c.req.header("Range"))) {
-    countUsage("file_open", result.event?.id ?? result.file.eventId ?? 0);
+    countUsage("file_open", result.event?.id ?? result.file.eventId ?? 0, result.file.id);
   }
 
   const ext = (result.file.extension || "").replace(/^\./, "").toLowerCase();

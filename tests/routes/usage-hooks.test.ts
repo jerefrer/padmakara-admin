@@ -84,12 +84,12 @@ afterEach(() => vi.unstubAllGlobals());
 describe("transcript_open", () => {
   const row = { id: 9, s3Key: "k.pdf", originalFilename: "t.pdf", language: "en", event: EVENT };
 
-  it("should count once with the event id when the transcript is served", async () => {
+  it("should count once with the event and transcript ids when the transcript is served", async () => {
     m.transcript.mockResolvedValue(row);
     const res = await testRequest("/api/media/transcript/9", { headers: await auth() });
     expect(res.status).toBe(200);
     expect(countUsage).toHaveBeenCalledTimes(1);
-    expect(countUsage).toHaveBeenCalledWith("transcript_open", 3);
+    expect(countUsage).toHaveBeenCalledWith("transcript_open", 3, 9);
   });
 
   it("should not count when access is denied", async () => {
@@ -116,19 +116,19 @@ describe("transcript_open", () => {
   it("should count a range request that starts at zero", async () => {
     m.transcript.mockResolvedValue(row);
     await testRequest("/api/media/transcript/9", { headers: { ...(await auth()), Range: "bytes=0-99" } });
-    expect(countUsage).toHaveBeenCalledWith("transcript_open", 3);
+    expect(countUsage).toHaveBeenCalledWith("transcript_open", 3, 9);
   });
 });
 
 describe("file_open", () => {
   const row = { id: 5, eventId: 3, extension: "png", sensitive: false, s3Key: "k", originalFilename: "p.png", event: EVENT };
 
-  it("should count once with the event id when the file is served", async () => {
+  it("should count once with the event and file ids when the file is served", async () => {
     m.file.mockResolvedValue(row);
     const res = await testRequest("/api/media/file/5", { headers: await auth() });
     expect(res.status).toBe(200);
     expect(countUsage).toHaveBeenCalledTimes(1);
-    expect(countUsage).toHaveBeenCalledWith("file_open", 3);
+    expect(countUsage).toHaveBeenCalledWith("file_open", 3, 5);
   });
 
   it("should not count when access is denied", async () => {

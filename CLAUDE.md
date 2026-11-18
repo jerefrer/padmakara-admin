@@ -278,6 +278,11 @@ users → bookmarks → tracks (track position bookmarks)
 - `POST /api/publications/:id/opened` - Record that the caller opened the publication in the reader (authenticated; 204; 404 when they could not open it). Each item of `GET /api/publications` carries the caller's `lastOpenedAt` (null when signed out or never opened), for the app's "Recently opened" order
 - `GET /api/admin/publications/authors` - Distinct author names used across publications, with counts (the admin authors field's suggestions)
 
+### Statistics (admin)
+
+- `GET /api/admin/statistics?from&to` - Aggregate totals for the Statistics page (default: last 30 days; each teaching carries its `startDate`/`endDate`)
+- `GET /api/admin/statistics/events/:id?from&to` - One teaching's detail: per-track listeners/completions/hours (from `user_progress`), per-video viewers (from `video_progress`) and plays, per-document and per-transcript opens. Plays and opens come from `usage_daily_items`, written by `countUsage(metric, eventId, itemId)` alongside `usage_daily`; it only exists from the 0078 deploy onward, and `itemsRecordedFrom` gives its first day (null before any count)
+
 ### Transcripts
 
 - Each row has `language` (en|pt|fr|tib), `status` (final|provisional|unrevised|draft, descriptive only), `isExcerpt` and `published`. Only `published` decides visibility: unpublished rows are left out of event payloads for non-admins and `GET /api/media/transcript/:id` answers 404. A new upload starts unpublished; `pageCount` is counted server-side on create
