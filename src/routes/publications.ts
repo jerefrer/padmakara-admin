@@ -4,8 +4,10 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { publications } from "../db/schema/publications.ts";
 import {
+  authMiddleware,
   optionalAuthMiddleware,
   getOptionalUser,
+  getUser,
 } from "../middleware/auth.ts";
 import { AppError } from "../lib/errors.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
@@ -19,6 +21,10 @@ import {
   publicationStatusOpenTo,
   publicationStatusVisibleTo,
 } from "../services/publication-status.ts";
+import {
+  lastOpenedByPublication,
+  recordPublicationOpen,
+} from "../services/publication-opens.ts";
 
 export const publicationRoutes = new Hono();
 
@@ -44,6 +50,10 @@ function pdfFingerprint(pdfS3Key: string): string {
  * services/publication-access.ts for the rule per audience. Drafts are listed
  * to admins only; a forthcoming publication is listed (its `status` lets the
  * app show it as upcoming) but its PDF is refused: see services/publication-status.ts.
+ *
+ * `lastOpenedAt` is when the caller last opened the publication in the reader
+ * (see POST /:id/opened), null when they never did or are signed out. It only
+ * ever reflects the caller's own opens.
  */
 publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
   const sort = c.req.query("sort") || "title";
@@ -94,6 +104,10 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
     }
   });
 
+  const lastOpened = authUser
+    ? await lastOpenedByPublication(authUser.id, sorted.map((p) => p.id))
+    : new Map<number, Date>();
+
   // Map to response shape — never expose S3 keys
   const mapped = await Promise.all(
     sorted.map(async (p) => {
@@ -119,6 +133,7 @@ publicationRoutes.get("/", optionalAuthMiddleware, async (c) => {
         fileSizeBytes: p.fileSizeBytes,
         updatedAt: p.updatedAt,
         status: p.status,
+        lastOpenedAt: lastOpened.get(p.id)?.toISOString() ?? null,
       };
     }),
   );
@@ -180,4 +195,39 @@ publicationRoutes.get("/:id/pdf", optionalAuthMiddleware, async (c) => {
   const url = await generatePresignedDownloadUrl(publication.pdfS3Key, 3600);
 
   return c.json({ url, expiresIn: 3600 });
+});
+
+/**
+ * POST /api/publications/:id/opened — Record that the caller opened the
+ * publication in the reader, for the app's "Recently opened" order.
+ *
+ * A dedicated call rather than a side effect of GET /:id/pdf: the app opens a
+ * downloaded PDF from its own cache without asking for a URL, and fetches one
+ * to replace a cached file, so the PDF route sees neither every open nor only
+ * opens.
+ *
+ * Signed-in callers only. A publication they could not open is a 404, whatever
+ * the reason, and nothing is recorded. Answers 204.
+ */
+publicationRoutes.post("/:id/opened", authMiddleware, async (c) => {
+  const id = parseInt((c.req.param("id") ?? ""), 10);
+  if (isNaN(id)) {
+    throw AppError.badRequest("Invalid publication ID");
+  }
+
+  const authUser = getUser(c);
+
+  const [publication] = await db
+    .select()
+    .from(publications)
+    .where(eq(publications.id, id));
+
+  const visible = !!publication && publicationStatusVisibleTo(authUser.role).includes(publication.status);
+  const opened = visible ? await openablePublications(authUser, [publication]) : new Set<number>();
+  if (!publication || !opened.has(publication.id)) {
+    throw AppError.notFound("Publication not found");
+  }
+
+  await recordPublicationOpen(authUser.id, publication.id);
+  return c.body(null, 204);
 });
