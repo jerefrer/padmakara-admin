@@ -1,5 +1,8 @@
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import type { HeroFrameOverrides } from "../db/schema/teachers.ts";
+import { GUEST_ROLE, orderEventTeachers } from "./event-teacher-order.ts";
+
+export { GUEST_ROLE, orderEventTeachers };
 
 interface TeacherDbRecord {
   id: number;
@@ -75,26 +78,34 @@ export async function resolveTeacherUrls(
 
 /**
  * The teacher whose photo stands for an event: the first teacher (in the event's teacher
- * order) with a hero image, else the first with only an avatar, else null. One server-side
- * choice shared by the home highlight, the event page and the lock-screen artwork, so the
- * name shown with a photo is always the name of the teacher it shows.
+ * order) with a hero image, else the first with only an avatar, else null. A guest's photo
+ * is used only when no main teacher has one: a visiting teacher must not front the event.
+ * One server-side choice shared by the home highlight, the event page and the lock-screen
+ * artwork, so the name shown with a photo is always the name of the teacher it shows.
  */
 export function pickPhotoTeacherId(
-  eventTeachers: Array<{ teacher?: { id?: number; heroUrl?: string | null; avatarUrl?: string | null } | null }> | null | undefined,
+  eventTeachers:
+    | Array<{ role?: string | null; teacher?: { id?: number; heroUrl?: string | null; avatarUrl?: string | null } | null }>
+    | null
+    | undefined,
 ): number | null {
-  const list = (eventTeachers ?? []).flatMap((et) => (et.teacher?.id != null ? [et.teacher] : []));
-  const picked = list.find((t) => t.heroUrl) ?? list.find((t) => t.avatarUrl);
-  return picked?.id ?? null;
+  const pick = (links: NonNullable<typeof eventTeachers>) => {
+    const list = links.flatMap((et) => (et.teacher?.id != null ? [et.teacher] : []));
+    return (list.find((t) => t.heroUrl) ?? list.find((t) => t.avatarUrl))?.id ?? null;
+  };
+  const all = eventTeachers ?? [];
+  return pick(all.filter((et) => et.role !== GUEST_ROLE)) ?? pick(all.filter((et) => et.role === GUEST_ROLE));
 }
 
 /**
- * Transform eventTeachers in an event object, resolving S3 keys to presigned URLs.
+ * Transform eventTeachers in an event object, resolving S3 keys to presigned URLs
+ * and putting them in display order (see orderEventTeachers).
  * Mutates the event in-place for performance.
  */
 export async function resolveEventTeacherUrls(event: any): Promise<void> {
   if (!event?.eventTeachers?.length) return;
   const resolved = await Promise.all(
-    event.eventTeachers.map(async (et: any) => ({
+    orderEventTeachers<any>(event.eventTeachers).map(async (et: any) => ({
       ...et,
       teacher: et.teacher ? await resolveTeacherUrls(et.teacher) : et.teacher,
     })),

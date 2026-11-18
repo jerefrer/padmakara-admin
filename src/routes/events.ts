@@ -18,7 +18,7 @@ import { publicationStatusVisibleTo } from "../services/publication-status.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
 import { teacherArtworkUrl } from "../lib/teacher-artwork.ts";
 import { countUsage } from "../services/usage.ts";
-import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
+import { orderEventTeachers, resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teacher-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { eventArtworkUrl, resolveEventImageUrls, resolveEventsImageUrls } from "../lib/event-image.ts";
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
@@ -83,9 +83,11 @@ async function getSpeakerNameMap(): Promise<Map<string, SpeakerInfo>> {
   return map;
 }
 
-/** Square artwork of the first of the event's teachers (in order) who has a hero image. */
-function firstTeacherArtworkUrl(eventTeachers: Array<{ teacher?: any }> | undefined): string | null {
-  for (const et of eventTeachers ?? []) {
+/** Square artwork of the first of the event's teachers (in order, main teachers before guests) who has a hero image. */
+function firstTeacherArtworkUrl(
+  eventTeachers: Array<{ teacher?: any; role?: string | null; position?: number | null }> | undefined,
+): string | null {
+  for (const et of orderEventTeachers(eventTeachers)) {
     const url = teacherArtworkUrl(et.teacher);
     if (url) return url;
   }
@@ -458,9 +460,11 @@ eventRoutes.get("/:id/preview", async (c) => {
     startDate: event.startDate ?? null,
     endDate: event.endDate ?? null,
     imageUrl: event.imageUrl ?? null,
-    teachers: (event.eventTeachers ?? []).flatMap((et) =>
-      et.teacher ? [{ name: et.teacher.name }] : [],
+    // Main teachers first, then the guests (role "guest"), introduced by guestIntro.
+    teachers: orderEventTeachers(event.eventTeachers).flatMap((et) =>
+      et.teacher ? [{ name: et.teacher.name, role: et.role }] : [],
     ),
+    guestIntro: event.guestIntro ?? null,
     // Sessions only carry audio: none to announce while the audio is hidden
     sessionCount: mediaVisibleTo(event, undefined).audio ? (event.sessions?.length ?? 0) : 0,
     audience: AUDIENCE_SLUGS.SUBSCRIBERS,

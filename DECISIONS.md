@@ -352,3 +352,13 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Why:** The open is an app-side event; only the reader knows it happened. Server storage makes the order follow the person across devices.
 **Trade-offs:** One extra request per open (fire-and-forget; a failed call only delays the cross-device order). The device map is per device, not per account: on a shared device a second account starts from the first one's local order until it opens texts itself. `open_count` is stored but not used yet.
 **Revisit if:** a "most opened" order or reading statistics are wanted (the count is already there).
+
+---
+
+## 2026-11-18 — Main teachers vs guests: role + position on the link, intro phrase as a key
+
+**Chosen:** User decision (André, product owner) for the feature; implementation choices below. The existing `retreat_teachers.role` ('teacher' | 'guest') carries the split; a new `retreat_teachers.position` keeps the admin's order (main teachers, then guests); `retreats.guest_intro` stores the phrase before the guests as a key (`with_presence_of`, `and`, `practice_sessions_by`, `with_visit_of`, `with_guest`; null = the default "with the presence of"). Labels live in code (admin i18n, app locales, `lib/guest-intro.ts` for reference); the three Wix phrases are kept exactly. Payloads order main first in `resolveEventTeacherUrls`, so no query had to change. The photo standing for an event is a main teacher's when any has one.
+**Alternatives:** (a) Free-text intro per event: no translation, typos. (b) No `position`: the order would be the rows' physical order, and the edit form re-sorted teachers alphabetically, so "JKR & PWR" could not be guaranteed. (c) A separate guests table: two places to keep in sync for search, teacher pages and filters.
+**Why:** André's "we cannot give the same relevance to the sessions of JKR and TR, and even less to Luc's", and the Wix data already has the three fields. A key keeps the phrase translatable. PT for `with_guest` is the neutral "com a participação de": "com o convidado" is wrong for a woman or several guests.
+**Trade-offs:** Migration 0078 numbers existing links in their physical order (what clients saw). EN "with guest" reads oddly with several guests. Main teachers' names are still joined with ", " in the app.
+**Revisit if:** a teacher needs to be both main and guest in one event, or a per-language free text is asked for.

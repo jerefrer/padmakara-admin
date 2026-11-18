@@ -5,6 +5,7 @@ import { HERO_FRAME_KEYS } from "../db/schema/teachers.ts";
 import { TRANSCRIPT_LANGUAGES, TRANSCRIPT_STATUSES } from "../db/schema/transcripts.ts";
 import { BUILTIN_CLIPS, SLIDE_ROLES } from "./slides/types.ts";
 import { PUBLICATION_STATUSES } from "../services/publication-status.ts";
+import { GUEST_INTRO_KEYS } from "./guest-intro.ts";
 
 // Auth
 
@@ -347,10 +348,14 @@ export const createEventSchema = z.object({
   transcriptsPublished: z.boolean().optional(),
   textsPublished: z.boolean().optional(),
   topicsPublished: z.boolean().optional(),
+  // Ordered: the order is the display order within each role (retreat_teachers.position).
   teacherIds: z.array(z.object({
     id: z.number().int(),
     role: z.enum(["teacher", "guest", "translator"]).optional().default("teacher"),
   })).optional().default([]),
+  // Phrase before the guests (lib/guest-intro.ts); null = default rendering. No default,
+  // so a partial update that leaves it out keeps the stored value.
+  guestIntro: z.enum(GUEST_INTRO_KEYS).optional().nullable(),
   groupIds: z.array(z.number().int()).optional().default([]),
   placeIds: z.array(z.number().int()).optional().default([]),
   // Ordered: the order is the display order of the joined organizer string.

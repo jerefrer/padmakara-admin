@@ -62,6 +62,19 @@ describe("updateEventSchema", () => {
     expect(updateEventSchema.parse({ titleEn: "x" })).toEqual({ titleEn: "x" });
   });
 
+  it("should leave guestIntro out when the body does not send it", () => {
+    expect(updateEventSchema.parse({ titleEn: "x" })).not.toHaveProperty("guestIntro");
+  });
+
+  it("should accept a known guest intro key and null", () => {
+    expect(updateEventSchema.parse({ guestIntro: "practice_sessions_by" })).toEqual({ guestIntro: "practice_sessions_by" });
+    expect(updateEventSchema.parse({ guestIntro: null })).toEqual({ guestIntro: null });
+  });
+
+  it("should refuse a guest intro outside the vocabulary", () => {
+    expect(updateEventSchema.safeParse({ guestIntro: "com a presença de" }).success).toBe(false);
+  });
+
   it("should keep the teacher role default inside a sent teacher entry", () => {
     const data = updateEventSchema.parse({ teacherIds: [{ id: 5 }] });
 

@@ -6,7 +6,12 @@ vi.mock("../../src/services/s3.ts", () => ({
   ),
 }));
 
-import { resolveTeacherUrls, pickPhotoTeacherId } from "../../src/lib/teacher-utils.ts";
+import {
+  resolveTeacherUrls,
+  pickPhotoTeacherId,
+  orderEventTeachers,
+  resolveEventTeacherUrls,
+} from "../../src/lib/teacher-utils.ts";
 
 describe("resolveTeacherUrls", () => {
   it("resolves S3 keys to presigned URLs (avatar + desktop hero + mobile hero)", async () => {
@@ -164,5 +169,68 @@ describe("pickPhotoTeacherId", () => {
   it("should be null when no teacher has a photo or the list is empty", () => {
     expect(pickPhotoTeacherId([{ teacher: { id: 1 } }])).toBeNull();
     expect(pickPhotoTeacherId(undefined)).toBeNull();
+  });
+});
+
+describe("orderEventTeachers", () => {
+  it("should list the main teachers before the guests, each in their saved position", () => {
+    const list = [
+      { teacherId: 3, role: "guest", position: 1 },
+      { teacherId: 1, role: "teacher", position: 1 },
+      { teacherId: 4, role: "guest", position: 0 },
+      { teacherId: 2, role: "teacher", position: 0 },
+    ];
+
+    expect(orderEventTeachers(list).map((et) => et.teacherId)).toEqual([2, 1, 4, 3]);
+  });
+
+  it("should keep the loaded order when positions tie or are missing", () => {
+    const list = [{ teacherId: 5, role: "teacher" }, { teacherId: 6, role: "teacher" }];
+
+    expect(orderEventTeachers(list).map((et) => et.teacherId)).toEqual([5, 6]);
+  });
+});
+
+describe("pickPhotoTeacherId with guests", () => {
+  it("should prefer a main teacher's avatar over a guest's hero", () => {
+    const list = [
+      { role: "guest", teacher: { id: 9, heroUrl: "h9" } },
+      { role: "teacher", teacher: { id: 1, avatarUrl: "a1" } },
+    ];
+
+    expect(pickPhotoTeacherId(list)).toBe(1);
+  });
+
+  it("should fall back to a guest's photo when no main teacher has one", () => {
+    const list = [
+      { role: "teacher", teacher: { id: 1 } },
+      { role: "guest", teacher: { id: 9, avatarUrl: "a9" } },
+    ];
+
+    expect(pickPhotoTeacherId(list)).toBe(9);
+  });
+});
+
+describe("resolveEventTeacherUrls ordering", () => {
+  it("should return the event's teachers main first, in position order", async () => {
+    const teacher = (id: number) => ({
+      id, name: `T${id}`, abbreviation: `T${id}`, photoUrl: null, avatarS3Key: null, heroS3Key: null,
+      heroMobileS3Key: null, heroFocalX: 50, heroFocalY: 50, heroScale: 100, avatarUpdatedAt: null, heroUpdatedAt: null,
+    });
+    const event = {
+      eventTeachers: [
+        { teacherId: 3, role: "guest", position: 2, teacher: teacher(3) },
+        { teacherId: 2, role: "teacher", position: 1, teacher: teacher(2) },
+        { teacherId: 1, role: "teacher", position: 0, teacher: teacher(1) },
+      ],
+    };
+
+    await resolveEventTeacherUrls(event);
+
+    expect(event.eventTeachers.map((et) => [et.teacherId, et.role])).toEqual([
+      [1, "teacher"],
+      [2, "teacher"],
+      [3, "guest"],
+    ]);
   });
 });

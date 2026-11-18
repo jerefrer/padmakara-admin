@@ -246,6 +246,7 @@ users → bookmarks → tracks (track position bookmarks)
 - `GET /api/events` - List events accessible to user (filtered by group membership)
 - `GET /api/events/:id` - Event details with sessions and tracks
 - `POST /api/events/:id/request-download` - Request ZIP download for event
+- Teachers vs guests: every event payload's `eventTeachers` lists the main teachers (`role: "teacher"`) first, then the guests / other speakers (`role: "guest"`), each by `position` (`lib/event-teacher-order.ts`); `guestIntro` is the key of the phrase before the guests (`lib/guest-intro.ts`, null = "with the presence of"), localized by the clients. Compact places show the main teachers only; search and teacher filters still match guests. `src/scripts/import-wix-guests.ts` (dry run by default, `--apply`) imports the split and the phrase from the Wix export
 
 ### Downloads (ZIP Generation)
 

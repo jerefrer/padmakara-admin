@@ -803,11 +803,14 @@ async function syncJunctions(
   if (teacherIds !== undefined) {
     await db.delete(eventTeachers).where(eq(eventTeachers.eventId, eventId));
     if (teacherIds.length > 0) {
+      // The list order is the display order (main teachers and guests are sorted by role
+      // first when read, see lib/event-teacher-order.ts).
       await db.insert(eventTeachers).values(
-        teacherIds.map((t) => ({
+        teacherIds.map((t, position) => ({
           eventId,
           teacherId: t.id,
           role: t.role,
+          position,
         })),
       );
     }
