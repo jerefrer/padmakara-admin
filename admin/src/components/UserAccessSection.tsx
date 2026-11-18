@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { useInput, useLocaleState, useNotify, useRecordContext, useTranslate } from "react-admin";
-import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
+import { createFilterOptions } from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
 import Link from "@mui/material/Link";
@@ -14,6 +14,7 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 import { authFetch } from "../utils/authFetch";
+import { CheckboxMultiSelect } from "./CheckboxMultiSelect";
 
 export interface AccessOption {
   id: number;
@@ -114,8 +115,6 @@ export const AccessPicker = ({ source, title, options, addLabel, emptyLabel, rem
     ...options.filter((o) => chosen.includes(o.id)).map((o) => o.id),
     ...chosen.filter((id) => !byId.has(id)),
   ];
-  // Remounting clears the search box after each pick.
-  const [pickKey, setPickKey] = useState(0);
 
   return (
     <Box>
@@ -142,24 +141,24 @@ export const AccessPicker = ({ source, title, options, addLabel, emptyLabel, rem
           />
         );
       })}
-      <Autocomplete
-        key={pickKey}
-        options={options.filter((o) => !chosen.includes(o.id))}
+      {/* The rows above list the picks, so the field shows no chips of its own. */}
+      <CheckboxMultiSelect<AccessOption>
+        options={options}
+        value={options.filter((o) => chosen.includes(o.id))}
         filterOptions={filterOptions}
         getOptionLabel={(o) => o.label}
-        renderOption={({ key, ...props }, o) => (
-          <li key={o.id} {...props}>
-            <Box>
-              <Typography variant="body2">{o.label}</Typography>
-              {o.detail && <Typography variant="caption" color="text.secondary">{o.detail}</Typography>}
-            </Box>
-          </li>
+        isOptionEqualToValue={(o, v) => o.id === v.id}
+        renderTags={() => null}
+        renderOptionContent={(o) => (
+          <Box>
+            <Typography variant="body2">{o.label}</Typography>
+            {o.detail && <Typography variant="caption" color="text.secondary">{o.detail}</Typography>}
+          </Box>
         )}
-        onChange={(_, o) => {
-          if (!o) return;
-          field.onChange([...chosen, o.id]);
-          setPickKey((k) => k + 1);
-        }}
+        onChange={(_, picked) =>
+          // Ids with no option are kept: the admin may not have been able to load their name.
+          field.onChange([...chosen.filter((id) => !byId.has(id)), ...picked.map((o) => o.id)])
+        }
         size="small"
         sx={{ mt: 1 }}
         renderInput={(params) => <TextField {...params} placeholder={addLabel} helperText={false} />}

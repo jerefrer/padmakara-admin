@@ -2,7 +2,6 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ImageIcon from "@mui/icons-material/Image";
 import {
-  Autocomplete,
   Box,
   Button,
   Checkbox,
@@ -22,6 +21,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { useFormContext } from "react-hook-form";
 import { authFetch } from "../utils/authFetch";
 import { PublicationPdfActions } from "../components/PublicationPdfActions";
+import { CheckboxMultiSelect } from "../components/CheckboxMultiSelect";
 import { AuthorsInput } from "../components/AuthorsInput";
 import { useAuthorSuggestions } from "../components/useAuthorSuggestions";
 import {
@@ -370,8 +370,7 @@ function RetreatGroupsPicker({
       : "padmakara.publications.groupsHelperMembers";
 
   return (
-    <Autocomplete
-      multiple
+    <CheckboxMultiSelect
       options={options}
       getOptionLabel={(g) => groupName(g, locale)}
       value={selected}
@@ -422,8 +421,7 @@ function AccessListPicker({
   const selected = value.map((id) => known.find((u) => u.id === id) ?? { id, email: `#${id}` });
 
   return (
-    <Autocomplete
-      multiple
+    <CheckboxMultiSelect
       // The server already filtered by what was typed.
       filterOptions={(o) => o}
       options={options}
