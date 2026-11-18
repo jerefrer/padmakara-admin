@@ -44,7 +44,8 @@ export async function submitReadAlongJob(
   });
   if (!event) throw AppError.notFound("Event not found");
 
-  // Check for transcript to determine language
+  // Check for transcript to determine language. Any row counts, published or
+  // not: an unpublished draft is still the text the audio is aligned against.
   const transcript = await db.query.transcripts.findFirst({
     where: eq(transcripts.eventId, eventId),
   });

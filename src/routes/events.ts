@@ -121,6 +121,25 @@ const eventWith = {
   },
 } as const;
 
+/**
+ * The transcript fields the app reads. Listed explicitly so the storage key never
+ * leaves the server (the PDF is served by /api/media/transcript/:id); `published`
+ * is loaded so applyContentVisibility can drop unpublished files for non-admins.
+ */
+const TRANSCRIPT_CLIENT_COLUMNS = {
+  id: true,
+  eventId: true,
+  language: true,
+  pageCount: true,
+  status: true,
+  isExcerpt: true,
+  published: true,
+  originalFilename: true,
+  fileSizeBytes: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 const eventWithSessions = {
   ...eventWith,
   sessions: {
@@ -131,7 +150,7 @@ const eventWithSessions = {
       },
     },
   },
-  transcripts: true,
+  transcripts: { columns: TRANSCRIPT_CLIENT_COLUMNS },
   eventFiles: {
     where: (f: any, { inArray }: any) => inArray(f.fileType, ["document", "image", "other"]),
     orderBy: (f: any, { asc }: any) => [asc(f.sortOrder), asc(f.id)],
@@ -155,7 +174,8 @@ export const eventListWith = {
       },
     },
   },
-  transcripts: { columns: { id: true } },
+  // `published` only so applyContentVisibility can drop unpublished files from the count
+  transcripts: { columns: { id: true, published: true } },
 } as const;
 
 // ─── Public endpoints (no auth) ──────────────────────────────────────────

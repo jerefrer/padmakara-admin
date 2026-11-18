@@ -20,12 +20,16 @@ export interface AnnouncementRecord {
 
 /**
  * How much of each announceable section an event holds, counted the way the app shows it:
- * transcripts = transcript PDFs + tracks with a read-along, videos = uploaded videos,
+ * transcripts = published transcript PDFs + tracks with a read-along, videos = uploaded videos,
  * texts = event files + linked publications.
  */
 export async function countAnnounceableContent(eventId: number): Promise<ContentCounts> {
   const [pdfs, readAlong, videos, files, publications] = await Promise.all([
-    db.select({ n: count() }).from(transcripts).where(and(eq(transcripts.eventId, eventId), isNotNull(transcripts.s3Key))),
+    // An unpublished file is not announced: readers would not find it
+    db
+      .select({ n: count() })
+      .from(transcripts)
+      .where(and(eq(transcripts.eventId, eventId), isNotNull(transcripts.s3Key), eq(transcripts.published, true))),
     db
       .select({ n: count() })
       .from(tracks)

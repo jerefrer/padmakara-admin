@@ -9,6 +9,9 @@ import { transcripts } from "../db/schema/transcripts.ts";
  * Used to gate subtitle generation: Whisper is guided by the event's
  * transcript, and running it without one produces materially worse output
  * on names and Buddhist terminology.
+ *
+ * Counts every row, published or not, whatever its status: an unpublished
+ * draft still guides transcription well, and readers never see it here.
  */
 export async function hasTranscriptForLanguage(
   eventId: number,
