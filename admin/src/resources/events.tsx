@@ -53,6 +53,7 @@ import Audiotrack from "@mui/icons-material/Audiotrack";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import Description from "@mui/icons-material/Description";
 import Tooltip from "@mui/material/Tooltip";
+import { CheckboxMultiSelect } from "../components/CheckboxMultiSelect";
 import { FeatureStarButton } from "../components/FeatureStarButton";
 import { EventStatusControls, type PublishSection } from "../components/EventStatusControls";
 import { apiErrorMessageKey, isMappedApiError } from "../utils/apiErrors";
@@ -1593,8 +1594,7 @@ export const EventFormFields = ({
           </Grid>
           {showGroupsPicker && (
             <Grid size={{ xs: 12 }}>
-              <Autocomplete
-                multiple
+              <CheckboxMultiSelect
                 options={allGroups}
                 getOptionLabel={(o) => (o.abbreviation ? `${localeName(o, locale)} (${o.abbreviation})` : localeName(o, locale))}
                 value={selectedGroups}
@@ -1623,8 +1623,7 @@ export const EventFormFields = ({
       <Paper sx={{ p: 3, mb: 2 }}>
         <Grid container spacing={2.5}>
           <Grid size={{ xs: 12 }}>
-            <Autocomplete
-              multiple
+            <CheckboxMultiSelect
               options={allTeachers}
               getOptionLabel={(o) => `${o.name} (${o.abbreviation})`}
               value={selectedTeachers}
@@ -1636,8 +1635,7 @@ export const EventFormFields = ({
             />
           </Grid>
           <Grid size={{ xs: 12 }}>
-            <Autocomplete
-              multiple
+            <CheckboxMultiSelect
               options={allPlaces}
               getOptionLabel={(o) => o.abbreviation ? `${o.name} (${o.abbreviation})` : o.name}
               value={selectedPlaces}
@@ -1649,8 +1647,7 @@ export const EventFormFields = ({
             />
           </Grid>
           <Grid size={{ xs: 12 }}>
-            <Autocomplete
-              multiple
+            <CheckboxMultiSelect
               options={allOrganizers}
               getOptionLabel={(o) => o.abbreviation ? `${o.name} (${o.abbreviation})` : o.name}
               value={selectedOrganizers}
