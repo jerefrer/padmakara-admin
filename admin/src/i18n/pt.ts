@@ -295,6 +295,8 @@ export const pt = {
       col_videoViewers: "Espetadores de vídeo",
       col_transcriptOpens: "Transcrições abertas",
       col_readAlongOpens: "Ler em Conjunto",
+      col_videoStarts: "Vídeos reproduzidos",
+      col_fileOpens: "Ficheiros abertos",
       col_downloads: "Transferências",
       empty: "Nada a mostrar neste período.",
       loadFailed: "Não foi possível carregar as estatísticas.",

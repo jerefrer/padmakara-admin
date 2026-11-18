@@ -94,6 +94,8 @@ export const en = {
       col_videoViewers: "Video viewers",
       col_transcriptOpens: "Transcript opens",
       col_readAlongOpens: "Read-along opens",
+      col_videoStarts: "Video plays",
+      col_fileOpens: "Files opened",
       col_downloads: "Downloads",
       empty: "Nothing to show for this period.",
       loadFailed: "Could not load statistics.",
