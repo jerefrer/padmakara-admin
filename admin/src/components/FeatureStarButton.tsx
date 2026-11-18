@@ -16,6 +16,8 @@ import { apiErrorMessageKey } from "../utils/apiErrors";
 interface FeatureStarButtonProps {
   eventId: number | string;
   status: string;
+  /** False when the event's audience is not free-anyone: the highlight must be free for everyone. Defaults to true. */
+  freeForEveryone?: boolean;
   /** True when this event currently holds the home-page highlight. */
   featured: boolean;
   /** Locale-aware title shown in the confirmation dialog. */
@@ -36,6 +38,7 @@ interface FeatureStarButtonProps {
 export function FeatureStarButton({
   eventId,
   status,
+  freeForEveryone = true,
   featured,
   title,
   titleOf = (r) => r.titleEn ?? "",
@@ -69,6 +72,18 @@ export function FeatureStarButton({
   if (status !== "published") {
     return (
       <Tooltip title={translate("padmakara.events.featuredOnlyPublished")}>
+        <span>
+          <IconButton size={size} disabled>
+            <StarBorderIcon sx={iconSx} />
+          </IconButton>
+        </span>
+      </Tooltip>
+    );
+  }
+
+  if (!freeForEveryone) {
+    return (
+      <Tooltip title={translate("padmakara.events.featuredOnlyFree")}>
         <span>
           <IconButton size={size} disabled>
             <StarBorderIcon sx={iconSx} />

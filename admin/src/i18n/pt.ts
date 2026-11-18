@@ -531,6 +531,9 @@ export const pt = {
       featuredDialogConfirm: "Destacar",
       featuredEventLocked: "Este evento está em destaque no ecrã inicial. Destaque primeiro outro evento.",
       featuredNotPublished: "Só um evento publicado pode ser destacado.",
+      featuredMustBeFree: "O destaque do mês tem de ser gratuito para todos. Escolha um ensinamento com a audiência gratuita para todos.",
+      featuredOnlyFree: "Só os ensinamentos gratuitos para todos podem ser o destaque do mês.",
+      audienceHighlightHint: "Este evento é o destaque do mês, por isso tem de continuar gratuito para todos. Destaque outro evento para alterar a audiência.",
       // Buttons
       newEvent: "Novo Evento",
       createEvent: "Criar Evento",

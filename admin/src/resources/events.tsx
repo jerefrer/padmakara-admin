@@ -401,6 +401,7 @@ const FeaturedToggleCell = ({ record }: { record: any }) => {
       eventId={record.id}
       status={record.status}
       featured={!!record.featuredAt}
+      freeForEveryone={record.audience?.slug === "free-anyone"}
       title={localeTitle(record, locale)}
       titleOf={(r) => localeTitle(r, locale)}
       iconSize={20}
@@ -1702,6 +1703,7 @@ export const EventFormFields = ({
           sale={{ saleMode: form.saleMode, priceCents: form.priceCents, includedInMembership: form.includedInMembership }}
           onSaleChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
           frozen={audienceFrozen}
+          highlightLocked={!!form.featuredAt}
           locale={locale}
           eventId={eventId}
           stats={access?.stats}
@@ -4931,6 +4933,7 @@ export const EventEdit = () => {
               star={{
                 eventId: Number(id),
                 featured: !!form.featuredAt,
+                freeForEveryone: event?.audience?.slug === "free-anyone",
                 title: localeTitle(form, locale),
                 titleOf: (r) => localeTitle(r, locale),
                 onFeatured: (updated) =>

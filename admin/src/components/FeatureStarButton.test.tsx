@@ -69,6 +69,26 @@ describe("FeatureStarButton", () => {
     expect(starButton().disabled).toBe(true);
   });
 
+  it("should disable the star when the event is not free for everyone", async () => {
+    render({ freeForEveryone: false });
+    expect(starButton().disabled).toBe(true);
+    await act(async () => starButton().click());
+    expect(authFetch).not.toHaveBeenCalled();
+    expect(getList).not.toHaveBeenCalled();
+  });
+
+  it("should notify the mapped message when the server refuses with FEATURED_MUST_BE_FREE", async () => {
+    authFetch.mockResolvedValue({ ok: false, status: 400, json: () => Promise.resolve({ code: "FEATURED_MUST_BE_FREE" }) });
+    render();
+    await act(async () => starButton().click());
+    await act(async () => dialogButton("padmakara.events.featuredDialogConfirm").click());
+
+    expect(notify).toHaveBeenCalledWith(
+      "padmakara.events.featuredMustBeFree",
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
   it("should name the current highlight in the dialog when another event holds it", async () => {
     render();
     await act(async () => starButton().click());

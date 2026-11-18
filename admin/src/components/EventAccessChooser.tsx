@@ -173,6 +173,8 @@ interface Props<A extends AudienceChoice> {
   onSaleChange: (patch: Partial<SaleValue>) => void;
   /** Parallel retreats are always for the members of their retreat groups. */
   frozen?: boolean;
+  /** The event holds the home highlight, which must stay free for everyone: no other audience. */
+  highlightLocked?: boolean;
   locale: string;
   /** Set once the event exists: the link and stats need it. */
   eventId?: number;
@@ -186,6 +188,7 @@ export function EventAccessChooser<A extends AudienceChoice>({
   sale,
   onSaleChange,
   frozen,
+  highlightLocked,
   locale,
   eventId,
   stats,
@@ -267,7 +270,7 @@ export function EventAccessChooser<A extends AudienceChoice>({
       <FormControlLabel
         key={pair ? pair.key : audience.slug}
         value={rowAudience.slug}
-        disabled={!!frozen && !isGroupsSlug(audience.slug)}
+        disabled={(!!frozen && !isGroupsSlug(audience.slug)) || (!!highlightLocked && rowAudience.slug !== "free-anyone")}
         control={<Radio size="small" />}
         onChange={() => handleChoose(rowAudience)}
         sx={{ alignItems: "flex-start", m: 0, py: 0.5, "& .MuiRadio-root": { pt: 0.5 } }}
@@ -304,6 +307,11 @@ export function EventAccessChooser<A extends AudienceChoice>({
         {frozen && (
           <Typography variant="caption" sx={{ color: "text.secondary" }}>
             {translate("padmakara.events.audienceFrozenHint")}
+          </Typography>
+        )}
+        {highlightLocked && (
+          <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+            {translate("padmakara.events.audienceHighlightHint")}
           </Typography>
         )}
       </Box>
