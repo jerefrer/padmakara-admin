@@ -141,6 +141,7 @@ import { UploadIncompleteAlert } from "../components/UploadIncompleteAlert";
 import { uploadVideoFile, uploadVideoMaster } from "../utils/videoUploader";
 import type { SessionOption } from "../utils/slideSequence";
 import { authFetch } from "../utils/authFetch";
+import { formatDayMonthYear, formatEventDates } from "../utils/eventDates";
 import { AnnounceContentButton } from "../components/AnnounceContentButton";
 import type { AnnouncementsInfo } from "../utils/announce";
 import { compareTracks } from "../utils/trackOrder";
@@ -483,55 +484,11 @@ export const EventList = () => {
           label={translate("padmakara.events.dates")}
           sortBy="startDate"
           sx={{ whiteSpace: "nowrap" }}
-          render={(record: any) => {
-            if (!record.startDate) return "—";
-            const dateLocale = locale === "pt" ? "pt-PT" : "en-GB";
-            const startDate = new Date(record.startDate);
-            const endDate = record.endDate ? new Date(record.endDate) : null;
-
-            // If same date or no end date, show single date
-            if (!endDate || record.startDate === record.endDate) {
-              const formatted = startDate.toLocaleDateString(dateLocale, {
-                day: "numeric",
-                month: "long",
-                year: "numeric"
-              });
-              return (
-                <Box sx={{ textAlign: "right", fontSize: "0.875rem" }}>
-                  {formatted}
-                </Box>
-              );
-            }
-
-            // Different dates - show from/to on separate lines
-            const startFormatted = startDate.toLocaleDateString(dateLocale, {
-              day: "numeric",
-              month: "long",
-              year: "numeric"
-            });
-            const endFormatted = endDate.toLocaleDateString(dateLocale, {
-              day: "numeric",
-              month: "long",
-              year: "numeric"
-            });
-
-            return (
-              <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 0.5, columnGap: 1 }}>
-                <Box component="span" sx={{ opacity: 0.6, fontSize: "0.875rem", textAlign: "right" }}>
-                  {translate("padmakara.events.from")}:
-                </Box>
-                <Box component="span" sx={{ fontSize: "0.875rem", textAlign: "right" }}>
-                  {startFormatted}
-                </Box>
-                <Box component="span" sx={{ opacity: 0.6, fontSize: "0.875rem", textAlign: "right" }}>
-                  {translate("padmakara.events.to")}:
-                </Box>
-                <Box component="span" sx={{ fontSize: "0.875rem", textAlign: "right" }}>
-                  {endFormatted}
-                </Box>
-              </Box>
-            );
-          }}
+          render={(record: any) => (
+            <Box component="span" sx={{ fontSize: "0.875rem" }}>
+              {formatEventDates(record.startDate, record.endDate)}
+            </Box>
+          )}
         />
         <FunctionField
           label={translate("padmakara.events.content")}
@@ -578,6 +535,17 @@ export const EventList = () => {
                   </Tooltip>
                 )
               )}
+            </Box>
+          )}
+        />
+        <FunctionField
+          label={translate("padmakara.events.announced")}
+          sortBy="lastAnnouncedAt"
+          sortByOrder="DESC"
+          sx={{ whiteSpace: "nowrap" }}
+          render={(record: any) => (
+            <Box component="span" sx={{ fontSize: "0.875rem" }} data-testid="announced-cell">
+              {formatDayMonthYear(record.lastAnnouncedAt)}
             </Box>
           )}
         />
@@ -4688,7 +4656,7 @@ export const EventEdit = () => {
     return res.json();
   }, [id]);
 
-  const handleAnnounce = useCallback(async (body: object) => {
+  const handleAnnounce = useCallback(async (body: object): Promise<void> => {
     try {
       const res = await authFetch(`/api/admin/events/${id}/announce`, {
         method: "POST",

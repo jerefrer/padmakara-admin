@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { testJson } from "../../helpers.ts";
 
 const eventsPage = [
-  { id: 1, eventCode: "E1", eventTeachers: [], eventRetreatGroups: [], eventPlaces: [], eventPublications: [] },
-  { id: 2, eventCode: "E2", eventTeachers: [], eventRetreatGroups: [], eventPlaces: [], eventPublications: [] },
+  { id: 1, eventCode: "E1", publishedNotifiedAt: new Date("2026-11-01T10:00:00.000Z"), eventTeachers: [], eventRetreatGroups: [], eventPlaces: [], eventPublications: [] },
+  { id: 2, eventCode: "E2", publishedNotifiedAt: null, eventTeachers: [], eventRetreatGroups: [], eventPlaces: [], eventPublications: [] },
 ];
 
 vi.mock("../../../src/db/index.ts", () => {
@@ -19,7 +19,7 @@ vi.mock("../../../src/db/index.ts", () => {
   // Return presence for event 1 across all four selects. The audio select
   // projects total/keyed as well — without them Number(undefined) is NaN and
   // hasAudio comes out false; the other three selects only read `id`.
-  const selectImpl = vi.fn(() => makeChain([{ id: 1, total: 2, keyed: 2 }]));
+  const selectImpl = vi.fn(() => makeChain([{ id: 1, total: 2, keyed: 2, at: new Date("2026-11-13T09:00:00.000Z") }]));
   return {
     db: {
       query: {
@@ -51,5 +51,12 @@ describe("GET /api/admin/events content flags", () => {
     const e2 = body.find((e: any) => e.id === 2);
     expect(e1).toMatchObject({ hasVideo: true, hasAudio: true, hasDocuments: true });
     expect(e2).toMatchObject({ hasVideo: false, hasAudio: false, hasDocuments: false });
+  });
+
+  it("sets lastAnnouncedAt to the later of the publish email and the latest announcement", async () => {
+    const token = await adminToken();
+    const { body } = await testJson("/api/admin/events", { headers: { Authorization: `Bearer ${token}` } });
+    expect(body.find((e: any) => e.id === 1).lastAnnouncedAt).toBe("2026-11-13T09:00:00.000Z");
+    expect(body.find((e: any) => e.id === 2).lastAnnouncedAt).toBeNull();
   });
 });

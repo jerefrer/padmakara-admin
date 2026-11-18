@@ -52,6 +52,12 @@ const contentRank = sql`(
         ) then 1 else 0 end)
 )`;
 
+/** When people were last emailed about the event: the publish-time email or the latest announcement. */
+const lastAnnouncedAt = sql`greatest(
+  ${events.publishedNotifiedAt},
+  (select max(ea.sent_at) from event_announcements ea where ea.event_id = ${events.id})
+)`;
+
 export const eventSortColumns: Record<string, SortTarget> = {
   id: events.id,
   eventCode: events.eventCode,
@@ -70,6 +76,7 @@ export const eventSortColumns: Record<string, SortTarget> = {
   audienceNamePt,
   content: contentRank,
   featuredAt: events.featuredAt,
+  lastAnnouncedAt,
   createdAt: events.createdAt,
   // Bumped by edits to the event and to its tracks and videos.
   updatedAt: events.updatedAt,

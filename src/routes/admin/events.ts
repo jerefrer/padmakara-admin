@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, ne, and, or, like, ilike, inArray, isNull, isNotNull, sql } from "drizzle-orm";
+import { eq, ne, and, or, like, ilike, inArray, isNull, isNotNull, max, sql } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import {
   events,
@@ -17,6 +17,7 @@ import { sessions } from "../../db/schema/sessions.ts";
 import { tracks } from "../../db/schema/tracks.ts";
 import { transcripts } from "../../db/schema/transcripts.ts";
 import { eventFiles } from "../../db/schema/event-files.ts";
+import { eventAnnouncements } from "../../db/schema/event-announcements.ts";
 import { createEventSchema, updateEventSchema, aiAssistSchema } from "../../lib/schemas.ts";
 import { AppError } from "../../lib/errors.ts";
 import { EVENT_REVIEWED_PAIRS, keepApprovals, unflagsAny } from "../../lib/reviewed-flags.ts";
@@ -37,6 +38,12 @@ import { fetchSlideTemplateMetadata, generateDefaultSlides } from "../../service
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../../lib/organizer-utils.ts";
 
 const eventRoutes = new Hono();
+
+/** The later of the publish-time email and the latest "new content" announcement, as ISO, or null. */
+function latestOf(...dates: Array<Date | string | null | undefined>): string | null {
+  const times = dates.filter((d): d is Date | string => !!d).map((d) => new Date(d).getTime());
+  return times.length ? new Date(Math.max(...times)).toISOString() : null;
+}
 
 // People with access / manual grants: /:id/access (see event-access.ts).
 eventRoutes.route("/", eventAccessRoutes);
@@ -144,8 +151,9 @@ eventRoutes.get("/", async (c) => {
   const hasVideo = new Set<number>();
   const hasDocs = new Set<number>();
   const audioCounts = new Map<number, { total: number; keyed: number }>();
+  const lastAnnounced = new Map<number, Date>();
   if (ids.length) {
-    const [vids, auds, trs, files] = await Promise.all([
+    const [vids, auds, trs, files, announced] = await Promise.all([
       db.select({ id: eventVideos.eventId }).from(eventVideos)
         .where(inArray(eventVideos.eventId, ids)).groupBy(eventVideos.eventId),
       // Per-event track total + how many actually have audio (s3_key set).
@@ -167,16 +175,20 @@ eventRoutes.get("/", async (c) => {
           inArray(eventFiles.eventId, ids),
           inArray(eventFiles.fileType, ["document", "image", "other"]),
         )).groupBy(eventFiles.eventId),
+      db.select({ id: eventAnnouncements.eventId, at: max(eventAnnouncements.sentAt) }).from(eventAnnouncements)
+        .where(inArray(eventAnnouncements.eventId, ids)).groupBy(eventAnnouncements.eventId),
     ]);
+    announced.forEach((r) => { if (r.at) lastAnnounced.set(r.id, new Date(r.at)); });
     vids.forEach((r) => hasVideo.add(r.id));
     auds.forEach((r) => audioCounts.set(r.id, { total: Number(r.total), keyed: Number(r.keyed) }));
     trs.forEach((r) => hasDocs.add(r.id));
     files.forEach((r) => hasDocs.add(r.id));
   }
-  const enriched = paginatedData.map((e: { id: number }) => {
+  const enriched = paginatedData.map((e: { id: number; publishedNotifiedAt?: Date | string | null }) => {
     const ac = audioCounts.get(e.id);
     return {
       ...e,
+      lastAnnouncedAt: latestOf(e.publishedNotifiedAt, lastAnnounced.get(e.id)),
       hasVideo: hasVideo.has(e.id),
       hasAudio: (ac?.keyed ?? 0) > 0,
       audioTotal: ac?.total ?? 0,
