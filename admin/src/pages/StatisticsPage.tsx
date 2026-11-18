@@ -6,15 +6,12 @@ import Typography from "@mui/material/Typography";
 import Alert from "@mui/material/Alert";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
-import TableSortLabel from "@mui/material/TableSortLabel";
-import { Title, useTranslate } from "react-admin";
+import { Title, useLocaleState, useTranslate } from "react-admin";
 import { authFetch } from "../utils/authFetch";
 import { rangeFor, STATISTICS_RANGES, type StatisticsRange } from "../utils/statisticsRange";
+import { TeachingsTable } from "./statistics/TeachingsTable";
+import { TeachingDetailDrawer } from "./statistics/TeachingDetailDrawer";
+import type { EventRow } from "./statistics/types";
 
 interface MonthRow {
   month: string;
@@ -24,21 +21,6 @@ interface MonthRow {
   membershipCents: number;
   readAlongOpens: number;
 }
-interface EventRow {
-  id: number;
-  title: string;
-  titlePt: string | null;
-  listeners: number;
-  completedTracks: number;
-  listenHours: number;
-  videoViewers: number;
-  transcriptOpens: number;
-  readAlongOpens: number;
-  fileOpens: number;
-  videoStarts: number;
-  zipDownloads: number;
-  videoDownloads: number;
-}
 interface Stats {
   accounts: { total: number; newInRange: number; activeMembers: number };
   activeUsers: { last7: number; last30: number; inRange: number };
@@ -46,18 +28,6 @@ interface Stats {
   platforms: { deviceType: string; count: number }[];
   events: EventRow[];
 }
-
-type SortKey =
-  | "listeners" | "completedTracks" | "listenHours" | "videoViewers" | "transcriptOpens" | "readAlongOpens"
-  | "videoStarts" | "fileOpens" | "downloads";
-const SORT_KEYS: SortKey[] = [
-  "listeners", "completedTracks", "listenHours", "videoViewers", "transcriptOpens", "readAlongOpens",
-  "videoStarts", "fileOpens", "downloads",
-];
-
-/** Real downloads only: event ZIPs and offline video downloads. Video plays and opened files have their own columns. */
-const downloadsOf = (e: EventRow) => e.zipDownloads + e.videoDownloads;
-const valueOf = (e: EventRow, key: SortKey): number => (key === "downloads" ? downloadsOf(e) : e[key]);
 
 const PLATFORM_LABELS: Record<string, string> = { ios: "iPhone", android: "Android", web: "Web" };
 
@@ -132,16 +102,18 @@ const PlatformBars = ({ rows }: { rows: { deviceType: string; count: number }[] 
 /** Aggregate usage statistics: totals only, counted on the server. */
 export const StatisticsPage = () => {
   const translate = useTranslate();
+  const [locale] = useLocaleState();
   const navigate = useNavigate();
   const [days, setDays] = useState<StatisticsRange>(30);
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState(false);
-  const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" } | null>(null);
+  const [selected, setSelected] = useState<EventRow | null>(null);
+  const range = useMemo(() => rangeFor(days), [days]);
 
   useEffect(() => {
     let cancelled = false;
     setError(false);
-    const { from, to } = rangeFor(days);
+    const { from, to } = range;
     authFetch(`/api/admin/statistics?from=${from}&to=${to}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -154,39 +126,14 @@ export const StatisticsPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [days]);
+  }, [range]);
 
-  const events = useMemo(() => {
-    if (!stats) return [];
-    if (!sort) return stats.events;
-    const sign = sort.dir === "desc" ? -1 : 1;
-    return [...stats.events].sort((a, b) => sign * (valueOf(a, sort.key) - valueOf(b, sort.key)));
-  }, [stats, sort]);
-
-  /** Additive columns only: listeners and video viewers count people, who can appear in several teachings. */
-  const totals = useMemo(() => {
-    if (!stats) return null;
-    const sum = (key: SortKey) => stats.events.reduce((acc, e) => acc + valueOf(e, key), 0);
-    return {
-      completedTracks: sum("completedTracks"),
-      listenHours: Math.round(sum("listenHours") * 10) / 10,
-      transcriptOpens: sum("transcriptOpens"),
-      readAlongOpens: sum("readAlongOpens"),
-      videoStarts: sum("videoStarts"),
-      fileOpens: sum("fileOpens"),
-      downloads: sum("downloads"),
-    };
-  }, [stats]);
-
-  const onSort = (key: SortKey) =>
-    setSort((s) => (s?.key === key && s.dir === "desc" ? { key, dir: "asc" } : { key, dir: "desc" }));
-
-  const t = (key: string) => translate(`padmakara.statistics.${key}`);
+  const t = (key: string, options?: Record<string, unknown>) => translate(`padmakara.statistics.${key}`, options);
   const monthRows = (pick: (m: MonthRow) => number) =>
     (stats?.monthly ?? []).map((m) => ({ label: m.month, value: pick(m) }));
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: "auto", pt: 3 }}>
+    <Box sx={{ maxWidth: 1280, mx: "auto", pt: 3 }}>
       <Title title={t("pageTitle")} />
       <Typography variant="h6" sx={{ mb: 0.5 }}>{t("pageTitle")}</Typography>
       <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>{t("intro")}</Typography>
@@ -237,56 +184,22 @@ export const StatisticsPage = () => {
             )}
           </Paper>
 
-          <Paper sx={{ p: 2, mb: 2, overflowX: "auto" }}>
-            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>{t("teachings")}</Typography>
-            {events.length === 0 ? (
+          {stats.events.length === 0 ? (
+            <Paper sx={{ p: 2, mb: 2 }}>
+              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>{t("teachings")}</Typography>
               <Typography variant="body2" sx={{ color: "text.secondary" }}>{t("empty")}</Typography>
-            ) : (
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>{t("teaching")}</TableCell>
-                    {SORT_KEYS.map((k) => (
-                      <TableCell key={k} align="right" sortDirection={sort?.key === k ? sort.dir : false}>
-                        <TableSortLabel
-                          data-testid={`sort-${k}`}
-                          active={sort?.key === k}
-                          direction={sort?.key === k ? sort.dir : "desc"}
-                          onClick={() => onSort(k)}
-                        >
-                          {t(`col_${k}`)}
-                        </TableSortLabel>
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {events.map((e) => (
-                    <TableRow
-                      key={e.id}
-                      hover
-                      data-testid="event-row"
-                      sx={{ cursor: "pointer" }}
-                      onClick={() => navigate(`/events/${e.id}`)}
-                    >
-                      <TableCell sx={{ wordBreak: "break-word" }}>{e.title}</TableCell>
-                      {SORT_KEYS.map((k) => (
-                        <TableCell key={k} align="right">{valueOf(e, k)}</TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-                  <TableRow data-testid="total-row">
-                    <TableCell sx={{ fontWeight: 700 }}>{t("total")}</TableCell>
-                    {SORT_KEYS.map((k) => (
-                      <TableCell key={k} align="right" sx={{ fontWeight: 700 }}>
-                        {totals && k in totals ? totals[k as keyof typeof totals] : ""}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                </TableBody>
-              </Table>
-            )}
-          </Paper>
+            </Paper>
+          ) : (
+            <TeachingsTable events={stats.events} locale={locale} t={t} onOpen={setSelected} />
+          )}
+          <TeachingDetailDrawer
+            event={selected}
+            range={range}
+            locale={locale}
+            t={t}
+            onClose={() => setSelected(null)}
+            onOpenEvent={(id) => navigate(`/events/${id}`)}
+          />
 
           <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 3 }}>
             {t("privacyNote")}
