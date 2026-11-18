@@ -31,6 +31,7 @@ const RELATIONS = new Set([
   "place",
   "organizer",
   "publication",
+  "groupMemberships",
 ]);
 
 interface QueryConfig {

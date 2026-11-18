@@ -79,14 +79,24 @@ export async function resolveGroupUrls(
   };
 }
 
-/** The storage keys of a group photo: admin-only (the admin image editor re-opens the original). */
-const GROUP_KEY_COLUMNS = ["avatarS3Key", "heroS3Key", "heroMobileS3Key", "heroOriginalS3Key"] as const;
+/**
+ * Admin-only columns of a group photo: the storage keys, and the crop and black-and-white
+ * choice the admin image editor re-applies when it re-opens the original.
+ */
+const GROUP_KEY_COLUMNS = [
+  "avatarS3Key",
+  "heroS3Key",
+  "heroMobileS3Key",
+  "heroOriginalS3Key",
+  "heroCrop",
+  "heroGrayscale",
+] as const;
 
 export type ClientRetreatGroup = Omit<RetreatGroupResponse, (typeof GROUP_KEY_COLUMNS)[number]>;
 
 /**
  * App-facing shape of a group: the resolved URLs, without the storage keys they were
- * signed from. Admin routes use `resolveGroupUrls`, which keeps the keys.
+ * signed from (nor the editor's re-edit state). Admin routes use `resolveGroupUrls`, which keeps the keys.
  */
 export async function resolveClientGroupUrls(group: RetreatGroupDbRecord): Promise<ClientRetreatGroup> {
   const resolved: Record<string, unknown> = { ...(await resolveGroupUrls(group)) };

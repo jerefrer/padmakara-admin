@@ -322,3 +322,13 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Why:** Storage is private and a key alone opens nothing, but keys reveal the bucket layout and file names, and `GET /api/events/public` served them to anonymous callers.
 **Trade-offs:** A track, video or file column a client should see must be added to its list by hand. Bookmarks, track bookmarks and last-played tracks now carry `hasReadAlong` instead of the raw read-along key.
 **Revisit if:** the app needs slide data (e.g. to render intros client-side): serve a resolved copy then, never the stored document.
+
+---
+
+## 2026-11-18 — Explicit client columns for events and sessions too
+
+**Chosen:** App-facing routes load events with `EVENT_CLIENT_COLUMNS` and sessions with `SESSION_CLIENT_COLUMNS` (`src/lib/client-columns.ts`); the track list loses the AI review flags. Events keep the content the app shows (titles, themes, bibliography, dates, original language), the columns the server still reads on the way out (status, per-section publish switches, audience, membership flag, sale fields, photo columns that become `image`) and the timestamps. Left out: `notes` (Wix library notes imported by `seed-content.ts`, never shown in the app nor in the admin form), every `...Reviewed` flag, `eventCode`, `s3Prefix`, `wixId`, `librarySnapshot`, `creditLines`, `copyrightHolder`, `publishedNotifiedAt/Count` and the hero re-edit state. Client groups also lose `heroCrop`/`heroGrayscale`, and `GET /api/users/profile` drops `subscriptionNotes` and signs its group photos.
+**Alternatives:** (a) Trim to exactly what `padmakara-app` reads today: bibliography, the publish switches and the sale fields are not read by the app, but they are public content or are needed server-side, so dropping them buys nothing and could break a client (web) that starts reading them. (b) Delete the internal columns after the query: same objection as for storage keys, a new column would leak by default.
+**Why:** Unauthenticated `GET /api/events/public` served the imported library notes, the AI review state, the announcement counts and the storage prefix. The app (any version, per its git history) reads none of the removed fields: `eventCode` only appears in its e2e dataset.
+**Trade-offs:** A new event or session column a client should see must be added to its list by hand.
+**Revisit if:** the app needs the event code (e.g. for share links): send a slug made for it instead.

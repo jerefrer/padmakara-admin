@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { users } from "../db/schema/users.ts";
 import { AppError } from "../lib/errors.ts";
+import { resolveClientGroupUrls } from "../lib/group-utils.ts";
 import { authMiddleware, getUser } from "../middleware/auth.ts";
 
 const userRoutes = new Hono();
@@ -11,13 +12,15 @@ userRoutes.use("*", authMiddleware);
 
 /**
  * GET /api/users/profile - Get current user profile
+ * The admin's subscription notes stay server-side, and each group comes with its
+ * photo URLs instead of the storage keys they are signed from.
  */
 userRoutes.get("/profile", async (c) => {
   const authUser = getUser(c);
 
   const user = await db.query.users.findFirst({
     where: eq(users.id, authUser.id),
-    columns: { passwordHash: false },
+    columns: { passwordHash: false, subscriptionNotes: false },
     with: {
       groupMemberships: {
         with: { retreatGroup: true },
@@ -26,7 +29,13 @@ userRoutes.get("/profile", async (c) => {
   });
 
   if (!user) throw AppError.notFound("User not found");
-  return c.json(user);
+  const groupMemberships = await Promise.all(
+    user.groupMemberships.map(async (membership) => ({
+      ...membership,
+      retreatGroup: await resolveClientGroupUrls(membership.retreatGroup),
+    })),
+  );
+  return c.json({ ...user, groupMemberships });
 });
 
 /**

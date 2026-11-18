@@ -29,7 +29,13 @@ import { resolveEventTeacherUrls, resolveEventsTeacherUrls } from "../lib/teache
 import { applyEventOrganizers, applyEventsOrganizers, eventOrganizersWith } from "../lib/organizer-utils.ts";
 import { resolveEventGroupUrls, resolveEventsGroupUrls } from "../lib/group-utils.ts";
 import { resolveEventImageUrls, resolveEventsImageUrls } from "../lib/event-image.ts";
-import { TRACK_CLIENT_COLUMNS, VIDEO_CLIENT_COLUMNS, toClientTrack } from "../lib/client-columns.ts";
+import {
+  EVENT_CLIENT_COLUMNS,
+  SESSION_CLIENT_COLUMNS,
+  TRACK_CLIENT_COLUMNS,
+  VIDEO_CLIENT_COLUMNS,
+  toClientTrack,
+} from "../lib/client-columns.ts";
 import { z } from "zod";
 
 const contentRoutes = new Hono();
@@ -246,8 +252,9 @@ contentRoutes.get("/last-played", async (c) => {
         columns: TRACK_CLIENT_COLUMNS,
         with: {
           session: {
+            columns: SESSION_CLIENT_COLUMNS,
             with: {
-              event: { with: { audience: true } },
+              event: { columns: EVENT_CLIENT_COLUMNS, with: { audience: true } },
             },
           },
         },
@@ -484,6 +491,7 @@ contentRoutes.delete("/bookmarks/:id", async (c) => {
 
 const eventBookmarkWith = {
   event: {
+    columns: EVENT_CLIENT_COLUMNS,
     with: {
       eventType: true,
       audience: true,
@@ -594,8 +602,10 @@ const trackBookmarkWith = {
     columns: TRACK_CLIENT_COLUMNS,
     with: {
       session: {
+        columns: SESSION_CLIENT_COLUMNS,
         with: {
           event: {
+            columns: EVENT_CLIENT_COLUMNS,
             with: {
               audience: true,
               eventTeachers: { with: { teacher: true } },
@@ -724,6 +734,7 @@ const videoBookmarkWith = {
     columns: VIDEO_CLIENT_COLUMNS,
     with: {
       event: {
+        columns: EVENT_CLIENT_COLUMNS,
         with: {
           audience: true,
           eventTeachers: { with: { teacher: true } },

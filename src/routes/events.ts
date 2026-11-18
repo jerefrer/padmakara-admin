@@ -34,7 +34,9 @@ import {
 import { trackOrderBy } from "../services/track-order.ts";
 import { stampEffectiveUpdatedAt } from "../lib/event-freshness.ts";
 import {
+  EVENT_CLIENT_COLUMNS,
   EVENT_FILE_CLIENT_COLUMNS,
+  SESSION_CLIENT_COLUMNS,
   TRACK_CLIENT_COLUMNS,
   VIDEO_CLIENT_COLUMNS,
   toClientTrack,
@@ -150,6 +152,7 @@ const TRANSCRIPT_CLIENT_COLUMNS = {
 const eventWithSessions = {
   ...eventWith,
   sessions: {
+    columns: SESSION_CLIENT_COLUMNS,
     orderBy: (s: any, { asc }: any) => [asc(s.sessionNumber)],
     with: {
       tracks: {
@@ -213,6 +216,7 @@ eventRoutes.get("/public", optionalAuthMiddleware, async (c) => {
       eq(events.audienceId, publicAudience.id),
     ),
     orderBy: (r, { desc }) => [desc(r.startDate)],
+    columns: EVENT_CLIENT_COLUMNS,
     with: eventWithSessions,
   });
 
@@ -239,6 +243,7 @@ eventRoutes.get("/public/:id", optionalAuthMiddleware, async (c) => {
 
   const event = await db.query.events.findFirst({
     where: and(eq(events.id, id), inArray(events.status, eventStatusOpenTo(user?.role))),
+    columns: EVENT_CLIENT_COLUMNS,
     with: eventWithSessions,
   });
 
@@ -298,6 +303,7 @@ eventRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
       isNotNull(events.featuredAt),
     ),
     orderBy: [desc(events.featuredAt)],
+    columns: EVENT_CLIENT_COLUMNS,
     with: eventWithSessions,
   });
 
@@ -489,12 +495,14 @@ eventRoutes.get("/sessions/:sessionId", async (c) => {
 
   const session = await db.query.sessions.findFirst({
     where: eq(sessions.id, sessionId),
+    columns: SESSION_CLIENT_COLUMNS,
     with: {
       tracks: {
         columns: TRACK_CLIENT_COLUMNS,
         orderBy: (t: any) => trackOrderBy(t),
       },
       event: {
+        columns: EVENT_CLIENT_COLUMNS,
         with: { audience: true },
       },
     },
@@ -531,8 +539,10 @@ eventRoutes.get("/tracks/:trackId", async (c) => {
     columns: TRACK_CLIENT_COLUMNS,
     with: {
       session: {
+        columns: SESSION_CLIENT_COLUMNS,
         with: {
           event: {
+            columns: EVENT_CLIENT_COLUMNS,
             with: { audience: true },
           },
         },
@@ -572,6 +582,7 @@ eventRoutes.get("/", async (c) => {
     const data = await db.query.events.findMany({
       where: inArray(events.status, eventStatusVisibleTo(user.role)),
       orderBy: (r, { desc }) => [desc(r.startDate)],
+      columns: EVENT_CLIENT_COLUMNS,
       with: eventListWith,
     });
     applyContentVisibilityToAll(data, user.role);
@@ -598,6 +609,7 @@ eventRoutes.get("/", async (c) => {
   const allEvents = await db.query.events.findMany({
     where: inArray(events.status, eventStatusVisibleTo(user.role)),
     orderBy: (r, { desc }) => [desc(r.startDate)],
+    columns: EVENT_CLIENT_COLUMNS,
     with: eventListWith,
   });
 
@@ -636,6 +648,7 @@ eventRoutes.get("/:id", async (c) => {
     where: eq(events.id, id),
     // The direct publication links feed `relatedPublications` below; they never leave
     // the server as raw rows (they carry the S3 keys of texts the caller may not open)
+    columns: EVENT_CLIENT_COLUMNS,
     with: { ...eventWithSessions, eventPublications: { with: { publication: true } } },
   });
 

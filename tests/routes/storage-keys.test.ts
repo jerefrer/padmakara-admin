@@ -85,11 +85,17 @@ const { fixtures } = vi.hoisted(() => {
   const session = {
     id: 100,
     eventId: 42,
-    sessionNumber: 1,
     titleEn: "Morning",
     titlePt: null,
+    titleEnReviewed: false,
+    titlePtReviewed: true,
     sessionDate: "2010-06-18",
     timePeriod: "morning",
+    sessionNumber: 1,
+    partNumber: null,
+    description: null,
+    createdAt: at,
+    updatedAt: at,
   };
   const video = {
     id: 5,
@@ -153,13 +159,49 @@ const { fixtures } = vi.hoisted(() => {
   const event = {
     id: 42,
     eventCode: "20100618_19-KTGR",
+    eventCodeReviewed: true,
     titleEn: "Retreat",
-    titlePt: null,
+    titlePt: "Retiro",
+    mainThemesEn: "Main themes",
+    mainThemesPt: null,
+    sessionThemesEn: "Session themes",
+    sessionThemesPt: null,
+    titleEnReviewed: true,
+    titlePtReviewed: false,
+    mainThemesEnReviewed: false,
+    mainThemesPtReviewed: true,
+    sessionThemesEnReviewed: true,
+    sessionThemesPtReviewed: true,
     startDate: "2010-06-18",
     endDate: "2010-06-19",
-    status: "published",
+    eventTypeId: null,
     audienceId: 1,
+    bibliography: "A book",
+    bibliographyPt: null,
+    bibliographyEnReviewed: true,
+    bibliographyPtReviewed: true,
+    notes: "Video of last 3 sessions missing",
+    originalLanguage: "tib",
+    status: "published",
+    audioPublished: true,
+    videoPublished: true,
+    transcriptsPublished: true,
+    textsPublished: true,
+    topicsPublished: true,
+    imageUrl: null,
+    s3Prefix: "events/20100618_19-KTGR/",
+    wixId: "wix-secret",
+    librarySnapshot: { internalCatalogueRef: "secret" },
     featuredAt: at,
+    saleMode: "none",
+    priceCents: null,
+    includedInMembership: false,
+    creditLines: ["Recorded by someone"],
+    copyrightHolder: "Holder",
+    publishedNotifiedAt: at,
+    publishedNotifiedCount: 120,
+    createdAt: at,
+    updatedAt: at,
     avatarS3Key: "events/20100618_19-KTGR/avatar-secret.webp",
     heroS3Key: "events/20100618_19-KTGR/hero-secret.webp",
     heroMobileS3Key: "events/20100618_19-KTGR/hero-secret-m.webp",
@@ -185,7 +227,16 @@ const { fixtures } = vi.hoisted(() => {
       session: { ...session, tracks: [track], event },
       track: trackInContext,
       video: { ...video, event },
-      user: { id: 1, role: "user", subscriptionStatus: "none", subscriptionExpiresAt: null },
+      user: {
+        id: 1,
+        email: "user@example.com",
+        passwordHash: "hash-secret",
+        role: "user",
+        subscriptionStatus: "none",
+        subscriptionExpiresAt: null,
+        subscriptionNotes: "Paid cash at the spring retreat",
+        groupMemberships: [{ userId: 1, retreatGroupId: 3, status: "confirmed", joinedAt: at, retreatGroup: group }],
+      },
       progress: { id: 1, userId: 1, trackId: 7, positionSeconds: 10, isCompleted: false, lastPlayed: at, track: trackInContext },
       grant: { userId: 1, eventId: 42, createdAt: at },
     },
@@ -278,7 +329,29 @@ const ROUTES: Array<{ path: string; signedIn: boolean }> = [
   { path: "/api/content/track-bookmarks", signedIn: true },
   { path: "/api/content/video-bookmarks", signedIn: true },
   { path: "/api/content/event-bookmarks", signedIn: true },
+  { path: "/api/users/profile", signedIn: true },
 ];
+
+/**
+ * Back-office columns: admin notes, the AI review flags, the storage prefix, the
+ * library import, the announcement bookkeeping, video credits and photo re-edit state.
+ * None is read by any app version.
+ */
+const INTERNAL_FIELD = new RegExp(
+  "^(notes|subscriptionNotes|passwordHash|s3Prefix|eventCode|wixId|librarySnapshot|creditLines|copyrightHolder|" +
+    "publishedNotified\\w*|\\w*Reviewed|heroCrop|heroGrayscale|\\w*S3Key)$",
+  "i",
+);
+
+/** Paths in a JSON payload whose key is an internal column. */
+function internalFieldPaths(payload: unknown, path = "$"): string[] {
+  if (Array.isArray(payload)) return payload.flatMap((item, i) => internalFieldPaths(item, `${path}[${i}]`));
+  if (!payload || typeof payload !== "object") return [];
+  return Object.entries(payload).flatMap(([key, value]) => [
+    ...(INTERNAL_FIELD.test(key) ? [`${path}.${key}`] : []),
+    ...internalFieldPaths(value, `${path}.${key}`),
+  ]);
+}
 
 describe("client payloads — storage keys", () => {
   beforeEach(() => {
@@ -321,5 +394,81 @@ describe("client payloads — storage keys", () => {
       durationSeconds: 3600,
     });
     expect(body.videos[0]).not.toHaveProperty("slides");
+  });
+
+  it.each(ROUTES)("should not return any back-office field when serving GET $path", async ({ path, signedIn }) => {
+    // Arrange
+    const headers = signedIn ? await userHeaders() : {};
+
+    // Act
+    const { status, body } = await testJson(path, { headers });
+
+    // Assert
+    expect(status).toBe(200);
+    expect(internalFieldPaths(body)).toEqual([]);
+  });
+
+  it("should keep the event fields the app reads", async () => {
+    // Act
+    const { body } = await testJson("/api/events/public/42");
+
+    // Assert
+    expect(body).toMatchObject({
+      id: 42,
+      titleEn: "Retreat",
+      titlePt: "Retiro",
+      mainThemesEn: "Main themes",
+      sessionThemesEn: "Session themes",
+      bibliography: "A book",
+      startDate: "2010-06-18",
+      endDate: "2010-06-19",
+      originalLanguage: "tib",
+      status: "published",
+      audience: { slug: "free-anyone" },
+      photoTeacherId: 2,
+      organizer: null,
+    });
+    for (const field of ["featuredAt", "createdAt", "updatedAt", "image", "eventTeachers", "eventRetreatGroups", "eventPlaces"]) {
+      expect(body).toHaveProperty(field);
+    }
+    expect(body.sessions[0]).toMatchObject({
+      id: 100,
+      eventId: 42,
+      titleEn: "Morning",
+      sessionDate: "2010-06-18",
+      timePeriod: "morning",
+      sessionNumber: 1,
+      partNumber: null,
+    });
+    expect(body.sessions[0].tracks[0]).toMatchObject({ id: 7, titleEn: "Initial prayers", speaker: "TCH" });
+    expect(body.eventRetreatGroups[0].retreatGroup).toMatchObject({ id: 3, nameEn: "Group", abbreviation: "GRP" });
+  });
+
+  it("should keep the signed-in list and bookmark event fields the app reads", async () => {
+    // Arrange
+    const headers = await userHeaders();
+
+    // Act
+    const list = await testJson("/api/events", { headers });
+    const saved = await testJson("/api/content/event-bookmarks", { headers });
+
+    // Assert
+    for (const event of [list.body[0], saved.body[0].event]) {
+      expect(event).toMatchObject({ id: 42, titleEn: "Retreat", startDate: "2010-06-18", status: "published" });
+      expect(event).toHaveProperty("updatedAt");
+    }
+  });
+
+  it("should return the profile's group memberships with photo URLs", async () => {
+    // Act
+    const { body } = await testJson("/api/users/profile", { headers: await userHeaders() });
+
+    // Assert
+    expect(body).toMatchObject({ id: 1, email: "user@example.com" });
+    expect(body.groupMemberships[0].retreatGroup).toMatchObject({
+      id: 3,
+      nameEn: "Group",
+      avatarUrl: "https://storage.example/signed",
+    });
   });
 });

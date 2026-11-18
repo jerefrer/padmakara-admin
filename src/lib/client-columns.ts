@@ -7,7 +7,75 @@
  */
 
 /**
- * Every track column but the audio key. `readAlongS3Key` is loaded only to derive
+ * The event columns app-facing routes load. Content the app shows (titles, themes,
+ * bibliography, dates, original language), what the server still needs on the way
+ * out (status and the per-section publish switches for the visibility rules, the
+ * audience and membership flag for the access check, the sale fields, the photo
+ * columns that `resolveEventImageUrls` turns into `image` and then drops) and the
+ * timestamps the app's cache compares.
+ *
+ * Left out, as back office only: `notes` (imported library notes), the AI review
+ * flags (`...Reviewed`), `eventCode` and `s3Prefix` (the bucket layout), the library
+ * import (`wixId`, `librarySnapshot`), the video credits (`creditLines`,
+ * `copyrightHolder`, burnt into the videos), the announcement bookkeeping
+ * (`publishedNotified...`) and the hero re-edit state (original, crop, grayscale).
+ */
+export const EVENT_CLIENT_COLUMNS = {
+  id: true,
+  titleEn: true,
+  titlePt: true,
+  mainThemesEn: true,
+  mainThemesPt: true,
+  sessionThemesEn: true,
+  sessionThemesPt: true,
+  startDate: true,
+  endDate: true,
+  eventTypeId: true,
+  audienceId: true,
+  bibliography: true,
+  bibliographyPt: true,
+  originalLanguage: true,
+  status: true,
+  audioPublished: true,
+  videoPublished: true,
+  transcriptsPublished: true,
+  textsPublished: true,
+  topicsPublished: true,
+  imageUrl: true,
+  avatarS3Key: true,
+  heroS3Key: true,
+  heroMobileS3Key: true,
+  heroFocalX: true,
+  heroFocalY: true,
+  heroScale: true,
+  heroFrameOverrides: true,
+  avatarUpdatedAt: true,
+  heroUpdatedAt: true,
+  featuredAt: true,
+  saleMode: true,
+  priceCents: true,
+  includedInMembership: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+/** Every session column but the AI review flags. */
+export const SESSION_CLIENT_COLUMNS = {
+  id: true,
+  eventId: true,
+  titleEn: true,
+  titlePt: true,
+  sessionDate: true,
+  timePeriod: true,
+  sessionNumber: true,
+  partNumber: true,
+  description: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+/**
+ * Every track column but the audio key and the AI review flags. `readAlongS3Key` is loaded only to derive
  * `hasReadAlong`: `toClientTrack` (or the speaker enrichment in events.ts) drops it.
  */
 export const TRACK_CLIENT_COLUMNS = {
@@ -16,8 +84,6 @@ export const TRACK_CLIENT_COLUMNS = {
   title: true,
   titleEn: true,
   titlePt: true,
-  titleEnReviewed: true,
-  titlePtReviewed: true,
   trackNumber: true,
   position: true,
   speaker: true,
