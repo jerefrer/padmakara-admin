@@ -61,9 +61,41 @@ describe("AnnounceContentButton", () => {
     expect(host.querySelector('[data-testid="announce-open"]')).toBeNull();
   });
 
-  it("should load the announcements only when the dialog opens", async () => {
-    const { load } = await open();
+  it("should load the announcements for the summary on mount and again when the dialog opens", async () => {
+    const load = vi.fn(() => Promise.resolve(INFO));
+    act(() => root.render(<AnnounceContentButton status="published" load={load} onConfirm={() => {}} />));
+    await flush();
     expect(load).toHaveBeenCalledTimes(1);
+
+    act(() => (host.querySelector('[data-testid="announce-open"]') as HTMLButtonElement).click());
+    await flush();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  describe("last announcement summary", () => {
+    const summary = () => host.querySelector('[data-testid="announce-last"]');
+    const show = async (info: AnnouncementsInfo) => {
+      act(() => root.render(<AnnounceContentButton status="published" load={() => Promise.resolve(info)} onConfirm={() => {}} />));
+      await flush();
+    };
+
+    it("should show the last announcement, whether it is the publish email or a later one", async () => {
+      await show(INFO);
+      expect(summary()!.textContent).toBe("padmakara.events.lastAnnounced");
+
+      await show({ ...INFO, history: [] });
+      expect(summary()!.textContent).toBe("padmakara.events.lastAnnounced");
+    });
+
+    it("should say it was not announced yet when nothing was ever sent", async () => {
+      await show({ ...INFO, published: null, history: [] });
+      expect(summary()!.textContent).toBe("padmakara.events.notAnnouncedYet");
+    });
+
+    it("should show nothing when the event is a draft", () => {
+      act(() => root.render(<AnnounceContentButton status="draft" load={() => Promise.resolve(INFO)} onConfirm={() => {}} />));
+      expect(summary()).toBeNull();
+    });
   });
 
   it("should tick the available kinds not announced yet and untick the others", async () => {
