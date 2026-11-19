@@ -1,0 +1,3 @@
+
+# The admin is installed with Bun (bun.lock); an npm lockfile here is stale and misleads scanners.
+package-lock.json
