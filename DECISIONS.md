@@ -362,3 +362,14 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Why:** André's "we cannot give the same relevance to the sessions of JKR and TR, and even less to Luc's", and the Wix data already has the three fields. A key keeps the phrase translatable. PT for `with_guest` is the neutral "com a participação de": "com o convidado" is wrong for a woman or several guests.
 **Trade-offs:** Migration 0079 numbers existing links in their physical order (what clients saw). EN "with guest" reads oddly with several guests. Main teachers' names are still joined with ", " in the app.
 **Revisit if:** a teacher needs to be both main and guest in one event, or a per-language free text is asked for.
+
+---
+
+## 2026-11-19 — PDF reader state: one table per concern, keyed by (user, document type, document id)
+
+**Chosen:** User decision (Jérémy, from testers André and Ana Paula) for the features: the reader reopens a publication or transcript on the page last read, on any device, and pages can be bookmarked. Storage: `reader_positions` (one row per user and document: `page`, `updated_at`) and `reader_page_bookmarks` (one row per user, document and page), both keyed by `document_type` ('publication' | 'transcript', CHECK) + `document_id`, cascading on the user. Served by `/api/reader/:type/:id` (see CLAUDE.md). A position is kept only when its time (the device's, clamped to now) is later than the stored one. Access goes through `services/reader-document-access.ts`, which applies the PDF routes' rules.
+**Alternatives:** (a) A `last_page` column on `user_publication_opens`: covers publications only, and an open and a page turn are different events (an open is recorded once, the page changes all the time). (b) Two tables per concern (publications, transcripts) with real foreign keys: four tables and four sets of routes for the same behaviour. (c) Nullable `publication_id` / `transcript_id` columns with a one-of CHECK: real cascades, but awkward keys (two partial unique indexes per table).
+**Why:** Both kinds of document behave the same in the reader, and a third kind (event files) can be added by widening the CHECK. Device time decides because the order of events is what matters: a phone that read offline and reconnects later must not move the reader back.
+**Trade-offs:** No foreign key to the document: rows of a deleted publication or transcript stay behind (small, never returned, since every read checks access). A transcript replaced by a new upload gets a new id, so its position and bookmarks start over. Device clocks that run behind can lose a race with another device.
+**Revisit if:** orphan rows grow noticeably, or event files get the reader features (widen the CHECK).
+

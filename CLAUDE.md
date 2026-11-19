@@ -278,6 +278,16 @@ users → bookmarks → tracks (track position bookmarks)
 - `POST /api/publications/:id/opened` - Record that the caller opened the publication in the reader (authenticated; 204; 404 when they could not open it). Each item of `GET /api/publications` carries the caller's `lastOpenedAt` (null when signed out or never opened), for the app's "Recently opened" order
 - `GET /api/admin/publications/authors` - Distinct author names used across publications, with counts (the admin authors field's suggestions)
 
+### Reader state (last page, page bookmarks)
+
+A document is `/:type/:id`, type `publication` or `transcript` (a transcript's own id, not its event's). All authenticated, scoped to the caller's rows, and only for a document the caller can open now (same rules as `GET /api/publications/:id/pdf` and `GET /api/media/transcript/:id`, see `services/reader-document-access.ts`); any other document is a 404 and nothing is stored. Tables `reader_positions` and `reader_page_bookmarks` (migration 0080).
+
+- `GET /api/reader/:type/:id` - `{ position: { page, updatedAt } | null, bookmarks: [{ page, createdAt }] }`, bookmarks in page order
+- `PUT /api/reader/:type/:id/position` - `{ page, updatedAt? }` (the device's time on that page, default now). Kept only when more recent than the saved one (a device back online does not move the reader back); answers `{ position }` with the one now saved
+- `PUT /api/reader/:type/:id/bookmarks/:page` - Bookmark a page (idempotent; `{ bookmark: { page, createdAt } }`)
+- `DELETE /api/reader/:type/:id/bookmarks/:page` - Remove it (idempotent; 204)
+- `GET /api/reader/bookmarks` - Every page bookmark of the caller, newest first, each with its `document` (publication `title`, or transcript `language` + `event { id, titleEn, titlePt }`), for the app's Bookmarks tab. Bookmarks in documents the caller can no longer open stay saved but are not listed
+
 ### Statistics (admin)
 
 - `GET /api/admin/statistics?from&to` - Aggregate totals for the Statistics page (default: last 30 days; each teaching carries its `startDate`/`endDate`)

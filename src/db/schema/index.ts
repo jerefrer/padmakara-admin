@@ -138,3 +138,7 @@ export { usageDaily, usageDailyItems, userActiveDays } from "./usage.ts";
 // Content-Security-Policy violation reports (deduplicated)
 export { cspReports } from "./csp-reports.ts";
 export type { CspReport } from "./csp-reports.ts";
+
+// Reader state: last page and page bookmarks per user per PDF (publication or transcript)
+export { readerPositions, readerPageBookmarks, READER_DOCUMENT_TYPES } from "./reader-state.ts";
+export type { ReaderDocumentType } from "./reader-state.ts";
