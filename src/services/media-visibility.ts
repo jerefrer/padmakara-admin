@@ -95,7 +95,7 @@ function dropHiddenPublicationLinks(ev: Record<string, unknown>, role: string | 
  * that did not load the column counts as published. Its `status` (final,
  * provisional, unrevised, draft) is descriptive only and never decides this.
  */
-function transcriptFileVisibleTo(row: { published?: unknown }, role: string | null | undefined): boolean {
+export function transcriptFileVisibleTo(row: { published?: unknown }, role: string | null | undefined): boolean {
   return isAdminRole(role) || row.published !== false;
 }
 

@@ -15,6 +15,7 @@ import { paymentRoutes } from "./payment.ts";
 import { searchRoutes } from "./search.ts";
 import { webhookRoutes } from "./webhooks.ts";
 import { publicationRoutes } from "./publications.ts";
+import { readerRoutes } from "./reader.ts";
 import { syncRoutes } from "./sync.ts";
 import { teacherRoutes } from "./teachers.ts";
 import { teacherArtworkRoutes } from "./teacher-artwork.ts";
@@ -57,6 +58,8 @@ api.route("/media", mediaRoutes);
 api.route("/users", userRoutes);
 api.route("/download-requests", downloadsRoutes);
 api.route("/publications", publicationRoutes);
+// Last page and page bookmarks in publications and transcripts (requires auth)
+api.route("/reader", readerRoutes);
 // Square speaker artwork for the lock screen (public: the OS fetches it, mounted before the authed router)
 api.route("/teachers", teacherArtworkRoutes);
 api.route("/teachers", teacherRoutes);
