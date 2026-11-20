@@ -396,13 +396,14 @@ describe("GET /api/events/:id — related publications", () => {
     // Assert: passing the event's own check does not open a publication; the
     // access decision gets each publication's audience.
     const ids = (body.relatedPublications as Array<{ id: number }>).map((p) => p.id);
-    expect(ids).toEqual([1, 3]);
+    // (undated publications come highest id first)
+    expect(ids).toEqual([3, 1]);
     expect(mockOpenablePublications).toHaveBeenCalledWith(
       expect.objectContaining({ role: "user" }),
       [
-        expect.objectContaining({ id: 1, audienceId: 7 }),
-        expect.objectContaining({ id: 2, audienceId: 8 }),
         expect.objectContaining({ id: 3, audienceId: 9 }),
+        expect.objectContaining({ id: 2, audienceId: 8 }),
+        expect.objectContaining({ id: 1, audienceId: 7 }),
       ],
     );
   });
@@ -427,41 +428,33 @@ describe("GET /api/events/:id — related publications", () => {
     const related = await relatedFor("user");
 
     expect(related.map((p) => [p.id, p.status])).toEqual([
-      [1, "published"],
       [3, "forthcoming"],
+      [1, "published"],
     ]);
   });
 
   it("should show a draft publication on the event page of an admin", async () => {
     const related = await relatedFor("admin");
 
-    expect(related.map((p) => p.id)).toEqual([1, 2, 3]);
+    expect(related.map((p) => p.id)).toEqual([3, 2, 1]);
   });
 });
 
-describe("GET /api/events/:id — publications linked through retreat groups", () => {
+describe("GET /api/events/:id — publications of the event's groups are not listed by themselves", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  const pubRow = (id: number) => ({
+  const pubRow = (id: number, publicationDate: string | null = null) => ({
     id,
     title: `Pub ${id}`,
     subtitle: null,
     audienceId: 7,
     coverImageS3Key: null,
     status: "published",
+    publicationDate,
   });
-  const direct = (id: number) => ({ publication: pubRow(id) });
-
-  /** Makes the group-publication query resolve to `rows`. */
-  function groupLinked(rows: ReturnType<typeof pubRow>[]) {
-    const orderBy = vi.fn(() => Promise.resolve(rows.map((publication) => ({ publication }))));
-    const where = vi.fn(() => ({ orderBy }));
-    const innerJoin = vi.fn(() => ({ where }));
-    mockDb.select.mockReturnValueOnce({ from: vi.fn(() => ({ innerJoin })) } as never);
-    return where;
-  }
+  const ticked = (id: number, publicationDate: string | null = null) => ({ publication: pubRow(id, publicationDate) });
 
   async function fetchEvent(event: Record<string, unknown>, openable: number[]) {
     mockDb.query.events.findFirst.mockResolvedValueOnce({ ...draftPublicEvent, status: "published", ...event });
@@ -471,31 +464,35 @@ describe("GET /api/events/:id — publications linked through retreat groups", (
     return (body.relatedPublications as Array<{ id: number }>).map((p) => p.id);
   }
 
-  it("should list a publication linked to one of the event's groups", async () => {
-    groupLinked([pubRow(5)]);
-    const ids = await fetchEvent({ eventRetreatGroups: [{ retreatGroupId: 3 }] }, [5]);
-    expect(ids).toEqual([5]);
+  it("should list no publication for an event in a group when nothing is ticked on the event", async () => {
+    // Arrange: publication 5 is ticked for the event's group, but not linked to the event.
+    const ids = await fetchEvent({ eventRetreatGroups: [{ retreatGroupId: 3 }], eventPublications: [] }, [5]);
+
+    expect(ids).toEqual([]);
   });
 
-  it("should leave out a group-linked publication the caller cannot open", async () => {
-    groupLinked([pubRow(5), pubRow(6)]);
-    const ids = await fetchEvent({ eventRetreatGroups: [{ retreatGroupId: 3 }] }, [5]);
-    expect(ids).toEqual([5]);
+  it("should never query publications through the event's groups", async () => {
+    await fetchEvent({ eventRetreatGroups: [{ retreatGroupId: 3 }], eventPublications: [ticked(1)] }, [1]);
+
+    expect(mockDb.select).not.toHaveBeenCalled();
   });
 
-  it("should list a publication linked both directly and through a group once", async () => {
-    groupLinked([pubRow(1), pubRow(5)]);
+  it("should list only the ticked publications, newest first", async () => {
     const ids = await fetchEvent(
-      { eventRetreatGroups: [{ retreatGroupId: 3 }], eventPublications: [direct(1)] },
-      [1, 5],
+      {
+        eventRetreatGroups: [{ retreatGroupId: 3 }],
+        eventPublications: [ticked(1, "2020-01-01"), ticked(2, "2024-05-01"), ticked(3, null)],
+      },
+      [1, 2, 3],
     );
-    expect(ids).toEqual([1, 5]);
+
+    expect(ids).toEqual([2, 1, 3]);
   });
 
-  it("should not query group publications when the event has no groups", async () => {
-    const ids = await fetchEvent({ eventPublications: [direct(1)] }, [1]);
-    expect(ids).toEqual([1]);
-    expect(mockDb.select).not.toHaveBeenCalledWith(expect.objectContaining({ publication: expect.anything() }));
+  it("should leave out a ticked publication the caller cannot open", async () => {
+    const ids = await fetchEvent({ eventPublications: [ticked(1), ticked(2)] }, [2]);
+
+    expect(ids).toEqual([2]);
   });
 });
 

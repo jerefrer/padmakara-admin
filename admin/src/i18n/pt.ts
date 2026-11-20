@@ -1052,10 +1052,13 @@ export const pt = {
       removeFailed: "Não foi possível retirar o membro: %{message}",
     },
     eventPublications: {
-      title: "Publicações dos grupos deste evento",
-      hint: "Estes textos aparecem neste evento automaticamente através dos seus grupos de utilizadores. Para adicionar um texto a todos os eventos de um grupo, defina os seus grupos de utilizadores em Publicações.",
-      direct: "Associadas diretamente a este evento (legado)",
+      title: "Textos dos grupos deste evento",
+      hint: "Marque os textos a mostrar neste evento na aplicação. Uma publicação definida para os grupos de utilizadores deste evento é apenas oferecida aqui: só aparece no evento depois de marcada. Para acrescentar um texto novo à lista, carregue-o em Publicações.",
+      noneForGroups: "Nenhuma publicação está definida para os grupos de utilizadores deste evento.",
+      addLabel: "Outras publicações",
+      addPlaceholder: "Procure uma publicação a adicionar…",
       version: "Versão",
+      status: { draft: "Rascunho", forthcoming: "Em breve" },
     },
     transcript: {
       alreadyAdded: "Já adicionado: %{name}",

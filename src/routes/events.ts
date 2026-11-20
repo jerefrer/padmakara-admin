@@ -12,7 +12,7 @@ import { authMiddleware, optionalAuthMiddleware, getUser, getOptionalUser } from
 import { AppError } from "../lib/errors.ts";
 import { generateRetreatZip } from "../services/zip-generator.ts";
 import { checkEventAccess, filterAccessibleEvents, eventStatusVisibleTo, eventStatusOpenTo, denialToHttpError, AUDIENCE_SLUGS } from "../services/access.ts";
-import { publicationsViaGroups, mergePublications } from "../services/event-publications.ts";
+import { newestFirst } from "../services/event-publications.ts";
 import { openablePublications } from "../services/publication-access.ts";
 import { publicationStatusVisibleTo } from "../services/publication-status.ts";
 import { generatePresignedDownloadUrl } from "../services/s3.ts";
@@ -28,7 +28,6 @@ import {
   applyContentVisibilityToAll,
   applyTrackReadAlongVisibility,
   assertAudioVisible,
-  contentVisibleTo,
   mediaVisibleTo,
 } from "../services/media-visibility.ts";
 import { trackOrderBy } from "../services/track-order.ts";
@@ -693,23 +692,18 @@ eventRoutes.get("/:id", async (c) => {
   // Build related publications with presigned cover URLs, listing only what
   // the user can open so the event page never advertises a locked text. A
   // publication has its own audience: passing this event's check is not enough.
-  // Texts reach an event two ways: direct links, and the retreat groups ticked
-  // on the publication (so a text set once for a group shows on all its events).
-  const textsVisible = contentVisibleTo(event, user.role).texts;
-  const directPublications = ((event as any).eventPublications || [])
+  // Related texts are the ones an admin ticked on the event (event_publications),
+  // nothing else: the retreat groups ticked on a publication only decide who may
+  // open it, not which events list it. Hidden texts already emptied the links
+  // (applyContentVisibility above).
+  const directPublications: any[] = ((event as any).eventPublications || [])
     .filter((ep: any) => ep.publication)
     .map((ep: any) => ep.publication);
-  const eventGroupIds = ((event as any).eventRetreatGroups || []).map(
-    (g: any) => g.retreatGroupId ?? g.retreatGroup?.id,
-  ).filter((gid: unknown): gid is number => typeof gid === "number");
   // A draft is never listed to a non-admin; a forthcoming one is, with its status.
   const visibleStatuses = publicationStatusVisibleTo(user.role);
   const linkedPublications = contentClosed
     ? []
-    : mergePublications(
-        directPublications,
-        textsVisible ? await publicationsViaGroups(eventGroupIds) : [],
-      ).filter((pub: any) => visibleStatuses.includes(pub.status));
+    : newestFirst(directPublications).filter((pub: any) => visibleStatuses.includes(pub.status));
   const openedPublications = await openablePublications(user, linkedPublications);
   const relatedPublications = linkedPublications.filter((pub: any) =>
     openedPublications.has(pub.id),

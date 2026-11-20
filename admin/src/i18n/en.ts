@@ -854,10 +854,13 @@ export const en = {
       removeFailed: "Could not remove the member: %{message}",
     },
     eventPublications: {
-      title: "Publications for this event's groups",
-      hint: "These texts appear on this event automatically through its user groups. To add a text to all events of a group, set its user groups in Publications.",
-      direct: "Linked directly to this event (legacy)",
+      title: "Texts of this event's groups",
+      hint: "Tick the texts to show on this event in the app. A publication set for this event's user groups is only offered here: it is shown on the event once ticked. To add a new text to the list, upload it in Publications.",
+      noneForGroups: "No publication is set for this event's user groups.",
+      addLabel: "Other publications",
+      addPlaceholder: "Search a publication to add…",
       version: "Version",
+      status: { draft: "Draft", forthcoming: "Forthcoming" },
     },
     transcript: {
       alreadyAdded: "Already added: %{name}",

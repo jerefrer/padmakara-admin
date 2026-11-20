@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, ne, and, or, like, ilike, inArray, isNull, isNotNull, max, sql } from "drizzle-orm";
+import { eq, ne, and, or, like, ilike, desc, inArray, isNull, isNotNull, max, sql } from "drizzle-orm";
 import { db } from "../../db/index.ts";
 import {
   events,
@@ -10,7 +10,7 @@ import {
   eventInternalNotes,
 } from "../../db/schema/retreats.ts";
 import { eventPublications, publications } from "../../db/schema/publications.ts";
-import { publicationsViaGroups } from "../../services/event-publications.ts";
+import { publicationsOfEventGroups } from "../../services/event-publications.ts";
 import { teachers } from "../../db/schema/teachers.ts";
 import { eventVideos } from "../../db/schema/event-videos.ts";
 import { sessions } from "../../db/schema/sessions.ts";
@@ -272,10 +272,12 @@ eventRoutes.get("/:id/missing-audio", async (c) => {
 });
 
 /**
- * GET /:id/publications — read-only view of the publications an event shows,
- * so admins do not re-add them by hand. `viaGroups`: linked through the
- * event's retreat groups (set in Publications, appears on every event of the
- * group). `direct`: legacy direct links, minus any already present via groups.
+ * GET /:id/publications — what the "Related texts" tick list needs.
+ * `selectedIds`: the publications ticked on this event (event_publications), the
+ * only ones the app shows on it. `viaGroups`: publications of the event's retreat
+ * groups, offered as the tick list (nothing is ticked by itself). `others`: every
+ * other publication, for adding a text outside the groups. Saved with
+ * PUT /:id { publicationIds }.
  */
 eventRoutes.get("/:id/publications", async (c) => {
   const id = Number(c.req.param("id"));
@@ -287,28 +289,31 @@ eventRoutes.get("/:id/publications", async (c) => {
     .select({ retreatGroupId: eventRetreatGroups.retreatGroupId })
     .from(eventRetreatGroups)
     .where(eq(eventRetreatGroups.eventId, id));
-  const viaGroups = await publicationsViaGroups(groupRows.map((g) => g.retreatGroupId));
+  const viaGroups = await publicationsOfEventGroups(groupRows.map((g) => g.retreatGroupId));
 
-  const directRows = await db
-    .select({ publication: publications })
+  const selectedRows = await db
+    .select({ publicationId: eventPublications.publicationId })
     .from(eventPublications)
-    .innerJoin(publications, eq(publications.id, eventPublications.publicationId))
     .where(eq(eventPublications.eventId, id));
 
-  const viaGroupIds = new Set(viaGroups.map((p) => p.id));
+  const all = await db
+    .select()
+    .from(publications)
+    .orderBy(desc(publications.publicationDate), desc(publications.id));
+
   const summary = (p: typeof publications.$inferSelect) => ({
     id: p.id,
     title: p.title,
     language: p.language,
     version: p.version,
+    status: p.status,
   });
+  const viaGroupIds = new Set(viaGroups.map((p) => p.id));
 
   return c.json({
+    selectedIds: selectedRows.map((r) => r.publicationId),
     viaGroups: viaGroups.map(summary),
-    direct: directRows
-      .map((r) => r.publication)
-      .filter((p) => !viaGroupIds.has(p.id))
-      .map(summary),
+    others: all.filter((p) => !viaGroupIds.has(p.id)).map(summary),
   });
 });
 
@@ -475,7 +480,7 @@ eventRoutes.post("/", async (c) => {
   // Sync publications
   if (publicationIds && publicationIds.length > 0) {
     await db.insert(eventPublications).values(
-      publicationIds.map((pubId: number) => ({
+      [...new Set(publicationIds)].map((pubId: number) => ({
         eventId: event!.id,
         publicationId: pubId,
       })),
@@ -607,7 +612,7 @@ eventRoutes.put("/:id", async (c) => {
     await db.delete(eventPublications).where(eq(eventPublications.eventId, id));
     if (publicationIds && publicationIds.length > 0) {
       await db.insert(eventPublications).values(
-        publicationIds.map((pubId: number) => ({
+        [...new Set(publicationIds)].map((pubId: number) => ({
           eventId: id,
           publicationId: pubId,
         })),

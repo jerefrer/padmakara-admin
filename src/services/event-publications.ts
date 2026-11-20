@@ -1,3 +1,11 @@
+/**
+ * Related texts of an event. A publication is shown on an event only when an
+ * admin ticked it there (`event_publications`). The retreat groups ticked on a
+ * publication decide who may open it, never which events list it, so there is
+ * no group-derived listing any more. `publicationsOfEventGroups` exists only to
+ * suggest candidates in the admin's tick list.
+ */
+
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { publications, publicationRetreatGroups } from "../db/schema/publications.ts";
@@ -5,12 +13,10 @@ import { publications, publicationRetreatGroups } from "../db/schema/publication
 type PublicationRow = typeof publications.$inferSelect;
 
 /**
- * Publications whose retreat groups include at least one of `groupIds`: the
- * texts an event receives automatically through its groups. Each publication
- * appears once, newest first. No status or audience filtering happens here;
- * callers decide who may see what (`openablePublications`).
+ * Publications whose retreat groups include at least one of `groupIds`, each
+ * once, newest first. Admin suggestions only: no status or audience filtering.
  */
-export async function publicationsViaGroups(groupIds: number[]): Promise<PublicationRow[]> {
+export async function publicationsOfEventGroups(groupIds: number[]): Promise<PublicationRow[]> {
   if (groupIds.length === 0) return [];
   const rows = await db
     .select({ publication: publications })
@@ -29,16 +35,14 @@ export async function publicationsViaGroups(groupIds: number[]): Promise<Publica
 }
 
 /**
- * Direct links first (in their stored order), then the group-linked ones;
- * a publication linked both ways appears once.
+ * Newest publication date first, then highest id: the ticked links carry no
+ * position, so this keeps the order on the event page stable.
  */
-export function mergePublications<T extends { id: number }>(direct: T[], viaGroups: T[]): T[] {
-  const seen = new Set<number>();
-  const merged: T[] = [];
-  for (const pub of [...direct, ...viaGroups]) {
-    if (seen.has(pub.id)) continue;
-    seen.add(pub.id);
-    merged.push(pub);
-  }
-  return merged;
+export function newestFirst<T extends { id: number; publicationDate?: string | null }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const da = a.publicationDate ?? "";
+    const db_ = b.publicationDate ?? "";
+    if (da !== db_) return da < db_ ? 1 : -1;
+    return b.id - a.id;
+  });
 }
