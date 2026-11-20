@@ -859,6 +859,9 @@ const REVIEWED_KEY: Partial<Record<keyof EventFormData, keyof EventFormData>> = 
  * did not change in this form would land under an approval another admin
  * gave meanwhile.
  */
+/** Ids in ascending order, so a tick order change alone is no edit. */
+const sortedIds = (ids: number[]): number[] => [...ids].sort((a, b) => a - b);
+
 function eventChangesSince(saved: Record<string, unknown>, now: Record<string, unknown>): Record<string, unknown> {
   const changes = changedFields(saved, now);
   const pairs: Array<[string, string]> = [["eventCode", "eventCodeReviewed"], ...(Object.entries(REVIEWED_KEY) as Array<[string, string]>)];
@@ -3525,7 +3528,9 @@ export const EventEdit = () => {
   const [selectedEventType, setSelectedEventType] = useState<EventTypeOption | null>(null);
   const [selectedAudience, setSelectedAudience] = useState<AudienceOption | null>(null);
   const sections = useCollapsibleSections(EVENT_SECTION_IDS, EVENT_SECTION_DEFAULTS);
-  const [publicationCount, setPublicationCount] = useState<number | null>(null);
+  // Publications ticked on the event (event_publications); null until the panel has loaded them.
+  const [publicationIds, setPublicationIds] = useState<number[] | null>(null);
+  const publicationCount = publicationIds === null ? null : publicationIds.length;
   const [documentCount, setDocumentCount] = useState<number | null>(null);
 
   // The form is filled once, so only from the event this page fetched itself. Until
@@ -4752,6 +4757,8 @@ export const EventEdit = () => {
     placeIds: selectedPlaces.map((p) => p.id),
     organizerIds: selectedOrganizers.map((o) => o.id),
     groupIds: selectedGroups.map((g) => g.id),
+    // Only once loaded: sending it blind would wipe the ticks.
+    ...(publicationIds === null ? {} : { publicationIds: sortedIds(publicationIds) }),
   });
 
   // Record what the form loaded with, once every picker is filled (the same
@@ -4927,7 +4934,15 @@ export const EventEdit = () => {
 
   const publicationsPanel = (
     event?.id ? (
-      <EventPublicationsPanel eventId={Number(event.id)} onCount={setPublicationCount} />
+      <EventPublicationsPanel
+        eventId={Number(event.id)}
+        selectedIds={publicationIds}
+        onLoaded={(ids) => {
+          setPublicationIds(ids);
+          markSaved({ publicationIds: sortedIds(ids) });
+        }}
+        onChange={setPublicationIds}
+      />
     ) : null
   );
 
