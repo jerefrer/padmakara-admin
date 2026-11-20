@@ -373,3 +373,13 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Trade-offs:** No foreign key to the document: rows of a deleted publication or transcript stay behind (small, never returned, since every read checks access). A transcript replaced by a new upload gets a new id, so its position and bookmarks start over. Device clocks that run behind can lose a race with another device.
 **Revisit if:** orphan rows grow noticeably, or event files get the reader features (widen the CHECK).
 
+
+---
+
+## 2026-11-20 — Related texts of an event: ticked per event, not derived from groups
+
+**Chosen:** User decision (André, client): an event shows only the publications ticked on it (`event_publications`). The groups ticked on a publication only decide who may open it. The admin event page offers the publications of the event's groups as a tick list, plus a picker over all other publications. No backfill: events show no related texts until ticked.
+**Alternatives:** (a) Keep the group-derived list and add an "exclude" list per event: every new text would appear everywhere by default, the opposite of what is wanted. (b) Backfill by ticking every current group text: recreates the irrelevant texts on every event.
+**Why:** Many ngöndro texts are ticked on the same groups, so each one appeared on every event of those groups. Production had 0 rows in `event_publications`, so everything shown came through groups; the table and its admin sync already existed, so no schema change.
+**Trade-offs:** Until someone ticks them, events list no related texts. Ticked links carry no position, so the app orders them by publication date, newest first.
+**Revisit if:** admins ask for a manual order of the texts on an event.
