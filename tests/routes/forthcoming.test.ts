@@ -35,10 +35,6 @@ vi.mock("../../src/services/s3.ts", () => ({
 vi.mock("../../src/services/publication-access.ts", () => ({
   openablePublications: vi.fn(() => Promise.resolve(new Set<number>([3]))),
 }));
-vi.mock("../../src/services/event-publications.ts", () => ({
-  publicationsViaGroups: vi.fn(() => Promise.resolve([{ id: 3, title: "Via group", coverImageS3Key: null }])),
-  mergePublications: vi.fn((a: unknown[], b: unknown[]) => [...a, ...b]),
-}));
 vi.mock("../../src/lib/group-utils.ts", () => ({
   resolveClientGroupsUrls: vi.fn((groups: unknown) => Promise.resolve(groups)),
   resolveEventsGroupUrls: vi.fn(() => Promise.resolve()),

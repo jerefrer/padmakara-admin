@@ -20,7 +20,7 @@ const { mockDb, mockViaGroups, queue } = vi.hoisted(() => {
 
 vi.mock("../../../src/db/index.ts", () => ({ db: mockDb }));
 vi.mock("../../../src/services/event-publications.ts", () => ({
-  publicationsViaGroups: mockViaGroups,
+  publicationsOfEventGroups: mockViaGroups,
 }));
 
 import { createAccessToken } from "../../../src/services/auth.ts";
@@ -34,8 +34,10 @@ const pub = (id: number) => ({
   title: `Pub ${id}`,
   language: "pt",
   version: "2",
+  status: "published",
   pdfS3Key: "secret",
 });
+const summary = (id: number) => ({ id, title: `Pub ${id}`, language: "pt", version: "2", status: "published" });
 
 describe("GET /api/admin/events/:id/publications", () => {
   beforeEach(() => {
@@ -43,33 +45,39 @@ describe("GET /api/admin/events/:id/publications", () => {
     queue.length = 0;
   });
 
-  it("should list group-linked publications with title, language and version only", async () => {
-    queue.push([{ retreatGroupId: 3 }], []);
+  // select order in the handler: event groups, ticked links, every publication
+  it("should offer the event's group publications and the ticked ids, without S3 keys", async () => {
+    queue.push([{ retreatGroupId: 3 }], [{ publicationId: 5 }], [pub(5), pub(9)]);
     mockViaGroups.mockResolvedValueOnce([pub(5)]);
 
     const { status, body } = await testJson("/api/admin/events/7/publications", { headers: await auth() });
 
     expect(status).toBe(200);
     expect(mockViaGroups).toHaveBeenCalledWith([3]);
-    expect(body).toEqual({
-      viaGroups: [{ id: 5, title: "Pub 5", language: "pt", version: "2" }],
-      direct: [],
-    });
+    expect(body).toEqual({ selectedIds: [5], viaGroups: [summary(5)], others: [summary(9)] });
   });
 
-  it("should list a direct link separately and drop it when it also comes through a group", async () => {
-    queue.push([{ retreatGroupId: 3 }], [{ publication: pub(5) }, { publication: pub(9) }]);
+  it("should tick nothing by itself when the event has group publications but no links", async () => {
+    queue.push([{ retreatGroupId: 3 }], [], [pub(5)]);
     mockViaGroups.mockResolvedValueOnce([pub(5)]);
 
     const { body } = await testJson("/api/admin/events/7/publications", { headers: await auth() });
 
-    expect((body as { direct: { id: number }[] }).direct.map((p) => p.id)).toEqual([9]);
+    expect((body as { selectedIds: number[] }).selectedIds).toEqual([]);
+  });
+
+  it("should list a ticked publication outside the groups among the others", async () => {
+    queue.push([], [{ publicationId: 9 }], [pub(9)]);
+
+    const { body } = await testJson("/api/admin/events/7/publications", { headers: await auth() });
+
+    expect(body).toEqual({ selectedIds: [9], viaGroups: [], others: [summary(9)] });
   });
 
   it("should return empty lists for an event without groups or links", async () => {
     const { body } = await testJson("/api/admin/events/7/publications", { headers: await auth() });
 
-    expect(body).toEqual({ viaGroups: [], direct: [] });
+    expect(body).toEqual({ selectedIds: [], viaGroups: [], others: [] });
   });
 
   it("should return 400 when the id is not a positive integer", async () => {
