@@ -367,7 +367,8 @@ AppError.conflict(message)
 - Use `getObjectStream()` for downloading from S3
 - Use `uploadStream()` for streaming uploads (multipart for large files)
 - Generate presigned URLs for client-side downloads/uploads
-- Organize files by event: `events/{eventCode}/{filename}` for tracks and `events/{eventCode}/transcripts/{filename}` for transcripts — a flat per-event prefix, no per-session subfolder (see the key builders in `src/services/s3.ts`)
+- Organize files by event under the event's **storage folder**: `events/{storagePrefix}/{filename}` for tracks, `events/{storagePrefix}/transcripts/{filename}` for transcripts, plus `read-along/`, `subtitles/v{videoId}/`, `masters/` and `images/` — a flat per-event prefix, no per-session subfolder (see the key builders in `src/services/s3.ts`). `events.storage_prefix` is set to the event code when the event is created and never changes: the code stays editable (the admin's "Library metadata" import rewrites it), the files do not move. Never build a key from `eventCode`; use `event.storagePrefix`, or `resolveStoragePrefix(code)` (`src/lib/storage-prefix.ts`) where only the code the admin sends is known. The admin sends `eventCode` on uploads and the server maps it to the folder (an unsaved event has none yet: its code is used, which is what create stores). Zip names under `downloads/` still use the code; they are never read back by path.
+- Batch jobs (read-along, subtitles) get the exact transcript key from the database as `TRANSCRIPT_S3_KEY` and the output folder as `STORAGE_PREFIX`; the container only falls back to `events/{EVENT_CODE}/...` when they are absent (an older image). `EVENT_CODE` is kept for logs and job names.
 
 **ZIP Generation:**
 - Stream-based to minimize memory usage

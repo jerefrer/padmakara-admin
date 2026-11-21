@@ -383,3 +383,14 @@ Captures credited before this change ("legacy" rows: `activated` / `extended` wi
 **Why:** Many ngöndro texts are ticked on the same groups, so each one appeared on every event of those groups. Production had 0 rows in `event_publications`, so everything shown came through groups; the table and its admin sync already existed, so no schema change.
 **Trade-offs:** Until someone ticks them, events list no related texts. Ticked links carry no position, so the app orders them by publication date, newest first.
 **Revisit if:** admins ask for a manual order of the texts on an event.
+
+
+---
+
+## 2026-11-21 — Event storage folder fixed at creation (`retreats.storage_prefix`)
+
+**Chosen:** Every event has a `storage_prefix` column, set to its `event_code` when created and never edited afterwards. All S3 keys under `events/` (tracks, transcripts, read-along, subtitles, masters, photos, documents) are built from it, never from the code. Migration 0081 backfills each existing event with the folder its files already sit in (most common folder among its tracks' `s3_key`, else its transcripts', else the code). The read-along and subtitle Batch jobs receive the exact transcript key (`TRANSCRIPT_S3_KEY`) and the output folder (`STORAGE_PREFIX`) instead of rebuilding paths from `EVENT_CODE`. The admin shows the folder read-only under the event code.
+**Alternatives:** (a) Keep deriving paths from the code and move the files whenever the code changes: copies in a bucket with no rename, rewrites every stored `s3_key`, and leaves playback broken in between. (b) Forbid editing the code: the Wix library import has to set it. (c) Store only per-row `s3_key` and pass them to jobs: tracks and transcripts already do, but new uploads, subtitles and read-along outputs still need a folder, so the folder needs a home anyway.
+**Why:** The library import rewrote the code of 4 of 19 production events (916, 918, 920, 930), so everything that rebuilt a path from the current code (read-along transcript lookup, subtitle VTT keys, uploads that split one event across two folders) broke for them. A fixed column makes the code purely a label.
+**Trade-offs:** A folder name can differ from its event's code, visible only in the admin line "Storage folder". An event created with a code another event's folder already uses would share it (not constrained: codes are unique and folders start equal to codes, so this needs a code reused after being renamed away). Old images of the Batch pipeline still build paths from `EVENT_CODE` until rebuilt.
+**Revisit if:** files are ever migrated into a new layout (then rewrite folder and keys together), or a code gets reused after a rename and two events collide (add a unique index on `storage_prefix`).
