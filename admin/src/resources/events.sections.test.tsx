@@ -58,6 +58,7 @@ const FLAGS_CONTENT = {
 
 function renderForm(over: {
   form?: Partial<EventFormData>;
+  storagePrefix?: string;
   onToggle?: (id: string) => void;
   visibility?: { flags: typeof FLAGS; onChange: (key: string, value: boolean) => void; content?: typeof FLAGS_CONTENT };
   collapsible?: { open: Record<string, boolean> };
@@ -78,6 +79,7 @@ function renderForm(over: {
     eventId: 1,
     collapsible: { open: over.collapsible?.open ?? { topics: true }, onToggle: over.onToggle ?? vi.fn() },
     visibility: over.visibility,
+    storagePrefix: over.storagePrefix,
   };
   act(() => root.render(<EventFormFields {...props} />));
 }
@@ -127,6 +129,20 @@ describe("Event details", () => {
   it("should not hold the automatic translation bar, which covers every section", () => {
     renderForm({ collapsible: { open: { details: true } } });
     expect(section("details")!.textContent).not.toContain("padmakara.events.autoTranslateTitle");
+  });
+});
+
+describe("Storage folder line", () => {
+  it("should show the fixed folder, read-only, under the event code of a saved event", () => {
+    renderForm({ collapsible: { open: { details: true } }, storagePrefix: "20081201-JKR-PP1", form: { eventCode: "20081201-JKR-RP1-GCP" } });
+    const text = section("details")!.textContent ?? "";
+    expect(text).toContain("padmakara.events.storageFolder");
+    expect(host.querySelector('input[value="20081201-JKR-PP1"]')).toBeNull();
+  });
+
+  it("should not show a folder line before the event is saved", () => {
+    renderForm({ collapsible: { open: { details: true } } });
+    expect(section("details")!.textContent).not.toContain("padmakara.events.storageFolder");
   });
 });
 

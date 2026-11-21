@@ -752,6 +752,8 @@ interface EventFormProps {
   /** When true the event-code field is read-only (the legacy-import screen,
    *  where the code is the job identity and must not change). */
   readOnlyEventCode?: boolean;
+  /** The fixed `events/<folder>` that holds the event's files (read-only; saved events only). */
+  storagePrefix?: string;
   /** Edit page only: lay the form out as collapsible cards. Without it the
    *  form stays one flat page (the create wizard). */
   collapsible?: {
@@ -918,7 +920,7 @@ export const EventFormFields = ({
   videos, onVideosChange, onVideoUpload, onVideoAttachMaster, masterUpload, onCancelVideoUpload, onVideoImportUrl, eventId,
   previewSessions, onPreviewSessionsChange,
   onStatusChange, trackCount, transcriptCount, readAlongTracks,
-  readOnlyEventCode,
+  readOnlyEventCode, storagePrefix,
   collapsible, visibility, audioExtra, transcriptionExtra, publicationsPanel, publicationCount, documentsPanel, documentCount,
   photoPanel, hasPhoto,
 }: EventFormProps) => {
@@ -1698,6 +1700,16 @@ export const EventFormFields = ({
           onChange={(v) => setForm((p) => ({ ...p, eventCode: v, eventCodeReviewed: true }))}
           onMarkReviewed={() => setForm((p) => ({ ...p, eventCodeReviewed: true }))}
         />
+        {storagePrefix && (
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            title={translate("padmakara.events.storageFolderHint")}
+            sx={{ display: "block", mt: 1, wordBreak: "break-all" }}
+          >
+            {translate("padmakara.events.storageFolder", { folder: storagePrefix })}
+          </Typography>
+        )}
       </Paper>
 
       {collapsible && libraryButton}
@@ -5040,6 +5052,7 @@ export const EventEdit = () => {
         publicationCount={publicationCount}
         documentsPanel={documentsPanel}
         photoPanel={photoPanel}
+        storagePrefix={event?.storagePrefix}
         hasPhoto={!!event?.heroUrl}
         documentCount={documentCount}
       />

@@ -287,6 +287,8 @@ export const en = {
       translatedSummary: "Translated %{smart_count} field |||| Translated %{smart_count} fields",
       eventCode: "Event Code",
       eventCodeHelper: "Auto-generated from date, teachers, event type and place",
+      storageFolder: "Storage folder: %{folder}",
+      storageFolderHint: "Fixed when the event was created; changing the code does not move the files.",
       eventCodeChipLabel: "Auto-generated · approve?",
       eventCodeUnreviewed: "Event code filled in automatically, not approved yet",
       internalNotes: "Internal notes",
