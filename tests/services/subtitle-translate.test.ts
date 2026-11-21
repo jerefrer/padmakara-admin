@@ -108,7 +108,7 @@ const {
   const tsFindFirstSourceSub = vi.fn(() =>
     Promise.resolve({ language: "en", s3Key: "events/E/subtitles/v1/en.vtt" }),
   );
-  const tsFindFirstEvent = vi.fn(() => Promise.resolve({ id: 1, eventCode: "E" }));
+  const tsFindFirstEvent = vi.fn(() => Promise.resolve({ id: 1, eventCode: "E", storagePrefix: "E-OLD" }));
   const tsFindFirstEventVideo = vi.fn<
     () => Promise<{ id: number; eventId: number; position: number; bunnyVideoId: string } | null>
   >(() => Promise.resolve({ id: 1, eventId: 1, position: 0, bunnyVideoId: "vid" }));
@@ -157,6 +157,7 @@ vi.mock("../../src/db/index.ts", () => ({
 vi.mock("../../src/services/s3.ts", () => ({
   getObjectText: tsMockGetObjectText,
   putObject: tsMockPutObject,
+  buildSubtitleS3Key: (p: string, v: number, l: string) => `events/${p}/subtitles/v${v}/${l}.vtt`,
 }));
 
 vi.mock("../../src/services/bunny-captions.ts", () => ({
@@ -168,7 +169,7 @@ describe("translateSubtitles", () => {
     vi.clearAllMocks();
     // Re-set default return values after clearAllMocks
     tsFindFirstSourceSub.mockResolvedValue({ language: "en", s3Key: "events/E/subtitles/v1/en.vtt" });
-    tsFindFirstEvent.mockResolvedValue({ id: 1, eventCode: "E" });
+    tsFindFirstEvent.mockResolvedValue({ id: 1, eventCode: "E", storagePrefix: "E-OLD" });
     tsFindFirstEventVideo.mockResolvedValue({ id: 1, eventId: 1, position: 0, bunnyVideoId: "vid" });
     tsInsertReturning.mockResolvedValue([{ id: "job-1" }]);
     tsUpdateWhere.mockResolvedValue(undefined);
@@ -181,7 +182,7 @@ describe("translateSubtitles", () => {
   it("translateSubtitles produces a target VTT keyed on the event_video and uploads it", async () => {
     const { translateSubtitles } = await import("../../src/services/subtitle-translate.js");
     const out = await translateSubtitles(1, "fr", "claude-opus-4-8");
-    expect(out.s3Key).toBe("events/E/subtitles/v1/fr.vtt");
+    expect(out.s3Key).toBe("events/E-OLD/subtitles/v1/fr.vtt");
     expect(tsMockAddCaption).toHaveBeenCalledWith(
       expect.any(String),
       "fr",

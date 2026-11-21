@@ -66,6 +66,7 @@ vi.mock("../../src/services/bunny-captions.ts", () => ({
 vi.mock("../../src/services/s3.ts", () => ({
   getObjectText: vi.fn().mockResolvedValue("WEBVTT\n\n"),
   putObject: vi.fn().mockResolvedValue(undefined),
+  buildSubtitleS3Key: (p: string, v: number, l: string) => `events/${p}/subtitles/v${v}/${l}.vtt`,
 }));
 
 vi.mock("../../src/services/sync-versions.ts", () => ({
@@ -145,7 +146,7 @@ describe("POST /api/webhooks/subtitles — event_video re-homing", () => {
       bunnyVideoId: "vid-abc",
       position: 0,
     });
-    mockFindFirstEvent.mockResolvedValueOnce({ id: 1, eventCode: "E1" });
+    mockFindFirstEvent.mockResolvedValueOnce({ id: 1, eventCode: "E1", storagePrefix: "E1-OLD" });
     mockGetObjectText.mockResolvedValueOnce("WEBVTT\n\n00:00.000 --> 00:01.000\nHello");
 
     const body = {
@@ -164,7 +165,7 @@ describe("POST /api/webhooks/subtitles — event_video re-homing", () => {
     expect(res.status).toBe(200);
     expect(mockGetObjectText).toHaveBeenCalledWith("scratch/job-1/en.vtt");
     expect(mockPutObject).toHaveBeenCalledWith(
-      "events/E1/subtitles/v5/en.vtt",
+      "events/E1-OLD/subtitles/v5/en.vtt",
       expect.anything(),
       "text/vtt",
     );
@@ -224,7 +225,7 @@ describe("POST /api/webhooks/subtitles — event_video re-homing", () => {
       bunnyVideoId: "",
       position: 1,
     });
-    mockFindFirstEvent.mockResolvedValueOnce({ id: 1, eventCode: "E1" });
+    mockFindFirstEvent.mockResolvedValueOnce({ id: 1, eventCode: "E1", storagePrefix: "E1-OLD" });
 
     const body = {
       jobId: "job-5",

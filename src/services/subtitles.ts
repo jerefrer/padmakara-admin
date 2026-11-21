@@ -5,13 +5,14 @@ import { sessions } from "../db/schema/sessions.ts";
 import { eventVideos } from "../db/schema/event-videos.ts";
 import { events } from "../db/schema/retreats.ts";
 import { tracks } from "../db/schema/tracks.ts";
+import { transcripts } from "../db/schema/transcripts.ts";
 import { subtitleJobs } from "../db/schema/subtitle-jobs.ts";
 import { videoSubtitles } from "../db/schema/video-subtitles.ts";
 import { config } from "../config.ts";
 import { buildMp4DownloadUrl } from "./bunny.ts";
 import { storageEnvForContainer } from "./s3.ts";
 import { reconcileSubtitleRows, terminateBatchJob, TERMINAL_DB_STATUSES } from "./batch-reconcile.ts";
-import { hasTranscriptForLanguage } from "./transcripts.ts";
+import { hasTranscriptForLanguage, pickTranscriptKey } from "./transcripts.ts";
 import { AppError } from "../lib/errors.ts";
 
 // Reason recorded on subtitle_jobs.error_message when an admin cancels a
@@ -109,7 +110,15 @@ export async function submitSubtitleJob(
   const { url: videoAudioUrl } = buildMp4DownloadUrl(video.bunnyVideoId, "240p");
 
   const eventCode = event.eventCode;
-  const transcriptPrefix = `events/${eventCode}/transcripts/`;
+  // Still sent for images that list a folder; the exact key below wins when present.
+  const transcriptPrefix = `events/${event.storagePrefix}/transcripts/`;
+  const eventTranscripts = await db.query.transcripts.findMany({
+    where: eq(transcripts.eventId, event.id),
+  });
+  const transcriptS3Key = pickTranscriptKey(
+    eventTranscripts.filter((t) => t.language === language),
+    language,
+  );
 
   const webhookUrl = `${config.urls.backend}/api/webhooks/subtitles`;
 
@@ -129,6 +138,7 @@ export async function submitSubtitleJob(
         { name: "SESSION_ID", value: String(videoId) },
         { name: "SESSION_VIDEO_ID", value: String(videoId) },
         { name: "EVENT_CODE", value: eventCode },
+        { name: "STORAGE_PREFIX", value: event.storagePrefix },
         { name: "SESSION_NUMBER", value: `v${videoId}` },
         { name: "TRACK_NUMBERS", value: trackNumbers.join(",") },
         { name: "LANGUAGE", value: language },
@@ -136,6 +146,7 @@ export async function submitSubtitleJob(
         { name: "S3_BUCKET", value: config.storage.bucket },
         { name: "VIDEO_AUDIO_URL", value: videoAudioUrl },
         { name: "TRANSCRIPT_PREFIX", value: transcriptPrefix },
+        ...(transcriptS3Key ? [{ name: "TRANSCRIPT_S3_KEY", value: transcriptS3Key }] : []),
         { name: "WEBHOOK_URL", value: webhookUrl },
         { name: "WEBHOOK_SECRET", value: config.readAlong.webhookSecret },
       ],

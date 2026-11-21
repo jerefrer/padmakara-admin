@@ -15,7 +15,7 @@
  * timestamps the app's cache compares.
  *
  * Left out, as back office only: `notes` (imported library notes), the AI review
- * flags (`...Reviewed`), `eventCode` and `s3Prefix` (the bucket layout), the library
+ * flags (`...Reviewed`), `eventCode`, `storagePrefix` and `s3Prefix` (the bucket layout), the library
  * import (`wixId`, `librarySnapshot`), the video credits (`creditLines`,
  * `copyrightHolder`, burnt into the videos), the announcement bookkeeping
  * (`publishedNotified...`) and the hero re-edit state (original, crop, grayscale).

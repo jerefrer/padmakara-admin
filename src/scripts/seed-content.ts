@@ -1020,6 +1020,7 @@ async function seedEvent(
     .insert(events)
     .values({
       eventCode: code,
+      storagePrefix: code,
       titleEn,
       titlePt,
       startDate,

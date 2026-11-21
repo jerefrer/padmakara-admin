@@ -22,3 +22,27 @@ export async function hasTranscriptForLanguage(
   });
   return rows.some((t) => t.language === language && t.s3Key != null);
 }
+
+interface TranscriptFileRow {
+  id: number;
+  language: string;
+  s3Key: string | null;
+  isExcerpt: boolean;
+}
+
+/**
+ * The one transcript file a Batch job aligns against: a row with an uploaded file,
+ * in the job's language when there is one (else any language, as the job always took
+ * whatever PDF the folder held), the full text before an excerpt, the oldest first so
+ * the pick does not change between runs. Returns its exact S3 key, or null.
+ */
+export function pickTranscriptKey(
+  rows: TranscriptFileRow[],
+  language: string,
+): string | null {
+  const withFile = rows.filter((t) => t.s3Key != null);
+  const ranked = (list: TranscriptFileRow[]) =>
+    [...list].sort((a, b) => Number(a.isExcerpt) - Number(b.isExcerpt) || a.id - b.id);
+  const sameLanguage = withFile.filter((t) => t.language === language);
+  return ranked(sameLanguage.length > 0 ? sameLanguage : withFile)[0]?.s3Key ?? null;
+}

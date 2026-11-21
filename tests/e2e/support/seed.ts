@@ -342,6 +342,7 @@ async function seedEvents(
       .insert(events)
       .values({
         eventCode: def.eventCode,
+        storagePrefix: def.eventCode,
         titleEn: def.titleEn,
         titlePt: `${def.titleEn} (PT)`,
         startDate: EVENT_START,

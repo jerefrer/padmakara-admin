@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { testJson } from "../../helpers.ts";
 
+// The admin sends the event code; the folder comes from the event row (see lib/storage-prefix.ts).
+const { mockResolvePrefix } = vi.hoisted(() => ({
+  mockResolvePrefix: vi.fn((code: string) => Promise.resolve(code)),
+}));
+vi.mock("../../../src/lib/storage-prefix.ts", () => ({ resolveStoragePrefix: mockResolvePrefix }));
+
 vi.mock("../../../src/services/s3.ts", async (orig) => ({
   ...(await orig<typeof import("../../../src/services/s3.ts")>()),
   generatePresignedUploadUrl: vi.fn(() => Promise.resolve("https://s3/put-url")),
@@ -30,6 +36,23 @@ describe("POST /api/admin/upload/presign-file", () => {
     expect(status).toBe(200);
     expect(body.s3Key).toBe("events/EVT-01/document/notes.pdf");
     expect(body.uploadUrl).toBe("https://s3/put-url");
+  });
+
+  it("builds the key under the event's stored folder, not its current code", async () => {
+    mockResolvePrefix.mockResolvedValueOnce("OLD-FOLDER");
+    const token = await adminToken();
+    const { body } = await testJson("/api/admin/upload/presign-file", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventCode: "NEW-CODE",
+        filename: "notes.pdf",
+        contentType: "application/pdf",
+        fileType: "document",
+      }),
+    });
+    expect(mockResolvePrefix).toHaveBeenCalledWith("NEW-CODE");
+    expect(body.s3Key).toBe("events/OLD-FOLDER/document/notes.pdf");
   });
 
   it("returns 400 on invalid body", async () => {

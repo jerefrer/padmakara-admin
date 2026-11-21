@@ -38,7 +38,9 @@ const {
   const mockFindFirstEventVideo = vi.fn<
     () => Promise<{ id: number; eventId: number; bunnyVideoId: string; position: number } | null>
   >(() => Promise.resolve({ id: 5, eventId: 1, bunnyVideoId: "vid-abc", position: 0 }));
-  const mockFindFirstEvent = vi.fn(() => Promise.resolve({ id: 1, eventCode: "E1" }));
+  const mockFindFirstEvent = vi.fn(() =>
+    Promise.resolve({ id: 1, eventCode: "E1", storagePrefix: "E1" }),
+  );
   const mockFindManySessions = vi.fn(() => Promise.resolve([{ id: 1 }, { id: 2 }]));
   const mockFindManyTracks = vi.fn(() =>
     Promise.resolve([{ trackNumber: 2 }, { trackNumber: 1 }, { trackNumber: 2 }]),
@@ -126,7 +128,7 @@ describe("submitSubtitleJob", () => {
       bunnyVideoId: "vid-abc",
       position: 0,
     });
-    mockFindFirstEvent.mockResolvedValue({ id: 1, eventCode: "E1" });
+    mockFindFirstEvent.mockResolvedValue({ id: 1, eventCode: "E1", storagePrefix: "E1-OLD" });
     mockFindManySessions.mockResolvedValue([{ id: 1 }, { id: 2 }]);
     mockFindManyTracks.mockResolvedValue([{ trackNumber: 2 }, { trackNumber: 1 }, { trackNumber: 2 }]);
     mockFindManyTranscripts.mockResolvedValue([
@@ -159,6 +161,25 @@ describe("submitSubtitleJob", () => {
     expect(env.VIDEO_AUDIO_URL).toBe("https://cdn.example/vid-abc-240p.mp4");
     // Deduped + sorted union of trackNumber across all of the event's tracks.
     expect(env.TRACK_NUMBERS).toBe("1,2");
+  });
+
+  it("passes the stored storage folder and the exact transcript key, not paths rebuilt from the event code", async () => {
+    mockFindManyTranscripts.mockResolvedValue([
+      { eventId: 1, language: "en", s3Key: "events/E1-OLD/transcripts/en.pdf" },
+    ]);
+    const { submitSubtitleJob } = await import("../../src/services/subtitles.ts");
+    await submitSubtitleJob(5, { language: "en" });
+
+    const command = mockSend.mock.calls[0]![0] as {
+      input: { containerOverrides: { environment: Array<{ name: string; value: string }> } };
+    };
+    const env = Object.fromEntries(
+      command.input.containerOverrides.environment.map((e) => [e.name, e.value]),
+    );
+    expect(env.EVENT_CODE).toBe("E1");
+    expect(env.STORAGE_PREFIX).toBe("E1-OLD");
+    expect(env.TRANSCRIPT_PREFIX).toBe("events/E1-OLD/transcripts/");
+    expect(env.TRANSCRIPT_S3_KEY).toBe("events/E1-OLD/transcripts/en.pdf");
   });
 
   it("throws when the event_video does not exist", async () => {

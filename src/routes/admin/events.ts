@@ -471,7 +471,8 @@ eventRoutes.post("/", async (c) => {
   const paidAudience = await enforcePaidAudienceRules(rest.audienceId, sale);
   const [event] = await db
     .insert(events)
-    .values({ ...rest, ...sale, ...(paidAudience ? { includedInMembership: false } : {}) })
+    // The storage folder is fixed here, whatever happens to the code later (see events.storagePrefix).
+    .values({ ...rest, storagePrefix: rest.eventCode, ...sale, ...(paidAudience ? { includedInMembership: false } : {}) })
     .returning();
 
   // Insert junction records

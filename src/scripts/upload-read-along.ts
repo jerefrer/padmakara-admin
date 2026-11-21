@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.ts";
 import { tracks } from "../db/schema/tracks.ts";
 import { generatePresignedUploadUrl } from "../services/s3.ts";
+import { resolveStoragePrefix } from "../lib/storage-prefix.ts";
 
 const eventCode = process.argv[2];
 const alignmentDir = process.argv[3];
@@ -18,6 +19,8 @@ if (!eventCode || !alignmentDir) {
   console.error("Usage: bun run src/scripts/upload-read-along.ts <eventCode> <alignmentDir>");
   process.exit(1);
 }
+
+const storagePrefix = await resolveStoragePrefix(eventCode);
 
 // 1. List all JSON files in the alignment directory (skip summary)
 const files = (await readdir(alignmentDir))
@@ -31,7 +34,7 @@ let skipped = 0;
 
 for (const jsonFile of files) {
   const mp3Name = jsonFile.replace(/\.json$/, ".mp3");
-  const s3Key = `events/${eventCode}/read-along/${jsonFile}`;
+  const s3Key = `events/${storagePrefix}/read-along/${jsonFile}`;
 
   // Find track by originalFilename
   const track = await db.query.tracks.findFirst({

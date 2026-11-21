@@ -70,7 +70,7 @@ eventImageRoutes.post("/:id/avatar", async (c) => {
 
   const existing = await loadEvent(id);
   const resized = await processAvatar(Buffer.from(await file.arrayBuffer()));
-  const s3Key = buildEventAvatarS3Key(existing.eventCode, "webp");
+  const s3Key = buildEventAvatarS3Key(existing.storagePrefix, "webp");
   await putObject(s3Key, resized, "image/webp");
   if (existing.avatarS3Key && existing.avatarS3Key !== s3Key) {
     await deleteObject(existing.avatarS3Key).catch(() => {});
@@ -115,9 +115,9 @@ eventImageRoutes.post("/:id/hero", async (c) => {
     processAvatarFromHero(buffer, { x: focalX, y: focalY }),
   ]);
 
-  const desktopKey = buildEventHeroS3Key(existing.eventCode, "webp");
-  const mobileKey = buildEventHeroMobileS3Key(existing.eventCode, "webp");
-  const avatarKey = buildEventAvatarS3Key(existing.eventCode, "webp");
+  const desktopKey = buildEventHeroS3Key(existing.storagePrefix, "webp");
+  const mobileKey = buildEventHeroMobileS3Key(existing.storagePrefix, "webp");
+  const avatarKey = buildEventAvatarS3Key(existing.storagePrefix, "webp");
   await Promise.all([
     putObject(desktopKey, desktopBuf, "image/webp"),
     putObject(mobileKey, mobileBuf, "image/webp"),
@@ -132,7 +132,7 @@ eventImageRoutes.post("/:id/hero", async (c) => {
     if (old && old !== next) await deleteObject(old).catch(() => {});
   }
   const originalColumns = await saveHeroOriginal(form, crop, existing.heroOriginalS3Key, (ext) =>
-    buildEventHeroOriginalS3Key(existing.eventCode, ext),
+    buildEventHeroOriginalS3Key(existing.storagePrefix, ext),
   );
 
   const now = new Date();

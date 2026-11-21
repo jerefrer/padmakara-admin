@@ -13,7 +13,7 @@ vi.mock("../../src/db/index.ts", () => ({
   },
 }));
 
-import { hasTranscriptForLanguage } from "../../src/services/transcripts.ts";
+import { hasTranscriptForLanguage, pickTranscriptKey } from "../../src/services/transcripts.ts";
 
 describe("hasTranscriptForLanguage", () => {
   beforeEach(() => {
@@ -51,5 +51,36 @@ describe("hasTranscriptForLanguage", () => {
       { eventId: 1, language: "en", s3Key: "events/E1/transcripts/en.pdf" },
     ]);
     await expect(hasTranscriptForLanguage(1, "en")).resolves.toBe(true);
+  });
+});
+
+describe("pickTranscriptKey", () => {
+  const row = (id: number, language: string, s3Key: string | null, isExcerpt = false) => ({
+    id, language, s3Key, isExcerpt,
+  });
+
+  it("should return the key of the transcript in the job's language", () => {
+    const rows = [row(1, "pt", "events/F/transcripts/pt.pdf"), row(2, "en", "events/F/transcripts/en.pdf")];
+    expect(pickTranscriptKey(rows, "en")).toBe("events/F/transcripts/en.pdf");
+  });
+
+  it("should fall back to any transcript with a file when none is in the language", () => {
+    expect(pickTranscriptKey([row(1, "pt", "events/F/transcripts/pt.pdf")], "en")).toBe(
+      "events/F/transcripts/pt.pdf",
+    );
+  });
+
+  it("should prefer the full text over an excerpt, then the oldest row", () => {
+    const rows = [
+      row(1, "en", "events/F/transcripts/excerpt.pdf", true),
+      row(3, "en", "events/F/transcripts/b.pdf"),
+      row(2, "en", "events/F/transcripts/a.pdf"),
+    ];
+    expect(pickTranscriptKey(rows, "en")).toBe("events/F/transcripts/a.pdf");
+  });
+
+  it("should return null when no row has a file", () => {
+    expect(pickTranscriptKey([row(1, "en", null)], "en")).toBeNull();
+    expect(pickTranscriptKey([], "en")).toBeNull();
   });
 });

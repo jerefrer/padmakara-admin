@@ -6,6 +6,7 @@ import { events } from "../db/schema/retreats.ts";
 import { sessions } from "../db/schema/sessions.ts";
 import { tracks } from "../db/schema/tracks.ts";
 import { transcripts } from "../db/schema/transcripts.ts";
+import { pickTranscriptKey } from "./transcripts.ts";
 import { config } from "../config.ts";
 import { AppError } from "../lib/errors.ts";
 import { putObject, storageEnvForContainer } from "./s3.ts";
@@ -46,11 +47,15 @@ export async function submitReadAlongJob(
 
   // Check for transcript to determine language. Any row counts, published or
   // not: an unpublished draft is still the text the audio is aligned against.
-  const transcript = await db.query.transcripts.findFirst({
+  const transcriptRows = await db.query.transcripts.findMany({
     where: eq(transcripts.eventId, eventId),
+    orderBy: [transcripts.id],
   });
 
-  const language = options.language ?? transcript?.language ?? "en";
+  const language = options.language ?? transcriptRows[0]?.language ?? "en";
+  // The exact file, from the database: the container must not rebuild its path from
+  // the event code, which is editable (see events.storage_prefix).
+  const transcriptS3Key = pickTranscriptKey(transcriptRows, language);
   const skipPages = options.skipPages ?? 7;
   const whisperModel = options.whisperModel ?? "turbo";
 
@@ -120,6 +125,7 @@ export async function submitReadAlongJob(
       environment: [
         ...storageEnvForContainer(),
         { name: "EVENT_CODE", value: event.eventCode },
+        { name: "STORAGE_PREFIX", value: event.storagePrefix },
         { name: "EVENT_ID", value: String(eventId) },
         { name: "JOB_ID", value: job!.id },
         { name: "S3_BUCKET", value: config.storage.bucket },
@@ -127,6 +133,7 @@ export async function submitReadAlongJob(
         { name: "SKIP_PAGES", value: String(skipPages) },
         { name: "WHISPER_MODEL", value: whisperModel },
         { name: "AUDIO_KEYS_S3_KEY", value: audioKeysS3Key },
+        ...(transcriptS3Key ? [{ name: "TRANSCRIPT_S3_KEY", value: transcriptS3Key }] : []),
         { name: "WEBHOOK_URL", value: webhookUrl },
         { name: "WEBHOOK_SECRET", value: config.readAlong.webhookSecret },
       ],
