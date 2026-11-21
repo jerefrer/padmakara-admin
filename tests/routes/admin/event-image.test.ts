@@ -61,11 +61,17 @@ async function post(path: string, body: FormData, headers: Record<string, string
 describe("event photo admin routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDb.query.events.findFirst.mockResolvedValue({ id: 5, eventCode: CODE });
+    mockDb.query.events.findFirst.mockResolvedValue({ id: 5, eventCode: CODE, storagePrefix: CODE });
     mockReturning.mockResolvedValue([{ id: 5, eventCode: CODE, heroS3Key: `events/${CODE}/images/hero-new.webp` }]);
   });
 
   describe("POST /api/admin/events/:id/hero", () => {
+    it("should store new photos under the fixed storage folder when the event code has changed", async () => {
+      mockDb.query.events.findFirst.mockResolvedValue({ id: 5, eventCode: "NEW-CODE", storagePrefix: "OLD-FOLDER" });
+      await post("/api/admin/events/5/hero", form(), await adminHeaders());
+      expect(putObject).toHaveBeenCalledWith("events/OLD-FOLDER/images/hero-new.webp", expect.any(Buffer), "image/webp");
+    });
+
     it("should write the desktop, mobile and derived avatar variants under the event prefix", async () => {
       const { status, body } = await post("/api/admin/events/5/hero", form({ focalX: "30", focalY: "40" }), await adminHeaders());
       expect(status).toBe(200);
@@ -85,7 +91,7 @@ describe("event photo admin routes", () => {
 
     it("should delete the previous variants when they sit at other keys", async () => {
       mockDb.query.events.findFirst.mockResolvedValue({
-        id: 5, eventCode: CODE, heroS3Key: "old-h", heroMobileS3Key: "old-m", avatarS3Key: "old-a",
+        id: 5, eventCode: CODE, storagePrefix: CODE, heroS3Key: "old-h", heroMobileS3Key: "old-m", avatarS3Key: "old-a",
       });
       await post("/api/admin/events/5/hero", form(), await adminHeaders());
       expect(deleteObject).toHaveBeenCalledWith("old-h");
@@ -113,7 +119,7 @@ describe("event photo admin routes", () => {
     });
 
     it("should clear the frame overrides when the upload sends none", async () => {
-      mockDb.query.events.findFirst.mockResolvedValue({ id: 5, eventCode: CODE, heroFrameOverrides: OVERRIDES });
+      mockDb.query.events.findFirst.mockResolvedValue({ id: 5, eventCode: CODE, storagePrefix: CODE, heroFrameOverrides: OVERRIDES });
       await post("/api/admin/events/5/hero", form(), await adminHeaders());
       expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ heroFrameOverrides: null }));
     });
@@ -149,7 +155,7 @@ describe("event photo admin routes", () => {
 
   describe("POST /api/admin/events/:id/avatar", () => {
     it("should resize, store under the event prefix and replace the previous avatar", async () => {
-      mockDb.query.events.findFirst.mockResolvedValue({ id: 5, eventCode: CODE, avatarS3Key: "old-a" });
+      mockDb.query.events.findFirst.mockResolvedValue({ id: 5, eventCode: CODE, storagePrefix: CODE, avatarS3Key: "old-a" });
       mockReturning.mockResolvedValue([{ id: 5, avatarS3Key: `events/${CODE}/images/avatar-new.webp` }]);
       const { status, body } = await post("/api/admin/events/5/avatar", form(), await adminHeaders());
       expect(status).toBe(200);
@@ -169,7 +175,7 @@ describe("event photo admin routes", () => {
 
     it("should delete every stored object and null the photo columns", async () => {
       mockDb.query.events.findFirst.mockResolvedValue({
-        id: 5, eventCode: CODE, avatarS3Key: "a", heroS3Key: "h", heroMobileS3Key: "m", heroOriginalS3Key: "o",
+        id: 5, eventCode: CODE, storagePrefix: CODE, avatarS3Key: "a", heroS3Key: "h", heroMobileS3Key: "m", heroOriginalS3Key: "o",
       });
       mockReturning.mockResolvedValue([{ id: 5 }]);
       expect(await del()).toBe(200);

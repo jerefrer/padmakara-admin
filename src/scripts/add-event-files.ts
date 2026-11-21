@@ -90,7 +90,7 @@ function getFileTypeCategory(extension: string): string {
 
 function extractEventFiles(
   inventoryEvent: InventoryEvent,
-  eventCode: string,
+  storagePrefix: string,
 ): ExtractedEventFile[] {
   const result: ExtractedEventFile[] = [];
 
@@ -129,7 +129,7 @@ function extractEventFiles(
 
         result.push({
           basename: entryBasename,
-          s3Key: `events/${eventCode}/${entryFileType}/${entryBasename}`,
+          s3Key: `events/${storagePrefix}/${entryFileType}/${entryBasename}`,
           size: entry.uncompressedSize,
           fileType: entryFileType,
           extension: `.${entryExt}`,
@@ -140,7 +140,7 @@ function extractEventFiles(
       // Loose file
       result.push({
         basename,
-        s3Key: `events/${eventCode}/${fileType}/${basename}`,
+        s3Key: `events/${storagePrefix}/${fileType}/${basename}`,
         size: file.size,
         fileType,
         extension: ext,
@@ -187,7 +187,7 @@ for (const invEvent of inventory) {
   console.log(`  Found in database: ${event.titleEn || event.titlePt || code}`);
 
   // Extract event files from inventory
-  const otherFiles = extractEventFiles(invEvent, code);
+  const otherFiles = extractEventFiles(invEvent, event.storagePrefix);
 
   console.log(`  Found ${otherFiles.length} event files in inventory`);
 

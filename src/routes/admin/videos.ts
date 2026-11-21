@@ -40,7 +40,7 @@ import {
   getSubtitleJobsForVideo,
   getVideoSubtitles,
 } from "../../services/subtitles.ts";
-import { getObjectText, putObject } from "../../services/s3.ts";
+import { buildSubtitleS3Key, getObjectText, putObject } from "../../services/s3.ts";
 import { translateSubtitles } from "../../services/subtitle-translate.ts";
 import { isAllowedModel, DEFAULT_TRANSLATE_MODEL } from "../../services/translation-models.ts";
 import { addCaption } from "../../services/bunny-captions.ts";
@@ -759,7 +759,7 @@ videoRoutes.put("/:videoId/subtitles/:lang", async (c) => {
   const event = await db.query.events.findFirst({ where: eq(events.id, video.eventId) });
   if (!event) return c.json({ error: "Event not found" }, 404);
 
-  const s3Key = `events/${event.eventCode}/subtitles/v${videoId}/${lang}.vtt`;
+  const s3Key = buildSubtitleS3Key(event.storagePrefix, videoId, lang);
   await putObject(s3Key, Buffer.from(vtt), "text/vtt");
 
   const existing = await db.query.videoSubtitles.findFirst({

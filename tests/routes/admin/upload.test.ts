@@ -2,8 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { testJson } from "../../helpers.ts";
 
 // Mock S3 so the admin endpoints don't actually call AWS.
+// The admin sends the event code; the folder comes from the event row (see lib/storage-prefix.ts).
+const { mockResolvePrefix } = vi.hoisted(() => ({
+  mockResolvePrefix: vi.fn((code: string) => Promise.resolve(code)),
+}));
+vi.mock("../../../src/lib/storage-prefix.ts", () => ({ resolveStoragePrefix: mockResolvePrefix }));
+
 vi.mock("../../../src/services/s3.ts", () => ({
   generatePresignedUploadUrl: vi.fn(),
+  buildVideoMasterS3Key: (p: string, f: string) => `events/${p}/masters/${Date.now()}-${f}`,
   buildTrackS3Key: vi.fn((eventCode: string, _sessionNumber: number, filename: string) =>
     `events/${eventCode}/${filename}`,
   ),

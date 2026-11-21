@@ -182,7 +182,7 @@ export async function abortMultipartUpload(key: string, uploadId: string): Promi
  *   groups/avatars/
  *   groups/heroes/
  *
- *   events/{eventCode}/images/  (event photos)
+ *   events/{storagePrefix}/images/  (event photos)
  *
  * Everything else (events/…, downloads/…, or unrecognised) → not cached.
  */
@@ -193,7 +193,7 @@ const CACHEABLE_PREFIXES = [
   "groups/heroes/",
 ] as const;
 
-/** Event photos: events/{eventCode}/images/… (the rest of events/… stays uncached). */
+/** Event photos: events/{storagePrefix}/images/… (the rest of events/… stays uncached). */
 const EVENT_IMAGE_KEY = /^events\/[^/]+\/images\//;
 
 export function isCacheableKey(key: string): boolean {
@@ -408,47 +408,67 @@ export async function putObject(
 
 /**
  * Build a consistent S3 key for event audio files.
- * Format: events/{event_code}/{filename}
+ * Format: events/{storagePrefix}/{filename}
  */
 export function buildTrackS3Key(
-  eventCode: string,
+  storagePrefix: string,
   _sessionNumber: number,
   filename: string,
 ): string {
-  return `events/${eventCode}/${filename}`;
+  return `events/${storagePrefix}/${filename}`;
 }
 
 /**
  * Build S3 key for Read Along alignment JSON files.
- * Format: events/{event_code}/read-along/{filename}.json
+ * Format: events/{storagePrefix}/read-along/{filename}.json
  */
 export function buildReadAlongS3Key(
-  eventCode: string,
+  storagePrefix: string,
   filename: string,
 ): string {
-  return `events/${eventCode}/read-along/${filename}`;
+  return `events/${storagePrefix}/read-along/${filename}`;
 }
 
 /**
  * Build a consistent S3 key for transcript files.
  */
 export function buildTranscriptS3Key(
-  eventCode: string,
+  storagePrefix: string,
   filename: string,
 ): string {
-  return `events/${eventCode}/transcripts/${filename}`;
+  return `events/${storagePrefix}/transcripts/${filename}`;
 }
 
 /**
  * Build a consistent S3 key for generic event document files.
- * Format: events/{event_code}/{file_type}/{filename}
+ * Format: events/{storagePrefix}/{file_type}/{filename}
  */
 export function buildEventFileS3Key(
-  eventCode: string,
+  storagePrefix: string,
   fileType: string,
   filename: string,
 ): string {
-  return `events/${eventCode}/${fileType}/${filename}`;
+  return `events/${storagePrefix}/${fileType}/${filename}`;
+}
+
+/**
+ * Build the S3 key of a video's subtitle track.
+ * Format: events/{storagePrefix}/subtitles/v{videoId}/{language}.vtt
+ */
+export function buildSubtitleS3Key(
+  storagePrefix: string,
+  videoId: number,
+  language: string,
+): string {
+  return `events/${storagePrefix}/subtitles/v${videoId}/${language}.vtt`;
+}
+
+/**
+ * Build the S3 key of a video master recording (pre-burn source file).
+ * Format: events/{storagePrefix}/masters/{timestamp}-{filename}
+ */
+export function buildVideoMasterS3Key(storagePrefix: string, filename: string): string {
+  return `events/${storagePrefix}/masters/${Date.now()}-${filename}`;
 }
 
 /**
@@ -606,32 +626,32 @@ export function buildGroupHeroOriginalS3Key(groupId: number, ext: string): strin
 
 /**
  * Build S3 key for an event photo avatar (square thumbnail).
- * Format: events/{eventCode}/images/avatar-{timestamp}.{ext}
+ * Format: events/{storagePrefix}/images/avatar-{timestamp}.{ext}
  */
-export function buildEventAvatarS3Key(eventCode: string, ext: string): string {
-  return `events/${eventCode}/images/avatar-${Date.now()}.${ext}`;
+export function buildEventAvatarS3Key(storagePrefix: string, ext: string): string {
+  return `events/${storagePrefix}/images/avatar-${Date.now()}.${ext}`;
 }
 
 /**
  * Build S3 key for the event photo hero (desktop, 2400px wide).
- * Format: events/{eventCode}/images/hero-{timestamp}.{ext}
+ * Format: events/{storagePrefix}/images/hero-{timestamp}.{ext}
  */
-export function buildEventHeroS3Key(eventCode: string, ext: string): string {
-  return `events/${eventCode}/images/hero-${Date.now()}.${ext}`;
+export function buildEventHeroS3Key(storagePrefix: string, ext: string): string {
+  return `events/${storagePrefix}/images/hero-${Date.now()}.${ext}`;
 }
 
 /**
  * Build S3 key for the mobile-sized event photo variant (1200px wide).
- * Format: events/{eventCode}/images/hero-{timestamp}-m.{ext}
+ * Format: events/{storagePrefix}/images/hero-{timestamp}-m.{ext}
  */
-export function buildEventHeroMobileS3Key(eventCode: string, ext: string): string {
-  return `events/${eventCode}/images/hero-${Date.now()}-m.${ext}`;
+export function buildEventHeroMobileS3Key(storagePrefix: string, ext: string): string {
+  return `events/${storagePrefix}/images/hero-${Date.now()}-m.${ext}`;
 }
 
 /**
  * Build S3 key for the original of an event photo, kept as uploaded so it can be re-cropped.
- * Format: events/{eventCode}/images/originals/{timestamp}.{ext}
+ * Format: events/{storagePrefix}/images/originals/{timestamp}.{ext}
  */
-export function buildEventHeroOriginalS3Key(eventCode: string, ext: string): string {
-  return `events/${eventCode}/images/originals/${Date.now()}.${ext}`;
+export function buildEventHeroOriginalS3Key(storagePrefix: string, ext: string): string {
+  return `events/${storagePrefix}/images/originals/${Date.now()}.${ext}`;
 }

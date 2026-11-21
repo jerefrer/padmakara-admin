@@ -430,7 +430,7 @@ import { eventVideos } from "../db/schema/event-videos.js";
 import { events } from "../db/schema/retreats.js";
 import { videoSubtitles } from "../db/schema/video-subtitles.js";
 import { subtitleJobs } from "../db/schema/subtitle-jobs.js";
-import { getObjectText, putObject } from "./s3.js";
+import { buildSubtitleS3Key, getObjectText, putObject } from "./s3.js";
 import { addCaption } from "./bunny-captions.js";
 import { isAllowedModel } from "./translation-models.js";
 
@@ -485,7 +485,7 @@ export async function translateSubtitles(
     const event = await db.query.events.findFirst({ where: eq(events.id, video.eventId) });
     if (!event) throw new Error("Event not found");
 
-    const s3Key = `events/${event.eventCode}/subtitles/v${videoId}/${targetLang}.vtt`;
+    const s3Key = buildSubtitleS3Key(event.storagePrefix, videoId, targetLang);
     await putObject(s3Key, Buffer.from(vtt), "text/vtt");
 
     await db

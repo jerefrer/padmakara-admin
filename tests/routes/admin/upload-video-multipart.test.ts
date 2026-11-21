@@ -2,8 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { testJson } from "../../helpers.ts";
 import { planParts, contiguousParts, isVideoMasterKey, MAX_PARTS, MIB } from "../../../src/lib/video-multipart.ts";
 
+// The admin sends the event code; the folder comes from the event row (see lib/storage-prefix.ts).
+const { mockResolvePrefix } = vi.hoisted(() => ({
+  mockResolvePrefix: vi.fn((code: string) => Promise.resolve(code)),
+}));
+vi.mock("../../../src/lib/storage-prefix.ts", () => ({ resolveStoragePrefix: mockResolvePrefix }));
+
 vi.mock("../../../src/services/s3.ts", () => ({
   generatePresignedUploadUrl: vi.fn(),
+  buildVideoMasterS3Key: (p: string, f: string) => `events/${p}/masters/${Date.now()}-${f}`,
   buildTrackS3Key: vi.fn(),
   buildTranscriptS3Key: vi.fn(),
   buildEventFileS3Key: vi.fn(),

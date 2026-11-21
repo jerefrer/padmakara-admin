@@ -5,6 +5,7 @@ import {
   buildTrackS3Key,
   buildTranscriptS3Key,
   buildEventFileS3Key,
+  buildVideoMasterS3Key,
   createMultipartUpload,
   generatePresignedPartUrl,
   listUploadedParts,
@@ -39,6 +40,7 @@ import {
 } from "../../services/bunny.ts";
 import { AppError } from "../../lib/errors.ts";
 import { aiAssistEvent } from "../../services/ai-assist.ts";
+import { resolveStoragePrefix } from "../../lib/storage-prefix.ts";
 
 const uploadRoutes = new Hono();
 
@@ -49,9 +51,10 @@ uploadRoutes.post("/presign", async (c) => {
   const body = await c.req.json();
   const data = presignUploadSchema.parse(body);
 
+  const storagePrefix = await resolveStoragePrefix(data.eventCode);
   const urls = await Promise.all(
     data.files.map(async (file) => {
-      const s3Key = buildTrackS3Key(data.eventCode, data.sessionNumber, file.filename);
+      const s3Key = buildTrackS3Key(storagePrefix, data.sessionNumber, file.filename);
       const uploadUrl = await generatePresignedUploadUrl(s3Key, file.contentType);
       return {
         filename: file.filename,
@@ -76,7 +79,7 @@ uploadRoutes.post("/presign-transcript", async (c) => {
   }
 
   const { eventCode, filename, contentType } = parsed.data;
-  const s3Key = buildTranscriptS3Key(eventCode, filename);
+  const s3Key = buildTranscriptS3Key(await resolveStoragePrefix(eventCode), filename);
   const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
 
   return c.json({ s3Key, uploadUrl });
@@ -91,7 +94,7 @@ uploadRoutes.post("/presign-file", async (c) => {
     throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
   }
   const { eventCode, filename, contentType, fileType } = parsed.data;
-  const s3Key = buildEventFileS3Key(eventCode, fileType, filename);
+  const s3Key = buildEventFileS3Key(await resolveStoragePrefix(eventCode), fileType, filename);
   const uploadUrl = await generatePresignedUploadUrl(s3Key, contentType);
   return c.json({ s3Key, uploadUrl });
 });
@@ -111,7 +114,7 @@ uploadRoutes.post("/video/presign", async (c) => {
     throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
   }
   const { eventCode, filename, contentType } = parsed.data;
-  const s3Key = `events/${eventCode}/masters/${Date.now()}-${filename}`;
+  const s3Key = buildVideoMasterS3Key(await resolveStoragePrefix(eventCode), filename);
   // 12h TTL — masters are multi-GB, so the browser PUT can run for hours on
   // a slow connection. Mirrors the reasoning behind bunny/create's 48h TTL
   // below: the signature must outlive the whole upload, not just the start
@@ -131,7 +134,7 @@ uploadRoutes.post("/video/multipart/create", async (c) => {
     throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
   }
   const { eventCode, filename, contentType, size } = parsed.data;
-  const s3Key = `events/${eventCode}/masters/${Date.now()}-${filename}`;
+  const s3Key = buildVideoMasterS3Key(await resolveStoragePrefix(eventCode), filename);
   const { partSize, partCount } = planParts(size);
   const uploadId = await createMultipartUpload(s3Key, contentType);
   return c.json({ uploadId, s3Key, partSize, partCount });
@@ -148,7 +151,7 @@ uploadRoutes.post("/audio/multipart/create", async (c) => {
     throw AppError.badRequest("Invalid request body", "VALIDATION_ERROR");
   }
   const { eventCode, filename, contentType, size } = parsed.data;
-  const s3Key = buildTrackS3Key(eventCode, 0, filename);
+  const s3Key = buildTrackS3Key(await resolveStoragePrefix(eventCode), 0, filename);
   const { partSize, partCount } = planParts(size, AUDIO_PART_SIZE);
   const uploadId = await createMultipartUpload(s3Key, contentType);
   return c.json({ uploadId, s3Key, partSize, partCount });

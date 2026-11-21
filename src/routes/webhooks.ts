@@ -12,7 +12,7 @@ import { config } from "../config.ts";
 import { getVideoMeta } from "../services/bunny.ts";
 import { addCaption } from "../services/bunny-captions.ts";
 import { mergeIntroSubtitleCues } from "../lib/slides/intro-subtitles.ts";
-import { getObjectText, putObject } from "../services/s3.ts";
+import { buildSubtitleS3Key, getObjectText, putObject } from "../services/s3.ts";
 import { bumpVersion } from "../services/sync-versions.ts";
 import { computeIntroDelta, applyIntroDeltaInTransaction } from "../services/video-burn.ts";
 
@@ -280,7 +280,7 @@ webhookRoutes.post("/subtitles", async (c) => {
     // Re-home the container's scratch VTT to the canonical, backend-owned
     // per-video S3 key.
     const vtt = await getObjectText(s3Key);
-    const canonicalKey = `events/${event.eventCode}/subtitles/v${video.id}/${language}.vtt`;
+    const canonicalKey = buildSubtitleS3Key(event.storagePrefix, video.id, language);
     await putObject(canonicalKey, Buffer.from(vtt), "text/vtt");
 
     // Upsert the video subtitle row (unique on videoId + language)
